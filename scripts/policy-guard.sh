@@ -130,12 +130,16 @@
 #               rewritten commit. A rebase with -x/--exec denies: its
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
-#   push       a force or bulk push denies; every other push reads the
-#               protected set and denies a target inside it.
+#   push       a force or bulk push denies; so does every push to a spec PR
+#               branch outside the floor (planwright/<spec>/amendment-*,
+#               planwright/<spec>/spec-rework*), which only the kickoff push
+#               helper publishes; every other push reads the protected set and
+#               denies a target inside it.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
-#               commit, or rename write to a named branch reads only the
+#               commit, or rename write to a named branch denies a spec PR
+#               branch as a push does, then reads only the
 #               protected set (a rename checks both names; a contents write
 #               naming no branch denies, since it writes the default branch);
 #               a request the guard cannot read (a field from a file or stdin,
@@ -1193,6 +1197,34 @@ check_unprotected() {
       emit_deny "the protected set could not be read (exit $rc), so $what is refused (fail closed). Repair protected_branches, then retry."
       ;;
   esac
+}
+
+# spec_pr_branch_hit <branch...> — 0, with SPB_HIT set to the first, when a
+# branch is a spec PR branch outside the protected floor: an amendment
+# (planwright/<spec>/amendment-*) or rework (planwright/<spec>/spec-rework*)
+# branch, `refs/heads/` stripped and case folded as the protected set is. The
+# floor leaves them off because the kickoff push helper publishes them, and
+# its own push runs below this hook; no other agent write reaches one.
+SPB_HIT=''
+spec_pr_branch_hit() {
+  local b n
+  SPB_HIT=''
+  for b in "$@"; do
+    n=$(lower "$b")
+    n=${n#refs/heads/}
+    case $n in
+      planwright/*/*/*) ;;
+      planwright/?*/amendment-* | planwright/?*/spec-rework | planwright/?*/spec-rework-*)
+        SPB_HIT=$b
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+spec_pr_branch_text() { # <what>
+  printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (an amendment or spec-rework branch), which only its kickoff session publishes, through $KICK_FORM run as its own command; no other agent session writes one at any tier - refusing. Work on your own unit branch."
 }
 
 # --------------------------------------------------------------------------
@@ -3484,7 +3516,7 @@ classify_gh_api() {
           ;;
       esac
       # shellcheck disable=SC2086 # the target list, split on purpose (noglob is on)
-      queue_protected "$eff" "$eff_ok" "this gh api commit or ref write" $targets
+      queue_host_write "$eff" "$eff_ok" "this gh api commit or ref write" $targets
       return 0
       ;;
   esac
@@ -3559,7 +3591,7 @@ classify_gh_api() {
         return 0
         ;;
       heads/*)
-        queue_protected "$eff" "$eff_ok" "this gh api ref write" "${orig_rest#heads/}"
+        queue_host_write "$eff" "$eff_ok" "this gh api ref write" "${orig_rest#heads/}"
         ;;
     esac
     return 0
@@ -3594,7 +3626,7 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api branch rename" "$renamed" "$new_name"
+    queue_host_write "$eff" "$eff_ok" "this gh api branch rename" "$renamed" "$new_name"
     return 0
   fi
   if [ "${4:-}" = contents ] && [ "$seg_count" -ge 5 ]; then
@@ -3623,9 +3655,19 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
+    queue_host_write "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
   fi
   return 0
+}
+
+# queue_host_write <eff> <eff_ok> <what> <branch...> — a host ref write:
+# queue_protected, after refusing a spec PR branch target outright.
+queue_host_write() {
+  if spec_pr_branch_hit "${@:4}"; then
+    deny_now "$(spec_pr_branch_text "$3")"
+    return 0
+  fi
+  queue_protected "$@"
 }
 
 # queue_protected <eff> <eff_ok> <what> <branch...>
@@ -5388,6 +5430,8 @@ eval_push() {
       targets[${#targets[@]}]=$dst
     done
   fi
+  [ "${#targets[@]}" = 0 ] || ! spec_pr_branch_hit "${targets[@]}" \
+    || emit_deny "$(spec_pr_branch_text 'this git push')"
   [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
 }
 
