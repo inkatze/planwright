@@ -232,7 +232,7 @@ attendance (interactive asks, headless parks), never a loop trigger.
 
 A gate failure on a pushed commit failing the commit-range lint names its
 repair in its entry and handoff, adding no commit: a reword through
-`scripts/worker-branch-sync.sh push` while the PR is a draft its launch
+`scripts/worker-branch-sync.sh`'s `push` while the PR is a draft its launch
 record allows, else the tower's `scripts/tower-force-push.sh`
 ([Human Gates](human-gates.md)), naming each legacy checklist id it changed.
 

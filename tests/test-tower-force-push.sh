@@ -562,7 +562,7 @@ flat() {
     | tr '\n\t' '  ' | tr -s ' ' | tr '[:upper:]' '[:lower:]'
 }
 # shellcheck disable=SC2016 # the backticks are markdown, matched literally
-REWORD='names its repair in its entry and handoff, adding no commit: a reword through `scripts/worker-branch-sync.sh push` while the pr is a draft its launch record allows, else the tower'"'"'s `scripts/tower-force-push.sh` ([human gates](human-gates.md))'
+REWORD='names its repair in its entry and handoff, adding no commit: a reword through `scripts/worker-branch-sync.sh`'"'"'s `push` while the pr is a draft its launch record allows, else the tower'"'"'s `scripts/tower-force-push.sh` ([human gates](human-gates.md))'
 LEGACY='naming each legacy checklist id it changed.'
 # /execute-task halts a logic CI failure through gate-wiring's pause protocol,
 # which it loads at that point, so the rule lives there.
@@ -580,7 +580,7 @@ else
   fail "gate-wiring's pause protocol does not name the path that applies and the re-identified legacy ids"
 fi
 gwfx=$(mktemp -d "${TMPDIR:-/tmp}/gate-wiring.XXXXXX") || exit 1
-sed 's|`scripts/worker-branch-sync.sh push` while the PR is a draft its launch|the draft-branch path while the PR is a draft its launch|' "$here/../doctrine/gate-wiring.md" >"$gwfx/gate-wiring.md"
+sed 's|`scripts/worker-branch-sync.sh`'"'"'s `push` while the PR is a draft its launch|the draft-branch path while the PR is a draft its launch|' "$here/../doctrine/gate-wiring.md" >"$gwfx/gate-wiring.md"
 if gw_names "$gwfx/gate-wiring.md"; then
   fail "the handoff check passed a fixture copy without the draft-branch path"
 else

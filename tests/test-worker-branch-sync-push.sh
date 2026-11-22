@@ -54,7 +54,7 @@ run "$wt" push "$(push_args "$LEASE")" --force-if-includes
 has "^pushed	$B	$LEASE	$NEW" "the push names the branch, the lease and the new head"
 has "^replaced	$LEASE	work $n" "the push names the commit it replaced"
 grep -q -- '--repo github.com/acme/demo' "$GHLOG" || fail "the PR read did not pass the push remote's repository: $(cat "$GHLOG")"
-audit="$PLANWRIGHT_FLEET_STATE_DIR/allow-audit/$(basename "$(rec_path "$wt")" .record).log"
+audit="$tmp/fleet/allow-audit/$(basename "$(rec_path "$wt")" .record).log"
 grep -q "	draft-rewrite-push	$B	$LEASE	$NEW\$" "$audit" 2>/dev/null || fail "no audit line for the push in $audit"
 pass "F1.8: a draft branch's rewrite is pushed on the lease, naming what it replaced, with an audit line"
 

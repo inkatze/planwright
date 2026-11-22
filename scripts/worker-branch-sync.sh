@@ -3,7 +3,7 @@
 # that the worker profile's deny floor keeps from raw git.
 #
 # Usage (from the worker's own worktree, by the installed script's path):
-#   worker-branch-sync.sh push --force-with-lease=<branch>:<sha> --force-if-includes
+#   worker-branch-sync.sh push --force-with-lease=<branch:sha> --force-if-includes
 #   worker-branch-sync.sh reset <origin/branch>
 #   worker-branch-sync.sh ff <sha>
 #
