@@ -123,6 +123,7 @@ seen="$fleet/mission-control/alpha/keeper-parks"
 sent="$fleet/mission-control/alpha/escalate/sent"
 
 rlo=$(printf '\342\200\256')
+tag=$(printf '\363\240\201\201')
 worker mc-alpha-worker-parked alpha operator "$T0" "Two decisions are yours before I go on:
 1. Keep the old flag, or drop it? $(printf '%0200d' 0)
 2. Ship the shim now?
@@ -134,7 +135,7 @@ worker mc-alpha-worker-steered alpha operator "$T0" "Which branch should I base 
 steer mc-alpha-worker-steered
 worker mc-alpha-worker-onci alpha ci "$T0" "Waiting on CI."
 worker mc-alpha-worker-onflip alpha ready-flip "$T0" "Waiting on the ready flip."
-worker mc-alpha-worker-young alpha operator $((T0 + 200)) "Which of the two${rlo}readings?"
+worker mc-alpha-worker-young alpha operator $((T0 + 200)) "Which of the two${rlo}readings?${tag}"
 worker mc-alpha-worker-kickoff alpha operator "$T0" "Does section two read right?" kickoff-demo
 worker mc-alpha-tower-parked alpha operator "$T0" "A tower talks to the operator itself." s tower
 worker mc-beta-worker-parked beta operator "$T0" "Beta needs a call."
@@ -143,6 +144,8 @@ rm -f "$fleet/streamjson/mc-alpha-worker-gone/supervisor.pid" "$fleet/streamjson
 worker mc-alpha-worker-late alpha operator $((T0 - 5)) "Done, then parked later."
 printf 'waited\t%s\n' $((T0 + 200)) >>"$reg/mc-alpha-worker-late"
 worker mc-alpha-worker-stale alpha operator $((LAUNCHED - 100)) "A turn of an earlier launch."
+worker mc-alpha-worker-exited alpha operator "$T0" "The run ended."
+printf 'exit\t1\t%s\tfalse\n' "$T0" >"$fleet/streamjson/mc-alpha-worker-exited/result"
 
 # ---------------------------------------------------------------------------
 # The owner hears a park past the alarm, once, naming the worker and ending
@@ -182,6 +185,7 @@ expect_no_out "another program's worker is its own program's" "mc-beta-worker-pa
 expect_no_out "a worker with no pidfile left is not raised" "mc-alpha-worker-gone"
 expect_no_out "a wait set after the turn ended counts from the wait" "mc-alpha-worker-late"
 expect_no_out "a result from before this launch is no park" "mc-alpha-worker-stale"
+expect_no_out "nor a run that ended" "mc-alpha-worker-exited"
 if awk -F '\t' '$1 == "worker-parked-on-operator" && $2 == "decision" { f = 1 } END { exit !f }' "$repo_root/config/mc-event-classes.tsv"; then
   ok "the park event is a decision the operator owes"
 else
@@ -211,8 +215,8 @@ case $(printf '%s\n' "$ev" | grep -F "worker-parked-on-operator${tab}mc-alpha-wo
 esac
 young=$(printf '%s\n' "$ev" | grep -F "worker-parked-on-operator${tab}mc-alpha-worker-young${tab}")
 case $young in
-  *"$rlo"*) fail "a direction override reached the event: '$young'" ;;
-  *"Which of the tworeadings?"*) ok "a direction override in the worker's words is dropped" ;;
+  *"$rlo"* | *"$tag"*) fail "an invisible character reached the event: '$young'" ;;
+  *"Which of the tworeadings?") ok "a direction override and a tag character in the worker's words are dropped" ;;
   *) fail "the young park's event: '$young'" ;;
 esac
 
@@ -233,6 +237,20 @@ if events_of alpha | grep -F "worker-parked-on-operator${tab}mc-alpha-worker-par
 else
   fail "the second park's event: $(events_of alpha)"
 fi
+
+# A park alarm that does not parse fails the sweep and keeps its records; one
+# set longer than a raised park's age keeps them too, so neither raises the
+# same park again once the alarm is back.
+worker mc-alpha-worker-fresh alpha operator $((T0 + 1240)) "A fresh park the alarm is read for."
+write_programs "mission_control_worker_completed_grace: soon"
+watch $((T0 + 1250))
+expect_err "a park alarm that does not parse fails the keeper's park sweep" "operator-parks sweep failed"
+write_programs "mission_control_worker_completed_grace: 2h"
+watch $((T0 + 1300))
+if grep -q "^mc-alpha-worker-parked${tab}$((T0 + 800))\$" "$seen"; then ok "the raised park keeps its record through both"; else fail "the park's record after the alarm changed: $(cat "$seen" 2>/dev/null)"; fi
+write_programs
+watch $((T0 + 1350))
+expect_no_out "and is not raised again once the alarm is back" "worker-parked-on-operator${tab}mc-alpha-worker-parked"
 
 # ---------------------------------------------------------------------------
 # Left parked a window past the alarm, the park goes to the hub, once; a

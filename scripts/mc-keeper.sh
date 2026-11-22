@@ -964,6 +964,7 @@ bounds() {
       return 1
     }
   fi
+  # mc_park_candidates (scripts/mc-lib.sh) holds to these same kinds; change both.
   bd_rows=$(printf '%s\n' "$bd_list" | P=$program awk -F '\t' '
     $2 == ENVIRON["P"] && ($3 == "worker" || $3 == "reviewer" || $3 == "ad-hoc") && index($4, "kickoff-") != 1 { print $1 "\t" $5 "\t" $6 }') || return 1
   [ -n "$bd_rows" ] || return 0
@@ -1289,8 +1290,10 @@ EOF
 PARK_QUOTE_LINES=3
 PARK_QUOTE_MAX=280
 # park_quote <worker dir>: the first lines of the worker's last result, joined
-# with " / ", cut to fit the event, and stripped of the zero-width and
-# direction-override characters that could hide or reorder part of it.
+# with " / ", cut to fit the event, and stripped of the invisible characters
+# that could hide, reorder or smuggle part of it: zero-width and joiner
+# characters, direction marks, overrides and isolates, the soft hyphen,
+# variation selectors, the byte-order mark and the tag block.
 park_quote() {
   command -v jq >/dev/null 2>&1 || {
     printf '(reading it needs jq)'
@@ -1302,7 +1305,7 @@ park_quote() {
   }
   pq_t=$(tail -n 1 "$1/events.jsonl" 2>/dev/null | jq -r '.result // empty' 2>/dev/null \
     | N=$PARK_QUOTE_LINES awk '{
-        gsub(/\342\200[\213-\217\250-\256]|\342\201[\240-\251]|\357\273\277/, "")
+        gsub(/\342\200[\213-\217\250-\256]|\342\201[\240-\257]|\357\273\277|\357\270[\200-\217]|\363\240[\200-\201][\200-\277]|\330\234|\341\240\216|\302\255/, "")
         sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
       }
       $0 != "" { printf "%s%s", s, $0; s = " / "; if (++c >= ENVIRON["N"] + 0) exit }' \
@@ -1331,8 +1334,8 @@ operator_parks() {
     return $?
   fi
   op_home=$(mc_fleet_home) || return 1
-  op_grace=$(bound_secs mission_control_worker_completed_grace) || return 1
   op_now=${now:-$(mc_now)}
+  op_grace=""
   op_live=""
   op_rc=0
   for op_w in $op_ws; do
@@ -1347,12 +1350,23 @@ operator_parks() {
       parked*) op_since=${op_park#parked	} ;;
       *) continue ;;
     esac
+    op_key="$op_w	$op_since"
+    # Raised already, whatever the alarm reads now: a longer one set since
+    # must not drop the record and raise the same park again.
+    if has_key "$op_seen" "$op_key"; then
+      op_live="$op_live$op_key
+"
+      continue
+    fi
+    # Read at the first park, so a bad value fails nothing while none waits;
+    # failing, it keeps every record, the prune below never reached.
+    if [ -z "$op_grace" ]; then
+      op_grace=$(bound_secs mission_control_worker_completed_grace) || return 1
+    fi
     op_age=$((op_now - op_since))
     [ "$op_age" -ge "$op_grace" ] || continue
-    op_key="$op_w	$op_since"
     op_live="$op_live$op_key
 "
-    has_key "$op_seen" "$op_key" && continue
     mc_announce "$program" "$op_seen" "$op_key" worker-parked-on-operator "$op_w" \
       "worker $op_w has been parked on the operator ${op_age}s, past the ${op_grace}s alarm: relay what it waits on to the operator, then answer it with fleet-streamjson.sh steer $op_w --message-file <file>. Its last result, in its own words, begins: $(park_quote "$op_home/streamjson/$op_w")" \
       || op_rc=1
