@@ -387,15 +387,21 @@ a value can grant a worker left the deny list with human-gates Task 6:
 - the base merge (`git merge`, `git pull`, and their `git -*` global-option
   spellings), granted by `worker_base_merge`;
 - the never-pushed rewrites (amend, squash, fixup, rebase, at every prefix git
-  accepts, and `git -* rebase*`), granted by `unpushed_rewrite`.
+  accepts, and `git -* rebase*`), granted by `unpushed_rewrite`, and the same
+  acts on the worker's own pushed commits, granted by `draft_rewrite` from the
+  launch record alone.
 
-The hard-reset deny stays whole. The one route past it is
-`scripts/worker-branch-sync.sh`, which runs its reset to the branch's own
-remote branch and its fast-forward inside its own process, below every hook:
-no Bash rule sees those git commands, so none is narrowed for it, and the
-helper pushes nothing. The policy guard decides which runs of the helper reach
-it, and the helper re-checks the rest at run time (the worktree-sync row of
-`doctrine/human-gates.md`).
+The hard-reset and force-push denies stay whole in every profile. The one
+route past them is `scripts/worker-branch-sync.sh`, which runs its leased
+push, its reset to the branch's own remote branch, and its fast-forward inside
+its own process, below every hook: no Bash rule sees those git commands, so
+none is narrowed for it, and a raw `git push --force*` or `+` refspec stays
+denied at every tier. The worker reaches the helper through the worker command
+guard's approval of installed planwright scripts; the policy guard admits only
+the helper's literal grammar (for the push, `push
+--force-with-lease=<branch>:<sha> --force-if-includes`), and the helper
+re-reads the worktree's launch record and re-checks the rest at run time (the
+worktree-sync and draft-branch rewrite rows of `doctrine/human-gates.md`).
 
 `scripts/policy-guard.sh`, wired into the same profile with the `worker` tier,
 is the deny-emitting layer for those acts: it reads the knob, the session's

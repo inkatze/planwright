@@ -854,7 +854,10 @@ plain git is denied on your own unit branch, run
 \`$cs_root/scripts/worker-branch-sync.sh\` as its own command:
 \`reset origin/<branch>\` resets the clean worktree to the fetched remote
 branch, dropping local commits; \`ff <sha>\` fast-forwards to a descendant
-commit. It pushes nothing: a pushed branch takes new commits. Its \`--help\`
+commit; \`push --force-with-lease=<branch>:<sha> --force-if-includes\`
+publishes a rewrite of the branch while its PR is a draft, leased on the tip
+the rewrite started from, only where your launch record allows
+draft_rewrite; otherwise a pushed branch takes new commits. Its \`--help\`
 states what it refuses.
 EOF
 }
@@ -1348,6 +1351,7 @@ cmd_launch() {
       [ "$mise_edit" = 0 ] || set -- "$@" --mise-task-edit
       [ "$lefthook_edit" = 0 ] || set -- "$@" --lefthook-edit
       [ -z "$spec_branch" ] || set -- "$@" --spec-branch "$spec_branch"
+      [ "$K_PROFILE" != worker ] || set -- "$@" --launcher mission-control
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"

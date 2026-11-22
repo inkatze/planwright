@@ -969,7 +969,14 @@ messaging_heal_cadence_seconds: 300
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
-# converge_sync_main            whether the convergence sync merges origin/main
+# draft_rewrite                 whether a worker mission control launched may
+#                               reshape commits it already pushed to its own
+#                               unit branch and publish them through
+#                               scripts/worker-branch-sync.sh push while the
+#                               PR is a draft: deny or allow. Read once, at
+#                               launch, into the session record, from the
+#                               core, adopter, and machine-local layers only.
+# converge_sync_main           whether the convergence sync merges origin/main
 #                               every time (always) or only on a need
 #                               (on-need): a conflict with it, a need the
 #                               caller records, or ready_guard_behind_base of
@@ -1010,6 +1017,7 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
+draft_rewrite: deny
 converge_sync_main: on-need
 ready_guard_behind_base: checks
 ready_base_state_checks: release-window/window-lock
