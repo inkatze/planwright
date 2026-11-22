@@ -71,8 +71,10 @@ names another kind, or that has no row, is refused (`misroute`), and so are
 `compose` and a `target add --mod` claim run with a worker identity
 (PLANWRIGHT_WORKER_HANDLE) whose row is not a mission-control session's,
 since a panel mod in such a session would take another session's events.
-Each refusal is named on stderr; the first of each verb, target, session
-and kind is logged in <runtime>/wake-misroutes
+A fleet home that cannot be resolved leaves the kind unread: the target is
+unreachable, the compose or claim exits 1. Every compose or claim refusal
+is named on stderr, a relay's only the first time; the first of each
+verb, target, session and kind is logged in <runtime>/wake-misroutes
 (<epoch><TAB><verb><TAB><target><TAB><session><TAB><kind>) and raised as a
 wake-misroute event.
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
@@ -198,17 +200,22 @@ targets="$runtime/wake-targets"
 misroutes="$runtime/wake-misroutes"
 
 # session_kind <name>: SK_KIND, the kind the mission-control launcher's
-# registry row records for a session, or `unknown` with no readable row:
-# only a session the launcher started as mission control is one. Set, not
-# printed, so the fleet home is resolved once per run.
+# registry row records for a session, `unknown` with no row it can trust,
+# or `unreadable` when the fleet home cannot be resolved: only a session the
+# launcher started as mission control is one. Set, not printed, so the
+# fleet home is resolved once per run.
 session_kind() {
   SK_KIND=unknown
   mc_valid_handle "$1" || return 0
   if [ -z "${SK_ROOT+x}" ]; then
     SK_ROOT=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || SK_ROOT=""
   fi
+  if [ -z "$SK_ROOT" ]; then
+    SK_KIND=unreadable
+    return 0
+  fi
   sk_row=$SK_ROOT/mission-control/sessions/$1
-  [ -n "$SK_ROOT" ] && [ -f "$sk_row" ] && [ ! -L "$sk_row" ] && [ -r "$sk_row" ] || return 0
+  [ -f "$sk_row" ] && [ ! -L "$sk_row" ] && [ -r "$sk_row" ] || return 0
   while IFS='	' read -r sk_key sk_val || [ -n "$sk_key" ]; do
     [ "$sk_key" = kind ] || continue
     case $sk_val in
@@ -220,24 +227,31 @@ session_kind() {
 }
 
 # misroute <verb> <target> <session> <kind>: a wake that would have reached
-# a session that is not mission control, refused. Named on stderr each time;
-# raised as one wake-misroute event and logged in <runtime>/wake-misroutes
-# the first time each verb, target, session and kind are seen together, so
-# a relay that meets it at every pass neither grows the log nor floods the
-# store. The line is written only once the event is in, so a failed emit is
-# tried again at the next refusal.
+# a session that is not mission control, refused. Raised as one
+# wake-misroute event and logged in <runtime>/wake-misroutes the first time
+# each verb, target, session and kind are seen together, so a relay that
+# meets it at every pass neither grows the log nor floods the store. Named
+# on stderr then, and at every compose or claim refusal, whose caller shows
+# it. The line is written only once the event is in, so a failed emit is
+# tried again at the next refusal; a log that cannot be read or written
+# raises nothing, since it could not stop the next pass raising it again.
 misroute() {
   mr_s=$3
   mc_valid_handle "$mr_s" || mr_s=-
   mr_for=""
   [ "$2" = "$mr_s" ] || mr_for=" for $2"
-  printf '%s: refusing to wake %s (kind %s)%s: not a mission-control session\n' \
-    "$prog" "$mr_s" "$4" "$mr_for" >&2
+  mr_seen=0
   if [ -f "$misroutes" ] && awk -F '\t' -v v="$1" -v t="$2" -v s="$mr_s" -v k="$4" \
     '$2 == v && $3 == t && $4 == s && $5 == k { f = 1; exit } END { exit !f }' "$misroutes"; then
-    return 0
+    mr_seen=1
   fi
+  if [ "$mr_seen" -eq 0 ] || [ "$1" != relay ]; then
+    printf '%s: refusing to wake %s (kind %s)%s: not a mission-control session\n' \
+      "$prog" "$mr_s" "$4" "$mr_for" >&2
+  fi
+  [ "$mr_seen" -eq 0 ] || return 0
   [ ! -L "$misroutes" ] || return 0
+  { : >>"$misroutes"; } 2>/dev/null && [ -r "$misroutes" ] || return 0
   # A session name outside the handle grammar cannot be an event's subject.
   mr_subject=$mr_s
   [ "$mr_subject" != - ] || mr_subject=$2
@@ -254,6 +268,7 @@ require_mission_control_caller() {
   [ -n "$rc_h" ] || return 0
   session_kind "$rc_h"
   [ "$SK_KIND" != mission-control ] || return 0
+  [ "$SK_KIND" != unreadable ] || mc_fail "cannot resolve the fleet home to read the session kind of '$rc_h'"
   misroute "$1" "$2" "$rc_h" "$SK_KIND"
   exit 4
 }
@@ -428,6 +443,10 @@ send() {
       ;;
   esac
   session_kind "$sd_w"
+  if [ "$SK_KIND" = unreadable ]; then
+    printf 'unreachable\t%s\tthe fleet home could not be resolved to read its session kind\n' "$sd_w"
+    return 0
+  fi
   if [ "$SK_KIND" != mission-control ]; then
     misroute relay "$sd_w" "$sd_w" "$SK_KIND"
     printf 'misroute\t%s\t%s\n' "$sd_w" "$SK_KIND"

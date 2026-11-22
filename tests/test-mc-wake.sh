@@ -620,6 +620,10 @@ else
 fi
 mc_run mc-wake.sh relay --program alpha
 expect_out "a second relay still refuses" "misroute${tab}wk${tab}worker"
+case $ERR in
+  *"refusing to wake wk"*) fail "a repeated relay refusal was named on stderr again: $ERR" ;;
+  *) ok "a repeated relay refusal is quiet on stderr" ;;
+esac
 mc_run mc-event.sh list --program alpha
 n_mis=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
 if [ "$n_mis" -eq 2 ]; then
@@ -682,13 +686,32 @@ expect_out "and leaves its events unmarked" "a prompt waits${tab}-"
 # names no kind.
 launcher_row real-mc mission-control
 rm -f "$fleet/mission-control/sessions/wk"
-ln -s"$fleet/mission-control/sessions/real-mc" "$fleet/mission-control/sessions/wk"
+ln -s "$fleet/mission-control/sessions/real-mc" "$fleet/mission-control/sessions/wk"
+[ -L "$fleet/mission-control/sessions/wk" ] || fail "the symlinked row fixture was not created"
 mc_run mc-wake.sh relay --program alpha
 expect_out "a symlinked launcher row is no mission-control session" "misroute${tab}wk${tab}unknown"
 rm -f "$fleet/mission-control/sessions/wk"
 printf 'format\t1\nkind\tMission-Control\n' >"$fleet/mission-control/sessions/wk"
 mc_run mc-wake.sh relay --program alpha
 expect_out "a kind outside the grammar is unknown" "misroute${tab}wk${tab}unknown"
+# A log that cannot be written raises nothing: it could not keep the next
+# pass from raising the same event again.
+mv "$misroutes" "$misroutes.real"
+mkdir "$misroutes"
+launcher_row wk tower
+mc_run mc-event.sh list --program alpha
+n_before=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+mc_run mc-wake.sh relay --program alpha
+expect_out "the relay still refuses with the log unwritable" "misroute${tab}wk${tab}tower"
+mc_run mc-event.sh list --program alpha
+n_after=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+if [ "$n_after" -eq "$n_before" ]; then
+  ok "an unwritable log raises no event"
+else
+  fail "an unwritable log raised an event ($n_before then $n_after)"
+fi
+rmdir "$misroutes"
+mv "$misroutes.real" "$misroutes"
 
 # ---------------------------------------------------------------------------
 # A session with the mod is left to the mod; unreachable targets are named;

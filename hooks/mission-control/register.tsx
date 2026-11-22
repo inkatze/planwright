@@ -332,8 +332,10 @@ async function claim($: EngineInterface) {
   const claiming = ctx
   const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target, '--mod'])
   if (ctx?.program !== claiming.program || ctx.target !== claiming.target) {
-    // Stood down or switched while the claim ran: hand it straight back.
-    await release($, claiming)
+    // Stood down or switched while the claim ran: hand it straight back,
+    // unless a worker stood it down, whose hand-back would overwrite the
+    // real mission control's claim.
+    if (!isWorker) await release($, claiming)
     return
   }
   isClaimed = claimed.ok
