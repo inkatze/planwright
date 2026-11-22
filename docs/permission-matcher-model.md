@@ -716,10 +716,7 @@ nothing else:
   local name, a SHA, a tag, or any other branch (another spec branch, another
   worker's flight branch) keeps today's refusal, and so does a local branch or
   tag of the same name at another commit. Merging `origin/main` afterwards is
-  the ordinary base merge, and the push of the result to the spec branch is an
-  ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
-  branch>`) that the guard never refused: the spec branch is outside the
-  protected set, and the profile's force and `+` denies still refuse a force.
+  the ordinary base merge.
 - **Sync it with its base.** In a linked worktree that is the session's
   project directory with the named spec branch checked out, `git merge
   origin/main` (the PR base alone, by name and by what git resolves it to) is
@@ -737,7 +734,15 @@ nothing else:
   worktree when it is elsewhere, then the fast-forward to the PR head, then
   the base merge.
 
-No force, reset or rebase is admitted by either act.
+No force, reset or rebase is admitted by either act, and neither publishes:
+the record opens no push. Every agent `git push`, and every `gh api` ref,
+commit, contents or rename write, naming a spec PR branch outside the
+protected floor (`planwright/<spec>/amendment-*`,
+`planwright/<spec>/spec-rework*`) is refused at every tier, the record or a
+kickoff scope notwithstanding. Only the kickoff push helper publishes one,
+from below the hook, and it takes `planwright/<spec>/spec` and
+`planwright/<spec>/amendment-<n>` alone, so no agent route publishes a
+spec-rework branch.
 
 A kickoff session needs no record for the second act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
