@@ -161,7 +161,7 @@ lacks "and no flip token either" "flip-for-review"
 # A post-pr completion outside the pull request's own history (another unit's,
 # left in a reused worktree) is no completion at this head.
 FOREIGN_GAP="cadence,gap,post-pr,foreign,2222222222222222222222222222222222222222"
-FOREIGN_DETAIL="no completion record on the history of this pull request (the newest, at 222222222222, is outside it)"
+FOREIGN_DETAIL="completed only outside the history of this pull request, newest at 222222222222"
 # shellcheck disable=SC2086
 walk_rows "draft, foreign post-pr" $DRAFT "$FOREIGN_GAP"
 expect_rc "a draft whose only post-pr completion is another unit's is not merge-ready" 4

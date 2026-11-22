@@ -181,10 +181,10 @@ expect_out "a not-ready walk still names the post-pr gap as a gap" "Cadence: cov
 printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tforeign\t2222222222222222222222222222222222222222\n' "$head" "$head" >"$tmp/flipforeign"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
   --evidence "$tmp/flipforeign" --moment ready-flip --level guided
-expect_out "a flip-for-review walk holds a foreign post-pr as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (no completion record on the history of this pull request (the newest, at 222222222222, is outside it))"
+expect_out "a flip-for-review walk holds a foreign post-pr as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (completed only outside the history of this pull request, newest at 222222222222)"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
   --evidence "$tmp/flipforeign" --moment ready-flip --level standard
-expect_out "a not-ready walk names it as a gap" "Cadence: covered pre-pr; gap post-pr (no completion record on the history of this pull request (the newest, at 222222222222, is outside it))"
+expect_out "a not-ready walk names it as a gap" "Cadence: covered pre-pr; gap post-pr (completed only outside the history of this pull request, newest at 222222222222)"
 
 # Without a moment the packet is unchanged: the walk is the first line.
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness"

@@ -473,7 +473,7 @@ $1 == "cadence" && $2 == "gap" {
   d = $5 " is " $4
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
-  else if ($4 == "foreign") d = "no completion record on the history of this pull request (the newest, at " substr($5, 1, 12) ", is outside it)"
+  else if ($4 == "foreign") d = "completed only outside the history of this pull request, newest at " substr($5, 1, 12)
   else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   else if ($4 == "fault") d = $5
@@ -593,21 +593,29 @@ EOF
 # or behind it but already held by the base it branched from. Such a
 # completion is another unit's, left in a reused worktree, so it is no
 # completion at <head>. One behind <head> and not in the base, one ahead of
-# it (work not yet pushed), or a head git cannot place keeps the point stale.
+# it (work not yet pushed), or a head git cannot place keeps the point stale,
+# and so does a shallow repository, whose cut history hides ancestry.
 post_pr_foreign() {
   local wt=$1 head=$2 base=$3 heads h rc n=0
+  [ "$(mc_untrusted_git -C "$wt" rev-parse --is-shallow-repository 2>/dev/null)" = false ] || return 1
+  # A record that ends without a newline runs into the next one, so each
+  # record line closes the one before it, as the audit reads them.
   heads=$(awk -F '\t' '
-    $1 == "record" { t = p = h = "" }
+    function close_rec() { if (t == "completion" && p == "post-pr" && !seen[h]++) print h; t = p = h = "" }
+    $1 == "record" { close_rec(); next }
     $1 == "type" { t = $2 } $1 == "point" { p = $2 } $1 == "head" { h = $2 }
-    /^$/ { if (t == "completion" && p == "post-pr") print h; t = "" }
-    END { if (t == "completion" && p == "post-pr") print h }' "$4") || return 1
+    /^$/ { close_rec() }
+    END { close_rec() }' "$4") || return 1
   while IFS= read -r h; do
     [[ $h =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
     n=$((n + 1))
     mc_untrusted_git -C "$wt" merge-base --is-ancestor "$h" "$head" 2>/dev/null
     rc=$?
     case $rc in
-      0) [ -n "$base" ] && mc_untrusted_git -C "$wt" merge-base --is-ancestor "$h" "$base" 2>/dev/null || return 1 ;;
+      0)
+        [ -n "$base" ] || return 1
+        mc_untrusted_git -C "$wt" merge-base --is-ancestor "$h" "$base" 2>/dev/null || return 1
+        ;;
       1)
         mc_untrusted_git -C "$wt" merge-base --is-ancestor "$head" "$h" 2>/dev/null
         [ $? -eq 1 ] || return 1

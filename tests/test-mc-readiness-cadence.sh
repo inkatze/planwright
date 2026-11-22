@@ -147,7 +147,7 @@ expect_rc "a draft holding it is not merge-ready" 4
 case $OUT in "flip-for-review${tab}$head"*) ok "a draft holding only another unit's post-pr is told to flip" ;; *) fail "a draft holding another unit's post-pr reads: $OUT" ;; esac
 walk_collected "state,ready" "flip,2026-11-18T00:42:21Z" "require,pr-agent" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z"
 expect_rc "a ready pull request holding it is not merge-ready" 4
-expect_out "it names the post-pr gap" "fail${tab}cadence${tab}post-pr: no completion record on the history of this pull request"
+expect_out "it names the post-pr gap" "fail${tab}cadence${tab}post-pr: completed only outside the history of this pull request, newest at ${other_unit%"${other_unit#????????????}"}"
 post_pr_at "$prev"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
@@ -159,6 +159,20 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a newer foreign completion does not hide the pull request's own stale one" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$other_unit"
 hasnt "so the point is not foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
+# An own completion whose record file lacks its final newline is still read,
+# as the audit reads it, so a later foreign completion does not hide it.
+rm -rf "$tmp/feature-wt/.claude/steps"
+post_pr_at "$prev"
+own_done="$tmp/feature-wt/.claude/steps/000001/002-done-post-pr.rec"
+if [ -f "$own_done" ] && printf '%s' "$(cat "$own_done")" >"$own_done.new" && mv "$own_done.new" "$own_done"; then
+  post_pr_at "$other_unit"
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+  c=$(cat "$tmp/collected" 2>/dev/null)
+  has "an own completion in a record with no final newline keeps the point stale" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$other_unit"
+  hasnt "never foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
+else
+  fail "fixture: the own completion record without its final newline"
+fi
 # A completion git cannot place keeps the point stale.
 rm -rf "$tmp/feature-wt/.claude/steps"
 post_pr_at "$H"
