@@ -50,7 +50,7 @@ duties:
                stall-unknown, session-landed, pending-prompt, pending-prompt-overdue,
                stream-json-worker-dead, stream-json-worker-unowned, stream-json-worker-orphaned,
                keeper-sweep-failed, worker-handover-due, worker-retired-idle,
-               mission-control-escalated]
+               worker-parked-on-operator, mission-control-escalated]
     watchers: [scripts/mc-keeper.sh@2m/low, scripts/mc-escalate.sh@1m/low]
     wake: session-landed
     rules: [session-lifecycle]

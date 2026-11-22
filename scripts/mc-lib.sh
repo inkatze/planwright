@@ -577,6 +577,30 @@ mc_lookup() {
 # mc_kv <file> <key>: the value of a record's key<TAB>value line, if any.
 mc_kv() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }' "$1"; }
 
+# mc_operator_park <fleet home> <worker>: the epoch a stream-json worker's
+# park on the operator began, else nothing. It is parked while its registry
+# row records an operator wait, a pidfile is left (with neither it is
+# positively dead and nothing can answer it), and its event log still ends at
+# the clean result its last turn recorded: an event after that result is a
+# message it is reading, so an answer ends the park. The result's epoch is
+# the start, so a turn that ends parked again is a new park.
+mc_operator_park() {
+  mop_row="$1/mission-control/sessions/$2"
+  mop_dir="$1/streamjson/$2"
+  [ -f "$mop_row" ] && [ ! -L "$mop_row" ] && [ -d "$mop_dir" ] && [ ! -L "$mop_dir" ] || return 0
+  [ "$(mc_kv "$mop_row" waiting 2>/dev/null)" = operator ] || return 0
+  [ -e "$mop_dir/worker.pid" ] || [ -e "$mop_dir/supervisor.pid" ] || return 0
+  [ -f "$mop_dir/result" ] && [ ! -L "$mop_dir/result" ] || return 0
+  [ -f "$mop_dir/events.jsonl" ] && [ ! -L "$mop_dir/events.jsonl" ] || return 0
+  mop_kind="" mop_at="" mop_err=""
+  IFS='	' read -r mop_kind _ mop_at mop_err _ <"$mop_dir/result" 2>/dev/null || :
+  [ "$mop_kind" = result ] && [ "$mop_err" != true ] && mc_valid_uint "$mop_at" || return 0
+  case $(tail -n 1 "$mop_dir/events.jsonl" 2>/dev/null) in
+    *'"type":"result"'*) printf '%s\n' "$mop_at" ;;
+  esac
+  return 0
+}
+
 # mc_valid_sha <sha>: a full 40-hex commit id.
 mc_valid_sha() {
   case $1 in

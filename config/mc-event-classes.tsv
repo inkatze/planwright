@@ -15,6 +15,7 @@ draft	decision
 retarget	decision
 deadline	decision
 packet	decision
+worker-parked-on-operator	decision
 pending-prompt-overdue	blocker
 conflict-predicted	blocker
 throughput-bottleneck	blocker

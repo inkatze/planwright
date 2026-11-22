@@ -131,9 +131,17 @@ Usage:
       event, whatever its program; the orphan sweep: each process
       scripts/mc-stall.sh orphans has listed for a minute is one
       stream-json-worker-orphaned event, announced once for the machine
-      under the program the unowned event goes to, and never signalled,
+      under the program the unowned event goes to, and never signalled;
+      the park sweep: each stream-json session of the program parked on
+      the operator (its registry row records an operator wait, a pidfile
+      is left, and its event log still ends at its last turn's clean
+      result, whose epoch starts the park) past
+      mission_control_worker_completed_grace is one
+      worker-parked-on-operator event, subject the session, raised once
+      per park and quoting the first lines of that result; a kickoff
+      relay is left out, and a wait on ci or a ready flip is no park;
       printing
-        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned|stream-json-worker-orphaned<TAB><worker>
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned|stream-json-worker-orphaned|worker-parked-on-operator<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
       seconds, or a pending or orphan sweep that ends non-zero, is said on stderr and
       raised once as a keeper-sweep-failed event (the default age, 900,
@@ -1277,6 +1285,61 @@ EOF
   return "$pa_rc"
 }
 
+PARK_QUOTE_LINES=3
+PARK_QUOTE_MAX=280
+# park_quote <worker dir>: the first lines of the worker's last result, joined
+# with " / " and cut to leave the event room for what to do about it.
+park_quote() {
+  command -v jq >/dev/null 2>&1 || {
+    printf '(reading it needs jq)'
+    return 0
+  }
+  pq_t=$(tail -n 1 "$1/events.jsonl" 2>/dev/null | jq -r '.result // empty' 2>/dev/null \
+    | N=$PARK_QUOTE_LINES awk '{ sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "") }
+      $0 != "" { printf "%s%s", s, $0; s = " / "; if (++c >= ENVIRON["N"] + 0) exit }' \
+    | tr '\t\r' '  ' | mc_clean_text | cut -c1-"$PARK_QUOTE_MAX")
+  printf '%s' "${pq_t:-(it has no text)}"
+}
+
+# operator_parks: each stream-json session of this program parked on the
+# operator (mc_operator_park) past mission_control_worker_completed_grace, the
+# bound past which the keeper acts on a finished turn, is one
+# worker-parked-on-operator event per park, quoting its last result so the
+# reader sees what it waits on. A kickoff relay waits on the operator by
+# design, so it is left out, as the bounds leave it. A park still unanswered
+# a window later is scripts/mc-escalate.sh's to raise to the hub.
+operator_parks() {
+  if [ -n "${keeper_list+x}" ]; then
+    op_list=$keeper_list
+  else
+    op_list=$(launcher list) || return 1
+  fi
+  op_home=$(mc_fleet_home) || return 1
+  op_grace=$(bound_secs mission_control_worker_completed_grace) || return 1
+  op_now=${now:-$(mc_now)}
+  op_seen="$runtime/keeper-parks"
+  op_live=""
+  op_rc=0
+  op_ws=$(printf '%s\n' "$op_list" | P=$program awk -F '\t' '
+    $2 == ENVIRON["P"] && $3 != "mission-control" && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }')
+  for op_w in $op_ws; do
+    mc_valid_handle "$op_w" || continue
+    op_since=$(mc_operator_park "$op_home" "$op_w")
+    [ -n "$op_since" ] || continue
+    op_age=$((op_now - op_since))
+    [ "$op_age" -ge "$op_grace" ] || continue
+    op_key="$op_w	$op_since"
+    op_live="$op_live$op_key
+"
+    has_key "$op_seen" "$op_key" && continue
+    mc_announce "$program" "$op_seen" "$op_key" worker-parked-on-operator "$op_w" \
+      "worker $op_w has been parked on the operator ${op_age}s, past the ${op_grace}s alarm; its last result begins: \"$(park_quote "$op_home/streamjson/$op_w")\". Relay what it needs to the operator, then answer it with fleet-streamjson.sh steer $op_w --message-file <file>" \
+      || op_rc=1
+  done
+  mc_announce_prune "$op_seen" "$op_live" || op_rc=1
+  return "$op_rc"
+}
+
 case $verb in
   bounds)
     bounds || exit 1
@@ -1316,6 +1379,7 @@ case $verb in
       pending_age_setting || rc=1
       run_sweep pending-prompts pending_prompts || rc=1
       run_sweep pending-arrivals pending_arrivals || rc=1
+      run_sweep operator-parks operator_parks || rc=1
       run_sweep orphans orphan_sweep || rc=1
       act_bounds "$scan_ok" || rc=1
     fi

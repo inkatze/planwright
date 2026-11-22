@@ -48,7 +48,7 @@ Usage:
       --pane reads the mission control's pane from a file instead of
       finding and capturing its tmux pane.
 
-WHAT IT RAISES. Two things, each held against
+WHAT IT RAISES. Three things, each held against
 mission_control_escalation_window (W):
   a request   a permission or question request of a live stream-json worker
               the launcher records for this program (mission-control-launch.sh
@@ -60,6 +60,17 @@ mission_control_escalation_window (W):
               age plus W, the operator at that age plus 2W. A worker with
               neither pidfile left is the keeper's alarm scan's to settle,
               never raised here.
+  a park      a stream-json worker the launcher records for this program
+              parked on the operator, as the session-keeper reads it
+              (mc_operator_park in scripts/mc-lib.sh: an operator wait in
+              its registry row, a pidfile left, its event log still ending
+              at its last turn's result), a kickoff relay left out. Its age
+              counts from that result, against
+              mission_control_worker_completed_grace, the keeper's own
+              alarm for it: the hub hears it at that age plus W, the
+              operator at plus 2W. A message that starts its next turn
+              ends the park; a turn that ends parked again starts a new
+              one.
   the dialog  this program's mission control showing an open dialog in its
               tmux pane: a permission prompt, a select menu, or auto mode's
               own confirmation after blocked actions (kind auto-mode), which
@@ -98,6 +109,7 @@ scripts/mc-pane-answer.sh delivers an answer, prints `busy`.
 
 Output, one line each, tab separated:
   request <worker> <request id> <age> owner|hub|operator
+  park <worker> <age> owner|hub|operator
   self dialog|auto-mode|clear|absent|ambiguous|unreadable <seconds held> owner|hub|operator [<pane>]
   escalated hub <subject>
   escalated operator <subject> <channel>
@@ -170,6 +182,8 @@ if [ -z "$ALARM" ] || [ "${#ALARM}" -gt 15 ]; then
   printf '%s\n' "$prog: warning: PLANWRIGHT_STREAMJSON_PENDING_AGE is not a positive whole number; using ${ALARM_DEFAULT}s" >&2
   ALARM=$ALARM_DEFAULT
 fi
+PARK_ALARM_RAW=$(mc_knob mission_control_worker_completed_grace mc_parse_cadence) || exit 1
+PARK_ALARM=$(mc_seconds "$PARK_ALARM_RAW")
 FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
 RUNTIME="$FLEET_HOME/mission-control/$PROGRAM"
 ESC_DIR="$RUNTIME/escalate"
@@ -357,6 +371,22 @@ done <<EOF
 $WORKERS
 EOF
 
+# --- parks -----------------------------------------------------------------
+PARKERS=$(printf '%s\n' "$LIST" | P=$PROGRAM awk -F '\t' '
+  NF && $2 == ENVIRON["P"] && $3 != "mission-control" && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }')
+for w in $PARKERS; do
+  mc_valid_handle "$w" || continue
+  since=$(mc_operator_park "$FLEET_HOME" "$w")
+  [ -n "$since" ] || continue
+  age=$((NOW - since))
+  [ "$age" -ge 0 ] || age=0
+  rank_of $((age - PARK_ALARM))
+  printf 'park\t%s\t%s\t%s\n' "$w" "$age" "$LEVEL"
+  raise "park	$w	$since" "$RANK" "$w" \
+    "mission control $PROGRAM has left worker $w parked on the operator ${age}s, past its own alarm at ${PARK_ALARM}s: reach mission control $PROGRAM, whose worker-parked-on-operator event quotes what the worker waits on, or tell the operator" \
+    "$PROGRAM mission control: worker $w has been parked on you ${age}s with no answer"
+done
+
 # --- the session's own dialog ----------------------------------------------
 # read_self: the dialog record through msp_record; an unreadable one fails
 # the pass and sets self_unread.
@@ -455,7 +485,7 @@ KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_RE
   }
   NF >= 2 {
     k = $1; for (i = 2; i < NF; i++) k = k "\t" $i
-    keep = (k in live) || ($1 == "request" && (ENVIRON["CA"] == "1" || ($2 in carry))) || ($1 == "self" && ENVIRON["CS"] == "1")
+    keep = (k in live) || (($1 == "request" || $1 == "park") && (ENVIRON["CA"] == "1" || ($2 in carry))) || ($1 == "self" && ENVIRON["CS"] == "1")
     if (keep && !($0 in seen)) { seen[$0] = 1; print }
   }')
 if [ "$KEPT" != "$(cat "$SENT" 2>/dev/null)" ]; then
