@@ -240,8 +240,11 @@ check_commands=''
 if [ -n "$primary" ]; then
   raw=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 \
     /bin/sh "$script_dir/config-get.sh" worker_check_commands 2>/dev/null </dev/null) || {
+    rc=$?
     raw=''
-    printf '%s: worker_check_commands could not be read (a malformed overlay layer?); the worker gets no check commands\n' "$me" >&2
+    # Exit 3 is a key no layer sets, which declares nothing.
+    [ "$rc" = 3 ] \
+      || printf '%s: worker_check_commands could not be read (a malformed overlay layer?); the worker gets no check commands\n' "$me" >&2
   }
   case $raw in
     *[[:cntrl:]]*)

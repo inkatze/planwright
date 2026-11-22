@@ -1643,8 +1643,10 @@ lower() {
     c=${s:i:1}
     case $c in
       [A-Z])
+        # Under nocasematch the pattern also takes a lowercase letter, which
+        # the prefix strip then finds nowhere.
         k=${u%%"$c"*}
-        c=${l:${#k}:1}
+        [ "${#k}" -ge 26 ] || c=${l:${#k}:1}
         ;;
     esac
     out=$out$c
@@ -6141,6 +6143,9 @@ check_path_ok() {
   CHECK_PATHS_N=$((CHECK_PATHS_N + 1))
   [ "$CHECK_PATHS_N" -le "$MAX_CHECK_PATHS" ] || return 1
   [ -n "${p%%:*}" ] || return 1
+  case $p in
+    *:*/*) return 1 ;;
+  esac
   check_path_in "$p" "$2" || return 1
   [ "${p%%:*}" = "$p" ] || check_path_in "${p%%:*}" "$2"
 }

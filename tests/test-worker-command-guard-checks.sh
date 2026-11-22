@@ -100,6 +100,7 @@ assert_defer "A1.18: the .claude directory" "mix test .claude/settings.json" Bas
 assert_defer "A1.18: the git directory with a line suffix" "mix test .git:3" Bash "$WT"
 assert_defer "A1.18: the mise configuration with a line suffix" "mix test mise.toml:3" Bash "$WT"
 assert_defer "A1.18: the .claude directory with a suffix" "mix test .claude:1" Bash "$WT"
+assert_defer "A1.18: a path after the suffix's colon" "mix test test:/etc/passwd" Bash "$WT"
 assert_defer "A1.18: a symlinked directory inside the worktree" "mix test test/hooklink/pre-commit" Bash "$WT"
 assert_defer "A1.18: a dangling symlink" "mix test test/dangling/x" Bash "$WT"
 assert_defer "A1.18: a leading = in a <path>, which zsh expands" "mix test =ls" Bash "$WT"
