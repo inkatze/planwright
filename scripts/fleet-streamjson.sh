@@ -101,6 +101,12 @@
 #                    fleet-stop-lib.sh, stop_scratch_root_release)
 #   alarmed-<id>     the mark of a request whose overdue push has been made,
 #                    until the journal no longer reads it pending
+#   unregistered-announced  the session-keeper's claim that its one-time
+#                    event about a worker with no launcher row was raised
+#                    (scripts/mc-keeper.sh announce_once); `.claim.*` its
+#                    staging temp
+#   unowned-announced.<id>  the session-keeper's claim that request <id>
+#                    was raised as unowned, while it stays pending
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging

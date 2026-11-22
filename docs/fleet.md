@@ -874,15 +874,24 @@ burst is one wake (a batch whose names outgrow one event's text spans a
 few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
-Each goes to the worker's own program (its launcher row's, else the owner its
-dispatch record keeps). Each request of a worker that neither names, or of a
-worker whose program has no live mission control (no launched mission-control
-row, or every one positively dead), is raised once, whichever keeper sees it
-first, as a `stream-json-worker-unowned` event under the hub program
-(`mission_control_escalation_hub`), so the stuck prompt still reaches a
-mission control; a request arriving after the first is its own event. With no
-hub program configured the event stays with the program whose keeper found
-it, and its text says so.
+Each goes to the worker's own program: its launcher row's, else the owner its
+dispatch record keeps, else its parent's row or record (the worker it was
+launched from inside), else the configured program its name carries under the
+launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
+polish pass adding `-<suffix>`). A live worker with a request waiting and no
+row of its own is raised once to the program its record, parent or name gives,
+as a `stream-json-worker-unregistered` event, so its mission control can
+retire it or launch it afresh; not while the launcher's list, the program list
+or the session kinds cannot be read, nor for a worker whose registry file
+the list skipped (another format's row). Each request of a worker none of
+these owns, or of a worker whose program has no live mission control (no
+launched mission-control row, or every one positively dead), is raised once,
+whichever keeper sees it first, as a `stream-json-worker-unowned` event under
+the hub program (`mission_control_escalation_hub`), so the stuck prompt still
+reaches a mission control; a request arriving after the first is its own
+event. With no hub program configured the event stays with the program whose
+keeper found it, and its text says so. Routing only decides who hears a
+prompt: who may answer it is unchanged.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
@@ -895,7 +904,8 @@ burns a core); a service manager that runs one on purpose reads the same, so
 the event names what was read and the call stays the operator's. Each is its
 own event, by process. One listed for a
 minute is raised once for the machine as a
-`stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
+`stream-json-worker-orphaned` event under the hub program, else the program
+whose keeper found it. Nothing
 signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
