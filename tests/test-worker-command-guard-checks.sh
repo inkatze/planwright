@@ -153,8 +153,9 @@ for i in $(seq 1 130); do long="${long}mix t$i <path>; "; done
 under "$(with_checks long 1 "${long}mix test <path>")"
 assert_defer "A1.18: a check_commands field past the bound drops whole" "mix test test/a_test.exs" Bash "$WT"
 
-under "$(with_checks opened 1 'mix test <path>...')"
+under "$(with_checks opened 2 'mix test <path>...')"
 printf '%s\n' mise_task_edit=1 lefthook_edit=1 >>"$STATE/opened.record"
+assert_allow "A1.18: the opt-ins are read: the own-branch arm opens lefthook.yml" "touch lefthook.yml" Bash "$WT"
 assert_allow "A1.18: an opted-in launch still approves a plain path" "mix test test" Bash "$WT"
 assert_defer "A1.18: the lefthook opt-in never reaches a check command" "mix test lefthook.yml" Bash "$WT"
 assert_defer "A1.18: the mise opt-in never reaches a check command" "mix test mise.toml" Bash "$WT"
