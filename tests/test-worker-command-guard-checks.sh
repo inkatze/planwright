@@ -153,6 +153,12 @@ for i in $(seq 1 130); do long="${long}mix t$i <path>; "; done
 under "$(with_checks long 1 "${long}mix test <path>")"
 assert_defer "A1.18: a check_commands field past the bound drops whole" "mix test test/a_test.exs" Bash "$WT"
 
+under "$(with_checks opened 1 'mix test <path>...')"
+printf '%s\n' mise_task_edit=1 lefthook_edit=1 >>"$STATE/opened.record"
+assert_allow "A1.18: an opted-in launch still approves a plain path" "mix test test" Bash "$WT"
+assert_defer "A1.18: the lefthook opt-in never reaches a check command" "mix test lefthook.yml" Bash "$WT"
+assert_defer "A1.18: the mise opt-in never reaches a check command" "mix test mise.toml" Bash "$WT"
+
 echo "### REQ-H1.4 — a check command is audited on the read-only arm"
 REC_A=$(with_checks audited 1 'mix test <path>')
 under "$REC_A"
