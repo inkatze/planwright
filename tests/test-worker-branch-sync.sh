@@ -8,6 +8,7 @@
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-worker-branch-sync.sh
+unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib/worker-branch-sync-fixture.sh
 . "$here/lib/worker-branch-sync-fixture.sh"
