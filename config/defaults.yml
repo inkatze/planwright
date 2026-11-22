@@ -1098,8 +1098,9 @@ mission_control_kb_lock_wait: 5
 # before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
 # never makes a stall, only beside a busy marker and an unchanged pane.
 mission_control_stall_window: 10m
-# How long past its owner's alarm a worker request may stay pending, or a
-# mission control's own dialog stay open, before scripts/mc-escalate.sh
+# How long past its owner's alarm a worker request may stay pending, a worker
+# stay parked on the operator, or a mission control's own dialog stay open,
+# before scripts/mc-escalate.sh
 # raises it to the hub; at twice the window it reaches the operator. A
 # cadence.
 mission_control_escalation_window: 15m
@@ -1165,7 +1166,9 @@ mission_control_handover_window: 2m
 # bound is retired, its next round of work going to a fresh session with a
 # handover brief. A stream-json worker whose last turn completed is retired
 # after the shorter completed grace, so a finished worker stops holding a
-# host slot. Cadences.
+# host slot; one parked on the operator stays, and past the same grace is
+# raised to its mission control as a worker-parked-on-operator event.
+# Cadences.
 mission_control_worker_lifetime: 4h
 mission_control_worker_idle: 30m
 mission_control_worker_completed_grace: 5m
