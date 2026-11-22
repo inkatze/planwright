@@ -592,9 +592,10 @@ mc_park_candidates() {
 # `unknown` while its row records the wait but its turn's end cannot be read
 # (a steer sets the result record aside while it sends, putting it back when
 # nothing was delivered, and a delivered one leaves none until the next turn
-# ends), so a caller keeps what it raised for the worker; else nothing. Parked: the row records an operator wait, a pidfile is left
-# (with neither it is positively dead and nothing can answer it), and the
-# event log still ends at the clean result of a turn of this launch. An event
+# ends), so a caller keeps what it raised for the worker; else nothing.
+# Parked: the row records an operator wait, a pidfile is left (with neither
+# it is positively dead and nothing can answer it), and the event log still
+# ends at the clean result of a turn of this launch. An event
 # after that result is a message the worker is reading, so an answer ends the
 # park. The park begins at the later of that result and the wait's own epoch,
 # so a turn that ends parked again is a new park, and a wait set long after a

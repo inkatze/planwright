@@ -122,8 +122,13 @@ count_of() { printf '%s\n' "$1" | grep -c -F -- "$2"; }
 seen="$fleet/mission-control/alpha/keeper-parks"
 sent="$fleet/mission-control/alpha/escalate/sent"
 
+# One invisible character from each range the quote strips: a direction
+# override, a tag, a supplementary variation selector, the byte-order mark, a
+# variation selector, the soft hyphen, the Arabic letter mark, the Mongolian
+# vowel separator, an invisible operator, a zero-width space.
 rlo=$(printf '\342\200\256')
 tag=$(printf '\363\240\201\201')
+hidden="$rlo$tag$(printf '\363\240\204\200\357\273\277\357\270\217\302\255\330\234\341\240\216\342\201\257\342\200\213')"
 worker mc-alpha-worker-parked alpha operator "$T0" "Two decisions are yours before I go on:
 1. Keep the old flag, or drop it? $(printf '%0200d' 0)
 2. Ship the shim now?
@@ -135,7 +140,7 @@ worker mc-alpha-worker-steered alpha operator "$T0" "Which branch should I base 
 steer mc-alpha-worker-steered
 worker mc-alpha-worker-onci alpha ci "$T0" "Waiting on CI."
 worker mc-alpha-worker-onflip alpha ready-flip "$T0" "Waiting on the ready flip."
-worker mc-alpha-worker-young alpha operator $((T0 + 200)) "Which of the two${rlo}readings?${tag}"
+worker mc-alpha-worker-young alpha operator $((T0 + 200)) "Which of the two${hidden}readings?"
 worker mc-alpha-worker-kickoff alpha operator "$T0" "Does section two read right?" kickoff-demo
 worker mc-alpha-tower-parked alpha operator "$T0" "A tower talks to the operator itself." s tower
 worker mc-beta-worker-parked beta operator "$T0" "Beta needs a call."
@@ -145,7 +150,7 @@ worker mc-alpha-worker-late alpha operator $((T0 - 5)) "Done, then parked later.
 printf 'waited\t%s\n' $((T0 + 200)) >>"$reg/mc-alpha-worker-late"
 worker mc-alpha-worker-stale alpha operator $((LAUNCHED - 100)) "A turn of an earlier launch."
 worker mc-alpha-worker-exited alpha operator "$T0" "The run ended."
-printf 'exit\t1\t%s\tfalse\n' "$T0" >"$fleet/streamjson/mc-alpha-worker-exited/result"
+printf 'exit\t1\t%s\n' "$T0" >"$fleet/streamjson/mc-alpha-worker-exited/result"
 
 # ---------------------------------------------------------------------------
 # The owner hears a park past the alarm, once, naming the worker and ending
@@ -215,9 +220,8 @@ case $(printf '%s\n' "$ev" | grep -F "worker-parked-on-operator${tab}mc-alpha-wo
 esac
 young=$(printf '%s\n' "$ev" | grep -F "worker-parked-on-operator${tab}mc-alpha-worker-young${tab}")
 case $young in
-  *"$rlo"* | *"$tag"*) fail "an invisible character reached the event: '$young'" ;;
-  *"Which of the tworeadings?") ok "a direction override and a tag character in the worker's words are dropped" ;;
-  *) fail "the young park's event: '$young'" ;;
+  *"Which of the tworeadings?") ok "every invisible character in the worker's words is dropped" ;;
+  *) fail "an invisible character reached the event, or the quote changed: '$young'" ;;
 esac
 
 # A worker that unparks and parks again later raises again. Its unparked
@@ -238,9 +242,16 @@ else
   fail "the second park's event: $(events_of alpha)"
 fi
 
-# A park alarm that does not parse fails the sweep and keeps its records; one
-# set longer than a raised park's age keeps them too, so neither raises the
-# same park again once the alarm is back.
+# A park alarm that does not parse fails nothing while every park is already
+# raised; with a new park to judge it fails the sweep and keeps its records.
+# One set longer than a raised park's age keeps them too, so neither raises
+# the same park again once the alarm is back.
+write_programs "mission_control_worker_completed_grace: soon"
+watch $((T0 + 1230))
+case $ERR in
+  *"operator-parks sweep failed"*) fail "a bad alarm failed the sweep with no park to judge: $ERR" ;;
+  *) ok "a bad alarm is not read while every park is already raised" ;;
+esac
 worker mc-alpha-worker-fresh alpha operator $((T0 + 1240)) "A fresh park the alarm is read for."
 write_programs "mission_control_worker_completed_grace: soon"
 watch $((T0 + 1250))
@@ -286,6 +297,10 @@ esc $((P1 + 1350))
 expect_no_out "a park whose result is set aside is not reported" "park${tab}mc-alpha-worker-parked"
 if grep -q "^park${tab}mc-alpha-worker-parked${tab}${P1}${tab}hub\$" "$sent"; then ok "and keeps its escalation record"; else fail "the sent record after a result set aside: $(cat "$sent" 2>/dev/null)"; fi
 back mc-alpha-worker-parked
+: >"$fleet/streamjson/mc-alpha-worker-parked/result"
+esc $((P1 + 1380))
+if grep -q "^park${tab}mc-alpha-worker-parked${tab}${P1}${tab}hub\$" "$sent"; then ok "a result record caught mid-rewrite keeps it too"; else fail "the sent record after a torn result: $(cat "$sent" 2>/dev/null)"; fi
+printf 'result\tsuccess\t%s\tfalse\n' "$P1" >"$fleet/streamjson/mc-alpha-worker-parked/result"
 esc $((P1 + 1400))
 if [ "$(hub_count)" = 1 ]; then ok "the same park reaches the hub once"; else fail "the hub's events after a repeat scan: $(events_of hub)"; fi
 if [ "$(id -u)" != 0 ]; then
