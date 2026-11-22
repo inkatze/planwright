@@ -102,7 +102,8 @@ Usage:
       session whose last line is a question (a tmux pane the stall scan reads idle-question, a stream-json turn whose
       final text ends in `?`) is parked on the operator and never retired
       here (without jq a stream-json one cannot be told apart, so none is
-      retired), and a kickoff relay (scope kickoff-<spec>) is never bound
+      retired), nor is a session whose registry row records a live wait
+      (operator, ci or ready-flip: parked, never idle), and a kickoff relay (scope kickoff-<spec>) is never bound
   mc-keeper.sh watch [--program <p>] [--now <epoch>]
       the duty's watcher (also what a run with no arguments does under the
       runner): the stall scan (scripts/mc-stall.sh scan, which emits its own
@@ -113,14 +114,37 @@ Usage:
       queue item pushed once and a dead worker's is settled), each request
       still overdue one pending-prompt-overdue event, subject the worker,
       announced once per request (a worker the launcher records for
-      another program left to that program), and a request that has just
+      another program left to that program, a row-less one's program being
+      the owner its dispatch record keeps, else its parent's row or record,
+      else the configured program its name carries as
+      mc-<program>-<kind>-<10 hex>[-<suffix>], as a polish session a worker
+      spawns does; each request of one none of them owns, or of one whose
+      program has no live mission control (no launched mission-control row,
+      or every one positively dead by mc-stall.sh liveness), is raised once
+      as a stream-json-worker-unowned event under the hub program
+      mission_control_escalation_hub names, or under the program whose
+      keeper found it when none is configured, never to every
+      program), and a request that has just
       arrived one pending-prompt event per pass that sees it (the requests
-      new to that pass batched into the one event), and a dead worker this
+      new to that pass batched into the one event, which names every
+      request still waiting, worker and request id, so a repeat ask is never
+      folded into an event already read), and a dead worker this
       scan settled one stream-json-worker-dead
-      event, whatever its program, printing
-        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead<TAB><worker>
+      event, whatever its program. A live worker with a request waiting, no
+      launcher row and a program its record, parent or name gives is raised
+      once more, as a stream-json-worker-unregistered event under that
+      program; not while the launcher's list, the program list or the
+      session kinds cannot be read, nor for a worker whose
+      registry file the list skipped (another format's row). The
+      orphan sweep: each process
+      scripts/mc-stall.sh orphans has listed for a minute is one
+      stream-json-worker-orphaned event, announced once for the machine
+      under the hub program, else the program whose keeper found it, and
+      never signalled,
+      printing
+        announced<TAB>pending-prompt|pending-prompt-overdue|stream-json-worker-dead|stream-json-worker-unowned|stream-json-worker-unregistered|stream-json-worker-orphaned<TAB><worker>
       a PLANWRIGHT_STREAMJSON_PENDING_AGE that is not a positive number of
-      seconds, or a pending sweep that ends non-zero, is said on stderr and
+      seconds, or a pending or orphan sweep that ends non-zero, is said on stderr and
       raised once as a keeper-sweep-failed event (the default age, 900,
       stands in for a bad one)
       then the bounds, under their own lock: each retire done (re-checked
@@ -292,7 +316,8 @@ EOF
         continue
       fi
       say landed "$sw_s" "$sw_state"
-      sw_out=$(launcher retire "$sw_s" 2>&1)
+      # A landed unit ends any wait its session held, so the wait never holds it.
+      sw_out=$(launcher retire "$sw_s" --force-parked 2>&1)
       sw_retire=$?
       case $sw_retire in
         0) ;;
@@ -485,11 +510,11 @@ pending_age_setting() {
   return "${pg_rc:-0}"
 }
 
-# run_pending_sweep <name> <function>: run one of the pending sweeps; one that
+# run_sweep <name> <function>: run one of the watch's sweeps; one that
 # ends non-zero, whatever the cause, is said on stderr and raised once as a
 # keeper-sweep-failed event, cleared when the sweep runs clean again, so a
-# silent stop of the prompt alerts cannot go unnoticed.
-run_pending_sweep() {
+# silent stop of the alerts it raises cannot go unnoticed.
+run_sweep() {
   rs_seen="$runtime/keeper-sweep-$1"
   "$2" && {
     mc_announce_prune "$rs_seen" ""
@@ -497,8 +522,416 @@ run_pending_sweep() {
   }
   printf '%s\n' "$prog: the $1 sweep failed" >&2
   mc_announce "$program" "$rs_seen" "$1" keeper-sweep-failed "$1" \
-    "the keeper's $1 sweep ended with an error, so prompts it covers may not be announced; run mc-keeper.sh watch by hand to see why" || true
+    "the keeper's $1 sweep ended with an error, so what it covers may not be announced; run mc-keeper.sh watch by hand to see why" || true
   return 1
+}
+
+# listed <word> <list>: true when <word> is a whole line of <list>.
+listed() {
+  case "
+$2
+" in
+    *"
+$1
+"*) return 0 ;;
+  esac
+  return 1
+}
+
+# owner_inputs: what owner_of reads, once per watch pass and in this shell
+# rather than the subshells worker_program runs in: the configured programs
+# and the launcher's session kinds. OI_OK is empty when either could not be
+# read.
+owner_inputs() {
+  [ -z "${oi_read:-}" ] || return 0
+  oi_read=1
+  OI_OK=1
+  oi_programs=$(/bin/bash "$script_dir/mc-program.sh" list 2>/dev/null) || OI_OK=""
+  oi_kinds=$(launcher kinds 2>/dev/null) || OI_OK=""
+  oi_kinds=$(printf '%s\n' "$oi_kinds" | awk -F '\t' 'NF { print $1 }')
+}
+
+# worker_program <worker> <launcher list> <fleet home>: the program a
+# stream-json worker belongs to and where that was read, as
+# <program><TAB>row|record|parent|name: its launcher row's; else the owner
+# its dispatch record keeps (mission-control:<program>), which outlives a row
+# that was removed; else its parent's (the worker it was launched from
+# inside, as fleet-streamjson.sh records it), but only from the parent's own
+# row or record, never the parent's parent: the launching process sets the
+# parent, so it counts only while a record the launcher wrote vouches for it,
+# and a retired parent has neither; else the program its name carries under
+# the grammar mission-control-launch.sh's session_name builds,
+# mc-<program>-<kind>-<10 hex>, a sub-session (a polish pass) adding a
+# -<suffix>. A record or name must give a program still configured: a removed
+# one would send the prompt to a keeper that no longer runs. A name two
+# programs could parse gives none. Prints nothing when none names one. Needs
+# owner_inputs.
+worker_program() {
+  wp_own=$(worker_program_own "$1" "$2" "$3")
+  if [ -z "$wp_own" ]; then
+    wp_f="$3/streamjson/$1/parent"
+    if [ -f "$wp_f" ] && [ ! -L "$wp_f" ]; then
+      wp_par=$(head -n 1 "$wp_f")
+      if mc_valid_handle "$wp_par" && [ "$wp_par" != "$1" ]; then
+        wp_own=$(worker_program_own "$wp_par" "$2" "$3")
+        [ -z "$wp_own" ] || wp_own="${wp_own%%	*}	parent"
+      fi
+    fi
+  fi
+  [ -n "$wp_own" ] || wp_own=$(worker_program_name "$1")
+  [ -z "$wp_own" ] || printf '%s\n' "$wp_own"
+  return 0
+}
+
+# worker_program_own <worker> <launcher list> <fleet home>: worker_program's
+# row and record reads for the worker itself.
+worker_program_own() {
+  wp_p=$(printf '%s\n' "$2" | W=$1 awk -F '\t' 'NF && $1 == ENVIRON["W"] { print $2; exit }')
+  wp_src=row
+  if [ -z "$wp_p" ]; then
+    wp_src=record
+    wp_m="$3/dispatch-markers/$1"
+    if [ -f "$wp_m" ] && [ ! -L "$wp_m" ]; then
+      wp_p=$(awk -F '\t' 'NR == 1 && index($3, "mission-control:") == 1 { print substr($3, 17) }' "$wp_m")
+    fi
+    listed "$wp_p" "$oi_programs" || wp_p=""
+  fi
+  mc_valid_program "$wp_p" && printf '%s\t%s\n' "$wp_p" "$wp_src"
+  return 0
+}
+
+# worker_program_name <worker>: worker_program's name read.
+worker_program_name() {
+  wn_p=$(N=$1 P=$oi_programs K=$oi_kinds awk 'BEGIN {
+    n = ENVIRON["N"]; np = split(ENVIRON["P"], p, "\n"); nk = split(ENVIRON["K"], k, "\n")
+    for (i = 1; i <= np; i++) for (j = 1; j <= nk; j++) {
+      if (p[i] == "" || k[j] == "") continue
+      pre = "mc-" p[i] "-" k[j] "-"
+      if (substr(n, 1, length(pre)) != pre) continue
+      h = substr(n, length(pre) + 1, 10)
+      after = substr(n, length(pre) + 11, 1)
+      if (length(h) != 10 || h ~ /[^0-9a-f]/ || (after != "" && after != "-")) continue
+      if (!(p[i] in hit)) { hit[p[i]] = 1; c++; m = p[i] }
+    }
+    if (c == 1) print m
+  }')
+  listed "$wn_p" "$oi_programs" || return 0
+  mc_valid_program "$wn_p" && printf '%s\tname\n' "$wn_p"
+  return 0
+}
+
+# owner_of <worker> <launcher list> <list read> <fleet home>, <list read>
+# non-empty when the launcher's list was read: sets OW_PROGRAM,
+# the program that hears the worker's prompts (empty: none, so each request
+# is raised as unowned), and OW_LABEL, the label its prompt events carry after
+# its name. A live worker no row names whose record, parent or name gives
+# this program also has its one-time stream-json-worker-unregistered event
+# raised here. With the launcher's list or owner_inputs' reads failed, no
+# one-time event is raised. With the list unreadable a row cannot be told
+# from its absence, so a worker nothing else owns is this program's (heard
+# twice beats never); with only owner_inputs failed it stays unowned, raised
+# once per request, and owner_of fails, so the sweep says so. A registry file
+# the list skipped (another format's row) still counts as a row for that
+# event.
+owner_of() {
+  owner_inputs
+  OW_LABEL=""
+  ow_got=$(worker_program "$1" "$2" "$4")
+  OW_PROGRAM=${ow_got%%	*}
+  ow_src=${ow_got#*	}
+  if [ -z "$3" ] || [ -z "$OI_OK" ]; then
+    [ -n "$OW_PROGRAM" ] || [ -n "$3" ] || OW_PROGRAM=$program
+    if [ -n "$OI_OK" ]; then return 0; fi
+    return 1
+  fi
+  [ -n "$OW_PROGRAM" ] && [ "$ow_src" != row ] || return 0
+  ow_once=1
+  if [ -e "$4/mission-control/sessions/$1" ] || [ -L "$4/mission-control/sessions/$1" ]; then
+    ow_once=""
+  fi
+  # A record or a parent is the launcher's own write; a name is the worker's
+  # say-so, so only its prompts are marked.
+  [ "$ow_src" != name ] || [ -z "$ow_once" ] || OW_LABEL=" (no launcher row)"
+  [ "$OW_PROGRAM" = "$program" ] && [ -n "$ow_once" ] || return 0
+  case $ow_src in
+    record) ow_by="its dispatch record" ;;
+    parent) ow_by="its parent's row or record" ;;
+    *) ow_by="its name" ;;
+  esac
+  announce_once "$1" "$4" "$program" unregistered \
+    "stream-json worker $1 is live with no launcher row of its own, so the launcher does not retire or relaunch it; its prompts are raised here, since $ow_by gives $program; mission-control-launch.sh retire $1 closes it, a fresh launch replaces it"
+}
+
+# shellcheck disable=SC2329 # mc_knob calls it by name
+parse_hub() {
+  [ "$1" = none ] || mc_valid_program "$1" || return 1
+  printf '%s\n' "$1"
+}
+
+# keeper_target: the program a raise that belongs to no program goes to, as
+# KT_TARGET: the hub program (mission_control_escalation_hub), whose mission
+# control sees every program; with none configured, the program whose keeper
+# found it, KT_NOTE then saying so. A hub setting or program list that cannot
+# be read fails.
+keeper_target() {
+  kt_hub=$(mc_knob mission_control_escalation_hub parse_hub) || return 1
+  kt_known=$(/bin/bash "$script_dir/mc-program.sh" list) || return 1
+  KT_TARGET=$program
+  KT_NOTE=""
+  if [ "$kt_hub" = none ]; then
+    KT_NOTE=" (no hub program is configured, so it is raised under $program, whose keeper found it)"
+  elif listed "$kt_hub" "$kt_known"; then
+    KT_TARGET=$kt_hub
+  else
+    KT_NOTE=" (the hub program $kt_hub is not a configured program, so it is raised under $program, whose keeper found it)"
+  fi
+}
+
+# announce_once <worker> <fleet home> <program> <stem> <text>: the one-time
+# stream-json-worker-<stem> event about a live worker, raised under <program>
+# by the pass that takes the <stem>-announced claim in the worker's
+# directory, so no later pass raises it again; a refused announce releases
+# the claim so a later pass retries. The claim is the dedupe, so the
+# seen file mc_announce needs, keeper-<stem>, is emptied after each raise
+# rather than growing by every row-less worker. A worker the rung does not
+# report waiting on a request is left to a later pass, since a dead one's
+# requests are the pending-age scan's to settle.
+announce_once() {
+  ao_dir="$2/streamjson/$1"
+  ao_claim="$ao_dir/$4-announced"
+  ao_seen="$2/mission-control/$3/keeper-$4"
+  [ -d "$ao_dir" ] && [ ! -L "$ao_dir" ] || return 0
+  [ ! -e "$ao_claim" ] && [ ! -L "$ao_claim" ] || return 0
+  case $(/bin/sh "$script_dir/fleet-streamjson.sh" status "$1" 2>/dev/null) in
+    "status $1 awaiting-input"*) ;;
+    *) return 0 ;;
+  esac
+  mkdir -p -- "$2/mission-control/$3" || return 1
+  # Claimed by linking a fresh file into place, which never opens what is
+  # already there (a FIFO there would block an open for good).
+  ao_t=$(mktemp "$ao_dir/.claim.XXXXXX" 2>/dev/null) || {
+    [ -d "$ao_dir" ] || return 0
+    return 1
+  }
+  if ! ln "$ao_t" "$ao_claim" 2>/dev/null; then
+    rm -f "$ao_t"
+    if [ -e "$ao_claim" ] || [ -L "$ao_claim" ] || [ ! -d "$ao_dir" ]; then
+      return 0
+    fi
+    return 1
+  fi
+  rm -f "$ao_t"
+  # A directory raced into place takes the link inside it: not this claim.
+  [ -f "$ao_claim" ] && [ ! -L "$ao_claim" ] || return 0
+  mc_announce "$3" "$ao_seen" "$1" "stream-json-worker-$4" "$1" "$5" || {
+    rm -f "$ao_claim"
+    return 1
+  }
+  mc_announce_prune "$ao_seen" ""
+}
+
+# announce_unowned <worker> <fleet home> <request id> [<program>]: a request
+# no mission control can answer, on a worker worker_program gives no program or
+# whose <program> has no live mission control (owner_reachable), is raised as
+# one stream-json-worker-unowned event, however many programs' keepers see
+# it: the first to take the request's claim in the worker's directory raises
+# it, and a refused announce releases the claim so a later pass retries. Each
+# request has a claim of its own, so one arriving after the first is raised
+# too. The event goes to keeper_target's program, or to this keeper's own
+# when that would be <program> itself. Its failure fails the pass
+# before the claim, since the claim would fix a guessed destination for good.
+announce_unowned() {
+  au_dir="$2/streamjson/$1"
+  au_claim="$au_dir/unowned-announced.$3"
+  case $3 in
+    '' | *[!A-Za-z0-9-]*) return 0 ;;
+  esac
+  [ -d "$au_dir" ] && [ ! -L "$au_dir" ] || return 0
+  [ ! -e "$au_claim" ] || return 0
+  keeper_target || return 1
+  au_target=$KT_TARGET
+  au_note=$KT_NOTE
+  # A program never escalates to itself: its own queue is the one no live
+  # mission control reads, and a claim taken for it would keep every other
+  # keeper from raising the request where it is heard.
+  if [ -n "${4:-}" ] && [ "$au_target" = "$4" ]; then
+    [ "$program" != "$4" ] || return 0
+    au_target=$program
+    au_note=" (its program $4 is the hub program, so it is raised under $program, whose keeper found it)"
+  fi
+  mkdir -p -- "$2/mission-control/$au_target" || return 1
+  if ! (
+    set -C
+    : >"$au_claim"
+  ) 2>/dev/null; then
+    [ -e "$au_claim" ] && return 0
+    return 1
+  fi
+  if [ -n "${4:-}" ]; then
+    au_why="the mission control of its program $4 is gone (no launched row, or every one positively dead), so none answers it"
+  else
+    au_why="no launcher row, dispatch record, parent or name gives the program it belongs to, so it is raised here as unowned"
+  fi
+  mc_announce "$au_target" "$2/mission-control/$au_target/keeper-unowned" "$1	$3" stream-json-worker-unowned "$1" \
+    "stream-json worker $1 has request $3 waiting but $au_why; fleet-streamjson.sh pending $1 shows it, fleet-streamjson.sh answer $1 $3 --allow or --deny settles it, mission-control-launch.sh retire $1 closes the worker$au_note" \
+    || {
+      rm -f "$au_claim"
+      return 1
+    }
+}
+
+# unowned_claims_prune <worker dir> <pending ids>: drop the claims of requests
+# no longer pending (newline separated ids), and the one-per-worker claim
+# earlier keepers left, so a worker's directory holds a claim only while its
+# request waits.
+unowned_claims_prune() {
+  # A linked worker directory would aim the removals somewhere else.
+  [ -d "$1" ] && [ ! -L "$1" ] || return 0
+  rm -f -- "$1/unowned-announced"
+  set +f
+  for uc_f in "$1"/unowned-announced.*; do
+    [ -f "$uc_f" ] && [ ! -L "$uc_f" ] || continue
+    case "
+$2
+" in
+      *"
+${uc_f##*/unowned-announced.}
+"*) ;;
+      *) rm -f "$uc_f" ;;
+    esac
+  done
+  set -f
+}
+
+# owner_reachable <program> <launcher list>: 0 while the program has a
+# mission control that may answer: a launched mission-control row whose
+# session is alive, or whose liveness cannot be told (mc-stall.sh liveness),
+# since silence is never death. 1 when no such row is left. A row the
+# launcher listed but mc-stall no longer finds launched counts as gone.
+# Each program is read once per pass (OR_SEEN).
+OR_SEEN=''
+owner_reachable() {
+  case "
+$OR_SEEN
+" in
+    *"
+$1 live
+"*) return 0 ;;
+    *"
+$1 gone
+"*) return 1 ;;
+  esac
+  or_state=gone
+  or_names=$(printf '%s\n' "$2" | P=$1 awk -F '\t' 'NF && $2 == ENVIRON["P"] && $3 == "mission-control" { print $1 }')
+  for or_n in $or_names; do
+    mc_valid_handle "$or_n" || continue
+    or_out=$(/bin/bash "$script_dir/mc-stall.sh" liveness --program "$1" "$or_n" 2>/dev/null)
+    case $? in
+      0) ;;
+      3) continue ;;
+      *)
+        or_state=live
+        break
+        ;;
+    esac
+    case $or_out in
+      *"	dead	"*) ;;
+      *)
+        or_state=live
+        break
+        ;;
+    esac
+  done
+  OR_SEEN="$OR_SEEN
+$1 $or_state"
+  [ "$or_state" = live ]
+}
+
+# orphan_sweep: every stream-json process of this user's that nothing can
+# reach any more, and every holder init adopted (scripts/mc-stall.sh
+# orphans), is raised once, as a
+# stream-json-worker-orphaned event under keeper_target's program, and never
+# signalled: whether one is abandoned is the operator's call. A process is
+# raised only once it has been listed for ORPHAN_SETTLE seconds across
+# passes, since a supervisor a suite is tearing down, or one a stop is
+# ending, reads as orphaned for an instant, and every program's keeper shares
+# these machine-wide stores, so two passes can be seconds apart.
+ORPHAN_SETTLE=60
+orphan_sweep() {
+  os_home=$(mc_fleet_home) || return 1
+  os_store="$os_home/mission-control"
+  os_seen="$os_store/keeper-orphans"
+  os_prev="$os_store/keeper-orphans-listed"
+  os_lock="$os_store/.lock.keeper-orphans"
+  os_now=${now:-$(mc_now)}
+  mkdir -p -- "$os_store" || return 1
+  pw_lock_acquire "$os_lock" || return 1
+  os_rc=0
+  if os_out=$(/bin/bash "$script_dir/mc-stall.sh" orphans); then
+    case $os_out in
+      *orphan*) orphan_raise "$os_out" || os_rc=1 ;;
+      *) if [ -s "$os_prev" ] || [ -s "$os_seen" ]; then orphan_raise "" || os_rc=1; fi ;;
+    esac
+  else
+    os_rc=1
+  fi
+  pw_lock_release "$os_lock" || os_rc=1
+  return "$os_rc"
+}
+
+# orphan_raise <orphans rows>: orphan_sweep's pass, under its lock, on the
+# stores and clock orphan_sweep set (os_store, os_seen, os_prev, os_now). A
+# raise it cannot route keeps every row listed, so no settle time is lost.
+orphan_raise() {
+  or_nl='
+'
+  or_live=""
+  or_listed=""
+  or_target=""
+  or_rc=0
+  while IFS='	' read -r or_tag or_pid or_start or_role or_worker or_why; do
+    [ "$or_tag" = orphan ] || continue
+    or_key="$or_pid	$or_start"
+    or_live="$or_live$or_key$or_nl"
+    or_first=''
+    [ ! -f "$os_prev" ] || or_first=$(K=$or_key awk -F '\t' 'BEGIN { k = ENVIRON["K"] } ($1 "\t" $2) == k { print $3; exit }' "$os_prev")
+    if ! mc_valid_uint "$or_first" || [ "$or_first" -gt "$os_now" ]; then
+      or_first=$os_now
+    fi
+    or_listed="$or_listed$or_key	$or_first$or_nl"
+    [ $((os_now - or_first)) -ge "$ORPHAN_SETTLE" ] || continue
+    ! has_key "$os_seen" "$or_key" || continue
+    [ "$or_target" != - ] || continue
+    if [ -z "$or_target" ]; then
+      if ! keeper_target || ! mkdir -p -- "$os_store/$KT_TARGET"; then
+        or_rc=1
+        or_target=-
+        continue
+      fi
+      or_target=$KT_TARGET
+    fi
+    or_subject=$or_worker
+    mc_valid_handle "$or_subject" || or_subject=$(mc_subject orphan "$or_pid")
+    # The start is the one the listing read: a procfs tick count, else ps's
+    # lstart with its spaces turned to dashes.
+    case $or_start in
+      t*) or_check="once field 22 of /proc/$or_pid/stat still reads ${or_start#t} and /proc/$or_pid/cmdline shows it abandoned, kill $or_pid ends it" ;;
+      *) or_check="once ps -o pid,lstart,args -p $or_pid shows it started $(printf '%s' "$or_start" | sed 's/-/ /g') and abandoned, kill $or_pid ends it" ;;
+    esac
+    or_what="stream-json $or_role pid $or_pid ($or_worker)"
+    case $or_role in
+      claude) or_check="it may be a session someone started by hand; $or_check" ;;
+      holder) or_what="held-open process pid $or_pid" ;;
+    esac
+    mc_announce "$or_target" "$os_seen" "$or_key" stream-json-worker-orphaned "$or_subject" \
+      "orphaned $or_what, which nothing reaps or stops; $or_check$KT_NOTE. $or_why" \
+      || or_rc=1
+  done <<EOF
+$1
+EOF
+  printf '%s' "$or_listed" | mc_write "$os_prev" || or_rc=1
+  mc_announce_prune "$os_seen" "$or_live" || or_rc=1
+  return "$or_rc"
 }
 
 # pending_prompts: the stream-json pending-age sweep over every worker on
@@ -509,19 +942,22 @@ run_pending_sweep() {
 # then one event, announced once, and a dead worker the scan settled is one
 # stream-json-worker-dead event, since its request row has just left the
 # queue. An overdue prompt of a worker the launcher records for another
-# program is that program's to announce; with the launcher's list unreadable
-# every one is announced here, as heard twice beats never.
+# program is that program's to announce, owner_of deciding whose; each
+# request of one nothing owns, or of one whose program has no live mission
+# control, is raised once as unowned, never to every program.
 pending_prompts() {
   NL='
 '
   pp_seen="$runtime/keeper-prompts"
   pp_out=$(/bin/sh "$script_dir/fleet-streamjson.sh" alarm-scan --once ${now:+--now "$now"} 2>/dev/null) || return 1
+  pp_home=$(mc_fleet_home) || return 1
+  pp_listed=1
   if pp_list=$(launcher list 2>/dev/null); then
     keeper_list=$pp_list
   else
     pp_list=""
+    pp_listed=''
   fi
-  pp_theirs=$(printf '%s\n' "$pp_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
   pp_live=""
   pp_rc=0
   while read -r pp_tag pp_w pp_id pp_age; do
@@ -538,11 +974,19 @@ pending_prompts() {
         || pp_rc=1
       continue
     fi
-    case "$NL$pp_theirs$NL" in *"$NL$pp_w$NL"*) continue ;; esac
+    owner_of "$pp_w" "$pp_list" "$pp_listed" "$pp_home" || pp_rc=1
+    if [ -z "$OW_PROGRAM" ]; then
+      announce_unowned "$pp_w" "$pp_home" "$pp_id" || pp_rc=1
+      continue
+    fi
+    if [ -n "$pp_listed" ] && ! owner_reachable "$OW_PROGRAM" "$pp_list"; then
+      announce_unowned "$pp_w" "$pp_home" "$pp_id" "$OW_PROGRAM" || pp_rc=1
+    fi
+    [ "$OW_PROGRAM" = "$program" ] || continue
     pp_key="$pp_w	$pp_id"
     pp_live="$pp_live$pp_key$NL"
     mc_announce "$program" "$pp_seen" "$pp_key" pending-prompt-overdue "$pp_w" \
-      "stream-json worker $pp_w has waited ${pp_age}s on request $(printf '%s' "$pp_id" | cut -c1-8); fleet-streamjson.sh pending $pp_w shows it, fleet-streamjson.sh answer $pp_w $pp_id --allow or --deny settles it" \
+      "stream-json worker $pp_w$OW_LABEL has waited ${pp_age}s on request $(printf '%s' "$pp_id" | cut -c1-8); fleet-streamjson.sh pending $pp_w shows it, fleet-streamjson.sh answer $pp_w $pp_id --allow or --deny settles it" \
       || pp_rc=1
   done <<EOF
 $pp_out
@@ -603,6 +1047,20 @@ idle_since_streamjson() {
   printf '%s\n' "$is_at"
 }
 
+# parked_on <session>: the wait (operator, ci or ready-flip) the session's
+# registry row records, else nothing; `unknown` when the fleet home cannot be
+# resolved, which callers read as parked. A session with a live wait is parked
+# on someone, so no bound retires it, whatever its last turn looked like.
+parked_on() {
+  pn_home=$(mc_fleet_home) || {
+    printf 'unknown'
+    return 0
+  }
+  pn_row="$pn_home/mission-control/sessions/$1"
+  [ -f "$pn_row" ] && [ ! -L "$pn_row" ] || return 0
+  mc_kv "$pn_row" waiting 2>/dev/null || :
+}
+
 # last_result <session>: the subtype of the session's last recorded result
 # (the second field of the rung's result record), sanitised for a line.
 last_result() {
@@ -642,6 +1100,7 @@ bounds() {
       stream-json) bd_since=$(idle_since_streamjson "$bd_s" "$bd_l" "$bd_gcut") ;;
       *) bd_since="" ;;
     esac
+    [ -z "$bd_since" ] || [ -z "$(parked_on "$bd_s")" ] || bd_since=""
     if [ -n "$bd_since" ] && [ "$bd_b" = stream-json ]; then
       printf 'retire\t%s\t%s\tcompleted result=%s %ss ago, grace %ss\n' "$bd_s" "$bd_l" "$(last_result "$bd_s")" $((bd_now - bd_since)) "$bd_grace"
     elif [ -n "$bd_since" ]; then
@@ -672,6 +1131,7 @@ still_due() {
   sd_row="$(mc_fleet_home)/mission-control/sessions/$1"
   [ -f "$sd_row" ] && [ ! -L "$sd_row" ] || return 1
   [ "$(mc_kv "$sd_row" launched)" = "$2" ] || return 1
+  [ -z "$(parked_on "$1")" ] || return 1
   case $3 in
     tmux)
       /bin/bash "$script_dir/mc-stall.sh" classify --program "$program" ${now:+--now "$now"} "$1" >/dev/null 2>&1 || return 1
@@ -761,6 +1221,11 @@ EOF
         still_due "$ab_s" "$ab_l" "$ab_b" "$ab_cut" "$ab_gcut" || continue
         ab_r=$(launcher retire "$ab_s" 2>&1)
         case $? in
+          4)
+            # Parked since the check: the launcher refuses, and the session is
+            # left alone. Not a failure.
+            continue
+            ;;
           0)
             retired_event "$ab_s" "$ab_why" && continue
             printf '%s\t%s\n' "$ab_s" "$ab_why" >>"$ab_owed" \
@@ -824,7 +1289,8 @@ EOF
 # as pending-prompt at the first pass that sees it, so the operator hears of it
 # within one watch pass rather than at the overdue bound. The requests new to a
 # pass are one event, a burst arriving together included: its subject is the
-# first worker and its text names the rest. A request is marked announced only
+# first worker and its text names every request still waiting, worker and
+# request id, new or not. A request is marked announced only
 # once its event is stored, so a refused announce is retried on the next pass.
 # Runs after pending_prompts, so a dead worker's requests are already settled
 # and not announced here.
@@ -836,10 +1302,17 @@ pending_arrivals() {
   pa_seen="$runtime/keeper-arrivals"
   NL='
 '
-  pa_list=$(launcher list 2>/dev/null) || pa_list=""
-  pa_theirs=$(printf '%s\n' "$pa_list" | P=$program awk -F '\t' 'NF && $2 != ENVIRON["P"] { print $1 }')
+  pa_listed=1
+  pa_list=$(launcher list 2>/dev/null) || {
+    pa_list=""
+    pa_listed=''
+  }
   pa_fresh=""
+  pa_labels=""
+  pa_all=""
+  pa_rc=0
   pa_live=""
+  pa_pend=""
   # The glob needs pathname expansion, which this script turns off (set -f).
   set +f
   for pa_j in "$pa_root"/streamjson/*/journal; do
@@ -848,12 +1321,28 @@ pending_arrivals() {
     pa_w=${pa_w##*/}
     mc_valid_handle "$pa_w" || continue
     pa_rows=$(awk -F '\t' '$4 == "pending" { print $1 "\t" $3 }' "$pa_j") || continue
+    unowned_claims_prune "${pa_j%/journal}" "$(printf '%s\n' "$pa_rows" | awk -F '\t' 'NF { print $1 }')"
+    [ -n "$pa_rows" ] || continue
+    owner_of "$pa_w" "$pa_list" "$pa_listed" "$pa_root" || pa_rc=1
+    [ "$OW_PROGRAM" != "$program" ] || [ -z "$OW_LABEL" ] || pa_labels="$pa_labels$pa_w	$OW_LABEL$NL"
     while IFS='	' read -r pa_id pa_recv; do
       [ -n "$pa_id" ] || continue
+      pa_pend="$pa_pend$pa_w	$pa_id$NL"
       mc_valid_uint "$pa_recv" || continue
-      case "$NL$pa_theirs$NL" in *"$NL$pa_w$NL"*) continue ;; esac
+      # An unowned worker's overdue request is pending_prompts' to raise,
+      # since only its scan knows whether the worker is still alive.
+      if [ -z "$OW_PROGRAM" ]; then
+        [ $((pa_now - pa_recv)) -gt "$pa_thr" ] || announce_unowned "$pa_w" "$pa_root" "$pa_id" || pa_rc=1
+        continue
+      fi
+      # Overdue ones are pending_prompts' to raise, as above.
+      if [ -n "$pa_listed" ] && [ $((pa_now - pa_recv)) -le "$pa_thr" ] && ! owner_reachable "$OW_PROGRAM" "$pa_list"; then
+        announce_unowned "$pa_w" "$pa_root" "$pa_id" "$OW_PROGRAM" || pa_rc=1
+      fi
+      [ "$OW_PROGRAM" = "$program" ] || continue
       pa_key="$pa_w	$pa_id"
       pa_live="$pa_live$pa_key$NL"
+      pa_all="$pa_all$pa_key$NL"
       [ $((pa_now - pa_recv)) -le "$pa_thr" ] || continue
       grep -Fxq -- "$pa_key" "$pa_seen" 2>/dev/null && continue
       pa_fresh="$pa_fresh$pa_key$NL"
@@ -862,26 +1351,57 @@ $pa_rows
 EOF
   done
   set -f
-  pa_rc=0
-  pa_first=$(printf '%s' "$pa_fresh" | awk 'NF { print; exit }')
-  if [ -n "$pa_first" ]; then
-    pa_count=$(printf '%s' "$pa_fresh" | awk 'NF { n++ } END { print n + 0 }')
+  # Fresh requests lead, then every other request still waiting, cut into
+  # events whose names fit the event text. Each chunk holding a fresh request
+  # is one event naming all of its requests, so a repeat ask is never left to
+  # an event mission control has already read.
+  pa_chunks=$(
+    FRESH=$pa_fresh L=$pa_labels awk -F '\t' '
+    BEGIN {
+      n = split(ENVIRON["FRESH"], f, "\n"); for (i = 1; i <= n; i++) if (f[i] != "") fresh[f[i]] = 1
+      n = split(ENVIRON["L"], l, "\n"); for (i = 1; i <= n; i++) if (split(l[i], lv, "\t") == 2) lab[lv[1]] = lv[2]
+    }
+    NF { all[++m] = $0 }
+    END {
+      for (pass = 0; pass < 2; pass++)
+        for (i = 1; i <= m; i++) {
+          if (((all[i] in fresh) ? 0 : 1) != pass) continue
+          split(all[i], kv, "\t")
+          w = length(kv[1]) + length(lab[kv[1]]) + length(kv[2]) + 2
+          len += w
+          if (len > 370 && started) { c++; len = w }
+          started = 1
+          print c + 0 "\t" (pass ? "-" : "F") "\t" kv[1] "\t" kv[2] "\t" lab[kv[1]]
+        }
+    }' <<EOF
+$pa_all
+EOF
+  )
+  pa_cs=$(printf '%s\n' "$pa_chunks" | awk -F '\t' 'NF && $2 == "F" && !s[$1]++ { print $1 }')
+  for pa_c in $pa_cs; do
+    pa_rowsc=$(printf '%s\n' "$pa_chunks" | C=$pa_c awk -F '\t' '$1 == ENVIRON["C"]')
+    pa_n=$(printf '%s\n' "$pa_rowsc" | awk 'NF { n++ } END { print n + 0 }')
+    pa_names=$(printf '%s\n' "$pa_rowsc" | awk -F '\t' 'NF { printf "%s%s%s %s", sep, $3, $5, $4; sep = "; " }')
+    pa_fresh_c=$(printf '%s\n' "$pa_rowsc" | awk -F '\t' '$2 == "F" { print $3 "\t" $4 }')
+    pa_first=$(printf '%s\n' "$pa_fresh_c" | awk 'NF { print; exit }')
     pa_fw=${pa_first%%	*}
-    pa_text="stream-json worker $pa_fw has a request waiting on a decision; fleet-streamjson.sh pending shows it, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles it"
-    if [ "$pa_count" -gt 1 ]; then
-      pa_names=$(printf '%s' "$pa_fresh" | awk -F '\t' 'NF && !s[$1]++ { n = n ? n ", " $1 : $1 } END { print n }')
-      pa_text="$pa_count requests on stream-json workers $pa_names arrived together, waiting on a decision; fleet-streamjson.sh pending <worker> shows them, fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"
-    fi
-    # The rest of the batch is marked announced only once the event is stored,
+    pa_plural=s
+    [ "$pa_n" -ne 1 ] || pa_plural=""
+    pa_text="$pa_n request$pa_plural waiting on a decision: $pa_names; fleet-streamjson.sh answer <worker> <id> --allow or --deny settles one"
+    # The rest of the chunk is marked announced only once the event is stored,
     # so a refused announce is retried on the next pass.
     if mc_announce "$program" "$pa_seen" "$pa_first" pending-prompt "$pa_fw" "$pa_text"; then
-      pa_rest=$(printf '%s' "$pa_fresh" | awk -v first="$pa_first" 'NF && $0 != first')
+      pa_rest=$(printf '%s\n' "$pa_fresh_c" | awk -v first="$pa_first" 'NF && $0 != first')
       [ -z "$pa_rest" ] || printf '%s\n' "$pa_rest" >>"$pa_seen" || pa_rc=1
     else
       pa_rc=1
     fi
-  fi
+  done
   mc_announce_prune "$pa_seen" "$pa_live" || pa_rc=1
+  # Any keeper may raise into this program's unowned set, so it keeps every
+  # request still pending fleet-wide; a request's claim, not this set, is what
+  # stops a second raise.
+  mc_announce_prune "$runtime/keeper-unowned" "$pa_pend" || pa_rc=1
   return "$pa_rc"
 }
 
@@ -922,8 +1442,9 @@ case $verb in
       }
       /bin/bash "$script_dir/mc-panel.sh" prune >/dev/null || rc=1
       pending_age_setting || rc=1
-      run_pending_sweep pending-prompts pending_prompts || rc=1
-      run_pending_sweep pending-arrivals pending_arrivals || rc=1
+      run_sweep pending-prompts pending_prompts || rc=1
+      run_sweep pending-arrivals pending_arrivals || rc=1
+      run_sweep orphans orphan_sweep || rc=1
       act_bounds "$scan_ok" || rc=1
     fi
     command -v gh >/dev/null 2>&1 || mc_fail "gh is not on PATH"

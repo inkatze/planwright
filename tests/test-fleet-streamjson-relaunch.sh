@@ -32,6 +32,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 SJ="$here/../scripts/fleet-streamjson.sh"
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$here/lib/hermetic-env.sh"
+# Every wait here is on a detached supervisor's record, and a loaded macOS
+# runner has taken past the helper's 60s default to reach one.
+POLL_UNTIL_DEFAULT_DEADLINE=${POLL_UNTIL_DEFAULT_DEADLINE:-300}
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
 
@@ -240,6 +243,94 @@ case " $last " in
 esac
 echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
 
+# A worker launched with both opt-ins keeps them across a relaunch: the
+# per-launch profile is regenerated from the recorded markers and the session
+# record carries both fields again.
+printf '1\n' >"$wdir/lefthook-edit"
+printf '1\n' >"$wdir/mise-task-edit"
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r2: the opted-in relaunch exited non-zero: $(cat "$tmp/err")"
+alive "$npid" && fail "r2: the pre-opt-in worker is still running"
+npid=$(pid_of worker.pid)
+alive "$npid" || fail "r2: the opted-in resumed worker is not running"
+last=$(tail -n 1 "$rec/argv")
+case " $last " in
+  *" --settings $wdir/worker-settings.json "*) ;;
+  *) fail "r2: the opted-in relaunch must pass the worker's per-launch profile: $last" ;;
+esac
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/mise.toml)") == null)' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile must replace the mise and the lefthook broad denies"
+jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-guard.sh '"'$wt'"' mise lefthook"))' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile's hook must judge both name sets"
+{ grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record"; } \
+  || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
+rm -f "$wdir/mise-task-edit"
+# A relaunch whose hook root's file-tool hook ignores the lefthook argument is
+# refused before it regenerates the profile the running worker reads.
+mkdir -p "$tmp/oldeh"
+cp -R "$here/../scripts" "$tmp/oldeh/scripts"
+cp -R "$here/../config" "$tmp/oldeh/config"
+mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mise-edit-guard.real.sh"
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
+  >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+cp "$wdir/worker-settings.json" "$tmp/settings-before"
+n=$(argv_lines)
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+[ "$rx_rc" -eq 9 ] || fail "r2: a relaunch whose file-tool hook ignores the lefthook argument must be refused (exit 9), got $rx_rc: $rx_err"
+case $rx_err in
+  *"does not judge the opted-in names (failed: lefthook)"*) ;;
+  *) fail "r2: the refusal must name the file-tool hook proof: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the file-tool proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the file-tool proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused at the file-tool proof rewrote the running worker's profile"
+# A refusal after the profile check (here the approval proof, its command
+# guard gone) leaves the running worker's profile as it was too.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+# The generator stub records where the relaunch asks for its check profile.
+cat >"$tmp/nowg/scripts/worker-settings-generate.sh" <<EOF
+#!/bin/sh
+for a; do out=\$a; done
+printf '%s\n' "\$out" >>'$tmp/gen-out'
+printf '{}\n' >"\$out"
+EOF
+mkdir -p "$tmp/rxtmp"
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" TMPDIR="$tmp/rxtmp" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+case $rx_rc:$rx_err in
+  9:*"auto-approve hook"*"missing or not executable"*) ;;
+  *) fail "r2: a relaunch whose command guard is gone must be refused at the approval proof (exit 9), got $rx_rc: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the approval proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the approval proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused after its profile check rewrote the running worker's profile"
+# The check profile went to a scratch folder it removed, never beside the
+# worker's state where the worker's file tools reach.
+case $(cat "$tmp/gen-out" 2>/dev/null) in
+  "$tmp/rxtmp/"*/worker-settings.json) ;;
+  *) fail "r2: the relaunch must check its profile in a scratch folder under TMPDIR, not $(cat "$tmp/gen-out" 2>/dev/null)" ;;
+esac
+[ -z "$(ls -A "$tmp/rxtmp")" ] || fail "r2: the relaunch left its scratch behind: $(ls -A "$tmp/rxtmp")"
+for f in "$wdir"/*; do
+  case ${f##*/} in
+    worker-settings.json | lefthook-edit) ;;
+    *.json) fail "r2: the relaunch wrote a profile into the worker's state folder: $f" ;;
+  esac
+done
+rm -f "$wdir/lefthook-edit"
+echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record, and refuses one a stale file-tool hook would leave open"
+
 # ---------------------------------------------------------------------------
 # r3: a resume that fails after the stop, then a worker that is not running.
 # A worker with no recorded scope passes every check before the stop and
@@ -394,3 +485,54 @@ case $guide in
   *) fail "r4: docs/fleet.md does not document the relaunch verb" ;;
 esac
 echo "ok: r4 the fleet guide states that permissions load at session start and documents relaunch (REQ-G1.3)"
+
+# ---------------------------------------------------------------------------
+# r8: a fresh launch from inside a worker records that worker as its parent;
+# one from outside a worker records none, and a recover keeps what the launch
+# recorded.
+# ---------------------------------------------------------------------------
+[ ! -e "$wdir/parent" ] || fail "r8: a launch from outside a worker recorded a parent: $(cat "$wdir/parent")"
+wt2="$tmp/wt2"
+git -c init.defaultBranch=main init -q "$wt2" || fail "r8: cannot create the second work repository"
+sdir="$home/streamjson/sjr-step"
+# senv scrubs the worker identity, so the launching worker's is set after it.
+step_env() {
+  env "${env_scrub[@]}" PLANWRIGHT_WORKER_HANDLE="$1" \
+    PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" \
+    GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    /bin/sh "$SJ" "${@:2}"
+}
+step_env sjr1 launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8: the launch from inside a worker exited non-zero"
+if [ "$(cat "$sdir/parent" 2>/dev/null)" = sjr1 ]; then
+  echo "ok: r8 a launch from inside a worker records it as the parent"
+else
+  fail "r8: the launch from inside worker sjr1 recorded parent '$(cat "$sdir/parent" 2>&1)'"
+fi
+poll_until --what 'the step session' -- test -s "$sdir/session" || fail "r8: setup: the step session never started"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1 || fail "r8: setup: the stop of sjr-step failed"
+(cd "$wt2" && senv -- recover sjr-step --cwd "$wt2") >/dev/null 2>&1 || fail "r8: the recover of sjr-step exited non-zero"
+[ "$(cat "$sdir/parent" 2>/dev/null)" = sjr1 ] || fail "r8: a recover from outside a worker dropped the recorded parent"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+step_env sjr-step launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8: the self-named relaunch exited non-zero"
+[ ! -e "$sdir/parent" ] || fail "r8: a launch naming itself as the launching worker recorded a parent"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+echo "ok: r8 a recover keeps the parent, and a session is never its own parent"
+
+# ---------------------------------------------------------------------------
+# r9: a relaunch onto a pull request's worktree records that pull request's
+# head branch, the one checked out there, as the unit branch.
+# ---------------------------------------------------------------------------
+pr_head=planwright/flight/pr-head-0123abcd
+git -C "$wt2" checkout -q -b "$pr_head" || fail "r9: setup: cannot check out the pull request's head branch"
+(cd "$wt2" && senv -- recover sjr-step --cwd "$wt2") >/dev/null 2>&1 || fail "r9: the recover onto the pull request's worktree exited non-zero"
+poll_until --what 'the relaunched step session' -- test -s "$sdir/worker.pid" || fail "r9: setup: the relaunched session never started"
+r9_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+if [ -f "$r9_rec" ] && grep -qx "unit_branch=$pr_head" "$r9_rec"; then
+  echo "ok: r9 a relaunch onto a pull request's worktree records its head branch as the unit branch"
+else
+  fail "r9: the relaunch recorded: $(tr '\n' ' ' <"$r9_rec" 2>&1)"
+fi
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1

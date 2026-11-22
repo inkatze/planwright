@@ -103,8 +103,9 @@ fleet_max_parallel_units: 3
 # beneath it. It bounds the sum of every program's workers, reviewers,
 # walkers and relays registered in the shared mission-control registry
 # (mission-control sessions, and sessions marked waiting, are not counted), checked by
-# scripts/mission-control-launch.sh before every such launch. A
-# positive integer, or `off` for no host-wide bound. The shipped number is
+# scripts/mission-control-launch.sh before every launch of a kind under the
+# worker profile (a tower, orchestrator or mission-control launch runs no tests
+# and is never held). A positive integer, or `off` for no host-wide bound. The shipped number is
 # sized for a 12-core host; set it lower on a smaller machine. Sessions
 # offloaded to another host (scripts/fleet-remote.sh) are counted on that host,
 # never here. An operator-asked launch (--operator-asked) goes past it, with a
@@ -1186,9 +1187,12 @@ mission_control_radar_max_events: 20
 # Which branches the conflict radar pairs: authored (the pull requests the
 # forge snapshot holds, their base branches, and the program's own unit
 # branches), watched (the branches in mission_control_radar_watched), or all
-# (every origin branch). Merge-queue refs never pair.
+# (every origin branch). Merge-queue refs never pair, and under every scope a
+# branch pairs only while it heads an open pull request of its own repository,
+# which the radar reads through gh once per repository per pass.
 mission_control_radar_scope: authored
-# The branches the watched scope pairs, a list of branch names.
+# The branches the watched scope pairs (those with an open pull request), a
+# list of branch names.
 mission_control_radar_watched: []
 # The rate-limit headroom at or below which a snapshot adapter's next read
 # waits for the limit's reset instead of polling.

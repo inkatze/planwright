@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# hermetic-env.sh — the one list of configuration and root variables a suite
-# must not inherit, and the helpers that clear or pin them (sourced, never
-# executed). An inherited root, overlay or fleet-home variable decides what the
-# code under test reads, so the test passes or fails on the host.
+# hermetic-env.sh — the one list of configuration, root and session variables
+# a suite must not inherit, and the helpers that clear or pin them (sourced,
+# never executed). An inherited root, overlay, fleet-home or session variable
+# decides what code under test reads, so the test passes or fails on the host.
 #
 # Sourcing clears the cleared variables. The pinned ones (the fleet home's
 # chain) stay, since clearing them would fall through to the operator's home;
@@ -23,6 +23,9 @@
 #                                  succeed when the user is really denied that
 #                                  access (root is not)
 
+# The session variables are the ones a launched worker exports: under its
+# record the dispatch seam refuses tmux and the worker guard opens its scratch
+# arm.
 hermetic_env_cleared='
   PLANWRIGHT_ROOT
   PLANWRIGHT_REPO_ROOT
@@ -38,6 +41,12 @@ hermetic_env_cleared='
   CLAUDE_PLUGIN_ROOT
   CLAUDE_PROJECT_DIR
   CLAUDE_CONFIG_DIR
+  PLANWRIGHT_CI_REUSE_BUDGET
+  PLANWRIGHT_WORKER_SESSION_RECORD
+  PLANWRIGHT_SESSION_BACKEND
+  PLANWRIGHT_WORKER_HANDLE
+  PLANWRIGHT_WORKER_SCOPE
+  PLANWRIGHT_MESSAGING_INBOUND
 '
 hermetic_env_pinned='
   PLANWRIGHT_FLEET_STATE_DIR

@@ -634,6 +634,55 @@ else
   fail "mise opt-in: the field outlived its launch"
 fi
 
+echo "### the lefthook config opt-in is a launch-time field"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: a launch without the flag writes no field"
+else
+  fail "lefthook opt-in: the field appeared without the flag"
+fi
+set_layer machine-local 'lefthook_edit: true'
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: config never sets it"
+else
+  fail "lefthook opt-in: a config line reached the record"
+fi
+set_layer machine-local ''
+REC=$(/bin/sh "$WRITER" write "$WT" --lefthook-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(grep -c '^lefthook_edit=' "$REC")" -eq 1 ] \
+  && ! grep -q '^mise_task_edit=' "$REC"; then
+  pass "lefthook opt-in: the flag writes lefthook_edit=1 once, and no mise field"
+else
+  fail "lefthook opt-in: the flag wrote '$(field lefthook_edit)' (rc=$RC)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session demo-1 --scratch --mise-task-edit --lefthook-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(field mise_task_edit)" = 1 ]; then
+  pass "lefthook opt-in: it combines with a session, the scratch root and the mise opt-in"
+else
+  fail "lefthook opt-in: the combined form failed (rc=$RC, $(cat "$T/err"))"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --mise-task-edit 2>"$T/err")
+if [ -s "$REC" ] && [ "$(field mise_task_edit)" = 1 ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: the mise flag alone writes no lefthook field"
+else
+  fail "lefthook opt-in: the mise flag leaked into the lefthook field"
+fi
+/bin/sh "$WRITER" write "$WT" --lefthook-edit --lefthook-edit >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  pass "lefthook opt-in: a repeated flag is a usage error"
+else
+  fail "lefthook opt-in: a repeated flag was accepted"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: a relaunch without the flag drops the field"
+else
+  fail "lefthook opt-in: the field outlived its launch"
+fi
+
 echo "### launch backend: a headless launch is recorded for the dispatcher to read"
 write "$WT"
 if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
@@ -661,6 +710,43 @@ if [ "$RC" -eq 0 ] && [ -z "$(field launch_backend)" ]; then
   pass "launch_backend: a value that is not a headless backend is not recorded"
 else
   fail "launch_backend: an unknown value was recorded (rc=$RC)"
+fi
+
+SB=planwright/demo/amendment-1
+REC=$(/bin/sh "$WRITER" write "$WT" --spec-branch "$SB" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field spec_branch)" = "$SB" ] && [ "$(grep -c '^spec_branch=' "$REC")" -eq 1 ]; then
+  pass "spec branch: the flag writes spec_branch once"
+else
+  fail "spec branch: the flag wrote '$(field spec_branch)' (rc=$RC)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session demo-1 --scratch --mise-task-edit --spec-branch "$SB" 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field spec_branch)" = "$SB" ] && [ "$(field mise_task_edit)" = 1 ]; then
+  pass "spec branch: it combines with a session, the scratch root and the mise opt-in"
+else
+  fail "spec branch: the combined form failed (rc=$RC, $(cat "$T/err"))"
+fi
+for bad in main planwright/flight/x-0123abcd planwright/demo/task-2 planwright/demo/ planwright/demo/../x \
+  refs/heads/planwright/demo/a 'planwright/demo/A b' planwright/demo/x.lock; do
+  /bin/sh "$WRITER" write "$WT" --spec-branch "$bad" >/dev/null 2>&1
+  if [ "$?" -eq 2 ]; then
+    pass "spec branch: '$bad' is a usage error"
+  else
+    fail "spec branch: '$bad' was accepted"
+  fi
+done
+/bin/sh "$WRITER" write "$WT" --spec-branch "$SB" --spec-branch "$SB" >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  pass "spec branch: a repeated flag is a usage error"
+else
+  fail "spec branch: a repeated flag was accepted"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^spec_branch=' "$REC"; then
+  pass "spec branch: a launch without the flag carries none"
+else
+  fail "spec branch: the field outlived its launch"
 fi
 
 echo

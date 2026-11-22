@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # noop-padding-guard.sh — the PreToolUse hook that refuses a worker's Bash
 # command carrying no-op padding: a segment that does nothing, apparently
-# written to change how the command is classified, or a shared fixed name
-# under /tmp.
+# written to change how the command is classified, a shared fixed name under
+# /tmp, or a process held open for nothing (`tail -f /dev/null`, `sleep infinity`).
 #
 # Usage: noop-padding-guard.sh < <PreToolUse payload>
 # Output: a permissionDecision "deny" with a plain reason naming the shape and
@@ -11,8 +11,8 @@
 #
 # Posture: worker-command-guard.sh is allow-only, so this is a separate,
 # deny-emitting hook like background-job-guard.sh, wired beside it. Every
-# shape here is a pure no-op (or a shared name) with a mechanical alternative,
-# so refusing fits better than deferring: a deferred call reaches the
+# shape here is a pure no-op, a shared name or a holder, each with a
+# mechanical alternative, so refusing fits better than deferring: a deferred call reaches the
 # supervisor, which is exactly the hand-denial this hook replaces. The reason
 # is fixed text per shape and never reflects the command.
 #
@@ -20,7 +20,8 @@
 # command is split into segments quote- and heredoc-aware, and a construct the
 # splitter does not follow (a subshell, a backtick, a substitution inside
 # double quotes, an unterminated quote) defers the whole command. Text inside
-# quotes, heredoc bodies and substitutions is never read as a command.
+# quotes, heredoc bodies and substitutions is never read as a command, bar the
+# holder check, which reads a shell -c body and substitution words.
 # shellcheck disable=SC1003
 set -u
 unset CDPATH
@@ -408,6 +409,162 @@ DEVNULL_REASON='a redirect to, or read of, /dev/null does nothing for the comman
 TMP_REASON='a fixed or shared name under /tmp is raced and clobbered by other sessions. Use a file inside your own scratch directory from mktemp -d, and use full paths'
 MKTEMP_REASON='mktemp -u only names a shared path without creating it. Use mktemp -d for your own scratch directory, and write files inside it'
 HEAD_REASON='head with a count of zero prints nothing. Remove it'
+HOLD_REASON='tail -f on /dev/null and sleep infinity hold a process open with nothing to end it, nothing reaps it when the command ends, and uutils tail also busy-wakes on /dev/null. Wait with sleep N for a bounded number of seconds, or follow a real log file as timeout N tail -f <file>'
+
+# hold_cmd <word>...: succeeds when the command these words spell holds a
+# process open on purpose: tail following /dev/null, or sleep infinity, run
+# directly or behind timeout, nohup, setsid or exec, or by a shell -c whose
+# body does. A bounded `timeout N tail -f <file>` is a real follow and does
+# not match. The awk in mc-stall.sh's stream_json_procs recognises the same
+# two commands in a process table; keep them in step.
+hold_cmd() {
+  local a w follow=0 null=0 bounded=0 c=0
+  while [ "$#" -gt 0 ]; do
+    case ${1##*/} in
+      timeout)
+        shift
+        while [ "$#" -gt 0 ]; do
+          case $1 in
+            -s | -k | --signal | --kill-after) shift 2 || return 1 ;;
+            -*) shift ;;
+            *) break ;;
+          esac
+        done
+        [ "$#" -eq 0 ] || shift
+        ;;
+      nohup | setsid | exec)
+        shift
+        while [ "$#" -gt 0 ]; do
+          case $1 in
+            -a) shift 2 || return 1 ;;
+            -*) shift ;;
+            *) break ;;
+          esac
+        done
+        ;;
+      *) break ;;
+    esac
+  done
+  [ "$#" -gt 0 ] || return 1
+  a=${1##*/}
+  shift
+  case $a in
+    tail)
+      for w in "$@"; do
+        case $w in
+          --pid | --pid=*) bounded=1 ;;
+          --follow | --follow=*) follow=1 ;;
+          --*) ;;
+          -*[fF]*) follow=1 ;;
+          /dev/null) null=1 ;;
+        esac
+      done
+      [ "$follow" = 1 ] && [ "$null" = 1 ] && [ "$bounded" = 0 ] && return 0
+      ;;
+    sleep)
+      for w in "$@"; do
+        w=${w#+}
+        case $w in
+          [Ii][Nn][Ff] | [Ii][Nn][Ff][Ii][Nn][Ii][Tt][Yy]) return 0 ;;
+        esac
+      done
+      ;;
+    bash | sh | dash | zsh | ksh)
+      while [ "$#" -gt 0 ]; do
+        case $1 in
+          --) shift && break ;;
+          --*) shift ;;
+          -*c*) c=1 && shift ;;
+          -*) shift ;;
+          *) break ;;
+        esac
+      done
+      [ "$c" = 1 ] && [ "$#" -gt 0 ] && hold_text "$1" && return 0
+      ;;
+  esac
+  return 1
+}
+
+# hold_text <text>: succeeds when a command in the text, taken as the words
+# between its separators, is a holder. The text is split without quote
+# awareness, so it is read only where a command is in play: a shell -c body, a
+# command substitution word or a process substitution.
+hold_text() {
+  local t=$1 line w out seps='[;&|(){}]' skip IFS=$' \t'
+  # A comment runs to the end of its line, ahead of any separator inside it.
+  out=''
+  while IFS= read -r line; do
+    case $line in
+      '#'*) line='' ;;
+      *[$' \t']'#'*) line=${line%%[$' \t']#*} ;;
+    esac
+    # shellcheck disable=SC2295 # seps is a bracket pattern on purpose
+    case $line in
+      *$seps'#'*) line=${line%%$seps#*} ;;
+    esac
+    out=$out$line$'\n'
+  done <<EOF
+$t
+EOF
+  t=${out//$seps/$'\n'}
+  while IFS= read -r line; do
+    # A redirect's target is no argument: `2> /dev/null` spaced out leaves the
+    # operator ending a word, and the target the next.
+    out=''
+    skip=0
+    set -f
+    # shellcheck disable=SC2086 # word splitting is the point, globbing is off
+    for w in $line; do
+      if [ "$skip" = 1 ]; then
+        skip=0
+      else
+        case $w in
+          *[\<\>]) skip=1 ;;
+          *) out="$out $w" ;;
+        esac
+      fi
+    done
+    # shellcheck disable=SC2086
+    set -- $out
+    set +f
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        do | then | else | elif | '!' | while | until | if | time) shift ;;
+        [A-Za-z_]*=* | [0-9]*[\<\>]* | [\<\>]*) shift ;;
+        *) break ;;
+      esac
+    done
+    [ "$#" -eq 0 ] || ! hold_cmd "$@" || return 0
+  done <<EOF
+$t
+EOF
+  return 1
+}
+
+# hold_shape: succeeds when the segment (verb in $verb, arguments in AW and
+# an, words in SW, redirect targets in RT) starts a holder, or carries one in
+# a substitution word.
+hold_shape() {
+  local i
+  if [ -n "$verb" ]; then
+    set -- "$verb"
+    for ((i = 0; i < an; i++)); do set -- "$@" "${AW[i]}"; done
+    hold_cmd "$@" && return 0
+  fi
+  for ((i = 0; i < SN; i++)); do
+    [ "${SQ[i]}" = 0 ] || continue
+    # shellcheck disable=SC2016 # a literal $( in the word, not an expansion
+    case ${SW[i]} in
+      *'$('* | *'<('* | *'>('*) ! hold_text "${SW[i]}" || return 0 ;;
+    esac
+  done
+  for ((i = 0; i < RN; i++)); do
+    case ${RT[i]:-} in
+      '<('* | '>('*) ! hold_text "${RT[i]}" || return 0 ;;
+    esac
+  done
+  return 1
+}
 
 # check_segment <prev-op> <next-op>: sets REASON and returns 0 on a shape.
 SW=()
@@ -446,6 +603,11 @@ check_segment() {
     an=$((an + 1))
     k=$((k + 1))
   done
+
+  if hold_shape; then
+    REASON=$HOLD_REASON
+    return 0
+  fi
 
   has_out=0
   has_in=0

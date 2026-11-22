@@ -364,7 +364,14 @@ subagent rungs. A record carries what closing a worker needs when the tower that
 launched it is gone: the handle, the **owner token** (which tower dispatched
 it), the backend, the state directory where the rung keeps one, and the death
 handle (`process <pid>`, `tmux-window <session> <window>`, or `none` for a rung
-that spawns no process).
+that spawns no process). A tmux window id names a window only for the life of
+the server that issued it, since a restarted server numbers from `@0` again, so
+the dispatch seams pin it: `tmux-window <session> <window> <server> <name>`,
+the server being `<pid>.<start time>` and the name the one the window was
+given. A pinned window is live only while all three still hold, and nothing
+closes it by id otherwise. A handle written before the pin is never closed by
+its id, and counts as live only in its recorded session and only when it was
+registered after the running server started.
 
 A column with nothing to put in it is written `-` and reads as the gap it is. An
 unowned record renders `unknown-owner` rather than being attributed to anyone,
@@ -862,8 +869,44 @@ watcher runs it as `alarm-scan --once` on every pass: an overdue request
 becomes a high-priority queue item, is pushed once (the tick and `--once` share
 one mark per request; a plain scan pushes on every call), and wakes the
 mission-control session as a `pending-prompt-overdue` event. A request that has
-just arrived wakes it sooner as a `pending-prompt` event, at most one per
-rate-limit window (`mc-keeper.sh` names it) so a burst is one wake.
+just arrived wakes it sooner as a `pending-prompt` event, one per pass so a
+burst is one wake (a batch whose names outgrow one event's text spans a
+few). The event names every request still waiting, worker and request id,
+and a request that arrives later is always a new event, never folded into
+one already read.
+Each goes to the worker's own program: its launcher row's, else the owner its
+dispatch record keeps, else its parent's row or record (the worker it was
+launched from inside), else the configured program its name carries under the
+launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
+polish pass adding `-<suffix>`). A live worker with a request waiting and no
+row of its own is raised once to the program its record, parent or name gives,
+as a `stream-json-worker-unregistered` event, so its mission control can
+retire it or launch it afresh; not while the launcher's list, the program list
+or the session kinds cannot be read, nor for a worker whose registry file
+the list skipped (another format's row). Each request of a worker none of
+these owns, or of a worker whose program has no live mission control (no
+launched mission-control row, or every one positively dead), is raised once,
+whichever keeper sees it first, as a `stream-json-worker-unowned` event under
+the hub program (`mission_control_escalation_hub`), so the stuck prompt still
+reaches a mission control; a request arriving after the first is its own
+event. With no hub program configured the event stays with the program whose
+keeper found it, and its text says so. Routing only decides who hears a
+prompt: who may answer it is unchanged.
+The same watch lists every stream-json supervisor or `claude -p` worker of
+the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
+a supervisor whose state directory is gone or records another supervisor,
+or whose working directory is gone, as a test suite killed before its
+cleanup leaves one, and a worker with no supervisor. It also lists a
+`tail -f /dev/null` or `sleep infinity` holder whose parent is pid 1 (or, on
+a host with procfs, a process named systemd, init or launchd), as a leaked
+wait loop leaves them (uutils `tail` busy-wakes on `/dev/null`, so each
+burns a core); a service manager that runs one on purpose reads the same, so
+the event names what was read and the call stays the operator's. Each is its
+own event, by process. One listed for a
+minute is raised once for the machine as a
+`stream-json-worker-orphaned` event under the hub program, else the program
+whose keeper found it. Nothing
+signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
 non-zero is named on stderr and wakes it once as a `keeper-sweep-failed` event;
@@ -877,7 +920,9 @@ request row it raised (a failure item stays), and prints
 worker is in flight, the scan neither settles nor escalates it, leaving its
 requests to a later scan. `answer` delivers the
 operator's recorded answer as the control_response; `recover` resumes a
-crashed worker's session via `--resume`; `status` surfaces completion and
+crashed worker's session via `--resume`, first restoring a mission-control
+launcher worker's registry row from the copy its launch kept (refusing, exit 3,
+where the row is gone and no copy covers it); `status` surfaces completion and
 liveness from the supervisor, the journal and the captured event stream — a
 live worker with a pending receipt reports `awaiting-input pending=<n>
 oldest=<age>s supervisor=<pid> worker=<pid>` (`oldest=unknown` when no pending
@@ -970,13 +1015,29 @@ naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
 executable, or a proof that could not run at all, refuses the same way. So
 does a hook root (the plugin root the wrapper exports) without an executable
-`scripts/policy-guard.sh`: the worker
-profile leaves merges and history rewrites to that guard, and a hook that
-cannot run refuses nothing.
+`scripts/policy-guard.sh`: the worker profile leaves merges and history
+rewrites to that guard, and a hook that cannot run refuses nothing. So does an
+exported plugin root that does not resolve from the worker's directory, since
+none of the worker's hooks would run from it; the refusal names that root.
+
+A launch or relaunch given `--mise-task-edit` or `--lefthook-edit` also proves
+that hook root's `scripts/worker-mise-edit-guard.sh` judges the opted-in names:
+a write of each name set outside the worktree (`mise.toml`, `lefthook.yml`)
+must be refused with exit 0 and the hook's one line of hook JSON, and a plain
+file there must pass. The generated profile drops those names' broad denies,
+so a copy that does not judge them (one from before the opt-in, a missing one,
+or one that refuses everything) refuses the launch with exit 9, as does an
+unresolvable root. That proof guards containment rather than approvals, so the
+knob below neither skips nor softens it. A relaunch runs it and checks the
+profile still generates, into a scratch folder, before the stop, so a refused
+relaunch leaves the running worker's profile as it was. A resume
+(`--resume-session`) takes neither flag: it keeps the opt-ins its launch
+recorded.
+
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
-downgrades every refusal to a warning and launches, `off` skips the proof, and
-any other value is a usage error. The installed roots the proof covers are
-read through the same resolver the hook trusts them from, so that set cannot
+downgrades every approval refusal above to a warning and launches, `off` skips
+the approval proof, and any other value is a usage error. The installed roots
+the proof covers are read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
@@ -999,18 +1060,26 @@ hook root has no `scripts/background-job-guard.sh`.
 
 The worker profile also wires `scripts/noop-padding-guard.sh` beside it, a
 deny-emitting hook (the command guard is allow-only) that refuses a Bash
-command whose only effect is to look different to the permission check:
+command carrying no-op padding, which only looks different to the permission
+check, or a process held open for nothing:
 a redirect to or read of the null device, `|| true` or `; true`, a
 pass-through `| cat`, an empty heredoc, `cat >` with no input, a placeholder
 write, an empty function, a bare `echo` or `echo ok`, `true` or `:` as a step,
 `python3 -c 1`, `cd .`, `cd X || cd X`, `cd X; cd -`, a zero-count `head` or
-`sed -n 1,0p`, and a fixed or `mktemp -u` name under `/tmp`. Each refusal
+`sed -n 1,0p`, a fixed or `mktemp -u` name under `/tmp`, and `tail -f` on
+`/dev/null` or `sleep infinity` (a holder nothing reaps; uutils `tail`
+busy-wakes on `/dev/null` too). Each refusal
 names the shape and the alternative: send output you do not need to a file in
-your own `mktemp -d` scratch directory, and use full paths. It reads the command
+your own `mktemp -d` scratch directory, and use full paths; wait with `sleep N`,
+or follow a real log file as `timeout N tail -f <file>`. It reads the command
 quote- and heredoc-aware, so the same words inside a string, a heredoc body or
 a file's content pass, and a command it cannot follow (a subshell, a backtick,
 a substitution inside double quotes) is deferred whole, as is a command that
-hides the padded verb behind a wrapper such as `env` or `sudo`. A `/tmp` path
+hides the padded verb behind a wrapper such as `env` or `sudo`. The holder
+check looks through `timeout`, `nohup`, `setsid` and `exec`, and reads a shell
+`-c` body and a command or process substitution word for a holder at a command
+position, so `bash -c 'sleep infinity'` is refused and `bash -c 'echo sleep
+infinity'` is not. A `/tmp` path
 is refused only as an unquoted word or a redirect target. The launch
 preflight does not check for this guard's script. It cannot judge an
 unused variable, a `mkdir -p` of a directory that exists, or a `sed` that
@@ -1020,7 +1089,12 @@ supervisor.
 `stop <worker> [--grace <secs>]` is the close: it terminates the supervisor and
 its children (SIGTERM, then SIGKILL after the grace, since children do not
 reliably die with a parent SIGTERM) and releases the locks, scratch temp, and
-attention record the worker held. `--grace` takes a whole number of seconds
+attention record the worker held. Before each signal it stops the whole tree
+with SIGSTOP and re-reads it until nothing new appears, so a child forked while
+the close runs cannot be reparented out of reach; a close interrupted in that
+window continues the tree before it exits, and only a SIGKILL of the close
+itself can leave the tree stopped for the next `stop` to finish.
+`--grace` takes a whole number of seconds
 within the bounds the script declares; run `stop` with an out-of-range value to
 have it name them. The event capture, the persisted session, the rate-limit
 reading, and the receipt journal survive a stop: they are the durable record,
@@ -1161,7 +1235,7 @@ in that directory at the allocation key and unit the launch recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
 that does not resolve to `inherit`; a tier model, effort or reservation the
 launch recorded is handed back to that plan as an override. A launch's
-`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+`--mise-task-edit` and `--lefthook-edit` opt-ins are kept too: the relaunch regenerates the worker's
 per-launch settings profile, and a profile it cannot generate is exit `7`.
 Any other extra argument the original launch passed after `--` is not carried
 over. (`recover --cwd <dir>` is
@@ -2690,6 +2764,10 @@ settings file generated for that worker from `config/worker-settings.json`
 `mise_task_edit=1`; a launch without the flag passes the shipped profile
 unchanged. What it opens and the residual risk are in
 [the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in).
+`--lefthook-edit` is the same opt-in for the worktree's lefthook config
+(`lefthook.<ext>`, `lefthook/`), recorded as `lefthook_edit=1`; it composes with
+the mise one and is described in
+[the lefthook config opt-in](permission-matcher-model.md#the-lefthook-config-opt-in).
 A worker, reviewer or ad-hoc launch never starts
 in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
 --no-attach` create its worktree, or reuses the one holding its branch when
@@ -2714,6 +2792,14 @@ record and attention row, printing the same `retire` line over the classes
 `process`, `registry` and `attention`. A name with neither a row nor a
 stream-json runtime directory is exit 3, and the refusal names the headless
 rung's `stop` and `tmux kill-window` as the closes that apply.
+
+A session with a live `operator`, `ci` or `ready-flip` wait (set with
+`wait <name> --on <why>`) is parked, not finished: `retire` refuses it with
+exit 4 naming the wait, `fleet-streamjson.sh status` prints `parked` for it
+(or for a turn that ended on a question) rather than `completed`, and no
+idle bound, completed-grace retire or process reap (`fleet-cleanup.sh
+process`, which also refuses a row whose wait it cannot read) touches it. `unwait`
+restores the plain retire; `retire <name> --force-parked` retires it anyway.
 
 The `/tower` front door runs under the same profile. The shapes its sessions
 run routinely (the posture check's `jq` projections, and a flight petition's
@@ -2836,6 +2922,65 @@ answers one on its own judgment, and mentioning a prompt in passing is not
 you deciding it. Command text shown to you for approval is plain ASCII; any
 other byte is shown as an escape with a warning, so you never approve text
 that renders as something else.
+
+## Another host over SSH: the channel and the remote's setup
+
+`scripts/fleet-remote.sh --host <alias> <verb>` is the one near-side path to
+another computer you reach by SSH (a LAN machine, a cloud workspace). The alias
+is whatever your `~/.ssh/config` resolves; the script runs a fixed set of verbs
+through the remote's own installed planwright and never runs a command you
+supply. `--help` prints the verb list and exit codes. Beyond the worker verbs
+(`launch`, `pending`, `answer`, `steer`, `status`, `retire`) and `compute`,
+`version` and `capacity` are read-only probes that tell a placement or a
+dispatch what the remote offers and can take, and `stop` closes a worker:
+
+| Verb | Prints |
+| --- | --- |
+| `version` | `version <remote planwright version>`, then `verbs <the channel's verbs the remote's supervisor and launcher offer>`; `unavailable` or `none` where the remote cannot say. A host with no planwright root exits 3 instead, as for any verb that needs the root |
+| `capacity` | one line, `load=<1-minute load> cores=<n> mem_free_mb=<n> idle_secs=<n>` |
+| `stop <worker> [--grace <secs>]` | the remote supervisor's own close of that worker; `--grace` takes a whole number of seconds, at most four digits |
+
+`capacity` reports only what the remote's platform offers. A field it cannot
+read prints `unavailable`, never `0`, so a consumer cannot mistake a missing
+reading for an idle or empty host. Free memory is Linux's available memory, or
+macOS's free, inactive and speculative pages. Input idle time is read from
+macOS's HID idle counter and is `unavailable` on Linux, where there is no
+portable equivalent.
+
+### Setting up the remote host
+
+The channel installs nothing there; you set the host up once:
+
+1. **Key-only SSH.** The alias must connect without a prompt: the channel runs
+   SSH in batch mode with agent, X11 and port forwarding off, so a host that
+   would ask for a password or a host key fails at once (exit 255).
+2. **Planwright and `jq`.** Install planwright on the remote through its own
+   plugin install. The channel finds the root from that host's installed-plugin
+   record (which needs `jq` there); no option and no environment variable picks
+   another copy. With no record, a verb that needs the root exits 3 and names
+   the fix (`capacity`, `load` and `compute` never need it).
+3. **The remote's own logins.** The Claude login (and, if the host should push
+   its own branches, the hosting-remote login) is made on that host. The channel
+   never carries a credential. On macOS an SSH session may find the keychain
+   locked; the fallback is a long-lived token from `claude setup-token` in an
+   owner-only file the environment file below loads, never in a tracked file.
+   That file's contents are then readable by the code `compute` runs, so use
+   the fallback only if you accept that (see step 4).
+4. **The environment file (optional).** `~/.config/planwright/remote-env.sh` on
+   the remote is sourced before every verb. It is the place for `PATH` (mise
+   shims, Homebrew, the `claude` binary) and `CLAUDE_PLUGIN_DATA` (the remote's
+   fleet home), because SSH runs a non-login shell that loads neither. A file
+   whose sourcing returns nonzero fails the verb with exit 3; one that calls
+   `exit` itself ends the verb with that status instead. Keep secrets out of it unless
+   you accept that compute runs (below) can read them: it is sourced into the
+   same shell that runs the shipped commit's code.
+5. **A clone per repository (for `compute`).** The repository must be cloned at
+   `~/dev/<origin repository name>` on the remote, with `git`, `perl` and `mise`
+   (or `/bin/bash` for a single test file) installed.
+
+`compute` runs the caller's committed code as the remote account, so whatever
+that account can read, the code can too. Prefer an account with no hosting-remote
+or model login for it, or accept that exposure deliberately.
 
 ## The knobs: capability in core, value in overlay
 

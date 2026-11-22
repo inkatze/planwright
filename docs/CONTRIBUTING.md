@@ -201,7 +201,10 @@ skip on a plain draft push) and in an Alpine container
 (musl, dash, busybox; the planned count), and the `check` job, the status
 branch protection reads, passes only when every one of those jobs and shards
 does (the macOS jobs may be skipped on a plain draft) and the test-time budget
-gate passes over every Linux shard's timing report together. The install smoke
+gate passes over every Linux shard's timing report together. A ready flip
+whose head, base and `ci.yml` an earlier run already passed every suite job
+on skips the suite jobs and the timing gate, and `check` names that run
+([`ci-self-hosted-mac.md`](ci-self-hosted-mac.md)). The install smoke
 (`scripts/install-smoke.sh`, installing through both delivery modes and running
 an adopter entry point with PATH narrowed to the allowlist the script defines:
 sh and bash with the POSIX utilities, `mktemp`, git, and gh) runs in the `lint` job, once on macOS in
@@ -214,6 +217,36 @@ the `git ls-files` pipe included; to refresh the image, edit only that
 digest. This is dev tooling
 only — planwright's **runtime** scripts stay plain portable bash with no mise
 dependency.
+
+### The bot review (PR-Agent)
+
+The PR-Agent workflow (`.github/workflows/pr-agent.yml`) is a paid review, so
+it runs once per pull request, on the run the ready flip fires
+(`ready_for_review`), and never on `opened`, `synchronize` or `reopened`;
+`scripts/check-workflow-posture.sh` refuses a trigger set that drifts. A draft
+never runs it (the job skips a draft), so open pull requests as drafts: the
+readiness check never asks for a run before the flip (a draft whose only gap
+is the `post-pr` point, which waits on that run, gets the
+`flip-for-review <head>` verdict, telling the caller to flip; any other gap
+keeps it not-ready), and a check created at
+or after the flip is a run the flip started, the flip's to finish, while one
+created before it and still running means the flip came too early. After the
+flip, wait for the runs it started, PR-Agent included, then settle its
+findings. A fix that changes code makes a new head, which needs one more run:
+request a review from anyone on the ready pull request (the `review_requested`
+event does not say who, and `scripts/request-reviewer.sh --copilot` sends one).
+That is the explicit trigger: the same pull-request event, so the
+same-repository, dependabot and `skip-pr-agent` label conditions apply
+unchanged. GitHub can accept a request and add no reviewer, which fires
+nothing, so the helper waits for the request to land and exits 6 when none
+does; converting the pull request to draft and marking it ready again then
+fires the run instead (the re-draft is the operator's: the policy guard keeps
+it from agents). A pull request opened ready has no flip, so it needs that
+request for its one run. A ready pull request is merge-ready only with a PR-Agent run
+on its final head, created at or after the flip where there is one, that passed (or was skipped by
+the `skip-pr-agent` label or a dependabot head) and its findings answered; a
+run that predates the flip is not the flip's, and a ready pull request whose
+flip-fired run is still running is never merge-ready.
 
 ### Opt-in suites, outside the gate
 
@@ -361,7 +394,8 @@ its fixture.
 ### Tests pass on the code, not on the host
 
 A suite run by hand inherits whoever runs it, so a root or overlay variable
-from that shell can decide what the code under test reads.
+from that shell, or a launched worker's session variables, can decide what
+the code under test reads.
 [`tests/lib/hermetic-env.sh`](../tests/lib/hermetic-env.sh) holds the one
 list of those variables and clears them when sourced; the runner pins the
 same list per file (`PLANWRIGHT_TEST_PIN_ENV=0` turns that off). A suite that
@@ -374,6 +408,18 @@ is a PID from `dead_owner_pid`
 token, never a PID the test spawned and reaped. `check:test-hermeticity`
 fails each shape; a line it flags wrongly takes a
 `# hermetic-exempt: <reason>` comment.
+
+### No test runs the real claude CLI
+
+A launcher that falls through a suite's stub reaches the installed `claude`: a
+real session that spends tokens and that a killed suite leaves running. The
+runner puts a refusing `claude` first on every file's PATH and fails a file that
+calls it. Stub the CLI with a `claude` earlier on PATH or through the launcher's
+own binary variable (`PLANWRIGHT_STREAMJSON_CLI`, or `PLANWRIGHT_ORACLE_CLAUDE`
+for the liveness oracle), and make a stub that waits on its stdin end itself
+once the suite is gone, since a detached supervisor holds that stdin open. A
+call meant to reach the real CLI, such as an opt-in live probe, sets
+`PLANWRIGHT_TEST_REAL_CLAUDE=1` itself; the runner clears one exported to it.
 
 ### Waits hold up on a busy machine
 

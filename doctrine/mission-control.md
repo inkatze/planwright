@@ -227,8 +227,15 @@ The **configured cadence** is different: every in-run point's step list,
 which every unit runs, not one catalog entry gating later units. The
 readiness check audits it too (`scripts/step-run.sh audit --through
 post-pr`): a configured point with no completion that counts at the head,
-or a configured step its run did not record passed, applied, or skipped, is
-a gap, whatever launched the session and whatever its brief said. A
+a configured step its run did not record passed, applied, or skipped, one
+whose record the step-record truth check refuses (reported unaudited), or a
+record that does not match its branch (`mismatch`), is a gap, whatever
+launched the session and whatever its brief said. On a draft where PR-Agent
+runs, a `post-pr` gap (no completion, or a step unrecorded) is pending the
+flip, which fires the bot review: with nothing else held the walk says
+`flip-for-review <head>` (exit 4; the flip still follows `ready_flip_policy`),
+and once flipped it is `ready` only with the flip's run finished, its findings
+answered and `post-pr` complete. A
 spec-only pull request (every changed path a Markdown file added, modified or
 deleted under the spec root, the head holding that root) is held for
 each touched bundle's kickoff sign-off instead of the cadence and the gate

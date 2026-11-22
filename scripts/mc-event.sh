@@ -277,9 +277,11 @@ case $verb in
       fi
       total=$((total + 1))
       [ "$shown" -lt "$limit" ] || continue
-      line="$ev_at	$ev_kind	$ev_subject	$(sanitize_printable "$ev_text")"
+      mc_strip_ctl "$ev_text"
+      line="$ev_at	$ev_kind	$ev_subject	$MC_STRIPPED"
       if [ -n "$target" ]; then
-        printf '%s\t%s\t%s\n' "$id" "$line" "$(sanitize_printable "$mark" -)"
+        mc_strip_ctl "$mark" -
+        printf '%s\t%s\t%s\n' "$id" "$line" "$MC_STRIPPED"
       else
         printf '%s\t%s\n' "$id" "$line"
       fi

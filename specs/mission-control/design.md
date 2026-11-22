@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1777,6 +1777,11 @@ and forgetting a refusal.
 one" and the auto-close alternative are narrowed by D-65; a sweep closes on a
 passing machine check with the evidence recorded, never on a person's
 confirmation or a bare assertion.)*
+
+*(Amended at amendment 20 2026-11-20: the intake rows and the turn-end and
+handover refusals are built by control-plane's request ledger (control-plane
+D-22, D-25), which holds a turn's first stop once rather than every stop;
+REQ-F1.26 supersedes REQ-F1.19. The follow-up item rules stand.)*
 
 ### D-57: One lease shape, and rules carry clauses the guard keeps  (N; C, D-5, D-24, D-53)
 

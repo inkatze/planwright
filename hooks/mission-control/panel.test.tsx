@@ -318,7 +318,7 @@ test('a placed pane clears the fallback line', async ($, on) => {
   expect(w.statuses).toEqual([undefined])
 })
 
-const mcPanel = ($: Parameters<Parameters<typeof test>[1]>[0], args: string) =>
+const mcPanel = ($: { command: { run: (o: never) => Promise<unknown> } }, args: string) =>
   $.command.run({ command: 'mc-panel', args, origin: { kind: 'composer' } } as never).then(o => JSON.stringify(o))
 
 test('the slash command toggles the pane: closes it when open, opens it when closed', async ($, on) => {

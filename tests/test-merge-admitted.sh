@@ -100,7 +100,7 @@ check "the merge record passes the markdown lint" lint_emitted markdown merge-ad
 check "the merge uses the resolved strategy" grep -q -- '--squash' <<<"$(merge_line)"
 check "the merge is pinned to the evaluated head" grep -q -- "--match-head-commit $(mp_origin_head)" <<<"$(merge_line)"
 check "the merge never deletes the branch" not grep -q -- '--delete-branch\|-d ' <<<"$(merge_line)"
-check "one CI wait in total: one polled read, one confirming read" [ "$(rollups)" = 2 ]
+check "one CI wait in total: one polled read, one confirming read, the ready-guard reads on top" [ "$(rollups)" = 4 ]
 check "the handoff says merged" grep -q 'merged PR #42' <<<"$OUT"
 
 echo "# an admitted PR already ready gets no second flip"
@@ -194,11 +194,11 @@ check "the park is said on the PR" grep -qi 'awaiting' "$GHS/comment.2"
 
 echo "# the flip takes the class's precondition record: one CI wait in total"
 admit
-printf 'green\npending\ngreen\n' >"$GHS/ci_seq"
+printf 'green\ngreen\npending\ngreen\n' >"$GHS/ci_seq"
 run
 check "the flip reads the rollup once without waiting, so a check turning pending stops it (exit 4)" [ "$CODE" = 4 ]
 check "no merge after a flip that did not go through" [ "$(mp_calls 'pr merge')" = 0 ]
-check "the flip never re-evaluated afresh" [ "$(rollups)" = 2 ]
+check "the flip never re-evaluated afresh" [ "$(rollups)" = 3 ]
 check "a flip that did not go through is said on the PR" grep -qi 'flip.*did not go through' "$GHS/comment.$(cat "$GHS/comments" 2>/dev/null || echo 0)"
 
 echo "# a PR someone flips ready meanwhile still merges"
@@ -348,8 +348,10 @@ for s in polish self-review tower orchestrate; do
   check "/$s never calls the helper" not grep -q 'merge-admitted\.sh' "$REPO_ROOT/skills/$s/SKILL.md"
 done
 
-echo "# the release rule on every passage describing the release approval (REQ-D1.9)"
-RULE='never a class admission'
+echo "# the release rule on every passage describing the release approval (REQ-D1.10, superseding REQ-D1.9)"
+# A passage that only mentions the class does not satisfy a check: it must state
+# that a release PR merges through the release class, otherwise only by a human.
+RULE='a release PR merges only through the .release. class in .auto_merge_classes., otherwise only by a human'
 point() { # <n> — release-tagging.md's numbered point <n>, joined to one line
   awk -v n="$1" '$0 ~ "^" n "\\. " { on = 1 } on && $0 ~ "^(" n + 1 "\\. |## )" { exit } on' \
     "$REPO_ROOT/doctrine/release-tagging.md" | tr '\n' ' ' | tr -s ' '
@@ -361,7 +363,7 @@ check "release-tagging point 2 no longer claims no merge call site exists" not g
 joined() { tr '\n' ' ' <"$1" | tr -s ' '; }
 check "the human-gates merge-policy row states the rule" grep -q "^| Executing an authorized merge |.*$RULE" "$REPO_ROOT/doctrine/human-gates.md"
 check "the human-gates citation header cites REQ-D1.9 and D-15" grep -q 'REQ-D1.9.*D-15' <<<"$(sed -n '/^Citations:/,/^$/p' "$REPO_ROOT/doctrine/human-gates.md" | tr '\n' ' ')"
-check "guard-catalog's approval line states the rule" grep -q "approval the human merge under every .merge_policy. value (a release PR is $RULE" <<<"$(joined "$REPO_ROOT/doctrine/guard-catalog.md")"
+check "guard-catalog's approval line states the rule" grep -q "approval the human merge under every .merge_policy. value ($RULE" <<<"$(joined "$REPO_ROOT/doctrine/guard-catalog.md")"
 for d in human-gates release-tagging guard-catalog; do
   check "the doctrine README row of $d.md states the rule" grep -q "^| \[$d.md\].*$RULE.*REQ-D1.9" "$REPO_ROOT/doctrine/README.md"
 done

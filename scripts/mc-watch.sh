@@ -573,10 +573,21 @@ case $verb in
           next=$((cad - since))
         fi
       fi
-      printf 'watcher\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(sanitize_printable "$duty")" \
-        "$(sanitize_printable "$script")" "$(sanitize_printable "$cadence")" \
-        "$(sanitize_printable "$cost")" "$state" "$since" "$next" \
-        "$(sanitize_printable "${last_rc:--}" -)" "$(sanitize_printable "${last_refused:--}" -)"
+      # The panel reads this every redraw: a process per field is a fork storm.
+      mc_strip_ctl "$duty"
+      st_duty=$MC_STRIPPED
+      mc_strip_ctl "$script"
+      st_script=$MC_STRIPPED
+      mc_strip_ctl "$cadence"
+      st_cadence=$MC_STRIPPED
+      mc_strip_ctl "$cost"
+      st_cost=$MC_STRIPPED
+      mc_strip_ctl "${last_rc:--}" -
+      st_rc=$MC_STRIPPED
+      mc_strip_ctl "${last_refused:--}" -
+      st_refused=$MC_STRIPPED
+      printf 'watcher\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$st_duty" "$st_script" "$st_cadence" \
+        "$st_cost" "$state" "$since" "$next" "$st_rc" "$st_refused"
     done
     ;;
   stop)

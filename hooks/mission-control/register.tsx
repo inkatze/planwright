@@ -77,6 +77,8 @@ let ackedFor: string | null = null
 // the record on disk is then not this activation's, so it is neither
 // acknowledged nor switched to, and the recording is tried again instead.
 let recordFailed: 'variable' | 'reload' | 'clear' | null = null
+// Set at each session.start: a worker session never becomes mission control.
+let isWorker = false
 
 // Stderr reaches the pane, the status line and the event store: control
 // bytes dropped, one short line.
@@ -330,8 +332,10 @@ async function claim($: EngineInterface) {
   const claiming = ctx
   const claimed = await run($, 'mc-wake.sh', ['target', 'add', '--program', claiming.program, claiming.target, '--mod'])
   if (ctx?.program !== claiming.program || ctx.target !== claiming.target) {
-    // Stood down or switched while the claim ran: hand it straight back.
-    await release($, claiming)
+    // Stood down or switched while the claim ran: hand it straight back,
+    // unless a worker stood it down, whose hand-back would overwrite the
+    // real mission control's claim.
+    if (!isWorker) await release($, claiming)
     return
   }
   isClaimed = claimed.ok
@@ -522,7 +526,7 @@ async function resolveDir($: EngineInterface): Promise<string | null> {
 }
 
 async function checkRecord($: EngineInterface) {
-  if (isChecking) return
+  if (isChecking || isWorker) return
   isChecking = true
   try {
     const dir = await resolveDir($)
@@ -588,9 +592,9 @@ function cancelTimers() {
   radar = null
 }
 
-// The record was retired: the wake target goes back to the relay and the
-// panel stops drawing.
-async function standDown($: EngineInterface) {
+// The record was retired: the panel stops drawing and, unless the session is
+// ending, the wake target goes back to the relay.
+async function standDown($: EngineInterface, handBack = true) {
   const was = ctx
   if (!was) return
   cancelTimers()
@@ -599,7 +603,7 @@ async function standDown($: EngineInterface) {
   recordFailed = null
   await update($, panel, () => null)
   $.ui.status(undefined)
-  await release($, was)
+  if (handBack) await release($, was)
 }
 
 // Only a regular file counts, as for the acknowledgment.
@@ -621,7 +625,9 @@ async function endReleased($: EngineInterface, ids: string[]) {
   if (!ctx) return
   const program = ctx.program
   try {
-    await standDown($)
+    // A target handed back to the relay would be woken for the program's
+    // events after this session has ended; the successor's take removes it.
+    await standDown($, false)
   } finally {
     for (const id of ids) await runScript($, 'mc-panel.sh', ['retire', '--session', id])
     void $.command.run({ command: 'exit' }).catch(() =>
@@ -741,6 +747,22 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     const prior = await view($)
+    // Only a worker launch carries the worker identity, and a worker is never
+    // mission control: a program variable it inherited, a record or a panel
+    // a reload brings back would hand it that program's wakes.
+    const worker = await $.env.get('PLANWRIGHT_WORKER_HANDLE')
+    isWorker = worker !== undefined && worker !== ''
+    if (isWorker) {
+      stopWatch()
+      if (!ctx && !prior) return started
+      // Never handed back: the target row is the real mission control's
+      // claim, which a hand-back would overwrite.
+      if (ctx) await standDown($, false)
+      else await update($, panel, () => null)
+      const sessionId = await $.session.id()
+      $.clock.after(0, () => void runScript($, 'mc-panel.sh', ['retire', '--session', sessionId]))
+      return started
+    }
     const named = await $.env.get('PLANWRIGHT_MC_PROGRAM')
     const isNamed = named !== undefined && isProgram(named)
     const program = isNamed ? named : prior?.program

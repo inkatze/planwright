@@ -130,6 +130,10 @@ fi
 ml retire "${task_name:-unset}"
 marker_present 1 && fail "retiring the unit's session left its dispatch marker" \
   || ok "retiring a task session clears its dispatch marker"
+# The first launch's supervisor writes its result while still winding down in
+# the worktree, so what follows waits for it to leave: the sleeper must be the
+# only process there, and the reuse launch must not be refused for the supervisor.
+wait_cwd_free "$task_wt"
 if [ -n "$task_wt" ] && [ -d /proc/self ]; then
   (cd "$task_wt" && exec sleep 60) &
   sleeper=$!
@@ -142,6 +146,13 @@ if [ -n "$task_wt" ] && [ -d /proc/self ]; then
   [ "$RC" = 3 ] && case $ERR in *"process "*"runs in $task_wt"*) true ;; *) false ;; esac && no_session demo:task-1 reviewer \
     && ok "a process running in the worktree holds it as a live session" \
     || fail "a launch beside a live process in the worktree: exit $RC, $ERR"
+  [ "$(cwd_holder "$task_wt")" = "/proc/$sleeper/cwd" ] \
+    && [ "$(
+      find() { return 1; }
+      cwd_holder "$task_wt"
+    )" = "/proc/$sleeper/cwd" ] \
+    && ok "the wait's scan finds a process in the worktree, with and without find -lname" \
+    || fail "the wait's scan did not name the process in the worktree"
   kill "$sleeper" 2>/dev/null
   wait "$sleeper" 2>/dev/null
 else
@@ -318,6 +329,7 @@ fi
   || ok "a kind that changes no repository gets no cadence section"
 printf '%s\n' '/planwright:execute-task 1 demo' >"$tmp/unit-skill-brief.md"
 ml retire "$(cd "$repo" && /bin/sh "$LAUNCH" name --program alpha --kind reviewer --scope demo:task-1)"
+wait_cwd_free "$task_wt"
 rec="$tmp/rec-unit-skill"
 mkdir -p "$rec"
 SHIM_RECORD_DIR=$rec ml launch --program alpha --kind reviewer --scope demo:task-1 --brief "$tmp/unit-skill-brief.md"

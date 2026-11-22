@@ -23,12 +23,20 @@ must stay identical.
 The `plan` job's `mac_run` output decides whether the two macOS jobs run at
 all, and both carry `if: needs.plan.outputs.mac_run == 'true'`. It is true on
 a push, on a pull request that is not a draft, and on a draft that carries the
-`ci-macos` label; the `ready_for_review` and `labeled` pull-request events
-re-run CI when a draft is marked ready or labelled. A draft push alone skips
-both jobs. The `check` job accepts that skip only when `mac_run` is false, and
-the mission-control readiness check treats a skipped or absent macOS job as
-unmet. To get macOS green on a draft before the ready flip, add the
+`ci-macos` label, except on a ready flip that reuses a prior run (below); the
+`ready_for_review` and `labeled` pull-request events re-run CI when a draft is
+marked ready or labelled. A draft push alone skips both jobs. The `check` job
+accepts that skip only when `mac_run` is false, and the mission-control
+readiness check treats a skipped or absent macOS job as unmet unless the same
+job ran at that head. To get macOS green on a draft before the ready flip, add the
 `ci-macos` label first, wait for green, then mark the pull request ready.
+
+The ready flip's own run then skips the suite jobs, macOS included, when an
+earlier run already passed every one of them on the same head, base and
+`ci.yml` (`scripts/ci-reuse.sh`, called by the `plan` job); `check` names the
+run it stands on. A base that moved since, or anything short of that full
+match, runs every job again. A skipped macOS job never hides a pass or a
+failure of the same job at that head from the readiness check.
 
 ## How a run picks its runner
 
@@ -79,7 +87,8 @@ layers keep it off, and only the last two hold against a hostile fork:
 Trigger review: `ci.yml` fires only on `pull_request` and on `push` to
 `main`. No workflow here uses `pull_request_target` (the posture guard bans
 it). The one `workflow_run` workflow (`release-please.yml`) runs on
-`ubuntu-latest`, never the Mac, and every other workflow does too. Any new
+`ubuntu-latest`, never the Mac, and every other workflow's Ubuntu jobs run on
+hosted runners too. Any new
 trigger that can carry another
 repository's code must stay on hosted runners. The hook refuses everything
 but `push` and `pull_request`, so a new trigger is refused there by default.

@@ -161,6 +161,10 @@ brief() {
       good) brief_entry meaning '§8 (all findings dispositioned)' "$anchor" 'scripts/spec-anchor.sh specs/demo' ;;
       bareform) brief_entry meaning '§8' "$anchor" 'spec-anchor.sh specs/demo' ;;
       expronly) brief_entry expression-only '' "$anchor" 'scripts/spec-anchor.sh specs/demo' ;;
+      prose)
+        printf '\nClass: the operator classified the delta "Changes what is built\n(Recommended)" (meaning-class).\n'
+        brief_entry meaning '§8' "$anchor" 'scripts/spec-anchor.sh specs/demo'
+        ;;
       stale) brief_entry meaning '§8' "$STALE" 'scripts/spec-anchor.sh specs/demo' ;;
       none) printf '\nSigned off, but no anchor line.\n' ;;
       unparseable)
@@ -414,12 +418,12 @@ m5() {
 # --- m6: valid entries in the other sanctioned shapes dispatch ------------
 m6() {
   begin
-  for mode in expronly bareform; do
+  for mode in expronly bareform prose; do
     seed "m6-$mode" "$mode" || continue
     dispatch
     [ "$RC" -eq 0 ] || fail "m6/$mode: expected a dispatch (exit 0), got $RC: $(halt_reason)"
   done
-  pass "m6: an expression-only entry and the bare spec-anchor.sh form dispatch"
+  pass "m6: an expression-only entry, the bare spec-anchor.sh form, and a prose Class: paragraph beside the field dispatch"
 }
 
 # --- m7: a failed launch clears the marker --------------------------------

@@ -33,6 +33,8 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 HOOK="$REPO_ROOT/scripts/tower-command-guard.sh"
 WORKER_HOOK="$REPO_ROOT/scripts/worker-command-guard.sh"
 
@@ -321,6 +323,112 @@ assert_allow "git log" "git log --oneline -20"
 assert_allow "git diff" "git diff origin/main"
 assert_allow "git rev-parse" "git rev-parse HEAD"
 assert_allow "git branch list" "git branch -a"
+# A read-only git verb with an option that runs a configured diff, textconv or
+# filter driver defers, in any spelling git reads as that option: an
+# unambiguous prefix, `--opt=value`, and cat-file's `--t`..`--text` (it has no
+# `--text`) or `--filter` (read as `--filters` before cat-file grew `--filter`).
+for c in 'git diff --ext-diff HEAD' 'git log -p --textconv' 'git cat-file --filters HEAD:f' \
+  'git cat-file --t HEAD:f' 'git cat-file --te HEAD:f' 'git cat-file --tex HEAD:f' \
+  'git cat-file --text HEAD:f' "git cat-file '--te' HEAD:f" 'git cat-file --textconv=1 HEAD:f' \
+  'git cat-file --f HEAD:f' 'git cat-file --fil HEAD:f' 'git cat-file --filt HEAD:f' \
+  'git cat-file --filter HEAD:f' 'git cat-file --filter=blob:none --batch-all-objects' \
+  'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
+  'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
+  'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff' \
+  'git cat-file --ext HEAD:f' 'git cat-file --e HEAD:f' 'git log --te -p' 'git log --f' 'git diff --fi HEAD'; do
+  assert_defer "driver option near-spelling: $c" "$c"
+done
+# The same prefix rule holds for the options that write a file or run a
+# command through the shell: `git grep --op=<cmd>` runs <cmd>.
+for c in 'git grep --op=id foo' 'git grep --open=id foo' 'git grep --open-files-in-p=id foo' \
+  'git log --ou=x' 'git diff --outp=x HEAD' 'git log --output-dir=x' 'git grep -Oid foo' \
+  'git grep -nOid foo' 'git grep -iOid foo' "git grep -nO'sh -c id' foo"; do
+  assert_defer "write or spawn option near-spelling: $c" "$c"
+done
+# A short cluster carrying O defers wherever the O sits, so a pickaxe or regex
+# value holding an O prompts too: the accepted cost of not modelling each
+# verb's value-taking flags.
+assert_defer "accepted over-block: an O inside a short-flag value" "git log -SOops"
+assert_allow "a short cluster without O still allows" "git grep -niw foo"
+for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \
+  'git rev-list --filter=blob:none HEAD' 'git log --tags --first-parent' 'git describe --tags' \
+  'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3' 'git cat-file --batch'; do
+  assert_allow "not a driver option: $c" "$c"
+done
+# git config reads any unambiguous prefix of its write options (`--remove-sec
+# core` drops core.hooksPath), `-e` inside a short cluster, and the write
+# subcommands. One row per prefix class; the ambiguous prefixes git refuses
+# (`--u`, `--re`, `--e`) defer too, failing closed.
+for c in 'git config --global --unset-al a.b' 'git config --global --unset- a.b' \
+  'git config --global --u a.b' 'git config --global --remove-sec core' 'git config --global --rem core' \
+  'git config --global --rename-s core zz' 'git config --global --ren core zz' 'git config --global --re core' \
+  'git config --global --replace-a a.b 9' 'git config --global --rep a.b 9' 'git config --global --ad a.b 9' \
+  'git config --global --a a.b 9' 'git config --global --ed' 'git config --global --edi' 'git config --global --e' \
+  'git config --global --ed=1' 'git config --global -ze' 'git config -ez --global' \
+  'git config edit --global' 'git config edit' 'git config unset --global a.b' 'git config unset --global --al a.b' \
+  'git config remove-section core' 'git config rename-section core zz' 'git config set --global a.b 1' \
+  'git config --global --unset a.b' 'git config --global --unset-all a.b' 'git config --global --remove-section core' \
+  'git config --global --rename-s core' 'git config --global --edit' 'git config --global -e'; do
+  assert_defer "git config write near-spelling: $c" "$c"
+done
+# `--comment` applies only to a write, and its value can be a read flag that
+# would otherwise mark the line a read: git sets a.b here.
+for c in 'git config --comment --list a.b 9' 'git config --global --comment --get-all a.b 9' \
+  'git config --c --list a.b 9' 'git config --comm=hi --get a.b 9'; do
+  assert_defer "git config --comment write: $c" "$c"
+done
+# git stops reading options at the first operand or `--`, so a dashed word
+# after it is a value and each of these sets a key.
+for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git config --global -- a.d --get' \
+  'git config a.b -l' 'git config a.b -' 'git config --end-of-options --a.b --list'; do
+  assert_defer "git config dashed value: $c" "$c"
+done
+assert_defer "git config display option negated back off sets" "git config --name-only --no-name-only a.b 9"
+assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"
+# Another file or blob parsed as config prints its `key = value` lines.
+for c in 'git config -f other.cfg --list' 'git config --file=other.cfg --get a.b' 'git config --fil other.cfg -l' \
+  'git config --blob HEAD:x --list' 'git config --bl=HEAD:x --list' 'git config -zf other.cfg --list' 'git config -lf other.cfg'; do
+  assert_defer "git config reads another file: $c" "$c"
+done
+# A short cluster carrying e defers wherever the e sits, so a -t value holding
+# one prompts too: the accepted cost of not modelling -t's value.
+assert_defer "accepted over-block: an e inside a -t value" "git config -texpiry-date --get gc.pruneExpire"
+for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git config --global --exp --get gc.pruneExpire' \
+  'git config -zl' 'git config -z --list' 'git config list --global --show-o' 'git config --name-only --list' \
+  'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
+  assert_allow "git config read: $c" "$c"
+done
+# `git <verb> --help` and `git help <verb>` open the man page through a pager
+# (or a browser), and a pager runs commands (`!cmd` in less).
+for c in 'git log --help' 'git status --help' 'git diff --help' 'git show --help' 'git rev-parse --help' \
+  'git grep --help' 'git ls-files --help' 'git config --help'; do
+  assert_defer "git help opens a pager: $c" "$c"
+done
+# git opens it only for an exact `--help` right after the verb, but any word
+# git could read as --help or --help-all, an abbreviation included, defers.
+for c in 'git log --oneline --help' 'git log --hel' 'git log --he' 'git log --h' 'git log --help-all' \
+  'git log --help-a' 'git log --help=x' 'git config --get --help'; do
+  assert_defer "git could read it as --help, fails closed: $c" "$c"
+done
+assert_defer "accepted over-block: --help as a pathspec" "git log -- --help"
+# Inside double quotes bash drops a backslash-newline whole, so the word's
+# halves join: git gets `--help`, find gets `-delete`.
+for c in $'git status "--he\\\nlp"' $'find sub "-de\\\nlete"'; do
+  assert_defer "backslash-newline inside double quotes: ${c%%\\*}" "$c"
+done
+# Regression rows: these verbs' own screens already deferred them.
+for c in 'git branch --help' 'git branch --list --help' 'git tag --help' 'git stash --help' 'git remote --help' \
+  'git reflog --help' 'git worktree --help' 'git symbolic-ref --help' \
+  'git help log' 'git help' 'git help -a' 'git help -w log'; do
+  assert_defer "git help request, already deferred: $c" "$c"
+done
+# -h asks for the short usage, never the man page, and is grep's no-filename
+# flag.
+for c in 'git log -h' 'git status -h' 'git grep -h foo' 'git show-ref --heads' \
+  'git log --oneline -- help' 'git log --grep=help' 'git grep -n help'; do
+  assert_allow "not a help request: $c" "$c"
+done
 assert_allow "gh pr view" "gh pr view 5"
 assert_allow "gh pr list" "gh pr list"
 assert_allow "gh pr checks" "gh pr checks"
@@ -333,6 +441,53 @@ assert_allow "ls" "ls -la"
 assert_allow "sed read-only" "sed -n '1,5p' file"
 assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b && tmux paste-buffer -t fleet:0"
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
+
+echo "### gh read verbs: an environment-reading filter, --web and --show-token DEFER"
+# gojq's env and $ENV print the environment, tokens included, through any
+# read verb taking --jq or --template; --web launches $BROWSER; and
+# --show-token prints the token. Every gh group the tower allows takes every
+# filter spelling, and every one but auth status every --web spelling,
+# including spellings gh would reject for that group: a refusal costs nothing
+# there.
+TOWER_GH_GROUPS=('pr view 5' 'pr list' 'pr status' 'pr diff 5' 'pr checks 5' 'auth status' 'repo view')
+# shellcheck disable=SC2016 # the guard reads the words as written
+for g in "${TOWER_GH_GROUPS[@]}"; do
+  for f in '--jq env' '--jq=env' "--jq '\$ENV'" "--jq='\$ENV.GH_TOKEN'" '--json title --jq env' \
+    '--json title --jq ".title, env"' '-q env' '-qenv' '-q=env' '-q ENV' "--template '{{env}}'" \
+    "--template='{{env}}'" "-t '{{env}}'" "-t'{{env}}'" "-t='{{env}}'" "'-qenv|test'" "-t'{{env}}t'" \
+    "-q'env|.q'"; do
+    assert_defer "gh $g $f" "gh $g $f"
+  done
+done
+for c in 'gh pr view 5 -cq env' 'gh pr view 5 -cqenv' "gh pr view 5 -ct '{{env}}'" 'gh pr status -cq env' \
+  'gh pr list -dq env' 'gh pr checks 5 --json name -q env' 'gh repo view o/r --json name -q env' \
+  'gh auth status --json hosts --jq env' 'gh auth status --json hosts --jq=env' "gh auth status --json hosts --template '{{env}}'" \
+  'gh auth status -a --json hosts --jq env'; do
+  assert_defer "$c" "$c"
+done
+for g in "${TOWER_GH_GROUPS[@]}"; do
+  [ "$g" = 'auth status' ] && continue
+  for f in '--web' '--web=true' '--web=1' '-w'; do
+    assert_defer "gh $g $f" "gh $g $f"
+  done
+done
+for c in 'gh pr view 5 -cw' 'gh pr list -dw' 'gh pr diff 5 --name-only -w' 'gh pr checks 5 --required -w' \
+  'gh repo view o/r -w' 'gh repo view o/r --web' 'gh auth status --show-token' 'gh auth status --show-token=true' \
+  'gh auth status -t' 'gh auth status -at' 'gh auth status -a -t' 'gh auth status -h github.com -t' \
+  'gh auth status --hostname github.com --show-token' 'gh auth status -ta'; do
+  assert_defer "$c" "$c"
+done
+
+echo "### gh read verbs without a filter, --web or --show-token still ALLOW"
+for c in 'gh pr view 5' 'gh pr view' 'gh pr view 5 --comments' 'gh pr view 5 --json title,state' \
+  'gh pr view environment --json title' 'gh pr view 5 --json title --jq .title' 'gh pr list' 'gh pr list --state open' \
+  'gh pr list -L 5 --json number,title' 'gh pr list --json number' 'gh pr status' 'gh pr status --json state' \
+  'gh pr diff 5' 'gh pr diff 5 --name-only' 'gh pr diff 5 --patch' 'gh pr checks 5' 'gh pr checks 5 --required' \
+  'gh pr checks 5 --json name,state' 'gh auth status' 'gh auth status -a' 'gh auth status --active' \
+  'gh auth status -h github.com' 'gh auth status --json hosts' 'gh repo view' 'gh repo view o/r' \
+  'gh repo view --json name' 'gh repo view o/r --json name,defaultBranchRef'; do
+  assert_allow "$c" "$c"
+done
 
 echo "### tower-front-door REQ-A1.3 — the front door's posture check: jq projections ALLOW"
 # The front door reads each settings layer by jq projection. jq has no exec or
@@ -385,6 +540,10 @@ assert_defer "defer form: an unquoted brace in an awk program word" "awk {print}
 assert_defer "defer form: an unquoted caret in a sed script word" "sed s/a^/b/ file"
 assert_defer "defer form: an unquoted mid-word tilde in a sed -e script" "sed -e s/a~/b/ file"
 assert_defer "defer form: an unquoted brace in a sed --expression script" "sed --expression=1{p} file"
+assert_defer "defer form: an unquoted brace in a spaced sed --expression script" "sed --expression 1{p} file"
+assert_allow "parity: a spaced sed --expression script" "sed -n --expression 's/a/b/p' file"
+assert_defer "parity: a spaced sed --expression script with a w command" "sed -n --expression '1w out' file"
+assert_defer "parity: a spaced sed --expression with no script" "sed -n file --expression"
 assert_allow "parity: a quoted jq filter with a caret, tilde, hash and brace" "jq '.a | {b} | test(\"^x~#\")' file.json"
 assert_allow "parity: a quoted awk program with braces" "awk '{print \$1}' file"
 assert_allow "parity: a quoted sed script with a caret" "sed 's/^a/b/' file"
@@ -928,6 +1087,11 @@ assert_defer "symlinked plugin script escapes" "bash $PLUGIN_ROOT/scripts/evilli
 assert_defer "arbitrary absolute script outside repo/plugin" "/tmp/evil/scripts/x.sh"
 assert_defer "plugin tests dir is not a script dir" "bash $PLUGIN_ROOT/tests/x.sh"
 
+echo "### The shared secret screen: credential files named by an operand or redirect defer on the tower too"
+for c in 'cat /home/someone/.ssh/id_rsa' 'cat ~/.aws/credentials' 'cat /etc/shadow' 'cat /pro[c]/self/cmdline' \
+  'grep -f/etc/shadow x .' 'cat /run/secrets/db_password' 'wc -c < /home/someone/.netrc'; do
+  assert_defer "secret screen on the tower: $c" "$c"
+done
 echo "### worker-permission-ergonomics REQ-E1.6 — other processes' environments stay unread"
 assert_defer "REQ-E1.6: another process's environ" "cat /proc/1234/environ"
 assert_defer "REQ-E1.6: a redirect source naming one" "grep -a x < /proc/1234/environ"
@@ -947,6 +1111,12 @@ fi
 assert_defer "REQ-E1.6: \$_ reaching a reader" "echo a; cat \$_"
 assert_defer "REQ-E1.6: a loop head naming one" "for f in /proc/1234/environ; do cat \$f; done"
 assert_allow "REQ-E1.6: the reading process's own environ" "cat /proc/self/environ"
+assert_allow "REQ-E1.6: the thread's own environ" "cat /proc/thread-self/environ"
+assert_allow "REQ-E1.6: the own environ as a redirect source" "wc -c < /proc/self/environ"
+assert_defer "REQ-E1.6: another process's environ behind a doubled slash" "cat //proc/1234/environ"
+assert_defer "REQ-E1.6: the own environ through a glob" "cat /proc/self/envir*"
+assert_defer "tower: a credential file still defers beside the own environ" "cat /proc/self/environ ~/.ssh/id_rsa"
+assert_defer "tower: a glob under another account's home" "cat ~root/.config/*/hosts.yml"
 assert_allow "REQ-E1.6: an opaque operand of a non-reader" "echo \$X"
 assert_allow "REQ-E1.6: a loop variable reaching a reader" "for f in README.md; do cat \$f; done"
 assert_allow "REQ-E1.6: environ as a grep pattern" "grep environ README.md"
@@ -1121,7 +1291,7 @@ echo "### Shared-engine parity — the duplicated sed/awk screens must agree in 
 # namespace in prose (B1.3 vs C1.3); everything else, trailing comments on code
 # lines included, must match byte for byte.
 echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-identical"
-SHARED_FNS="awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
+SHARED_FNS="git_driver_opt git_config_write_opt git_help_req awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
@@ -1129,7 +1299,8 @@ word_unresolved arg_independent_verb guard_test guard_printf printf_format_inert
 assign_name_ok plugin_root_unlinked dollar_form_ok loop_enter \
 loop_next opaque_words_ok test_opaque_ok jq_program_safe jq_home_safe guard_jq zsh_opt_word_ok \
 opens_operands opener_word_risky environ_word_risky environ_words_ok environ_redirect_ok \
-canon_dir_cached"
+canon_dir_cached secret_lexical secret_glob secret_glob_word secret_home_glob lexical_path glob_any_risky secret_word_risky secret_path_risky \
+broad_dir broad_canon broad_path_risky ci_has gh_jq_ok gh_no_web gh_no_token"
 
 # fn_body <file> <name>: the function's text, from its `name() {` line to the
 # first `}` at column 0, with full-line comments dropped.
@@ -1167,7 +1338,9 @@ done
 # admits a narrow command substitution; the tower guard defers every one.
 # guard_rm and guard_mktemp differ because the worker's approve only removals
 # inside its recorded worktree or scratch root and creation inside that scratch
-# root, a policy the tower guard does not have.
+# root, a policy the tower guard does not have. guard_gh differs because the
+# tower allows fewer gh groups than the worker; the flag screens both call are
+# shared above.
 DISTINCT_FNS="analyze_command canon_under classify_verb expand_word guard_bashsh \
 guard_gh guard_git guard_mise guard_mktemp guard_rm is_planwright_script main \
 tokenize tok_push verify_simple verify_tokens"
@@ -1200,6 +1373,42 @@ parity() {
     fail "$label — shared-engine DRIFT: tower=$t worker=$w (an engine fix landed in one guard only)"
   fi
 }
+# parity_expect <verdict> <label> <command>: both guards reach the named
+# verdict, not merely the same one.
+parity_expect() {
+  local want="$1" label="$2" cmd="$3" t w
+  run_hook "$cmd"
+  check_invariants "$label" || return
+  run_worker_hook "$cmd"
+  is_allow && t=allow || t=defer
+  worker_is_allow && w=allow || w=defer
+  if [ "$t" = "$want" ] && [ "$w" = "$want" ]; then
+    pass "$label (both $want)"
+  else
+    fail "$label — expected both $want: tower=$t worker=$w"
+    if [ "$want" = defer ]; then
+      false_allows=$((false_allows + 1))
+    fi
+  fi
+}
+parity_expect defer "parity: gh pr view with an env jq filter defers" "gh pr view 5 --jq env"
+parity_expect defer "parity: gh pr view with a joined -q env filter defers" "gh pr view 5 -qenv"
+parity_expect defer "parity: gh pr list with an env template defers" "gh pr list --template '{{env}}'"
+parity_expect defer "parity: gh pr checks --web defers" "gh pr checks 5 --web"
+parity_expect defer "parity: gh pr view -w defers" "gh pr view 5 -w"
+parity_expect defer "parity: gh repo view with an env jq filter defers" "gh repo view --jq env"
+parity_expect defer "parity: gh repo view --web defers" "gh repo view --web"
+parity_expect defer "parity: gh auth status with an env jq filter defers" "gh auth status --json hosts --jq env"
+parity_expect defer "parity: gh auth status --show-token defers" "gh auth status --show-token"
+parity_expect defer "parity: gh auth status -t defers" "gh auth status -t"
+parity_expect defer "parity: gh auth status -at defers" "gh auth status -at"
+parity_expect defer "parity: gh auth status -ta defers" "gh auth status -ta"
+parity_expect defer "parity: gh pr view with an attached env filter ending in t defers" "gh pr view 5 '-qenv|test'"
+parity_expect defer "parity: gh pr view with a bundled attached env filter ending in t defers" "gh pr view 5 '-cqenv|test'"
+parity_expect allow "parity: gh pr view with a field filter allows" "gh pr view 5 --json title --jq .title"
+parity_expect allow "parity: gh pr diff allows" "gh pr diff 5"
+parity_expect allow "parity: gh auth status --json allows" "gh auth status --json hosts"
+parity_expect allow "parity: gh repo view --json allows" "gh repo view --json name"
 parity "parity: sed bracket class allows" "sed -E 's/[0-9]//' file"
 parity "parity: sed POSIX class allows" "sed -n '/[[:space:]]/p' file"
 parity "parity: sed leading-] member allows" "sed 's/[]a]/x/' file"

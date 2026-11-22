@@ -51,6 +51,13 @@ trap cleanup EXIT
 
 tab=$(printf '\t')
 
+# launcher_row <name> <kind>: the mission-control launcher's registry row
+# for a session, which names its kind.
+launcher_row() {
+  mkdir -p "$fleet/mission-control/sessions"
+  printf 'format\t1\nname\t%s\nprogram\talpha\nkind\t%s\n' "$1" "$2" >"$fleet/mission-control/sessions/$1"
+}
+
 setup() {
   reset_mc_fixture
   rm -rf "$fleet"
@@ -198,6 +205,7 @@ sj() {
 }
 if poll_until --what "the worker's first turn" -- grep -q '"type":"user"' "$tmp/rec/stdin"; then
   ok "a fixture stream-json worker is live"
+  launcher_row sjw mission-control
   mc_run mc-wake.sh target add --program alpha sjw
   expect_rc "a wake target is registered" 0
   mc_run mc-event.sh emit --program alpha pr-ready pr-9 "nine is ready"
@@ -248,6 +256,8 @@ cat >"$tmp/fakebin/tmux" <<'EOF'
 d=$FAKE_TMUX_DIR
 printf '%s\n' "$*" >>"$d/log"
 case "$1" in
+  # Session mc holds one window, named 3, unless gone-window says otherwise.
+  list-windows) [ -f "$d/gone-window" ] || printf '@3 3\n' ;;
   capture-pane) cat "$d/pane" ;;
   load-buffer) cat >"$d/buffer" ;;
   paste-buffer)
@@ -285,6 +295,7 @@ tmux_target() { # tmux_target: a fresh program with the tmux session tw
   rm -f "$tmp/tmux/paste-drops" "$tmp/tmux/pasted"
   mc_run fleet-state.sh register tw mission-control:alpha --backend tmux --death-handle "tmux-window mc 3"
   expect_rc "a tmux session in the fleet registry" 0
+  launcher_row tw mission-control
   mc_run mc-wake.sh target add --program alpha tw
   : >"$tmp/tmux/log"
 }
@@ -330,6 +341,18 @@ mc_run mc-wake.sh tick --program alpha --now 10060
 expect_out "REQ-E1.3: no second tick inside the cadence" "not-due${tab}240"
 mc_run mc-wake.sh relay --program alpha
 expect_out "the relay does not stage an event twice" "idle${tab}tw"
+# A recorded window no longer in its recorded session (a restarted server
+# may have reissued it to another) is never typed into.
+: >"$tmp/tmux/gone-window"
+: >"$tmp/tmux/log"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a recorded window gone from its session is unreachable" "unreachable${tab}tw${tab}the recorded tmux window is gone, or is no longer the one recorded"
+if grep -q -e paste-buffer -e load-buffer "$tmp/tmux/log"; then
+  fail "a wake was staged into a window gone from its session"
+else
+  ok "and nothing is pasted into it"
+fi
+rm -f "$tmp/tmux/gone-window"
 # The human submitted the staged line without the session acknowledging:
 # the next tick stages it again.
 printf '%s\n' "$idle_pane" >"$tmp/tmux/pane"
@@ -464,6 +487,67 @@ ERR=$(cat "$tmp/stderr")
 expect_out "an unreadable class table fails open: the routine event wakes" "- watcher-stopped gamma-duty"
 expect_err "and says why" "config/mc-event-classes.tsv is missing or unreadable"
 rm -rf "$tmp/noconf"
+# A merge-ready event is checked against the forge once more before it is
+# pushed: a pull request that merged since, or that cannot be read, is left
+# out of the wake (the first marked submitted unsent, the second left for the
+# next wake); a live one with its bot round complete wakes.
+ghbin="$tmp/ghbin"
+mkdir -p "$ghbin"
+cat >"$ghbin/gh" <<EOF
+#!/bin/sh
+n="" q=""
+while [ \$# -gt 0 ]; do
+  case \$1 in
+    -F) case \$2 in number=*) n=\${2#number=} ;; esac; shift ;;
+    --jq) q=\$2; shift ;;
+  esac
+  shift
+done
+[ -f "$tmp/fresh.\$n" ] || { printf 'HTTP 502\n' >&2; exit 1; }
+jq -r "\$q" "$tmp/fresh.\$n"
+EOF
+chmod +x "$ghbin/gh"
+mrh=1111111111111111111111111111111111111111
+mrfresh() { # mrfresh <n> <state> [<head>] [<PR-Agent conclusion>]: PR-Agent's check run on the head, no thread
+  printf '{"data":{"repository":{"pullRequest":{"state":"%s","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"PR-Agent","status":"COMPLETED","conclusion":"%s"}]}}}}]}}}}}' "$2" "${3:-$mrh}" "${3:-$mrh}" "${4:-SUCCESS}" >"$tmp/fresh.$1"
+}
+mrfresh 51 MERGED
+mrfresh 52 OPEN
+mrfresh 54 OPEN "$mrh" FAILURE
+mrfresh 55 OPEN 2222222222222222222222222222222222222222
+mremit() { mc_run mc-event.sh emit --program alpha merge-ready "acme:web:$1" "acme/web#$1 is ready to merge: gh pr merge $1 --repo acme/web --squash --match-head-commit $mrh"; }
+mremit 51
+mr_ev_51=$OUT
+mremit 52
+mremit 53
+mr_ev_53=$OUT
+mremit 54
+mr_ev_54=$OUT
+mremit 55
+mr_ev_55=$OUT
+OUT=$(PATH="$ghbin:$PATH" mc_env /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha tw 2>"$tmp/stderr")
+ERR=$(cat "$tmp/stderr")
+expect_out "a merge-ready event for a live pull request wakes" "- merge-ready acme:web:52"
+expect_no_out "one for a merged pull request is not pushed" "acme:web:51"
+expect_no_out "nor one whose state cannot be read" "acme:web:53"
+expect_no_out "nor one whose bot round is unfinished" "acme:web:54"
+expect_no_out "nor one whose head moved" "acme:web:55"
+expect_err "a held unreadable one is named on stderr" "acme/web#53: held: its state could not be read from the forge"
+case $ERR in
+  *acme/web#54*) fail "a pending hold was named on stderr: $ERR" ;;
+  *) ok "a pending hold is quiet" ;;
+esac
+marked "the stale one is marked submitted unsent" "$mr_ev_51"
+marked "and so is the moved one" "$mr_ev_55"
+mc_run mc-event.sh list --program alpha --target tw
+for mr_id in "$mr_ev_53" "$mr_ev_54"; do
+  if printf '%s\n' "$OUT" | awk -F '\t' -v id="$mr_id" '$1 == id && $NF == "-" { f = 1 } END { exit !f }'; then
+    ok "a held one stays unmarked for the next wake ($mr_id)"
+  else
+    fail "a held one was marked: $mr_id: $OUT"
+  fi
+done
+
 # Every event a duty starts on, wakes with or raises as an item has a class
 # row, and the table names each kind once with a known class.
 classes="$repo_root/config/mc-event-classes.tsv"
@@ -499,6 +583,141 @@ else
 fi
 
 PATH=$saved_path
+
+# ---------------------------------------------------------------------------
+# A wake reaches only a mission-control session: the relay refuses a target
+# whose launcher row names another kind, or none, and the mod's compose
+# refuses a caller carrying a worker identity; each refusal is logged once
+# and raised as one event.
+# ---------------------------------------------------------------------------
+misroutes="$fleet/mission-control/alpha/wake-misroutes"
+setup
+mc_run fleet-state.sh register wk mission-control:alpha --backend stream-json --death-handle none
+mc_run fleet-state.sh register nr mission-control:alpha --backend stream-json --death-handle none
+launcher_row wk worker
+launcher_row mcs mission-control
+mc_run mc-wake.sh target add --program alpha wk
+mc_run mc-wake.sh target add --program alpha nr
+mc_run mc-event.sh emit --program alpha pending-prompt-overdue mc-beta-worker-1 "a prompt waits"
+mis_ev=$OUT
+mc_run mc-wake.sh relay --program alpha
+expect_out "the relay refuses a target whose session is a worker" "misroute${tab}wk${tab}worker"
+expect_out "and one whose kind no launcher row names" "misroute${tab}nr${tab}unknown"
+expect_err "the refusal is named on stderr" "refusing to wake wk"
+mc_run mc-event.sh list --program alpha --target wk "$mis_ev"
+expect_out "the refused target's events stay unmarked" "a prompt waits${tab}-"
+if [ -f "$misroutes" ] && grep -q "${tab}relay${tab}wk${tab}wk${tab}worker\$" "$misroutes"; then
+  ok "the refusal is logged"
+else
+  fail "the relay's refusal was not logged: $(cat "$misroutes" 2>&1)"
+fi
+mc_run mc-event.sh list --program alpha
+n_mis=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+if [ "$n_mis" -eq 2 ]; then
+  ok "each refusal raises one event"
+else
+  fail "expected two wake-misroute events, got $n_mis: $OUT"
+fi
+mc_run mc-wake.sh relay --program alpha
+expect_out "a second relay still refuses" "misroute${tab}wk${tab}worker"
+case $ERR in
+  *"refusing to wake wk"*) fail "a repeated relay refusal was named on stderr again: $ERR" ;;
+  *) ok "a repeated relay refusal is quiet on stderr" ;;
+esac
+mc_run mc-event.sh list --program alpha
+n_mis=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+if [ "$n_mis" -eq 2 ]; then
+  ok "a repeated refusal raises no second event"
+else
+  fail "a repeated refusal raised another event ($n_mis)"
+fi
+if [ "$(wc -l <"$misroutes" | tr -d ' ')" -eq 2 ]; then
+  ok "nor a second log line"
+else
+  fail "a repeated refusal was logged again: $(cat "$misroutes")"
+fi
+
+# The program-named target with the mod: a worker that inherited the
+# program's variable composes for it and is refused; mission control's own
+# session, and a session with no worker identity, still compose.
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=wk /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a worker's compose for the program-named target is refused" 4
+expect_eq "and composes nothing" ""
+expect_err "the refusal names the worker and its kind" "wk (kind worker)"
+mc_run mc-event.sh list --program alpha --target alpha "$mis_ev"
+expect_out "the target's events stay unsent" "a prompt waits${tab}-"
+if grep -q "${tab}compose${tab}alpha${tab}wk${tab}worker\$" "$misroutes"; then
+  ok "the compose refusal is logged"
+else
+  fail "the compose refusal was not logged: $(cat "$misroutes")"
+fi
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=wk /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a repeated compose refusal is refused again" 4
+expect_err "and named on stderr again, for the mod to show" "wk (kind worker)"
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=ghost-worker /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "a worker identity no launcher row names is refused too" 4
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=wk /bin/bash "$repo_root/scripts/mc-wake.sh" target add --program alpha alpha --mod 2>"$tmp/stderr")
+RC=$?
+expect_rc "a worker's mod cannot claim the target" 4
+mc_run mc-wake.sh target list --program alpha
+expect_no_out "the refused claim records nothing" "alpha${tab}mod"
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=mcs /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+expect_rc "a mission-control session's compose is allowed" 0
+expect_out "and carries the wake" "- pending-prompt-overdue mc-beta-worker-1"
+mc_run mc-wake.sh compose --program alpha alpha
+expect_out "a session with no worker identity still composes" "- pending-prompt-overdue mc-beta-worker-1"
+# Two relay refusals, two compose refusals and one claim refusal.
+if [ "$(wc -l <"$misroutes" | tr -d ' ')" -eq 5 ]; then
+  ok "each new verb, target, session and kind is logged once"
+else
+  fail "expected five misroute lines: $(cat "$misroutes")"
+fi
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=mcs /bin/bash "$repo_root/scripts/mc-wake.sh" target add --program alpha alpha --mod 2>"$tmp/stderr")
+RC=$?
+expect_rc "a mission-control session's mod still claims the target" 0
+mc_run mc-wake.sh target list --program alpha
+expect_out "and the claim is recorded" "alpha${tab}mod"
+mc_run mc-wake.sh tick --program alpha --now 99999
+expect_out "the tick refuses a worker target too" "misroute${tab}wk${tab}worker"
+mc_run mc-event.sh list --program alpha --target wk "$mis_ev"
+expect_out "and leaves its events unmarked" "a prompt waits${tab}-"
+# A row reached through a symlink, or naming a kind outside the grammar,
+# names no kind.
+launcher_row real-mc mission-control
+rm -f "$fleet/mission-control/sessions/wk"
+ln -s "$fleet/mission-control/sessions/real-mc" "$fleet/mission-control/sessions/wk"
+[ -L "$fleet/mission-control/sessions/wk" ] || fail "the symlinked row fixture was not created"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a symlinked launcher row is no mission-control session" "misroute${tab}wk${tab}unknown"
+rm -f "$fleet/mission-control/sessions/wk"
+printf 'format\t1\nkind\tMission-Control\n' >"$fleet/mission-control/sessions/wk"
+mc_run mc-wake.sh relay --program alpha
+expect_out "a kind outside the grammar is unknown" "misroute${tab}wk${tab}unknown"
+# A log that cannot be written raises nothing: it could not keep the next
+# pass from raising the same event again.
+mv "$misroutes" "$misroutes.real"
+mkdir "$misroutes"
+launcher_row wk tower
+mc_run mc-event.sh list --program alpha
+n_before=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+mc_run mc-wake.sh relay --program alpha
+expect_out "the relay still refuses with the log unwritable" "misroute${tab}wk${tab}tower"
+expect_err "and names the refusal on stderr, its only trace" "refusing to wake wk (kind tower)"
+mc_run mc-event.sh list --program alpha
+n_after=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
+if [ "$n_after" -eq "$n_before" ]; then
+  ok "an unwritable log raises no event"
+else
+  fail "an unwritable log raised an event ($n_before then $n_after)"
+fi
+rmdir "$misroutes"
+mv "$misroutes.real" "$misroutes"
 
 # ---------------------------------------------------------------------------
 # A session with the mod is left to the mod; unreachable targets are named;
