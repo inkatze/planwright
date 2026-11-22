@@ -134,6 +134,8 @@ for c in "echo /tmp/evil | fish -c 'read fish_user_paths'" "fish -c 'read -r x'"
   assert_defer "read inside fish -c: $c" "$c"
 done
 assert_allow "read outside fish still allowed" "echo a | read -r x"
+assert_allow "read after a fish -c segment still allowed" "fish -c 'git status'; echo a | read -r x"
+assert_allow "read piped from fish -c still allowed" "fish -c 'git status' | read -r x"
 assert_allow "the word read as an argument inside fish -c" "fish -c 'git log --grep read'"
 assert_allow "fish -c with braces and no comma" "fish -c 'git log HEAD@{1}'"
 assert_allow "double-quoted fish -c string" 'fish -c "git log --oneline -3"'
