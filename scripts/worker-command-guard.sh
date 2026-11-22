@@ -437,7 +437,14 @@ tokenize() {
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
-            k="$k$dn"
+            # bash keeps the backslash before any other character, and
+            # guard_fish must see it.
+            case $dn in
+              '$' | '`' | '"' | "\\") k="$k$dn" ;;
+              # bash drops a backslash-newline whole, joining the word's halves.
+              "$NL") return 1 ;;
+              *) k="$k\\$dn" ;;
+            esac
             j=$((j + 2))
             continue
           fi
@@ -3695,8 +3702,19 @@ guard_bashsh() {
 guard_fish() {
   # Only `fish -c "<inner>"`; recurse the same analysis on the inner string
   # within the depth bound (REQ-A1.5, REQ-B1.3).
-  [ "$cwn" -ge 3 ] || return 1
+  # fish keeps reading its own options after the string, and a second `-c`
+  # or `--init-command` runs too.
+  [ "$cwn" -eq 3 ] || return 1
   [ "${cw[1]}" = '-c' ] || return 1
+  # The inner string is read with bash's quoting, but fish decodes escapes
+  # bash does not (`--he\x6cp` is `--help` to fish), and expands `{a, b}`
+  # across the space into two words, so either defers.
+  case ${cw[2]} in
+    *\\* | *'{'*','*) return 1 ;;
+  esac
+  # fish's read updates a variable where it already lives, a universal one
+  # included, and fish saves those to disk, so no read runs inside.
+  local FISH_INNER=1
   analyze_command "${cw[2]}" "$((HOOK_DEPTH + 1))"
 }
 
@@ -4029,6 +4047,23 @@ git_config_write_opt() {
   return 1
 }
 
+# git_help_req <verb>: whether the git line in cw asks for help, which opens the
+# man page through a pager or a browser, and a pager runs commands (`!cmd` in
+# less). git opens it for the `help` verb and an exact `--help` right after
+# the verb, but any word git could read as --help or --help-all, wherever it
+# sits and abbreviated or not, counts, failing closed.
+git_help_req() {
+  local i n
+  [ "$1" = help ] && return 0
+  for ((i = 1; i < cwn; i++)); do
+    n=${cw[i]%%=*}
+    case $n in
+      --?*) [[ help-all == "${n#--}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
@@ -4053,6 +4088,7 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  git_help_req "$sub" && return 1
   if [ "$viac" = 1 ]; then
     case $sub in
       status | diff | log | show) ;;
@@ -5983,7 +6019,7 @@ classify_verb() {
     markdownlint | markdownlint-cli2) guard_mdlint ;;
     env) guard_env ;;
     printenv) guard_printenv ;;
-    read) guard_read ;;
+    read) [ -z "${FISH_INNER-}" ] && guard_read ;;
     yq) guard_yq ;;
     shfmt) guard_shfmt ;;
     rg) guard_rg ;;
