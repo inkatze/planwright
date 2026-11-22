@@ -2,7 +2,7 @@
 # hermetic-env.sh — the one list of configuration, root and session variables
 # a suite must not inherit, and the helpers that clear or pin them (sourced,
 # never executed). An inherited root, overlay, fleet-home or session variable
-# decides what the code under test reads, so the test passes or fails on the host.
+# decides what code under test reads, so the test passes or fails on the host.
 #
 # Sourcing clears the cleared variables. The pinned ones (the fleet home's
 # chain) stay, since clearing them would fall through to the operator's home;
