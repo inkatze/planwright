@@ -12,6 +12,7 @@
 set -u
 unset CDPATH
 INH_TMPDIR=${TMPDIR-}
+# hermetic-exempt: the inherited session is what this suite asserts the harness drops
 INH_RECORD=${PLANWRIGHT_WORKER_SESSION_RECORD-}
 # shellcheck source=tests/lib/worker-command-guard-harness.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/worker-command-guard-harness.sh"
@@ -27,6 +28,7 @@ if [ -n "${WCG_HERMETIC_INNER:-}" ]; then
   else
     fail "TMPDIR is $TMPDIR"
   fi
+  # hermetic-exempt: checks the harness unset the inherited record
   if [ -z "${PLANWRIGHT_WORKER_SESSION_RECORD+x}" ]; then
     pass "the inherited session record is dropped"
   else
