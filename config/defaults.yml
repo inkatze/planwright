@@ -163,6 +163,16 @@ stale_marker_threshold: 15m
 # above; the SECONDS env override PLANWRIGHT_DISPATCH_FETCH_TTL wins for tests.
 dispatch_fetch_ttl: 2m
 
+# Whether /orchestrate's pre-flight (every mode but --bookkeeping) fast-forwards
+# a lagging primary checkout before it reads any spec
+# (scripts/orchestrate-primary-ff.sh). true moves the primary's default branch
+# to origin's only by a fetched `--ff-only` merge, and only when that branch is
+# checked out with nothing tracked uncommitted and no local history origin
+# lacks; any other state is refused and left untouched, never merged, reset or
+# rebased, and each move is logged with its old and new heads. false (default)
+# leaves the primary as it is, as before: the operator keeps it current by hand.
+orchestrate_fast_forward_primary: false
+
 # Which channel the fleet attention/notification seam pushes a notification
 # through (D-13, REQ-E1.4). This is the capability-vs-style split (REQ-A1.5):
 # the notification SEAM lives in core; the specific channel VALUE is
