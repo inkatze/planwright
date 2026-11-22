@@ -105,7 +105,8 @@ through the notification seam (fleet-attention.sh notify, keyed per
 escalation), so a push is only as good as the notification_channel the
 operator chose, and the line names that channel. Each level is recorded in
 <runtime>/escalate/sent as it is raised, never twice, and dropped once its
-request is no longer pending or its dialog closes; what a pass could not
+request is no longer pending, its park ends (an answer starts the worker's
+next turn, or its wait is cleared) or its dialog closes; what a pass could not
 read keeps its record. One pass runs at a time; a second, or one while
 scripts/mc-pane-answer.sh delivers an answer, prints `busy`.
 
