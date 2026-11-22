@@ -95,7 +95,9 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       program's spec root
   signoff<TAB><bundle><TAB>signed|unsigned<TAB><detail>
                                       an edited spec bundle's kickoff
-                                      sign-off at the head
+                                      sign-off at the head; a signed row's
+                                      detail is `-`, or `legacy, no kickoff
+                                      brief` for a legacy bundle (collect)
   drift<TAB><path><TAB><spec>/<task>...
                                       a changed file a spec lists as a task
                                       deliverable that no spec edit, Not
@@ -195,7 +197,16 @@ Usage:
       requirements.md status is Ready, Active or Done and its
       kickoff-brief.md's latest anchor recomputes over the bundle (a
       requirements.md missing, unreadable or with no Status line, as a
-      legacy bundle has, is unsigned, each named apart with its path); a pull
+      pre-pipeline bundle has, is unsigned, each named apart with its path;
+      a Done bundle with no kickoff-brief.md at the head is a legacy one,
+      finished before kickoff existed, and signed with the detail `legacy,
+      no kickoff brief`, when the base branch's remote-tracking ref already
+      holds the bundle as Done or with no Status line and holds no brief for
+      it, and the pull request deletes none (so a pre-pipeline bundle the
+      pull request marks Done is legacy); a bundle the base lacks or holds
+      at another status, a pull request naming no base, and a base that
+      cannot be read all refuse, and a brief that is present never makes a
+      bundle legacy); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
       sign-off for each bundle it edits (one it removes aside) and the
@@ -663,7 +674,7 @@ drift_scope() {
     while IFS= read -r b; do
       # A bundle the pull request removes or moves has no sign-off to read.
       [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
-      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" || exit
+      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" "refs/remotes/origin/$4" "$5" || exit
     done <"$6/touched"
   fi
   awk -F '\t' '$1 == "bodyline" { print substr($0, 10) }' "$5" >"$6/body"
@@ -686,14 +697,14 @@ drift_scope() {
   esac
 }
 
-# spec_scope <program> <slug> <head> <pr read> <scratch dir>: when every
-# changed path lies under the program's spec root inside the repository for
-# <slug>, print `scope<TAB>spec-only<TAB><head>` and one `signoff` line per
-# bundle touched; otherwise nothing. Sign-offs are read from the repository's
-# own objects at the head, since collect writes nothing (no fetch) to any
-# repository.
+# spec_scope <program> <slug> <head> <pr read> <scratch dir> <base branch>:
+# when every changed path lies under the program's spec root inside the
+# repository for <slug>, print `scope<TAB>spec-only<TAB><head>` and one
+# `signoff` line per bundle touched; otherwise nothing. Sign-offs are read
+# from the repository's own objects at the head, since collect writes nothing
+# (no fetch) to any repository.
 spec_scope() {
-  local home rel repo files b
+  local home rel repo files b base=''
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
   home=$(spec_home "$1" "$2") || return 0
@@ -719,16 +730,25 @@ spec_scope() {
   fi
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
+  [ -z "$6" ] || base=refs/remotes/origin/$6
   while IFS= read -r b; do
-    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" || exit
+    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" "$base" "$4" || exit
   done <"$5/bundles"
 }
 
-# signoff_row <repo> <head> <root rel> <bundle> <scratch dir>: the bundle's
-# `signoff` row at <head>.
+# signoff_row <repo> <head> <root rel> <bundle> <scratch dir> <base ref> <pr
+# read>: the bundle's `signoff` row at <head>.
 signoff_row() {
-  local why
-  why=$(bundle_signoff "$@") || return
+  local why rc=0
+  why=$(bundle_signoff "$@") || rc=$?
+  case $rc in
+    0) ;;
+    5)
+      printf 'signoff\t%s\tsigned\tlegacy, no kickoff brief\n' "$4"
+      return 0
+      ;;
+    *) return "$rc" ;;
+  esac
   if [ -n "$why" ]; then
     printf 'signoff\t%s\tunsigned\t%s\n' "$4" "$why"
   else
@@ -736,11 +756,12 @@ signoff_row() {
   fi
 }
 
-# bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
-# <bundle> is not signed off at <head>, read from <repo>'s objects, or
-# nothing when it is.
+# bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir> <base ref>
+# <pr read>: print why <bundle> is not signed off at <head>, read from
+# <repo>'s objects, or nothing when it is; return 5, printing nothing, for a
+# legacy bundle (legacy_bundle).
 bundle_signoff() {
-  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode kb
   if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     printf 'not a spec identifier'
     return 0
@@ -788,7 +809,7 @@ bundle_signoff() {
   esac
   if [ -z "$st" ]; then
     # Never a pass: a bundle from before the pipeline carries no sign-off.
-    printf 'its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
+    printf 'its requirements.md has no **Status:** value in its header at the head, as a pre-pipeline bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
     return 0
   fi
   case $st in
@@ -798,11 +819,34 @@ bundle_signoff() {
       return 0
       ;;
   esac
+  kb=$(sanitize_printable "$rel/$b/kickoff-brief.md")
+  # An absent brief is told from one git cannot hand over, since only an
+  # absent one can make a Done bundle legacy.
+  if ! mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree "$head" -- "$rel/$b/kickoff-brief.md" 2>/dev/null); then
+    printf 'its kickoff-brief.md cannot be read at the head (git could not list %s)' "$kb"
+    return 0
+  fi
+  mode=${mode%% *}
+  case $mode in
+    '')
+      if [ "$st" = Done ]; then
+        legacy_bundle "$repo" "$rel" "$b" "$6" "$7" "$d"
+        return
+      fi
+      printf 'it has no kickoff brief at the head'
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf 'its kickoff-brief.md cannot be read at the head (%s is not a file)' "$kb"
+      return 0
+      ;;
+  esac
   for f in design.md tasks.md test-spec.md kickoff-brief.md; do
     mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/$f" >"$d/$f" 2>/dev/null || rm -f "$d/$f"
   done
   if ! [ -f "$d/kickoff-brief.md" ]; then
-    printf 'it has no kickoff brief at the head'
+    printf 'its kickoff-brief.md cannot be read at the head (git could not read %s)' "$kb"
     return 0
   fi
   # The sign-off stands only for the content it anchored: the brief's latest
@@ -841,6 +885,73 @@ bundle_signoff() {
   elif [ "${entry%%	*}" != "$got" ]; then
     printf 'its content at the head is not what the kickoff signed off (the anchor differs)'
   fi
+}
+
+# legacy_bundle <repo> <root rel> <bundle> <base ref> <pr read> <scratch dir>:
+# for a Done bundle with no kickoff brief at the head, return 5 when it
+# finished before kickoff existed, or print why that cannot be told: the pull
+# request deletes its brief, the base holds one, the base cannot be read, or
+# the base does not hold the bundle as Done or from before the pipeline (no
+# Status line). Deleting a brief, adding a bundle, or marking a Draft, Ready
+# or Active one Done in the pull request must never make it legacy.
+legacy_bundle() {
+  local p="$2/$3/kickoff-brief.md" req="$2/$3/requirements.md" kb name mode st rc=0
+  kb=$(sanitize_printable "$p")
+  P=$p awk -F '\t' '$1 == "path" && $2 == ENVIRON["P"] && $3 == "DELETED" { found = 1; exit } END { exit !found }' "$5" || rc=$?
+  case $rc in
+    0)
+      printf 'it has no kickoff brief at the head, and the pull request deletes %s' "$kb"
+      return 0
+      ;;
+    1) ;;
+    *)
+      printf "it has no kickoff brief at the head, and the pull request's file list cannot be read to rule out a deleted one"
+      return 0
+      ;;
+  esac
+  if [ -z "$4" ]; then
+    printf 'it has no kickoff brief at the head, and the pull request names no base branch to rule out a deleted one'
+    return 0
+  fi
+  name=$(sanitize_printable "${4#refs/remotes/}")
+  if ! mc_untrusted_git -C "$1" rev-parse --verify -q "$4^{commit}" >/dev/null 2>&1; then
+    printf "it has no kickoff brief at the head, and the pull request's base %s is not in this repository to rule out a deleted one; fetch it" "$name"
+    return 0
+  fi
+  if ! mode=$(mc_untrusted_git -C "$1" --literal-pathspecs ls-tree "$4" -- "$p" 2>/dev/null); then
+    printf "it has no kickoff brief at the head, and git could not list %s at the pull request's base %s" "$kb" "$name"
+    return 0
+  fi
+  if [ -n "$mode" ]; then
+    printf "it has no kickoff brief at the head, but the pull request's base %s holds one (%s)" "$name" "$kb"
+    return 0
+  fi
+  if ! mode=$(mc_untrusted_git -C "$1" --literal-pathspecs ls-tree "$4" -- "$req" 2>/dev/null); then
+    printf "it has no kickoff brief at the head, and git could not list %s at the pull request's base %s" "$(sanitize_printable "$req")" "$name"
+    return 0
+  fi
+  case ${mode%% *} in
+    '')
+      printf "it has no kickoff brief at the head, and the pull request's base %s does not hold the bundle, so it cannot have finished before kickoff" "$name"
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf "it has no kickoff brief at the head, and its requirements.md at the pull request's base %s cannot be read for its status" "$name"
+      return 0
+      ;;
+  esac
+  rc=0
+  mc_untrusted_git -C "$1" cat-file blob "$4:$req" >"$6/base-requirements.md" 2>/dev/null \
+    && st=$(spec_parse_header_value "$6/base-requirements.md" Status 2>/dev/null) || rc=1
+  if [ "$rc" != 0 ]; then
+    printf "it has no kickoff brief at the head, and its requirements.md at the pull request's base %s cannot be read for its status" "$name"
+    return 0
+  fi
+  case $st in
+    '' | Done) return 5 ;;
+  esac
+  printf "it has no kickoff brief at the head, and the pull request's base %s holds it at status %s, so it did not finish before kickoff" "$name" "$(sanitize_printable "$st")"
 }
 
 # collect <program> <slug> <pr> <worktree> <out>
@@ -916,7 +1027,7 @@ collect() {
   cl_baseref=$(awk -F '\t' '$1 == "base" { print $2; exit }' "$cl_tmp/pr")
   cl_unaud=''
   : >"$cl_tmp/cadence"
-  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/scope"
+  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" "$cl_baseref" >"$cl_tmp/scope"
   : >"$cl_tmp/drift"
   [ -s "$cl_tmp/scope" ] || drift_scope "$1" "$2" "$cl_head" "$cl_baseref" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/drift"
   if [ -s "$cl_tmp/scope" ]; then

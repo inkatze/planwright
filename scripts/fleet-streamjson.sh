@@ -88,6 +88,7 @@
 #                    back; absent otherwise
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
 #                    recover and a relaunch read back; absent otherwise
+#   lefthook-edit    the same for --lefthook-edit
 #   worker-settings.json  the per-launch settings profile of an opted-in
 #                    worker (scripts/worker-settings-generate.sh), rewritten
 #                    by every launch, recover and relaunch of it
@@ -101,6 +102,12 @@
 #                    fleet-stop-lib.sh, stop_scratch_root_release)
 #   alarmed-<id>     the mark of a request whose overdue push has been made,
 #                    until the journal no longer reads it pending
+#   unregistered-announced  the session-keeper's claim that its one-time
+#                    event about a worker with no launcher row was raised
+#                    (scripts/mc-keeper.sh announce_once); `.claim.*` its
+#                    staging temp
+#   unowned-announced.<id>  the session-keeper's claim that request <id>
+#                    was raised as unowned, while it stays pending
 #   supervisor.log   the detached supervisor's own stderr
 #   .init.* / .frame.* / .journal.* / .session.* / .pid.* / .ratelimit.*
 #                    mktemp-beside-target staging
@@ -202,7 +209,7 @@
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
 #       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
-#       [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
 #       --profile (default worker). --mise-task-edit (worker profile only,
 #       off by default, recorded for a recover) opts the worker in to editing
@@ -210,6 +217,9 @@
 #       profile generated for it (scripts/worker-settings-generate.sh) and the
 #       session record carries mise_task_edit=1 for the command guard
 #       (docs/permission-matcher-model.md, "The mise task-file opt-in").
+#       --lefthook-edit is the same for the lefthook config names
+#       (lefthook.<ext>, lefthook/): it records lefthook_edit=1 and
+#       composes with --mise-task-edit ("The lefthook config opt-in").
 #       --spec-branch (worker profile only, recorded for a recover) names the
 #       spec PR branch the session record carries as spec_branch for the policy
 #       guard (docs/permission-matcher-model.md, "The spec-branch launch
@@ -404,7 +414,9 @@
 #   mission-control launch) absent; 8 the
 #   dispatch-env wrapper the launch goes through is missing or unreadable; 9
 #   the launch preflight could not prove the worker's auto-approve hook will
-#   approve its opening plugin-script call (see LAUNCH PREFLIGHT).
+#   approve its opening plugin-script call, or, for an opted-in launch or
+#   relaunch, that its file-tool hook judges the opted-in names (see LAUNCH
+#   PREFLIGHT).
 #
 # LAUNCH PREFLIGHT. A dispatched worker's first move is fixed and predictable:
 # /execute-task resolves its doctrine by calling scripts under the planwright
@@ -426,10 +438,17 @@
 # command, because the worker would otherwise stall on exactly that call; a
 # hook that is missing or not executable, or a proof that could not run at
 # all, refuses the same way. PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT is `refuse`
-# by default; =warn downgrades every refusal to a warning (an operator who
-# intends to answer every prompt by hand); =off skips the proof; any other
+# by default; =warn downgrades every approval refusal to a warning (an operator
+# who intends to answer every prompt by hand); =off skips that proof; any other
 # value is a usage error (exit 2). A tower or mission-control profile wires
-# the tower command guard instead, so its launch runs no preflight.
+# the tower command guard instead, so its launch runs no preflight. A launch
+# or relaunch given --mise-task-edit or --lefthook-edit also proves the
+# file-tool hook under that root (edit_hook_preflight): it must refuse a write
+# of each opted-in name outside a scratch worktree, each with exit 0 and its one
+# line of hook JSON, and pass a plain file. That proof guards containment, so
+# it refuses with exit 9 whatever the knob says. An exported plugin root that
+# does not resolve refuses both proofs with exit 9 (warn softening only the
+# approval one): none of the worker's hooks would run.
 #
 # ESCALATION TICK. The pending-age alarm used to be scan-only (`alarm-scan`),
 # and nothing in the fleet ran the scan, so a worker parked on an unanswerable
@@ -517,7 +536,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>]) [--takeover]"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -1667,6 +1686,129 @@ dispatch_env_path() {
   printf '%s\n' "$de_path"
 }
 
+# hook_root_of <dispatch-env> <cwd> — print the plugin root whose hooks gate a
+# worker launched through that wrapper in that directory. The hook a worker
+# runs is the one under the CLAUDE_PLUGIN_ROOT the wrapper exports
+# (config/worker-settings.json names it through that variable): this
+# launcher's root, unless the launcher itself was started with one already
+# set, in which case another install's copy gates the worker. Read in the
+# worker's directory: which install is current there can depend on a
+# project-scoped record entry.
+#   When the wrapper exports a root that does not resolve from the worker's
+#   directory, the worker's hooks would not run at all: it prints that value
+#   instead (control bytes stripped) and returns 1.
+hook_root_of() {
+  hr_dir=$(cd -- "$(dirname "$1")" 2>/dev/null && pwd -P) || hr_dir=$(dirname "$1")
+  hr_launcher=$(cd -- "$hr_dir/.." 2>/dev/null && pwd -P) || hr_launcher=''
+  hr_raw=$(
+    cd -- "$2" 2>/dev/null || :
+    "$1" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
+  )
+  [ -n "$hr_raw" ] || hr_raw=$hr_launcher
+  hr_root=$(
+    cd -- "$2" 2>/dev/null || :
+    cd -- "$hr_raw" 2>/dev/null && pwd -P
+  ) || {
+    printf '%s\n' "$hr_raw" | tr -d '\000-\011\013-\037\177'
+    return 1
+  }
+  printf '%s\n' "$hr_root"
+}
+
+# edit_hook_preflight <dispatch-env> <cwd> <set>... — for an opted-in launch
+# (sets mise, lefthook): prove the file-tool hook under the worker's root
+# refuses a write of each set's name outside a scratch worktree and lets a
+# plain file there through. The opted-in profile drops those names' broad
+# denies and leaves them to that hook, so a copy that does not judge them (one
+# from before the opt-in ignores the argument) leaves them open in every other
+# checkout. Unlike guard_preflight it guards containment, not approvals, so
+# PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT does not soften it: any failure,
+# a proof that could not run included, returns 9.
+edit_hook_preflight() {
+  ep_env=$1
+  ep_cwd=$2
+  shift 2
+  ep_root=$(hook_root_of "$ep_env" "$ep_cwd") || {
+    printf '%s\n' "$me: launch preflight: the plugin root the worker's hooks run from ($ep_root) does not resolve, so its file-tool hook would not run and the opted-in names would stay open; launch from a session whose CLAUDE_PLUGIN_ROOT is unset or names the installed root" >&2
+    return 9
+  }
+  ep_hook="$ep_root/scripts/worker-mise-edit-guard.sh"
+  # The arguments the generated profile wires: none for mise alone (the hook's
+  # default), the sets otherwise.
+  ep_args="$*"
+  [ "$ep_args" != mise ] || ep_args=''
+  ep_made=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || ep_made=''
+  ep_probe=''
+  [ -z "$ep_made" ] || ep_probe=$(cd -P -- "$ep_made" 2>/dev/null && pwd -P) || ep_probe=''
+  if [ -z "$ep_probe" ] || ! mkdir -p -- "$ep_probe/wt" "$ep_probe/out"; then
+    [ -z "$ep_made" ] || rm -rf "$ep_made"
+    printf '%s\n' "$me: launch preflight: cannot create a folder to prove the file-tool hook in (TMPDIR=${TMPDIR:-/tmp})" >&2
+    return 9
+  fi
+  ep_wt_json=$(printf '%s' "$ep_probe/wt" | json_escape)
+  ep_bad=''
+  ep_control=0
+  ep_norun=''
+  ep_err=''
+  # The plain file is the control: a hook that refuses it refuses by something
+  # other than the names, so its refusal of the named files proves nothing.
+  for ep_name in plain.txt "$@"; do
+    case $ep_name in
+      mise) ep_file=mise.toml ;;
+      lefthook) ep_file=lefthook.yml ;;
+      *) ep_file=$ep_name ;;
+    esac
+    ep_payload=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"%s"},"cwd":"%s"}' \
+      "$(printf '%s' "$ep_probe/out/$ep_file" | json_escape)" "$ep_wt_json")
+    ep_rc=0
+    # shellcheck disable=SC2086 # a word list of the hook's own name sets
+    ep_out=$(printf '%s\n' "$ep_payload" | "$ep_env" "$ep_hook" "$ep_probe/wt" $ep_args 2>"$ep_probe/err") || ep_rc=$?
+    # Only the one line the hook emits counts as its refusal: Claude Code
+    # ignores a decision it cannot parse as hook JSON.
+    if [ "$ep_name" = plain.txt ]; then
+      case $ep_rc:$ep_out in
+        0:) ;;
+        # Exit 2 with nothing on stdout is also what a shell error gives
+        # under dash, so it reads as a broken hook, not a refusal.
+        0:* | 2:?*) ep_control=1 ;;
+        *)
+          ep_norun=$ep_rc
+          ep_err=$(head -n 1 "$ep_probe/err" 2>/dev/null | tr -d '\000-\037\177' | cut -c1-200) || ep_err=''
+          ;;
+      esac
+      continue
+    fi
+    if [ "$ep_rc" -ne 0 ]; then
+      ep_bad="$ep_bad $ep_name"
+      continue
+    fi
+    case $ep_out in
+      *"$NL"*) ep_bad="$ep_bad $ep_name" ;;
+      '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",'*'}}') ;;
+      *) ep_bad="$ep_bad $ep_name" ;;
+    esac
+  done
+  rm -rf "$ep_probe"
+  if [ -n "$ep_norun" ]; then
+    # Claude Code reads exit 2 as a block, so such a hook closes every write
+    # rather than leaving the names open; any other failure blocks nothing.
+    if [ "$ep_norun" = 2 ]; then
+      ep_what="exited 2 on a plain file with nothing on stdout: a shell error, or a hook that blocks every write"
+    else
+      ep_what="did not run or is broken (exit $ep_norun on a plain file): missing, not executable or failing, so the opted-in names would stay open in every other checkout"
+    fi
+    printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook $ep_what${ep_err:+ (its stderr: $ep_err)}" >&2
+    return 9
+  fi
+  if [ "$ep_control" = 1 ]; then
+    printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook refused a plain file outside the worktree, so its refusals prove nothing about the opted-in names (a TMPDIR whose path holds an opted-in name, a hook that cannot read its payload: check jq)" >&2
+    return 9
+  fi
+  [ -n "$ep_bad" ] || return 0
+  printf '%s\n' "$me: launch preflight: the file-tool hook $ep_hook does not judge the opted-in names (failed:${ep_bad}); it must refuse each outside the worktree with its one line of hook JSON, or the opt-in leaves them open in every other checkout (an install from before the opt-in)" >&2
+  return 9
+}
+
 # guard_preflight <dispatch-env> <cwd> — the LAUNCH PREFLIGHT (see the
 # header): prove the wired hook approves a worker's opening plugin-script call
 # under every root it could name, before anything is spawned. Prints nothing
@@ -1686,20 +1828,14 @@ guard_preflight() {
   esac
   gp_dir=$(cd -- "$(dirname "$gp_env")" 2>/dev/null && pwd -P) || gp_dir=$(dirname "$gp_env")
   gp_launcher=$(cd -- "$gp_dir/.." 2>/dev/null && pwd -P) || gp_launcher=''
-  # The hook a worker runs is the one under the CLAUDE_PLUGIN_ROOT the wrapper
-  # exports (config/worker-settings.json names it through that variable): this
-  # launcher's root, unless the launcher itself was started with one already
-  # set, in which case another install's copy gates the worker. Prove that
-  # file, and read the installed roots through the resolver beside it, so the
-  # proof is of what the worker is actually gated by.
-  # Read in the worker's directory: which install is current there can depend
-  # on a project-scoped record entry.
-  gp_hook_root=$(
-    cd -- "$gp_cwd" 2>/dev/null || :
-    "$gp_env" --print 2>/dev/null | sed -n 's/^CLAUDE_PLUGIN_ROOT=//p' | head -n 1
-  )
-  [ -n "$gp_hook_root" ] || gp_hook_root=$gp_launcher
-  gp_hook_root=$(cd -- "$gp_hook_root" 2>/dev/null && pwd -P) || gp_hook_root=$gp_launcher
+  # Prove the hook under the root that gates the worker, and read the installed
+  # roots through the resolver beside it, so the proof is of what the worker is
+  # actually gated by.
+  gp_hook_root=$(hook_root_of "$gp_env" "$gp_cwd") || {
+    printf '%s\n' "$me: launch preflight: the plugin root the dispatch-env wrapper exports for the worker's hooks ($gp_hook_root) does not resolve, so none of them would run (its command guard and policy guard included); launch from a session whose CLAUDE_PLUGIN_ROOT is unset or names the installed root" >&2
+    [ "$gp_mode" = warn ] && return 0
+    return 9
+  }
   # Warned before the refusals below, so warn mode reports it too: without it
   # a backgrounded command stalls the worker, and nothing else breaks.
   [ -x "$gp_hook_root/scripts/background-job-guard.sh" ] \
@@ -2130,6 +2266,7 @@ cmd_launch() {
   tier_key=''
   tier_unit=''
   mise_edit=0
+  lefthook_edit=0
   spec_branch=''
   tier_model=''
   tier_effort=''
@@ -2157,6 +2294,12 @@ cmd_launch() {
         # recorded.
         [ "$mise_edit" = 0 ] || usage
         mise_edit=1
+        shift
+        ;;
+      --lefthook-edit)
+        # Like --mise-task-edit: a launch argument and nothing else.
+        [ "$lefthook_edit" = 0 ] || usage
+        lefthook_edit=1
         shift
         ;;
       --tier-model | --tier-effort)
@@ -2256,6 +2399,12 @@ cmd_launch() {
     printf '%s\n' "$me: invalid --resume-session id" >&2
     exit 2
   fi
+  # A resume reads its opt-ins from the markers its launch recorded; one given
+  # here would open the profile with no marker for the next recover to keep.
+  if [ -n "$resume_sid" ] && { [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ]; }; then
+    printf '%s\n' "$me: --resume-session takes no opt-in (--mise-task-edit, --lefthook-edit); a recover keeps the ones its launch recorded" >&2
+    exit 2
+  fi
   if [ -z "$resume_sid" ]; then
     valid_field "${scope:-}" || {
       printf '%s\n' "$me: invalid scope: $SCOPE_SHAPE" >&2
@@ -2285,10 +2434,15 @@ cmd_launch() {
     printf '%s\n' "$me: --mise-task-edit applies to the worker profile only" >&2
     exit 2
   fi
-  # A recover relaunches under the opt-in its launch recorded.
+  if [ "$lefthook_edit" = 1 ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --lefthook-edit applies to the worker profile only" >&2
+    exit 2
+  fi
+  # A recover relaunches under the opt-ins its launch recorded.
   if [ -n "$resume_sid" ] && [ "$profile" = worker ]; then
     pf_dir=$(worker_dir "$worker") || exit 2
     [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
+    [ "$(cat "$pf_dir/lefthook-edit" 2>/dev/null)" != 1 ] || lefthook_edit=1
     [ -n "$spec_branch" ] || spec_branch=$(cat "$pf_dir/spec-branch" 2>/dev/null) || spec_branch=''
   fi
   if [ -n "$spec_branch" ] && [ "$profile" != worker ]; then
@@ -2303,6 +2457,13 @@ cmd_launch() {
   gp_rc=0
   [ "$profile" != worker ] || guard_preflight "$dispatch_env" "${run_cwd:-$PWD}" || gp_rc=$?
   [ "$gp_rc" -eq 0 ] || exit "$gp_rc"
+  gp_sets=''
+  [ "$mise_edit" != 1 ] || gp_sets=mise
+  [ "$lefthook_edit" != 1 ] || gp_sets="${gp_sets:+$gp_sets }lefthook"
+  if [ -n "$gp_sets" ]; then
+    # shellcheck disable=SC2086 # a word list of the hook's own name sets
+    edit_hook_preflight "$dispatch_env" "${run_cwd:-$PWD}" $gp_sets || exit $?
+  fi
 
   dir=$(worker_dir "$worker") || exit 2
   # The handle grammar blocks traversal tokens but not a symlink planted under
@@ -2453,10 +2614,14 @@ cmd_launch() {
   # state folder, so every launch and recover of it reads the same shape; any
   # other launch passes the shipped profile itself. A profile the generator
   # cannot produce refuses the launch rather than falling back.
-  if [ "$mise_edit" = 1 ]; then
-    if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
+  if [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ]; then
+    gen_flags=''
+    [ "$mise_edit" = 0 ] || gen_flags=--mise-task-edit
+    [ "$lefthook_edit" = 0 ] || gen_flags="${gen_flags:+$gen_flags }--lefthook-edit"
+    # shellcheck disable=SC2086 # a word list of the generator's own flags
+    if ! gen_out=$(/bin/sh "$script_dir/worker-settings-generate.sh" $gen_flags "$launch_settings" "${run_cwd:-$PWD}" "$dir/worker-settings.json" </dev/null); then
       rm -f "$init_msg"
-      printf '%s\n' "$me: refusing to launch $worker: cannot generate its per-launch settings profile for --mise-task-edit" >&2
+      printf '%s\n' "$me: refusing to launch $worker: cannot generate its per-launch settings profile for the opt-in ($gen_flags)" >&2
       exit 7
     fi
     launch_settings=$gen_out
@@ -2468,6 +2633,11 @@ cmd_launch() {
       printf '1\n' >"$dir/mise-task-edit.tmp" && mv -f "$dir/mise-task-edit.tmp" "$dir/mise-task-edit" || exit 2
     else
       rm -f "$dir/mise-task-edit"
+    fi
+    if [ "$lefthook_edit" = 1 ]; then
+      printf '1\n' >"$dir/lefthook-edit.tmp" && mv -f "$dir/lefthook-edit.tmp" "$dir/lefthook-edit" || exit 2
+    else
+      rm -f "$dir/lefthook-edit"
     fi
     if [ -n "$spec_branch" ]; then
       printf '%s\n' "$spec_branch" >"$dir/spec-branch.tmp" && mv -f "$dir/spec-branch.tmp" "$dir/spec-branch" || exit 2
@@ -2544,7 +2714,9 @@ cmd_launch() {
   unset PLANWRIGHT_WORKER_SESSION_RECORD
   mt_flag=''
   [ "$mise_edit" = 0 ] || mt_flag=--mise-task-edit
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
+  lh_flag=''
+  [ "$lefthook_edit" = 0 ] || lh_flag=--lefthook-edit
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${lh_flag:+"$lh_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD
@@ -3299,12 +3471,35 @@ cmd_relaunch() {
   run_cwd=$rx_cwd
   profile_settings_path "$rx_profile" >/dev/null || exit 7
   rx_env=$(dispatch_env_path) || exit 8
-  if [ "$rx_profile" = worker ] && [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+  rx_gen_flags=''
+  rx_sets=''
+  if [ "$rx_profile" = worker ]; then
+    if [ "$(cat "$dir/mise-task-edit" 2>/dev/null)" = 1 ]; then
+      rx_gen_flags=--mise-task-edit
+      rx_sets=mise
+    fi
+    if [ "$(cat "$dir/lefthook-edit" 2>/dev/null)" = 1 ]; then
+      rx_gen_flags="${rx_gen_flags:+$rx_gen_flags }--lefthook-edit"
+      rx_sets="${rx_sets:+$rx_sets }lefthook"
+    fi
+  fi
+  if [ -n "$rx_gen_flags" ]; then
+    # shellcheck disable=SC2086 # a word list of the hook's own name sets
+    edit_hook_preflight "$rx_env" "$rx_cwd" $rx_sets || exit $?
     rx_shipped=$(profile_settings_path worker) || exit 7
-    /bin/sh "$script_dir/worker-settings-generate.sh" "$rx_shipped" "$rx_cwd" "$dir/worker-settings.json" >/dev/null </dev/null || {
+    # Generated aside, never over the profile the running worker reads: the
+    # relaunch may still be refused below, and the resumed launch writes its own.
+    rx_check=$(mktemp -d "${TMPDIR:-/tmp}/fleet-streamjson.XXXXXX") || {
+      printf '%s\n' "$me: relaunch refused for $worker: no folder to check its per-launch settings profile in (TMPDIR=${TMPDIR:-/tmp})" >&2
+      exit 7
+    }
+    # shellcheck disable=SC2086 # a word list of the generator's own flags
+    /bin/sh "$script_dir/worker-settings-generate.sh" $rx_gen_flags "$rx_shipped" "$rx_cwd" "$rx_check/worker-settings.json" >/dev/null </dev/null || {
+      rm -rf "$rx_check"
       printf '%s\n' "$me: relaunch refused for $worker: its per-launch settings profile cannot be generated now" >&2
       exit 7
     }
+    rm -rf "$rx_check"
   fi
   rx_gp=0
   [ "$rx_profile" != worker ] || guard_preflight "$rx_env" "$rx_cwd" || rx_gp=$?

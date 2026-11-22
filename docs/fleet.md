@@ -874,15 +874,24 @@ burst is one wake (a batch whose names outgrow one event's text spans a
 few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
-Each goes to the worker's own program (its launcher row's, else the owner its
-dispatch record keeps). Each request of a worker that neither names, or of a
-worker whose program has no live mission control (no launched mission-control
-row, or every one positively dead), is raised once, whichever keeper sees it
-first, as a `stream-json-worker-unowned` event under the hub program
-(`mission_control_escalation_hub`), so the stuck prompt still reaches a
-mission control; a request arriving after the first is its own event. With no
-hub program configured the event stays with the program whose keeper found
-it, and its text says so.
+Each goes to the worker's own program: its launcher row's, else the owner its
+dispatch record keeps, else its parent's row or record (the worker it was
+launched from inside), else the configured program its name carries under the
+launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
+polish pass adding `-<suffix>`). A live worker with a request waiting and no
+row of its own is raised once to the program its record, parent or name gives,
+as a `stream-json-worker-unregistered` event, so its mission control can
+retire it or launch it afresh; not while the launcher's list, the program list
+or the session kinds cannot be read, nor for a worker whose registry file
+the list skipped (another format's row). Each request of a worker none of
+these owns, or of a worker whose program has no live mission control (no
+launched mission-control row, or every one positively dead), is raised once,
+whichever keeper sees it first, as a `stream-json-worker-unowned` event under
+the hub program (`mission_control_escalation_hub`), so the stuck prompt still
+reaches a mission control; a request arriving after the first is its own
+event. With no hub program configured the event stays with the program whose
+keeper found it, and its text says so. Routing only decides who hears a
+prompt: who may answer it is unchanged.
 The same watch lists every stream-json supervisor or `claude -p` worker of
 the keeper's user that nothing can reach any more (`scripts/mc-stall.sh orphans`):
 a supervisor whose state directory is gone or records another supervisor,
@@ -895,7 +904,8 @@ burns a core); a service manager that runs one on purpose reads the same, so
 the event names what was read and the call stays the operator's. Each is its
 own event, by process. One listed for a
 minute is raised once for the machine as a
-`stream-json-worker-orphaned` event, routed as the unowned one is. Nothing
+`stream-json-worker-orphaned` event under the hub program, else the program
+whose keeper found it. Nothing
 signals it: the event says how to check it and stop it by hand.
 A pending-age setting the sweeps cannot read
 (`PLANWRIGHT_STREAMJSON_PENDING_AGE` not a positive number) or a sweep that ends
@@ -1005,13 +1015,29 @@ naming the root and the command, because the worker would otherwise pend on
 exactly that call with nothing to say so; a hook that is missing or not
 executable, or a proof that could not run at all, refuses the same way. So
 does a hook root (the plugin root the wrapper exports) without an executable
-`scripts/policy-guard.sh`: the worker
-profile leaves merges and history rewrites to that guard, and a hook that
-cannot run refuses nothing.
+`scripts/policy-guard.sh`: the worker profile leaves merges and history
+rewrites to that guard, and a hook that cannot run refuses nothing. So does an
+exported plugin root that does not resolve from the worker's directory, since
+none of the worker's hooks would run from it; the refusal names that root.
+
+A launch or relaunch given `--mise-task-edit` or `--lefthook-edit` also proves
+that hook root's `scripts/worker-mise-edit-guard.sh` judges the opted-in names:
+a write of each name set outside the worktree (`mise.toml`, `lefthook.yml`)
+must be refused with exit 0 and the hook's one line of hook JSON, and a plain
+file there must pass. The generated profile drops those names' broad denies,
+so a copy that does not judge them (one from before the opt-in, a missing one,
+or one that refuses everything) refuses the launch with exit 9, as does an
+unresolvable root. That proof guards containment rather than approvals, so the
+knob below neither skips nor softens it. A relaunch runs it and checks the
+profile still generates, into a scratch folder, before the stop, so a refused
+relaunch leaves the running worker's profile as it was. A resume
+(`--resume-session`) takes neither flag: it keeps the opt-ins its launch
+recorded.
+
 `PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT` is `refuse` by default; `warn`
-downgrades every refusal to a warning and launches, `off` skips the proof, and
-any other value is a usage error. The installed roots the proof covers are
-read through the same resolver the hook trusts them from, so that set cannot
+downgrades every approval refusal above to a warning and launches, `off` skips
+the approval proof, and any other value is a usage error. The installed roots
+the proof covers are read through the same resolver the hook trusts them from, so that set cannot
 diverge between the two; the hook's remaining arms (`PLANWRIGHT_ROOT`,
 `CLAUDE_PLUGIN_ROOT`, `<claude-dir>/planwright`, its own location) are trusted
 without a proof of their own.
@@ -1209,7 +1235,7 @@ in that directory at the allocation key and unit the launch recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
 that does not resolve to `inherit`; a tier model, effort or reservation the
 launch recorded is handed back to that plan as an override. A launch's
-`--mise-task-edit` opt-in is kept too: the relaunch regenerates the worker's
+`--mise-task-edit` and `--lefthook-edit` opt-ins are kept too: the relaunch regenerates the worker's
 per-launch settings profile, and a profile it cannot generate is exit `7`.
 Any other extra argument the original launch passed after `--` is not carried
 over. (`recover --cwd <dir>` is
@@ -2738,6 +2764,10 @@ settings file generated for that worker from `config/worker-settings.json`
 `mise_task_edit=1`; a launch without the flag passes the shipped profile
 unchanged. What it opens and the residual risk are in
 [the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in).
+`--lefthook-edit` is the same opt-in for the worktree's lefthook config
+(`lefthook.<ext>`, `lefthook/`), recorded as `lefthook_edit=1`; it composes with
+the mise one and is described in
+[the lefthook config opt-in](permission-matcher-model.md#the-lefthook-config-opt-in).
 A worker, reviewer or ad-hoc launch never starts
 in a primary checkout: the launcher has `fleet-dispatch-worktree.sh
 --no-attach` create its worktree, or reuses the one holding its branch when
