@@ -594,6 +594,9 @@ misroutes="$fleet/mission-control/alpha/wake-misroutes"
 setup
 mc_run fleet-state.sh register wk mission-control:alpha --backend stream-json --death-handle none
 mc_run fleet-state.sh register nr mission-control:alpha --backend stream-json --death-handle none
+# The prompt's subject must be a live session, or the wake drops its event
+# as gone before any routing check runs.
+mc_run fleet-state.sh register mc-beta-worker-1 mission-control:alpha --backend stream-json --death-handle none
 launcher_row wk worker
 launcher_row mcs mission-control
 mc_run mc-wake.sh target add --program alpha wk
