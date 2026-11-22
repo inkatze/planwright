@@ -176,6 +176,15 @@ expect_no_out "and gives no close-the-gap advice for it" "Recommend:"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
   --evidence "$tmp/flipgap" --moment ready-flip --level standard
 expect_out "a not-ready walk still names the post-pr gap as a gap" "Cadence: covered pre-pr; gap post-pr (no completion record)"
+# A post-pr completion only off the pull request's history (another unit's,
+# in a reused worktree) reads as the walk words it, pending or a gap alike.
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tforeign\t2222222222222222222222222222222222222222\n' "$head" "$head" >"$tmp/flipforeign"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
+  --evidence "$tmp/flipforeign" --moment ready-flip --level guided
+expect_out "a flip-for-review walk holds a foreign post-pr as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (no completion record on the history of this pull request (the newest, at 222222222222, is outside it))"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
+  --evidence "$tmp/flipforeign" --moment ready-flip --level standard
+expect_out "a not-ready walk names it as a gap" "Cadence: covered pre-pr; gap post-pr (no completion record on the history of this pull request (the newest, at 222222222222, is outside it))"
 
 # Without a moment the packet is unchanged: the walk is the first line.
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/readiness"

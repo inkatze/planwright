@@ -135,10 +135,13 @@ walk_collected() { # walk_collected <row>...: the walk over the collection's hea
   mc_run mc-readiness.sh walk --conditions "$tmp/no-conditions" --evidence "$tmp/ev.walk"
 }
 post_pr_at "$other_unit"
+(cd "$tmp/feature-wt" && /bin/bash "$repo_root/scripts/step-record.sh" write --completion --run 000001 --point convergence --head "$other_unit" >/dev/null) \
+  || fail "fixture: the other unit's convergence completion"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "another unit's post-pr completion off this history is collected as foreign" "cadence${tab}gap${tab}post-pr${tab}foreign${tab}$other_unit"
 hasnt "not as stale" "cadence${tab}gap${tab}post-pr${tab}stale"
+has "another point's stale gap is left as it was" "cadence${tab}gap${tab}convergence${tab}stale${tab}$other_unit"
 walk_collected "state,draft" "require,pr-agent"
 expect_rc "a draft holding it is not merge-ready" 4
 case $OUT in "flip-for-review${tab}$head"*) ok "a draft holding only another unit's post-pr is told to flip" ;; *) fail "a draft holding another unit's post-pr reads: $OUT" ;; esac
@@ -156,7 +159,26 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a newer foreign completion does not hide the pull request's own stale one" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$other_unit"
 hasnt "so the point is not foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
-# A completion the base already holds predates the pull request's branch point.
+# A completion git cannot place keeps the point stale.
+rm -rf "$tmp/feature-wt/.claude/steps"
+post_pr_at "$H"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a post-pr completion on a commit the worktree lacks stays stale" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$H"
+hasnt "never foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
+# A completion ahead of the head (a session whose work is not pushed yet) is
+# the pull request's own.
+rm -rf "$tmp/feature-wt/.claude/steps"
+git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m unpushed
+unpushed=$(git -C "$tmp/feature-wt" rev-parse HEAD)
+post_pr_at "$unpushed"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a post-pr completion ahead of the forge's head stays stale" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$unpushed"
+hasnt "never foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
+git -C "$tmp/feature-wt" checkout -q --detach "$head" && git -C "$tmp/feature-wt" checkout -q -B feature
+# With the base named: a completion it already holds predates the pull
+# request's branch point; one on the pull request's own commits does not.
 rm -rf "$tmp/feature-wt/.claude/steps"
 post_pr_at "$prev"
 cp "$tmp/pr.json" "$tmp/pr.nobase.json"
@@ -165,6 +187,16 @@ git -C "$repo" update-ref refs/remotes/origin/main "$prev"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a post-pr completion at or before the branch point is foreign" "cadence${tab}gap${tab}post-pr${tab}foreign${tab}$prev"
+if ! { git -C "$tmp/feature-wt" checkout -q --orphan other-base \
+  && git -C "$tmp/feature-wt" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m other-base \
+  && git -C "$repo" update-ref refs/remotes/origin/main "$(git -C "$tmp/feature-wt" rev-parse HEAD)" \
+  && git -C "$tmp/feature-wt" checkout -q feature; }; then
+  fail "fixture: a base that lacks the pull request's commits"
+fi
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
+c=$(cat "$tmp/collected" 2>/dev/null)
+has "a post-pr completion on the pull request's own commit, which the base lacks, stays stale" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$prev"
+hasnt "never foreign" "cadence${tab}gap${tab}post-pr${tab}foreign"
 git -C "$repo" update-ref -d refs/remotes/origin/main
 mv "$tmp/pr.nobase.json" "$tmp/pr.json"
 mv "$tmp/tracked.keep" "$tracked"

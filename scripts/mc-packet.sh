@@ -167,11 +167,12 @@ cadence_lines() {
       d = $5 " is " $4
       if ($4 == "incomplete") d = "no completion record"
       else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+      else if ($4 == "foreign") d = "no completion record on the history of this pull request (the newest, at " substr($5, 1, 12) ", is outside it)"
       else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
       else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
       else if ($4 == "fault") d = $5
       else if ($4 == "unaudited") d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"
-      if (ENVIRON["F"] == 1 && $3 == "post-pr" && ($4 == "incomplete" || $4 == "missing")) pend = pend (pend == "" ? "" : "; ") $3 " (" d ")"
+      if (ENVIRON["F"] == 1 && $3 == "post-pr" && ($4 == "incomplete" || $4 == "missing" || $4 == "foreign")) pend = pend (pend == "" ? "" : "; ") $3 " (" d ")"
       else gaps = gaps (gaps == "" ? "" : "; ") $3 " (" d ")"
     }
     END {
