@@ -360,8 +360,11 @@ select_events() {
     # The dropped ids go to awk as a file, never an argument or environment
     # string, which a large backlog would outgrow.
     sel_file=$(mktemp "$runtime/.sel.XXXXXX") || return 1
-    printf '%s\n' "$sel_ids" >"$sel_file"
-    SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' 'NR == FNR { d[$1] = 1; next } NF && !($1 in d)' "$sel_file" -)
+    printf '%s\n' "$sel_ids" >"$sel_file" || {
+      rm -f "$sel_file"
+      return 1
+    }
+    SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' 'FILENAME == ARGV[1] { d[$1] = 1; next } NF && !($1 in d)' "$sel_file" -)
     sel_rc=$?
     rm -f "$sel_file"
     [ "$sel_rc" -eq 0 ] || return 1
