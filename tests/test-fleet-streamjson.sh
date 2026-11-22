@@ -881,13 +881,14 @@ rm -f "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
 : >"$o_dir/.opt-in.stale1"
 printf 'spec_branch=planwright/demo/amendment-9\n' >"$o_dir/Planwright-Opt-In.0123456789abcdef0123456789abcdef01234567"
 printf '1\n' >"$o_dir/mise-task-edit"
+printf '1\n' >"$o_dir/lefthook-edit"
 printf 'planwright/demo/amendment-9\n' >"$o_dir/spec-branch"
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
   --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1 \
   || fail "c9o: the launch after the blocker is gone exited non-zero"
 [ "$(opt_in_of sjw9o1)" = "$o_both" ] || fail "c9o: the launch must record both opt-ins as one set: $(opt_in_of sjw9o1)"
-[ "$(find "$o_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name '.opt-in.*' -o -name mise-task-edit -o -name spec-branch \) | wc -l | tr -d ' ')" = 1 ] \
+[ "$(find "$o_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name '.opt-in.*' -o -name mise-task-edit -o -name lefthook-edit -o -name spec-branch \) | wc -l | tr -d ' ')" = 1 ] \
   || fail "c9o: the set must be one file, every leftover cleared: $(ls -a "$o_dir")"
 # The rest of the launch fails after the opt-ins are recorded (its --cwd is
 # gone). An unchanged set keeps the session it was launched with; a changed
@@ -1043,6 +1044,15 @@ lefthook_edit=1" ] || fail "c9l: both opt-ins must be recorded as one set: $(opt
 b_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 { grep -qx 'lefthook_edit=1' "$b_rec" && grep -qx 'mise_task_edit=1' "$b_rec"; } \
   || fail "c9l: the session record must carry both fields when both opt-ins are given: $b_rec"
+# A recover reads both back from the one record.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9l2 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+b_settings2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+b_rec2=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings2" >/dev/null \
+  && grep -qx 'lefthook_edit=1' "$b_rec2" && grep -qx 'mise_task_edit=1' "$b_rec2"; } \
+  || fail "c9l: a recover of both opt-ins must reopen both name sets and record both fields: $b_settings2"
 # The mise opt-in alone never opens the lefthook names.
 : >"$rec/argv"
 : >"$rec/env"

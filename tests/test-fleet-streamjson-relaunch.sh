@@ -271,6 +271,15 @@ jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-gu
   || fail "r2: the regenerated profile's hook must judge both name sets"
 { grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record"; } \
   || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
+# A marker of the layout the record replaced, which a worker could write, is
+# never read: the relaunch refuses (exit 7) with the worker left running.
+printf '1\n' >"$wdir/lefthook-edit"
+n=$(argv_lines)
+rx_err=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>&1 >"$tmp/out-legacy")
+rx_rc=$?
+{ [ "$rx_rc" -eq 7 ] && alive "$npid" && [ "$(argv_lines)" = "$n" ]; } \
+  || fail "r2: a legacy lefthook-edit marker must refuse the relaunch (exit 7) with the worker running, got $rx_rc: $rx_err"
+rm -f "$wdir/lefthook-edit"
 plant_opt_in lefthook_edit=1
 # A relaunch whose hook root's file-tool hook ignores the lefthook argument is
 # refused before it regenerates the profile the running worker reads.

@@ -2254,8 +2254,8 @@ recorded_profile() {
   printf '%s\n' worker
 }
 
-# The opt-ins a launch was given (--mise-task-edit, --spec-branch), which a
-# recover and a relaunch read back, are one file of `<key>=<value>` lines,
+# The opt-ins a launch was given (--mise-task-edit, --lefthook-edit,
+# --spec-branch), which a recover and a relaunch read back, are one file of `<key>=<value>` lines,
 # named OPT_IN_PREFIX and the git blob id of its content. One rename writes the
 # whole set, so a launch that fails part way leaves the earlier set or the new
 # one, never a mix of the two. The name carries the id because the profile's
