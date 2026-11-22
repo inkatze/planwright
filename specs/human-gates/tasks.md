@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-05
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -597,6 +597,100 @@ every surface it restates exists.
 - **Citations:** D-26 · REQ-A1.10, REQ-G1.12
 - **Estimated effort:** 2 hours
 
+### Task 21 — The draft-branch rewrite and its leased push
+
+- **Deliverables:** the `draft_rewrite` knob in `config/defaults.yml`
+  (`deny`, with `allow`) and its `docs/options-reference.md` row, with the
+  `unpushed_rewrite` row's "stays append-only under either value" naming
+  the new knob; `scripts/worker-session-record.sh` and the launcher
+  resolving `draft_rewrite` from the core, adopter, and machine-local
+  layers only (a repo-tracked value ignored) and recording it with the
+  launcher kind, as `worker_base_merge` is recorded; `scripts/policy-guard.sh`
+  admitting, for a mission-control-launched worker whose record carries
+  `draft_rewrite=allow`, an amend, squash, fixup, rebase, or `git pull
+  --rebase` of a range holding a pushed commit on the session's own unit
+  branch, upstream refreshed first, the range holding only commits the
+  branch's own remote-tracking ref or no remote ref contains, the rebase
+  upstream the PR base or the branch's own remote branch, a never-pushed
+  commit in the range also needing `unpushed_rewrite`, no host call made,
+  every other case keeping the `unpushed_rewrite` rule; the guard
+  refusing a worker's deletion of its own unit branch in every spelling;
+  the branch-sync arm admitting `scripts/worker-branch-sync.sh push
+  --force-with-lease=<branch>:<sha> --force-if-includes` in its literal
+  grammar, from the installed copy, in the session's own checkout; the
+  helper's `push` verb carrying every REQ-F1.8 check and output, starting
+  from the push verb PR #1119 first carried; `doctrine/human-gates.md`
+  gaining the REQ-A1.11 Policy row, the force-push row naming it as its one
+  exception and the tower path as the ready-PR path, and the floor
+  sentence naming it, with its Citations line naming REQ-A1.11, REQ-F1.6
+  to REQ-F1.8, and D-27; `doctrine/gate-wiring.md`'s commit-range repair
+  and the reporting skill's handoff naming the path REQ-F1.10 selects,
+  and the helper's handoff naming any legacy checklist item a rewrite
+  re-identified; `docs/permission-matcher-model.md` stating how the push
+  reaches git with the profiles' force-push deny whole; tests for each.
+- **Done when:** with the record's `draft_rewrite` absent or `deny` the
+  guard refuses a rebase of a pushed commit and the helper refuses the
+  push; with `allow` the guard admits that rebase on the own unit branch
+  and refuses it on main, `master`, a spec branch, a `protected_branches`
+  entry, another unit's branch, a record naming another launcher, a range
+  holding a commit another remote ref contains, a rebase onto another
+  branch, a mixed range under `unpushed_rewrite: deny`, with no upstream,
+  and on a failed refresh, with no host call in the stubbed call log; a
+  `draft_rewrite: allow` line in the repo-tracked layer, or in the
+  environment, leaves the recorded value `deny`, while one in the adopter
+  or machine-local layer records `allow`; the helper pushes in
+  a fixture with a draft PR, printing the replaced commits and writing the
+  audit line, and refuses, pushing nothing, for a ready PR, no PR, two PRs,
+  a cross-repository PR, a PR based on the branch, an unreadable host
+  answer, a `GH_REPO` or config override in the environment, an
+  unrecorded or protected branch, a lease on another branch, a short or
+  unrecorded lease, a missing reflog, a missing `--force-if-includes`,
+  any extra argument, a replaced commit by another author, a branch
+  another worktree or session holds, and a dirty tree, and on a moved
+  remote reports the branch shared with no second push; the guard denies
+  `git push origin :<branch>` and `--delete <branch>` for the worker's own
+  unit branch; a raw `git push --force*` and a `+` refspec stay denied for
+  every tier in the cross-copy fixture, and the wiring test pins the
+  force-push deny in every profile and the helper's approval; the doctrine
+  test finds the new rows by fixed string, failing on a fixture copy
+  without them; the CI grep fixture finds the REQ-F1.10 wording in the
+  reporting skill's handoff and the recorded `eval:skill` run shows it
+  [manual]; each new check fails first against main; `check:test-time`,
+  `check-instructions.sh`, and `mise run check` pass.
+- **Dependencies:** 14
+- **Citations:** D-16, D-27 · REQ-A1.11, REQ-F1.6, REQ-F1.7, REQ-F1.8,
+  REQ-F1.10, REQ-G1.14
+- **Estimated effort:** 2 days
+
+### Task 22 — The enable command and the refusal's operator item
+
+- **Deliverables:** `scripts/draft-rewrite-enable.sh <repo>` writing only
+  the REQ-F1.11 line, with its refusals, atomic write, and audit line,
+  sourcing `scripts/echo-safety.sh`; `scripts/policy-guard.sh` denying it,
+  and every Bash write of a `draft_rewrite` line it can read, to the
+  worker, tower, and kickoff tiers, with the worker command guard's
+  installed-root approval excepting it by path; the REQ-F1.6 and REQ-F1.8
+  refusals that are only for want of the knob naming the act, the
+  repository, the line, the command, and the next-launch effect; the
+  launch brief telling a launched worker to report that refusal to its
+  mission control as an operator item; `docs/options-reference.md`'s
+  `draft_rewrite` row naming the command.
+- **Done when:** in a fixture repository the command adds the line to an
+  absent and to an existing file, replaces an existing `draft_rewrite`
+  line, keeps every other line byte for byte and the file's mode, appends
+  the audit line, and refuses, writing nothing, an unparseable file, a
+  linked worktree, a non-repository, a symlink in the path, a file another
+  user owns, and an unignored target; the policy guard denies it, and a
+  Bash write of a `draft_rewrite` line, for the worker, tower, and kickoff
+  tiers, including through a wrapper or a `cd` prefix, and the worker
+  command guard defers it; a refusal for a protected branch carries no
+  enable line, and a refusal only for want of the knob carries the line
+  and the command; each new check fails first against main;
+  `check-instructions.sh` and `mise run check` pass.
+- **Dependencies:** 21
+- **Citations:** D-27 · REQ-F1.9, REQ-F1.11
+- **Estimated effort:** 4 hours
+
 ## Awaiting input
 
 (none yet)
@@ -704,7 +798,7 @@ every surface it restates exists.
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
   rather than change its anchor: `**Superseded-by: REQ-D1.6 (human-gates)**
-  (<date>)` on REQ-G1.1; `**Superseded-by: REQ-F1.1, REQ-F1.2
+  (<date>)` on REQ-G1.1; `**Superseded-by: REQ-F1.6, REQ-F1.7
   (human-gates)** (<date>)` on REQ-G1.3; `**Superseded-by: REQ-B1.1,
   REQ-C1.1 (human-gates)** (<date>)` on REQ-G1.4, scoped to the flip as the
   universal review gate; `**Superseded-by: REQ-C1.1 (human-gates)**
@@ -720,7 +814,7 @@ every surface it restates exists.
   (2026-10-18) found records there still stating a rule this bundle changed,
   and the bundle derived Active, so the pointers wait for its own amendment
   rather than change its anchor: `**Superseded-by: REQ-D1.6 (human-gates)**
-  (<date>)` on REQ-J1.1 and `**Superseded-by: REQ-F1.1, REQ-F1.2
+  (<date>)` on REQ-J1.1 and `**Superseded-by: REQ-F1.6, REQ-F1.7
   (human-gates)** (<date>)` on REQ-J1.2, each with a dated `## Changelog`
   entry naming it, landed by a `/spec-kickoff` amendment on
   fleet-lifecycle-closure or, once it derives Done, with its reopen cycle.
@@ -740,7 +834,7 @@ every surface it restates exists.
 - **Supersede pointers into tower-comms.** The Task 12 survey (2026-10-18)
   found records there still stating a rule this bundle changed, and the
   bundle derived Active, so the pointers wait for its own amendment rather
-  than change its anchor: `**Superseded-by: REQ-F1.2 (human-gates)**
+  than change its anchor: `**Superseded-by: REQ-F1.7 (human-gates)**
   (<date>)` on REQ-H1.1, scoped to "never force-pushes": the tower
   force-pushes on the operator's same-turn request, with a dated `## Changelog`
   entry naming it, landed by a `/spec-kickoff` amendment on
@@ -753,7 +847,7 @@ every surface it restates exists.
   and the bundle derived Active, so the pointers wait for its own amendment
   rather than change its anchor: `**Superseded-by: REQ-C1.9 (human-gates)**
   (<date>)` on REQ-G1.1, scoped to the flip as a reserved control, and
-  `**Superseded-by: REQ-F1.1, REQ-F1.2 (human-gates)** (<date>)` on
+  `**Superseded-by: REQ-F1.6, REQ-F1.7 (human-gates)** (<date>)` on
   REQ-G1.3, with a dated `## Changelog` entry naming it, landed by a
   `/spec-kickoff` amendment on tower-placement or, once it derives Done,
   with its reopen cycle. Confidence: high.
@@ -807,7 +901,7 @@ every surface it restates exists.
   The bundle derives Done, but it is format-version 2, whose
   `## Awaiting input` admits no `anchor re-review pending` park, so a pointer landed from
   the sweep would leave its recorded anchor failing the freshness check with
-  no sanctioned park: `**Superseded-by: REQ-F1.1 (human-gates)** (<date>)`
+  no sanctioned park: `**Superseded-by: REQ-F1.6 (human-gates)** (<date>)`
   on REQ-A1.2, scoped to its never-amend/squash/rebase clause, with a
   dated `## Changelog` entry naming it, landed by the bundle's reopen cycle
   (Ready→Draft, then a scoped `/spec-kickoff`), which re-records the anchor.
@@ -819,8 +913,8 @@ every surface it restates exists.
   bundle changed. The bundle derives Done, but it is format-version 2, whose
   `## Awaiting input` admits no `anchor re-review pending` park, so a
   pointer landed from the sweep would leave its recorded anchor failing the
-  freshness check with no sanctioned park: `**Superseded-by: REQ-F1.1,
-  REQ-F1.2 (human-gates)** (<date>)` on REQ-B1.2, scoped to its invariant
+  freshness check with no sanctioned park: `**Superseded-by: REQ-F1.6,
+  REQ-F1.7 (human-gates)** (<date>)` on REQ-B1.2, scoped to its invariant
   list, and `**Superseded-by: REQ-C1.1, REQ-D1.6 (human-gates)** (<date>)`
   on REQ-D1.3, scoped to its auto-merge and PR-ready floors, each with a
   dated `## Changelog` entry naming it, landed by the bundle's reopen cycle
@@ -829,6 +923,19 @@ every surface it restates exists.
   **Gate:** the reopen cycle of concurrent-orchestrator-coordination, run by
   the operator.
   Citations: D-17 · REQ-H1.4.
+- **Mission control's half of the draft-rewrite opt-in.** A routed
+  mission-control amendment SHALL: deduplicate the REQ-F1.9 operator items
+  to one per repository; record the operator's "no" for a repository and
+  stop its asks; list, at bring-up and doctor, the repositories where the
+  refusal fired with `draft_rewrite` unset; and admit mission control's
+  one write of the REQ-F1.11 command, only for the repository the
+  operator's own yes names, that yes quoted in its decisions log, every
+  other settings write staying refused; and add a doctor line for each
+  repository whose resolved `draft_rewrite` is `allow`, naming the layer
+  that set it. Until it lands the item hands the operator the command.
+  Observation obs:9bed2b4e routes it. Confidence: high.
+  **Gate:** GATE(when: task 22 completed).
+  Citations: D-27 · REQ-F1.9, REQ-F1.11.
 
 ## Out of scope
 
