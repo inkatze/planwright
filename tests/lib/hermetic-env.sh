@@ -23,6 +23,8 @@
 #                                  succeed when the user is really denied that
 #                                  access (root is not)
 
+# A launched worker's session variables count too: under its record the
+# dispatch seam refuses tmux and the worker guard opens its scratch arm.
 hermetic_env_cleared='
   PLANWRIGHT_ROOT
   PLANWRIGHT_REPO_ROOT
@@ -39,6 +41,11 @@ hermetic_env_cleared='
   CLAUDE_PROJECT_DIR
   CLAUDE_CONFIG_DIR
   PLANWRIGHT_CI_REUSE_BUDGET
+  PLANWRIGHT_WORKER_SESSION_RECORD
+  PLANWRIGHT_SESSION_BACKEND
+  PLANWRIGHT_WORKER_HANDLE
+  PLANWRIGHT_WORKER_SCOPE
+  PLANWRIGHT_MESSAGING_INBOUND
 '
 hermetic_env_pinned='
   PLANWRIGHT_FLEET_STATE_DIR
