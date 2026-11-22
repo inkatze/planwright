@@ -413,7 +413,10 @@ mc_event_gone() {
         # not hold a wake past the panel mod's compose timeout.
         if [ -z "$meg_state" ] && [ "$meg_forge_down" -eq 0 ]; then
           meg_state=$(/bin/sh "$script_dir/bounded-run.sh" 10 gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=""
-          [ -n "$meg_state" ] || { meg_state=unknown; meg_forge_down=1; }
+          [ -n "$meg_state" ] || {
+            meg_state=unknown
+            meg_forge_down=1
+          }
           meg_prs="$meg_prs$meg_subject	$meg_state
 "
         fi
