@@ -48,7 +48,8 @@ duties:
     triggers: [stall-dead, tmux-server-lost, stall-open-selector, stall-unsubmitted-prompt,
                stall-turn-ended-background, stall-idle-question, stall-busy-unchanged,
                stall-unknown, session-landed, pending-prompt, pending-prompt-overdue,
-               stream-json-worker-dead, stream-json-worker-unowned, stream-json-worker-orphaned,
+               stream-json-worker-dead, stream-json-worker-unowned, stream-json-worker-unregistered,
+               stream-json-worker-orphaned,
                keeper-sweep-failed, worker-handover-due, worker-retired-idle,
                worker-parked-on-operator, mission-control-escalated]
     watchers: [scripts/mc-keeper.sh@2m/low, scripts/mc-escalate.sh@1m/low]

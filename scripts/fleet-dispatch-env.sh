@@ -144,7 +144,8 @@
 #                                           2026-07-19 bare launch that dropped
 #                                           the pin.
 #
-# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED and
+# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED,
+# PLANWRIGHT_MC_PROGRAM, PLANWRIGHT_MC_TARGET, PLANWRIGHT_MC_DUTY and
 # PLANWRIGHT_SESSION_BACKEND, then sets PLANWRIGHT_SESSION_BACKEND=stream-json
 # only when PLANWRIGHT_LAUNCH_BACKEND (dropped too) asks for it, as the
 # stream-json rung does. PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT, when they come
@@ -536,6 +537,11 @@ export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
 # one, through PLANWRIGHT_LAUNCH_BACKEND, which goes no further.
 launch_backend=${PLANWRIGHT_LAUNCH_BACKEND:-}
 unset PLANWRIGHT_COPY_CHECKED PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_LAUNCH_BACKEND
+# A mission-control duty runs with its program exported, and a session it
+# launches would hand that to the panel mod, which then takes the program's
+# wakes in that session. No launched session is activated that way: a
+# mission-control session is activated by its own record.
+unset PLANWRIGHT_MC_PROGRAM PLANWRIGHT_MC_TARGET PLANWRIGHT_MC_DUTY
 if [ "$launch_backend" = stream-json ]; then
   PLANWRIGHT_SESSION_BACKEND=stream-json
   export PLANWRIGHT_SESSION_BACKEND
