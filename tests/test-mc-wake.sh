@@ -653,6 +653,11 @@ if grep -q "${tab}compose${tab}alpha${tab}wk${tab}worker\$" "$misroutes"; then
 else
   fail "the compose refusal was not logged: $(cat "$misroutes")"
 fi
+OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=wk /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
+RC=$?
+ERR=$(cat "$tmp/stderr")
+expect_rc "a repeated compose refusal is refused again" 4
+expect_err "and named on stderr again, for the mod to show" "wk (kind worker)"
 OUT=$(mc_env env PLANWRIGHT_WORKER_HANDLE=ghost-worker /bin/bash "$repo_root/scripts/mc-wake.sh" compose --program alpha alpha 2>"$tmp/stderr")
 RC=$?
 expect_rc "a worker identity no launcher row names is refused too" 4
@@ -703,6 +708,7 @@ mc_run mc-event.sh list --program alpha
 n_before=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
 mc_run mc-wake.sh relay --program alpha
 expect_out "the relay still refuses with the log unwritable" "misroute${tab}wk${tab}tower"
+expect_err "and names the refusal on stderr, its only trace" "refusing to wake wk (kind tower)"
 mc_run mc-event.sh list --program alpha
 n_after=$(printf '%s\n' "$OUT" | awk -F '\t' '$3 == "wake-misroute"' | wc -l | tr -d ' ')
 if [ "$n_after" -eq "$n_before" ]; then

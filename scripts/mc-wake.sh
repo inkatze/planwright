@@ -234,7 +234,8 @@ session_kind() {
 # on stderr then, and at every compose or claim refusal, whose caller shows
 # it. The line is written only once the event is in, so a failed emit is
 # tried again at the next refusal; a log that cannot be read or written
-# raises nothing, since it could not stop the next pass raising it again.
+# raises nothing, since it could not stop the next pass raising it again,
+# and the refusal is then named on stderr at every pass, its only trace.
 misroute() {
   mr_s=$3
   mc_valid_handle "$mr_s" || mr_s=-
