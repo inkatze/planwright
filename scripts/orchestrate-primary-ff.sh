@@ -1,23 +1,15 @@
 #!/bin/sh
 # orchestrate-primary-ff.sh — /orchestrate's opt-in pre-flight fast-forward of
-# a lagging primary checkout, so a step reads current specs rather than the
-# ones the checkout last saw.
+# a lagging primary checkout, so a step reads current specs.
 #
 # Off unless the `orchestrate_fast_forward_primary` knob is true; off, it
 # touches neither the checkout nor origin. On, it delegates to
-# scripts/main-currency.sh ff-primary, the one sanctioned primary
-# fast-forward: it fetches, then moves the primary checkout's default branch
-# by `merge --ff-only` only when that branch is checked out, nothing tracked
-# is uncommitted, no operation is in progress, and the branch is an ancestor
-# of origin's. Anything else is refused and left exactly as it was; this
-# never merges, resets or rebases. Every move is recorded with its old and
-# new heads in <git-common-dir>/planwright/main-currency.log and logged on
-# stderr.
+# scripts/main-currency.sh ff-primary, whose header states what it moves,
+# refuses and records, and logs the old and new heads on stderr.
 #
 # Usage: orchestrate-primary-ff.sh [--checkout <primary checkout>]
 #   --checkout  the primary checkout's top level (default: the primary of the
-#               repository holding the current directory); the knob is read
-#               there.
+#               repository holding the current directory)
 #
 # Output, one tab-separated line on stdout:
 #   primary-ff	disabled
@@ -49,6 +41,11 @@ err() {
   printf 'orchestrate-primary-ff: %s\n' "$1" >&2
 }
 
+# field <key> — the value ff-primary printed for <key>, read from $res.
+field() {
+  printf '%s\n' "$res" | awk -F '\t' -v k="$1" '$1 == k { print $2; exit }'
+}
+
 checkout=''
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -76,10 +73,9 @@ if [ -n "$checkout" ]; then
 fi
 
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
-top=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary) && [ -n "$top" ] || {
-  err "no primary checkout resolves from $(sanitize_printable "$(pwd)")"
-  exit 2
-}
+# No primary checkout (a bare repository, or none at all) has no repo-side
+# config layer, and must not turn the default-off read into a failure.
+top=$(/bin/sh "$script_dir/resolve-root.sh" repo --primary 2>/dev/null) && [ -n "$top" ] || top=none
 
 knob=orchestrate_fast_forward_primary
 kv=$(PLANWRIGHT_REPO_ROOT=$top "$script_dir/config-get.sh" "$knob")
@@ -109,10 +105,6 @@ else
 fi
 rc=$?
 
-field() {
-  printf '%s\n' "$res" | awk -F '\t' -v k="$1" '$1 == k { print $2; exit }'
-}
-
 case $rc in
   0) ;;
   3)
@@ -120,7 +112,7 @@ case $rc in
     exit 3
     ;;
   4 | 6 | 7)
-    err "the primary checkout was left exactly as it was"
+    err "the primary checkout's branch and files were left as they were"
     printf 'primary-ff\trefused\n'
     exit 4
     ;;
@@ -131,14 +123,14 @@ case $rc in
 esac
 
 sync=$(field sync)
-branch=$(field branch)
+branch=$(sanitize_printable "$(field branch)")
 head=$(field main)
 case $sync in
   solo) printf 'primary-ff\tsolo\n' ;;
   up-to-date) printf 'primary-ff\tup-to-date\t%s\t%s\n' "$branch" "$head" ;;
   fast-forward)
     old=$(field before)
-    err "fast-forwarded $(sanitize_printable "$branch") in $(sanitize_printable "$(field checkout)") from ${old:-(unborn)} to $head"
+    err "fast-forwarded $branch in $(sanitize_printable "$(field checkout)") from ${old:-(unborn)} to $head"
     printf 'primary-ff\tfast-forward\t%s\t%s\t%s\n' "$branch" "$old" "$head"
     ;;
   *)
