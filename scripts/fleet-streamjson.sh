@@ -3159,16 +3159,18 @@ steer_scan() {
     NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && !($4 in seen) {
       n++; id[n] = $4; file[n] = $3; sent[n] = $1 + 0; turn[n] = $5
     }
+    # Ordered by send epoch, ties by row order (each row written under the
+    # journal lock, one per send).
     END {
-      last = -1
+      last = -1; lastn = 0
       for (i = 1; i <= n; i++) {
         ended = end != "" && sent[i] <= end + 0
         if (ended && now - end >= grace + 0) { how[i] = kind; age[i] = now - end }
         else if (!ended && turn[i] == "idle" && now - sent[i] >= grace + 0) { how[i] = "idle"; age[i] = now - sent[i] }
-        if (how[i] != "" && sent[i] > last) last = sent[i]
+        if (how[i] != "" && (sent[i] > last || (sent[i] == last && i > lastn))) { last = sent[i]; lastn = i }
       }
       for (i = 1; i <= n; i++) {
-        if (how[i] == "" && sent[i] < last) { how[i] = "later"; age[i] = now - sent[i] }
+        if (how[i] == "" && (sent[i] < last || (sent[i] == last && i < lastn))) { how[i] = "later"; age[i] = now - sent[i] }
         if (how[i] != "") print id[i] "\t" file[i] "\t" how[i] "\t" age[i]
       }
     }

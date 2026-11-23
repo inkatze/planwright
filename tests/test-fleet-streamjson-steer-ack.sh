@@ -558,6 +558,18 @@ a13_out=$(a13_scan 1300)
 [ "$a13_out" = "steer-lost sja13 $a13_first${NLC}steer-lost sja13 $a13_edge" ] \
   || fail "a13: an unread steer ahead of one judged unread must be reported too; got: $a13_out"
 grep "^sja13$tab" "$home/attention/state" >/dev/null || fail "a13: no report reached the store"
+# Sent in the same second, the receipts' order says which went first.
+home="$tmp/h13d"
+wdir="$home/streamjson/sja13"
+mkdir -p "$wdir"
+printf '1000\n' >"$wdir/replay-since"
+{
+  printf '1150\t1\t%s\t%s\tbusy\n' "$tmp/first" "$a13_first"
+  printf '1150\t1\t%s\t%s\tidle\n' "$tmp/second" "$a13_edge"
+} >"$wdir/steers"
+a13_out=$(a13_scan 1300)
+[ "$a13_out" = "steer-lost sja13 $a13_first${NLC}steer-lost sja13 $a13_edge" ] \
+  || fail "a13: a steer sent earlier in the same second must be reported too; got: $a13_out"
 echo "ok: a13 the replay record, the turn's end and the grace bound what is judged"
 
 # ---------------------------------------------------------------------------
