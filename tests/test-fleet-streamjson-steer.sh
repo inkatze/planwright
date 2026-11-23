@@ -408,8 +408,8 @@ done
 mkdir -p "$tmp/cwd5"
 printf 'from a dashed file\n' >"$tmp/cwd5/-n"
 before=$(lines_of "$tmp/r1/stdin")
-out=$(cd "$tmp/cwd5" && senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file -n 2>&1) \
-  || fail "s5: a dash-leading message path must be read as a file, got: $out"
+out=$(cd "$tmp/cwd5" && senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file -n 2>"$tmp/s5.err") \
+  || fail "s5: a dash-leading message path must be read as a file, got: $out $(cat "$tmp/s5.err")"
 [ "$out" = "steered sjs1 $(wc -c <"$tmp/cwd5/-n" | tr -d ' ')" ] \
   || fail "s5: the dash-named file must be measured as a file, not parsed as an option: $out"
 poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt "$before" \
@@ -421,7 +421,7 @@ tail -n 1 "$tmp/r1/stdin" | jq -r '.message.content[0].text' | grep -q 'from a d
 printf 'clear\033[2J\007 me\n' >"$tmp/steer5"
 out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>&1) \
   || fail "s5: a control-byte message should still deliver, got: $out"
-[ "$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\037\177')" = "$out" ] \
+[ "$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\011\013-\037\177')" = "$out" ] \
   || fail "s5: steer echoed a control byte"
 poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt $((before + 1)) \
   || fail "s5: the control-byte message never arrived"
