@@ -75,6 +75,9 @@ case "\$1 \$2" in
   esac ;;
   "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
   "api repos/acme/web/actions/runs?"*) exec jq -r "\$jqp" "$tmp/runs.json" ;;
+  "api --paginate") case "\$3" in
+    "repos/acme/web/pulls/7/files?"*) [ -f "$tmp/files.json" ] && exec jq -r "\$jqp" "$tmp/files.json" ;;
+  esac ;;
 esac
 exit 1
 EOF

@@ -30,18 +30,32 @@ commit_specs() { # commit_specs: commit the spec root, print the head
   git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m specs
   git -C "$repo" rev-parse HEAD
 }
-spec_pr() { # spec_pr <head> <path[|change type]>...: collect over the forge's view of a spec pull request
+# spec_pr <head> <path[|change type[|source]]>...: collect over the forge's
+# view of a spec pull request. The source, a rename's or copy's, is known only
+# to the REST file list; SP_REST=fail makes that read fail.
+spec_pr() {
   sp_h=$1
   shift
-  sp_files=''
+  sp_files='' sp_rest=''
   for sp_p in "$@"; do
+    sp_path=${sp_p%%|*} sp_type=MODIFIED sp_src=''
     case $sp_p in
-      *'|'*) sp_files="$sp_files{\"path\": \"${sp_p%|*}\", \"changeType\": \"${sp_p##*|}\"}," ;;
-      *) sp_files="$sp_files{\"path\": \"$sp_p\", \"changeType\": \"MODIFIED\"}," ;;
+      *'|'*'|'*)
+        sp_type=${sp_p#*|} sp_src=${sp_type#*|} sp_type=${sp_type%%|*}
+        ;;
+      *'|'*) sp_type=${sp_p#*|} ;;
     esac
+    sp_files="$sp_files{\"path\": \"$sp_path\", \"changeType\": \"$sp_type\"},"
+    if [ -n "$sp_src" ]; then
+      sp_rest="$sp_rest{\"filename\": \"$sp_path\", \"status\": \"renamed\", \"previous_filename\": \"$sp_src\"},"
+    else
+      sp_rest="$sp_rest{\"filename\": \"$sp_path\", \"status\": \"modified\"},"
+    fi
   done
   printf '{"headRefOid": "%s", "headRefName": "planwright/demo/spec", "baseRefName": "main", "labels": [], "files": [%s],
  "body": "## Summary", "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"}]}\n' "$sp_h" "${sp_files%,}" >"$tmp/pr.json"
+  rm -f "$tmp/files.json"
+  [ "${SP_REST:-}" = fail ] || printf '[%s]\n' "${sp_rest%,}" >"$tmp/files.json"
   printf '%s\n' "$sp_h" >"$tmp/headnow"
   rm -f "$tmp/collected"
   PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"

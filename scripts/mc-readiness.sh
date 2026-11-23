@@ -49,9 +49,12 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   head<TAB><sha>                      the pull request's current head
   repo<TAB><owner/name>
   label<TAB><name>                    one per label
-  path<TAB><file><TAB><change>        one per changed path, with the
-                                      forge's change type (RENAMED and
-                                      COPIED name no source path)
+  path<TAB><file><TAB><change>[<TAB><source>]
+                                      one per changed path, with the
+                                      forge's change type; a RENAMED or
+                                      COPIED path carries the path it came
+                                      from when the forge's file list
+                                      named one
   check<TAB><name><TAB><state>        one per individual check context,
                                       its latest run only (a re-run
                                       supersedes the runs before it), but
@@ -195,8 +198,10 @@ Usage:
       finding, answered once resolved or replied to by a person other than
       the pull request's author, with a login), the spec-only scope (every
       path a `.md` file under the program's spec root inside the
-      repository whose origin is --repo, added, modified or deleted, never
-      renamed or copied; a head that repository lacks is a spec-only scope
+      repository whose origin is --repo, added, modified or deleted, or
+      renamed or copied from such a file, its source read from the REST
+      file list and never guessed when unread, a rename also touching the
+      bundle it leaves; a head that repository lacks is a spec-only scope
       with one unsigned `*` sign-off naming the fetch; then each touched
       bundle, a
       directory under the root not opening with `_`, is signed off when,
@@ -759,18 +764,30 @@ spec_scope() {
   home=$(spec_home "$1" "$2") || return 0
   rel=${home#*	} repo=${home%%	*}
   # Each path must sit strictly under the root, with no `.`, `..` or empty
-  # component, be prose (`.md`), and be added, modified or deleted: a rename
-  # or copy names no source path. The bundles are the directories directly
-  # under the root, those opening with `_` (the reserved accumulators) aside.
+  # component, be prose (`.md`), and be added, modified or deleted, or
+  # renamed or copied from a path that passes the same test. A rename or copy
+  # with no source named is refused, never guessed. The bundles are the
+  # directories directly under the root, those opening with `_` (the reserved
+  # accumulators) aside; a rename edits the bundle it leaves as well.
   SPEC_REL=$rel awk -F '\t' '
+    function under(p,    n) {
+      n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) return ""
+      p = substr(p, n + 2)
+      if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) return ""
+      return p
+    }
+    function touch(p,    b) {
+      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
+    }
     $1 != "path" { next }
     {
-      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED") { out = 1; exit }
-      p = $2; n = length(ENVIRON["SPEC_REL"])
-      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) { out = 1; exit }
-      p = substr(p, n + 2)
-      if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) { out = 1; exit }
-      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
+      if ($3 == "RENAMED" || $3 == "COPIED") {
+        if (NF < 4 || (s = under($4)) == "") { out = 1; exit }
+      } else if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED") { out = 1; exit }
+      if ((p = under($2)) == "") { out = 1; exit }
+      touch(p)
+      if ($3 == "RENAMED") touch(s)
     }
     END { if (out) exit 1; for (i = 1; i <= nb; i++) print bs[i] }' "$4" >"$5/bundles" || return 0
   if ! mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
@@ -1037,6 +1054,20 @@ collect() {
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")
   mc_valid_sha "$cl_head" || mc_fail "the pull request read returned no head"
+  # The GraphQL file list names no source for a rename or copy; the REST one
+  # does. Advisory: a failed read leaves the path with no source,
+  # which no spec-only scope accepts.
+  if awk -F '\t' '$1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") { f = 1 } END { exit !f }' "$cl_tmp/pr" \
+    && gh api --paginate "repos/$2/pulls/$3/files?per_page=100" --jq '.[] | select((.previous_filename // "") != "")
+      | "from\t" + (.filename | tostring | gsub("[\t\r\n]"; " ")) + "\t" + (.previous_filename | tostring | gsub("[\t\r\n]"; " "))' \
+      >"$cl_tmp/from" 2>"$cl_tmp/err"; then
+    if ! awk -F '\t' '
+      FILENAME == ARGV[1] { if ($1 == "from") src[$2] = $3; next }
+      $1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") && NF == 3 && ($2 in src) { print $0 "\t" src[$2]; next }
+      { print }' "$cl_tmp/from" "$cl_tmp/pr" >"$cl_tmp/pr.from" || ! mv "$cl_tmp/pr.from" "$cl_tmp/pr"; then
+      mc_fail "the pull request's rename sources cannot be joined"
+    fi
+  fi
   # A finding is answered once its thread is resolved, or a person other
   # than the pull request's author replied: the author's sessions post as
   # the author, and their own word is never evidence.
