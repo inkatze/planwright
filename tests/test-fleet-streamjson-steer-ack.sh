@@ -232,11 +232,12 @@ start_worker "$home" "$rec" sja3 SHIM_STEER_MODE=drop
 wdir="$home/streamjson/sja3"
 poll_until --what 'the launch turn result' -- test -f "$wdir/result" || fail "a3: the launch turn never ended"
 printf 'answer: take the narrower reading\n' >"$tmp/steer3"
-senv "$home" "$rec" -- steer sja3 --message-file "$tmp/steer3" >/dev/null || fail "a3: steer exited non-zero"
+# Given relative, from another directory: the report must still name it whole.
+(cd "$tmp" && senv "$home" "$rec" -- steer sja3 --message-file steer3) >/dev/null || fail "a3: steer exited non-zero"
 poll_until --what 'the unread-steer report' -- reported "$home" sja3 \
   || fail "a3: a steer the session never read must be reported: $(cat "$home/attention/state" 2>&1)"
-grep "^sja3$tab" "$home/attention/state" | grep -q "$tmp/steer3" \
-  || fail "a3: the report must name the message file to re-send: $(cat "$home/attention/state")"
+grep "^sja3$tab" "$home/attention/state" | grep -q "re-send $tmp/steer3 with" \
+  || fail "a3: the report must name the message file to re-send by its full path: $(cat "$home/attention/state")"
 awk -F'\t' '$1 == "sja3" && $5 == "high" { f = 1 } END { exit !f }' "$home/attention/state" \
   || fail "a3: the report must be high priority: $(cat "$home/attention/state")"
 a3_marks=$(find "$wdir" -name 'steer-lost-*' | wc -l | tr -d ' ')

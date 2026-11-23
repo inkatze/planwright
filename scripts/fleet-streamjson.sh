@@ -3232,9 +3232,15 @@ cmd_steer() {
     printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
-  # The receipt row carries the path as given; a tab or newline in it would
-  # split the row, so such a path is refused rather than recorded mangled.
+  # The receipt row carries the path, made absolute because an unread-steer
+  # report names it to a reader in another directory; a tab or newline in it
+  # would split the row, so such a path is refused rather than recorded
+  # mangled.
   case $st_file in
+    /*) st_row_file=$st_file ;;
+    *) st_row_file="$PWD/$st_file" ;;
+  esac
+  case $st_row_file in
     *"$TAB"* | *"$NL"*)
       printf '%s\n' "$me: --message-file path may not contain a tab or newline" >&2
       exit 2
@@ -3336,7 +3342,7 @@ cmd_steer() {
       ;;
   esac
   if [ "$st_sent" = 0 ]; then
-    printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" "$st_id" "$st_turn" >>"$dir/steers" || :
+    printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_row_file" "$st_id" "$st_turn" >>"$dir/steers" || :
     journal_unlock "$dir"
     [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
       || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
