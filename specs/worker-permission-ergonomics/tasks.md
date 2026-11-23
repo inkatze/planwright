@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -534,6 +534,45 @@ trailer so the status render counts the task complete.
   the docs describe the chains; the suite and lints pass.
 - **Dependencies:** 21
 - **Citations:** D-38 · REQ-F1.11, REQ-G1.7
+- **Estimated effort:** 1 day
+
+### Task 23 — Defer hand-timed step records and keep step scripts on the worker's own cache
+
+- **Deliverables:** in `scripts/worker-command-guard.sh`, REQ-F1.12's
+  reading of a step-script call's verb and arguments (the script path, then
+  an optional `--worktree <dir>`, then the verb; any other leading word
+  defers): the hand-timed write defer, the own-worktree check, the passing
+  verb list, and the `excerpt` file check; in every existing guard suite,
+  each row that allows a step-script call outside REQ-F1.12's passing forms
+  moved to one, and each defer row that uses a step write to carry another
+  defect (a foreign worktree, a bad export, a nesting) moved to a passing
+  form (`new-run` or a `--completion` write), so it still defers for that
+  defect alone; real-prompt corpus rows for the reported hand-timed write
+  (REQ-H1.3); the profile's `_about` text (REQ-G1.7), the
+  `docs/options-reference.md` `worker_self_approval` row, and the
+  `docs/fleet.md` worker-guard description naming the prompt a hand-timed
+  record now raises.
+- **Done when:** each deferred spelling is first shown allowing against the
+  pre-change guard and deferring against the changed one, at every policy
+  value: a step write, a re-fire write, a full-suite write, a
+  `--completion` write carrying `--start` or `--end`, `--start=<ts>` and
+  `--end=<ts>`, each alone, behind a step-context prefix, after a REQ-E1.10
+  export, and before an own-unit act; a supersede without `--source`; any
+  step-script call whose `--worktree` names another directory, and any
+  under a record naming no worktree; a step-context `WORKTREE` naming
+  another directory; `--worktree=<dir>`, a doubled `--worktree`, a relative
+  one, and a `--start` reached through `$X`; `excerpt` of a file outside
+  the worktree and the scratch root; an unknown verb or leading word. Each
+  still-allowed form allows on the own worktree, with `--worktree` absent
+  and with it naming the recorded worktree (`args-digest` under a record
+  naming no worktree too): a `--completion` write, a supersede with `--source`, `render`,
+  `list`, `lookup`, `heads`, `untrue`, `fingerprint`, `new-run`,
+  `regenerate`, `status`, `args-digest`, `excerpt` of a worktree file and of
+  a scratch file, and `step-run.sh` `resolve`, `audit`, `command`, `begin`,
+  `end`, `resume`, and `refire`; the `_about` text and docs describe the
+  defer; the suite and lints pass.
+- **Dependencies:** 21
+- **Citations:** D-39 · REQ-F1.12, REQ-G1.7, REQ-H1.3
 - **Estimated effort:** 1 day
 
 ## Awaiting input

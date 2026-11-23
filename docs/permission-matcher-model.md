@@ -470,10 +470,9 @@ gets a `Read(...)` deny:
   bare `env` and bare `printenv`.
 - **What these rules do not cover:** the other secret locations the command
   guard defers (the home's credential files, `/etc/shadow`, `/dev/fd`). The
-  file tools and the static `ls`, `stat`, `git diff`, `git log` and `git show`
-  allow rules never reach the guard, so those reads run unprompted; Read denies
-  for them, and dropping those static rules so the guard decides, are a
-  recorded follow-up.
+  file tools and the static `ls` and `stat` allow rules never reach the guard,
+  so those reads run unprompted; Read denies for them, and dropping those two
+  static rules so the guard decides, are a recorded follow-up.
 
 Every rule except the worktree's `.claude/` and the home-anchored git config
 rules is anchored at the filesystem root (`//`), never at the settings file,
@@ -537,6 +536,63 @@ those paths keep their rules. The mise config, task directories, and
 lockfiles, the hooks directories, the
 local and non-YAML lefthook config, the session records, and repo-side
 overlays are not protected at all.
+
+## Options and config files that redirect an approved command
+
+A static allow rule never reaches the command guard's argument screens, so
+the profile names no verb an option or a loaded config file can turn into a
+write to any path or a run of code the worker chose (pass G of
+`tests/test-permission-matcher.sh`). The guard decides these, approving the
+plain forms:
+
+- **git's log and diff family** (`git show`, `git diff`, `git log` and the
+  rest, `git stash list`, `git stash show` and `git reflog show` among them,
+  which hand their options to it) writes its output to the path `--output`
+  names, a path the file tools refuse included (a worker's fleet state
+  folder, its opt-in record). The guard defers `--output` in every spelling
+  git accepts, and `git format-patch` whole.
+- **`mise run`**, and `mise tasks run`, which is the same command: `--shell`
+  runs the task through any command, `--cd` runs a task another directory's
+  config defines, `--env` loads a `mise.<env>.toml`, and `--tool` puts a tool
+  on the task's PATH. The guard defers each, alone or in a short-flag cluster,
+  anywhere on the line.
+- **`markdownlint-cli2` and `markdownlint`** read a config from the working
+  directory and from the folder of each file they lint (probed on
+  markdownlint-cli2 0.19.0), and a config can run code: a `.cjs` or `.mjs`
+  one is a module, and an options file (`.markdownlint-cli2.jsonc`, `.yaml`
+  or `.yml`, or `package.json`) can name custom-rule, markdown-it plugin and
+  formatter modules. The guard approves a run only on named files inside the
+  repository, reached through no linked folder, with no option but
+  `--no-globs` (and markdownlint's `-q`). Every folder those files sit in,
+  the working directory, and every folder above them must hold no module
+  config, committed or not, since a committed one may import a file the
+  worker wrote, and only options and settings files a git checkout commits
+  unchanged (the `committed_blob` check), no options file naming a module
+  key or holding a backslash, through which an escape could spell one. An
+  explicit `--config` naming a committed file would not do instead: each
+  folder's own config still loads beside it. A glob or folder operand defers,
+  and so, without `--no-globs`, does an options file in the working directory,
+  since either reaches folders the guard does not walk. The check reads the
+  folders before the command runs, so a lint beside a write the own-branch
+  arm admits defers. What still passes: a settings file the worker committed
+  in an earlier call counts as committed, as any committed file does (the
+  commit sits on the branch, where review sees it), and a committed settings
+  file's `extends` reads the file it names, which a parse error prints part
+  of, so a worker that commits one naming another readable file can see that
+  file's start.
+- **A declared command step** run through `scripts/step-run.sh` runs its
+  location, and a session-hosted step's line is printed, only as the git
+  checkout holding it commits it; otherwise, or when git cannot answer for
+  that checkout, the step is recorded `failed`. A location with no `.git`
+  entry above it, an installed tool, keeps the declaration's trust. The
+  guard's own approval of a declared line typed in the session is a separate
+  check.
+
+The screens above hold for commands the guard judges by their words. A
+command step or a check command the repository declares (`worker_check_commands`)
+is approved by its declaration, as repository code is, so a declared
+`markdownlint-cli2 <path>` check runs whatever config its folders hold: a
+repository that declares one takes that on.
 
 ## The mise task-file opt-in
 
