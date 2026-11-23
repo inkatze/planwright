@@ -126,6 +126,7 @@ each assert_defer "a --worktree through a dot-dot" "$SREC --worktree $WT/../othe
 each assert_defer "a --worktree through a dot-dot back to the own worktree" "$SREC --worktree $WT/../$(basename "$WT") new-run"
 each assert_defer "a --worktree with a dot segment" "$SREC --worktree $WT/. new-run"
 each assert_defer "a --worktree with a doubled slash and a dot" "$SREC --worktree $WT//. new-run"
+each assert_defer "a --worktree with a doubled slash" "$SREC --worktree $WT// new-run"
 each assert_defer "a --worktree with no value" "$SREC --worktree"
 each assert_defer "a --worktree through an untracked variable" "$SREC --worktree \$W new-run"
 each assert_defer "another leading word" "$SREC --help"
