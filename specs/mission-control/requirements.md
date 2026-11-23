@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -487,6 +487,7 @@ later planwright bundles implement, D-12).
   the code review steps (2026-11-05, Sources); the spec-drift audit
   (Sources).)*
   *(Amended at Amendment 6, 2026-11-09: the readiness check also refuses an unapproved operator-visible change, REQ-F1.18, adding a condition and never narrowing the cadence; a spec-only pull request is on no listed path.)*
+  *(Amended at Amendment 21, 2026-11-22: a legacy bundle the spec-only pull request touches reads as signed off with no anchor, exactly as REQ-D1.18 defines one.)*
 - **REQ-D1.10** A session of a kind that changes a repository (worker,
   reviewer, ad-hoc, kickoff) SHALL run in its own worktree: one the dispatch
   machinery creates at launch, off the default branch or on the unit's
@@ -534,6 +535,38 @@ later planwright bundles implement, D-12).
   no spec and giving no reasons. A check that cannot run refuses.
   *(Cites: D-45; the operator's request (2026-11-07, Sources); the
   spec-drift audit (Sources).)*
+  **Superseded-by: REQ-D1.18** (2026-11-22) — a finished bundle that
+  predates kickoff reads as signed off with no anchor.
+- **REQ-D1.18** (supersedes REQ-D1.13) The readiness check SHALL refuse a
+  flip of a pull request that changes behaviour a spec describes unless the
+  same pull request edits that spec (changes its anchored content) and the
+  edited spec's latest sign-off anchor matches its content at the pull
+  request's head (the operator signed the edit off in a relayed kickoff).
+  It SHALL also refuse when the spec-drift check flags the pull request: a
+  changed file some spec lists as a task deliverable, with that spec's
+  anchored content unchanged and no reason line naming that file in the
+  pull request's covering-spec statement (D-45). A changed file that is a
+  deliverable of a task the pull request's own task trailer names is that
+  task's work and is never flagged. A pull request with no statement is
+  read as covering no spec and giving no reasons. A check that cannot run
+  refuses. One exception holds wherever the readiness check reads a
+  bundle's sign-off, here and in REQ-D1.14's spec-only hold: a **legacy
+  bundle**, one finished before kickoff existed, reads as signed off with
+  no anchor, and its evidence row names it legacy. A bundle is legacy only
+  when its `requirements.md` is `Done` at the head, it has no kickoff brief
+  at the head, the pull request deletes no brief for it, and the pull
+  request's base, read at the base commit the forge reports for the pull
+  request when readiness runs (its `baseRefOid`) and never from a local
+  ref, holds no brief for it and holds its `requirements.md` as `Done` or
+  with no Status line. Such a bundle's content may change in the pull
+  request with no sign-off, since it has no anchor to compare. A bundle the
+  pull request adds, a Draft, Ready or Active bundle with no brief, a pull
+  request naming no base, and a base that cannot be read at that commit
+  each refuse with their reason; a brief that exists is always
+  anchor-checked.
+  *(Cites: D-45; the operator's request (2026-11-07, Sources); the
+  spec-drift audit (Sources); the legacy-bundle report and the Amendment
+  21 rulings (2026-11-22, Sources).)*
 - **REQ-D1.15** A unit whose kind is on `mission_control_direct_dispatch_kinds`
   (shipped: a review skill run on a pull request, and read-only checks: a
   spec-walkthrough render, a goal-evidence session, a read-only audit;
@@ -1054,6 +1087,43 @@ later planwright bundles implement, D-12).
   this one push only once the routed human-gates amendment lands (Task 31).
   *(Cites: D-36; audit item 4 (Sources); the operator priority (2026-11-04)
   (Sources).)*
+  *(Amended at Amendment 21, 2026-11-22: the kickoff push, published through `scripts/kickoff-spec-push.sh`, stays the only route for a spec edit; a worker's clean base-merge push onto a spec-branch pull request's branch is a separate route, REQ-I1.11.)*
+- **REQ-I1.11** A **spec-branch pull request** is one whose head is a
+  spec's sign-off branch `planwright/<spec>/spec`, an amendment branch
+  `planwright/<spec>/amendment-<n>` or a spec-rework branch
+  `planwright/<spec>/spec-rework`; its **base** here is the remote's default
+  branch (main), and one based elsewhere gets no route. A worker whose
+  launch-written session record names such a branch SHALL be able to keep
+  it current, while `worker_base_merge` (human-gates REQ-E1.1) resolves
+  `allow`, through two acts and no other merge or push there: merging the
+  base into it, as the command's only act, and pushing it by explicit
+  refspec, as the command's only act, when the push fast-forwards the pull
+  request's head as the remote reports it and every commit it adds that the
+  base lacks is a two-parent merge whose second parent is a commit of the
+  base and whose tree is exactly the clean merge of its parents, on a
+  first-parent line starting at that head. Both acts SHALL run only in the
+  session's own linked worktree holding that branch; SHALL refuse when the
+  base or the head cannot be read from the remote; and SHALL refuse on
+  local state that could make the guard read something other than what git
+  merges or the push sends (a rewritten or overridden transport, a merge
+  driver, an attributes file, a replace ref, a graft, a shallow clone, or a
+  git too old to read attributes from an empty tree). On the sign-off
+  branch the protected-set read SHALL exempt only the core floor's own
+  `planwright/*/spec` entry, so a `protected_branches` addition matching
+  the branch still refuses. One push MAY carry several successive merges,
+  and a push adding no commit is admitted. Any other commit, one touching
+  only the spec's own bundle files included, SHALL be refused: spec edits
+  stay the kickoff session's (REQ-I1.8) under the operator's sign-off, and
+  a base merge that does not resolve cleanly goes to that session or the
+  operator. The local fast-forward to the pull request's own head that the
+  guard already admits on an amendment or spec-rework branch is unchanged.
+  The route SHALL grant no force, rewrite, deletion or other branch, and its
+  builds SHALL stay draft until the human-gates batch
+  amendment admitting this merge and push (against human-gates REQ-E1.1
+  and the composition row REQ-A1.6 owns) is signed; the spec-rework branch
+  is included subject to that batch's answer on it.
+  *(Cites: D-114; the operator's spec-branch sync ruling (2026-11-18,
+  Sources); the Amendment 21 rulings (2026-11-22, Sources).)*
 
 ## REQ-J — Knobs
 
@@ -1671,6 +1741,15 @@ the runner works, never a list that grows and is forgotten.
   control-plane Tasks 5.1 to 5.3; D-56 gains a note (see the kickoff
   brief's Amendment 20). Numbering follows the open amendment branches
   (Amendments 11 to 19 are unmerged).
+- 2026-11-22 — Amendment 21 (meaning-class, on the Active bundle, relayed
+  by the hub): REQ-I1.11 lets a worker on a spec-branch pull request
+  (sign-off, amendment or spec-rework) push clean merges of the base and
+  nothing else, held until the human-gates batch amendment admits the
+  merge; REQ-D1.18 supersedes REQ-D1.13 with the legacy-bundle exception
+  PR #1142 shipped, read at the pull request's base commit. D-114, Tasks
+  148 and 149, notes on REQ-I1.8, REQ-D1.14, D-33, D-36, D-45 and Tasks
+  19, 35, 36 and 37 (see the kickoff brief's Amendment 21). Numbering follows
+  spec-pipeline's ID ledger of unlanded reservations.
 
 ## Sources
 
@@ -1917,3 +1996,22 @@ the runner works, never a list that grows and is forgotten.
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
 - **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
 - **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.
+- **The operator's spec-branch sync ruling (2026-11-18)** — relayed
+  through the hub: "Narrow it". A worker on a spec's sign-off pull request
+  may push a strict forward merge of main, and nothing else, onto that one
+  spec branch, so a moved main no longer goes to the operator; PR #1140
+  builds it. Framed REQ-I1.11, D-114.
+- **The legacy-bundle report (2026-11-22)** — readiness refused every
+  bundle without a kickoff brief, including tecpan's auth bundle, which
+  predates kickoff, and so held tecpan pull requests that touch it. PR
+  #1142 shipped the exception on the operator's "Flip now, decide at
+  review", reading the base from a local ref. Framed REQ-D1.18.
+- **The Amendment 21 rulings (2026-11-22)** — relayed through the hub,
+  the operator's words: "Allow both (Recommended)" (one push may carry
+  several clean merges, and an empty push is admitted); "No, base merges
+  only (Recommended)" (an amendment or spec-rework worker pushes no spec
+  edit); "Record + read the PR base (Recommended)" (the legacy exception is
+  recorded, read at the pull request's base commit); "Hold builds until
+  both sign (Recommended)" (the merge waits for a routed human-gates
+  amendment, and its pull requests stay draft until both are signed).
+  Framed REQ-I1.11, REQ-D1.18, Tasks 148 and 149.
