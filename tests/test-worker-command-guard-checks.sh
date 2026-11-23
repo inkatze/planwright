@@ -188,6 +188,8 @@ WDECLS='mix test <path>...; mise exec -- mix credo <word>; git commit -m <word>'
 WDECLS="$WDECLS; git push origin <word>; git config user.name <word>; rm <path>; rm -rf <path>"
 WDECLS="$WDECLS; tee <path>; cp <path> <path>; sed -i <word> <path>; mise exec -- rm <path>"
 WDECLS="$WDECLS; ln -s <path> <path>; env mix test <path>; mise use <word>"
+WDECLS="$WDECLS; npm test; python3 -m pytest <path>; node <path>; npx <word>; pnpm dlx <word>"
+WDECLS="$WDECLS; osascript <path>; php -r <word>"
 : >"$WT/build.txt"
 for col in 1 2 3; do
   under "$(with_checks "writes.$col" "$col" "$WDECLS")"
@@ -227,6 +229,21 @@ for col in 1 2 3; do
     "env mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
   assert_defer "F1.11 [$col]: a declared mise use before the own push" \
     "mise use node && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_allow "F1.11 [$col]: a repository task runner still partners the own push" \
+    "npm test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_allow "F1.11 [$col]: a declared interpreter alone, as before" "python3 -m pytest test" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared python before the own push" \
+    "python3 -m pytest test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared node before the own push" \
+    "node build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared npx before the own push" \
+    "npx cowsay && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared pnpm dlx before the own push" \
+    "pnpm dlx cowsay && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared osascript before the own push" \
+    "osascript build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared php -r before the own push" \
+    "php -r exit && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
   assert_defer "F1.11 [$col]: a declared rm after the own push" \
     "git push origin $CORPUS_UNIT_BRANCH && rm build.txt" Bash "$WT"
 done

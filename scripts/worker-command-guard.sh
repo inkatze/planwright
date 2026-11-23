@@ -6535,18 +6535,24 @@ check_command_ok() {
 # check_partner_ok: 0 when the matched check command (`sw` / `swn`) may be a
 # chain partner of an own-unit act: no word of it, by its last path
 # component, names git or gh, a program the guard approves only as a write or
-# screens for a write or exec vector, another file writer, or a program that
-# runs its arguments as a command. Every word is read, a placeholder's
-# included, so a runner prefix or a wrapper cannot carry one past the check;
-# the leading `mise exec` runner prefix is the one exception, its program
-# read like any other word. A repository's own runner (`mix`, `npm`, `make`)
-# names none of these and partners as before.
+# screens for a write or exec vector, another file writer, a program that
+# runs its arguments as a command, or a general interpreter. Every word is
+# read, a placeholder's included, so a runner prefix or a wrapper cannot carry
+# one past the check; the leading `mise exec` runner prefix is the one
+# exception, its program read like any other word. A repository's own task
+# runner (`mix`, `npm`, `make`) runs the tasks the repository defines, the
+# trust its scripts/ get, so it names none of these and partners as before.
 check_partner_ok() {
   local i=0
   [ "${sw[0]}" != mise ] || [ "${sw[1]-}" != exec ] || i=2
   for (( ; i < swn; i++)); do
     case ${sw[i]##*/} in
       git | gh | mise | tee | mkdir | rm | touch | cp | mv | mktemp | sed | perl | awk | find | sort | uniq | date | file | yq | shfmt | rg | fd | jq | gitleaks | markdownlint | markdownlint-cli2 | lefthook | bats | bash | sh | fish | zsh | dash | ksh | env | command | builtin | exec | eval | xargs | sudo | doas | nohup | setsid | timeout | nice | time | stdbuf | busybox | ln | chmod | chown | chgrp | dd | install | truncate | shred | unlink | rmdir | rsync | scp | curl | wget | tar | unzip | patch)
+        return 1
+        ;;
+      # General interpreters and fetch-and-run launchers run whatever code
+      # their arguments name, inline code included.
+      python | python[0-9]* | node | nodejs | ruby | ruby[0-9]* | irb | php | php[0-9]* | deno | bun | bunx | npx | pnpx | uvx | pipx | dlx | osascript | lua | lua[0-9]* | luajit | Rscript | tclsh | pwsh | powershell)
         return 1
         ;;
     esac
