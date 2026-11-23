@@ -1445,10 +1445,12 @@ handle_line() {
       # its own receipt time, and never stops the capture.
       printf '%s\n' "$hl_line" | /bin/sh "$FRAMES" persist --dir "$hl_dir" >/dev/null 2>&1 || :
       ;;
-    *'"isReplay":true'*)
-      # The session read a user frame from stdin. Matched on the raw line:
-      # inside a JSON string every quote is escaped, so message text cannot
-      # spell the marker, nor the uuid key read next.
+    '{"type":"user",'*',"isReplay":true}')
+      # The session read a user frame from stdin: the CLI writes the marker as
+      # a user line's last key. Anchored at both ends because tool input is
+      # raw JSON elsewhere in the stream (an assistant tool_use, a result's
+      # permission_denials), whose keys can spell the marker; message text
+      # cannot, every quote in a string being escaped.
       hl_uid=$(json_field "$hl_line" uuid)
       if valid_reqid "$hl_uid"; then
         hl_now=$(now_epoch) || hl_now=0
