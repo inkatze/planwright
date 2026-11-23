@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -966,6 +966,10 @@ cadence and the gate data's steps, by the operator's ruling that spec-only
 pull requests skip the code review steps; it shipped in PR #852, and
 REQ-D1.14 supersedes REQ-D1.9 to say so.)*
 
+*(Amended at Amendment 21, 2026-11-22: a bundle that predates kickoff
+reads as signed off in that hold exactly as REQ-D1.18 defines a legacy
+bundle; see the D-45 note.)*
+
 ### D-34: A repository-changing launch gets its own worktree  (N)
 
 **Decision:** The worker, reviewer, ad-hoc and kickoff kinds start in a
@@ -1078,6 +1082,11 @@ profile is unchanged.
 
 **Chosen because:** the operator chose it (2026-11-04), and it widens one
 session by one branch it was launched to publish.
+
+*(Amended at Amendment 21, 2026-11-22: the kickoff kind's one push is
+unchanged and stays the only route for a spec edit; a worker keeping a
+spec-branch pull request current with clean base merges is a separate
+route, D-114.)*
 
 ### D-37: The panel activates from a bring-up record, not the environment  (S)
 
@@ -1392,6 +1401,17 @@ audit found every zone flight resting on one of those instead).
 **Chosen because:** the operator's decisions (2026-11-07): edit the spec in
 the same pull request, worker statement plus mechanical check, path list
 plus judgment for routing, pause zones unchanged.
+
+*(Amended at Amendment 21, 2026-11-22: a bundle finished before kickoff
+existed has no anchor to compare, so readiness reads it as signed off when
+it is Done at the head and the pull request's base, read at the base commit
+the forge reports, holds no brief for it and holds it Done or with no
+Status line; REQ-D1.18 supersedes REQ-D1.13 to say so, and the D-33
+spec-only hold reads it the same way. A retro kickoff of every such bundle
+was the alternative; it held unrelated pull requests on bundles nobody is
+changing in meaning. The base is read at the forge's commit rather than a
+local ref, so a stale ref cannot let a pull request that renames a brief
+away read as legacy.)*
 
 ### D-46: Every mission-control session reads its own context from its transcript  (N)
 
@@ -1980,6 +2000,50 @@ counts misses caught by the operator against those the system raised first.
 
 **Chosen because:** every core failure so far was found by the operator;
 the system should find the next one first, and learn from each it did not.
+
+### D-114: A spec-branch pull request's worker keeps its branch current with clean base merges only  (N; C, human-gates D-7)
+
+**Decision:** A worker launched onto a spec-branch pull request (its head
+the sign-off branch `planwright/<spec>/spec`, an amendment branch
+`planwright/<spec>/amendment-<n>` or a spec-rework branch
+`planwright/<spec>/spec-rework`, named in its launch-written session
+record) may merge the base, the remote's default branch, into that branch
+and push the result, and no other merge or push there, while
+`worker_base_merge` resolves `allow`. The policy guard admits the merge as
+the command's only act, in the session's own linked worktree holding the
+branch, and admits the push only from that worktree, by explicit refspec,
+when it fast-forwards the pull request's head and every commit it adds that
+the base lacks is a two-parent merge whose second parent is a base commit
+and whose tree is exactly the clean merge of its parents, on a
+first-parent line that starts at that head. The base and the head are read
+from the remote, never from a local ref; local state that could make the
+guard read something other than what git merges or the push sends
+(rewritten transports, merge drivers, attributes, replace refs, grafts, a
+shallow clone, a git older than 2.40) refuses. On the sign-off branch the
+protected-set read exempts only the core floor's own `planwright/*/spec`
+entry, so an operator's `protected_branches` addition matching the branch
+still refuses. One push may carry several merges, and a push that adds
+nothing is admitted. A spec edit is never a clean merge, so it stays with
+the kickoff session (D-36) and the operator's sign-off, and so does a base
+merge that needs a hand resolution.
+
+**Alternatives considered:**
+- Hand every moved main to the operator (the Update branch button).
+  Rejected because: it put a manual step on every spec-branch pull request whose
+  main moved, the toil the operator ruled out.
+- Route the sync through a fresh kickoff session. Rejected because: a
+  kickoff is a walk with the operator, too heavy to rerun for a merge that
+  changes no spec text.
+- Also admit commits touching only the spec's own bundle files. Rejected
+  because: that is a spec edit without a sign-off, the drift D-45 exists
+  to stop.
+
+**Chosen because:** the operator's rulings: "Narrow it" (2026-11-18) and
+the Amendment 21 rulings (2026-11-22). Human-gates REQ-E1.1 forbids a
+worker's merge into a spec branch, so the builds stay draft until the
+human-gates batch amendment admitting exactly this merge and push, and this
+amendment, are both signed; whether spec-rework is included follows that
+batch's answer.
 
 ## Cross-cutting concerns
 
