@@ -102,6 +102,7 @@ while IFS= read -r line; do
       emit_result
       ;;
     hold) emit_replay "$id" ;;
+    swallow) ;;
     forge)
       # Tool input is raw JSON in the stream, so its keys can spell the
       # replay marker; neither line below is a replay.
@@ -197,8 +198,8 @@ case $a2_id in
   *) fail "a2: the steer frame must carry a v4 uuid of its own; got '$a2_id' in $(sed -n 2p "$rec/stdin")" ;;
 esac
 [ "$(lines_of "$wdir/steers")" = 1 ] || fail "a2: one steer, one receipt row"
-grep -q "^[0-9]*${tab}[0-9]*${tab}$tmp/steer2${tab}$a2_id\$" "$wdir/steers" \
-  || fail "a2: the receipt row must end with the steer's uuid: $(cat "$wdir/steers")"
+grep -q "^[0-9]*${tab}[0-9]*${tab}$tmp/steer2${tab}$a2_id${tab}idle\$" "$wdir/steers" \
+  || fail "a2: the receipt row must carry the steer's uuid and that the worker was idle: $(cat "$wdir/steers")"
 poll_until --what 'the acknowledgement' -- grep -q "$tab$a2_id\$" "$wdir/steer-acks" \
   || fail "a2: the session's replay must be recorded as the steer's acknowledgement: $(cat "$wdir/steer-acks" 2>&1)"
 sleep 3
@@ -341,9 +342,28 @@ grep -q 'bad' "$wdir/steer-acks" && fail "a9: an out-of-grammar replay uuid was 
 echo "ok: a9 only a user line is a replay, and an out-of-grammar uuid records nothing"
 
 # ---------------------------------------------------------------------------
+# a10: a steer to an idle worker that the session never takes opens no turn,
+#      so no later result exists to judge it by; its own age past the grace
+#      is enough.
+# ---------------------------------------------------------------------------
+home="$tmp/h10"
+rec="$tmp/r10"
+start_worker "$home" "$rec" sja10 SHIM_STEER_MODE=swallow
+wdir="$home/streamjson/sja10"
+poll_until --what 'the launch turn result' -- test -f "$wdir/result" || fail "a10: the launch turn never ended"
+printf 'are you there\n' >"$tmp/steer10"
+senv "$home" "$rec" -- steer sja10 --message-file "$tmp/steer10" >/dev/null 2>"$tmp/a10.err" || fail "a10: steer exited non-zero"
+[ ! -s "$tmp/a10.err" ] || fail "a10: a steer to an idle worker is not queued: $(cat "$tmp/a10.err")"
+poll_until --what 'the unread-steer report' -- reported "$home" sja10 \
+  || fail "a10: an idle worker's untaken steer must be reported: $(cat "$home/attention/state" 2>&1)"
+grep "^sja10$tab" "$home/attention/state" | grep -q 'idle' \
+  || fail "a10: the report must say the worker was idle: $(cat "$home/attention/state")"
+echo "ok: a10 a steer an idle worker never takes is reported by its own age"
+
+# ---------------------------------------------------------------------------
 # a8: nothing outlives the suite.
 # ---------------------------------------------------------------------------
-for h in sja2 sja3 sja4 sja5 sja6 sja9; do
+for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10; do
   for d in "$tmp"/h*/streamjson/"$h"; do
     [ -d "$d" ] || continue
     senv "${d%/streamjson/*}" "$tmp/r-stop" -- stop "$h" >/dev/null 2>&1 || :

@@ -270,16 +270,18 @@
 #       (doctrine/inter-orchestrator-coordination.md): a real submit that
 #       needs no input box, so it does not depend on a paste landing at an
 #       idle prompt, and it leaves a receipt — `<dir>/steers`, one
-#       `<epoch>\t<bytes>\t<file>\t<id>` row per delivery, <id> the uuid the
-#       frame carries — where a pane paste leaves nothing. Written is not read:
-#       the CLI reads a frame that lands mid-turn only once the tool call in
-#       flight returns or the turn ends, so steer says on stderr that the
-#       message is queued whenever no result is on record. The session's
+#       `<epoch>\t<bytes>\t<file>\t<id>\t<idle|busy>` row per delivery, <id>
+#       the uuid the frame carries and the last field whether a result was on
+#       record when it was sent — where a pane paste leaves nothing. Written is
+#       not read: the CLI reads a frame that lands mid-turn only once the tool
+#       call in flight returns or the turn ends, so steer says on stderr that
+#       the message is queued whenever no result is on record. The session's
 #       replay of the frame (the launch passes --replay-user-messages) lands
 #       its uuid in `<dir>/steer-acks`; a steer still unread a grace
 #       (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s) after a turn ended
-#       past it is reported once by the tick or `alarm-scan` (steer_scan),
-#       a high-priority attention item and push naming the file to re-send.
+#       past it, or after it was sent to an idle worker, is reported once by
+#       the tick or `alarm-scan` (steer_scan), a high-priority attention item
+#       and push naming the file to re-send.
 #       It is NOT an answer: it never composes a
 #       control_response and never touches the receipt journal, so it cannot
 #       settle a pending permission request (the tower may not answer those).
@@ -3076,33 +3078,45 @@ steer_id() {
 
 # steer_scan <worker> <dir> <now> <grace> — report each steer the session never
 # read. A frame the session reads comes back as a replay carrying its uuid
-# (steer-acks); one still unread once a turn has ended at or after it, and
-# <grace> seconds have passed with no new turn reading it, will not be read:
-# the CLI takes a queued frame as the next turn the moment one ends. Raised
-# once per steer (its steer-lost-<id> mark) as a high-priority attention item
-# with a push, printing `steer-lost <worker> <id>`. A runtime with no
-# replay-since record predates the replay, and steers older than it are
-# never judged.
+# (steer-acks). The CLI takes a waiting frame as the next turn the moment one
+# ends, so a steer still unread <grace> seconds after a turn ended at or after
+# it will not be read; nor will one written to an idle worker (its receipt
+# row's last field) and unread <grace> seconds on, since no turn was running
+# to delay it. Raised once per steer (its steer-lost-<id> mark) as a
+# high-priority attention item with a push, printing `steer-lost <worker>
+# <id>`. A runtime with no replay-since record predates the replay, and
+# steers older than it are never judged.
 steer_scan() {
-  [ -f "$2/steers" ] && [ ! -L "$2/steers" ] || return 0
-  ss_since=$(head -n 1 "$2/replay-since" 2>/dev/null) || return 0
+  ss_w=$1 ss_dir=$2 ss_now=$3 ss_grace=$4
+  [ -f "$ss_dir/steers" ] && [ ! -L "$ss_dir/steers" ] || return 0
+  ss_since=$(head -n 1 "$ss_dir/replay-since" 2>/dev/null) || return 0
   valid_posnum "${ss_since:-}" || return 0
-  result_snapshot "$2" || return 0
-  ss_end=$(printf '%s' "$rs_raw" | awk -F'\t' 'NR == 1 { print $3 }')
-  valid_posnum "${ss_end:-}" || return 0
-  [ $(($3 - ss_end)) -ge "$4" ] || return 0
-  ss_lost=$(awk -F'\t' -v acks="$2/steer-acks" -v since="$ss_since" -v end="$ss_end" '
+  # The end epoch is the result record's third field, on either row kind.
+  ss_end=''
+  if result_snapshot "$ss_dir"; then
+    ss_end=$(printf '%s' "$rs_raw" | awk -F'\t' 'NR == 1 { print $3 }')
+    valid_posnum "${ss_end:-}" || ss_end=''
+  fi
+  ss_lost=$(awk -F'\t' -v acks="$ss_dir/steer-acks" -v since="$ss_since" -v end="$ss_end" \
+    -v now="$ss_now" -v grace="$ss_grace" '
     BEGIN { while ((getline l < acks) > 0) { split(l, f, "\t"); seen[f[2]] = 1 } }
-    NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && $1 + 0 <= end + 0 && !($4 in seen) { print $4 "\t" $3 }
-  ' "$2/steers" 2>/dev/null) || ss_lost=''
-  while IFS="$TAB" read -r ss_id ss_file; do
+    NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && !($4 in seen) {
+      if (end != "" && $1 + 0 <= end + 0 && now - end >= grace + 0) print $4 "\t" $3 "\tended\t" now - end
+      else if ($5 == "idle" && now - $1 >= grace + 0) print $4 "\t" $3 "\tidle\t" now - $1
+    }
+  ' "$ss_dir/steers" 2>/dev/null) || ss_lost=''
+  while IFS="$TAB" read -r ss_id ss_file ss_how ss_age; do
     valid_reqid "${ss_id:-}" || continue
-    [ ! -e "$2/steer-lost-$ss_id" ] && [ ! -L "$2/steer-lost-$ss_id" ] || continue
-    (set -C && : >"$2/steer-lost-$ss_id") 2>/dev/null || continue
+    [ ! -e "$ss_dir/steer-lost-$ss_id" ] && [ ! -L "$ss_dir/steer-lost-$ss_id" ] || continue
+    (set -C && : >"$ss_dir/steer-lost-$ss_id") 2>/dev/null || continue
     ss_name=$(sanitize_printable "$ss_file" unnamed | cut -c1-200)
-    attention_failure "$1" "$2" \
-      "steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $1 was never read: its turn ended $(($3 - ss_end))s ago and the session did not take the message - re-send $ss_name with fleet-streamjson.sh steer"
-    printf 'steer-lost %s %s\n' "$1" "$ss_id"
+    case $ss_how in
+      idle) ss_why="the worker was idle when it was sent ${ss_age}s ago and has not taken it" ;;
+      *) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
+    esac
+    attention_failure "$ss_w" "$ss_dir" \
+      "steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"
+    printf 'steer-lost %s %s\n' "$ss_w" "$ss_id"
   done <<SSLOST
 $ss_lost
 SSLOST
@@ -3242,7 +3256,9 @@ cmd_steer() {
   # put back with `ln` on a send that delivered nothing: it fails rather than
   # overwrite the end record a supervisor exiting meanwhile writes.
   st_prev=''
+  st_turn=busy
   if [ -f "$dir/result" ]; then
+    st_turn=idle
     st_prev="$dir/.result.steer"
     mv -f "$dir/result" "$st_prev" 2>/dev/null || st_prev=''
   fi
@@ -3267,13 +3283,13 @@ cmd_steer() {
       ;;
   esac
   if [ "$st_sent" = 0 ]; then
-    printf '%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" "$st_id" >>"$dir/steers" || :
+    printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" "$st_id" "$st_turn" >>"$dir/steers" || :
     journal_unlock "$dir"
     [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
       || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
     # No result on record means a turn is running: the CLI reads the frame
     # only once the tool call in flight returns or the turn ends.
-    [ -n "$st_prev" ] \
+    [ "$st_turn" = idle ] \
       || printf '%s\n' "$me: worker $worker is mid-turn: the message is queued, and the session reads it when its current tool call returns or its turn ends, so a long-running command delays it" >&2
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else

@@ -262,7 +262,7 @@ grep -q "^$req_perm$tab.*${tab}pending" "$wdir5/journal" \
   || fail "c5: steer must not settle the pending request"
 [ "$(wc -l <"$wdir5/steers" | tr -d ' ')" = 1 ] \
   || fail "c5: steer should leave exactly one receipt row"
-grep -q "$tab$tmp/steer5${tab}[0-9a-f-]*\$" "$wdir5/steers" \
+grep -Eq "$tab$tmp/steer5${tab}[0-9a-f-]{36}${tab}(idle|busy)\$" "$wdir5/steers" \
   || fail "c5: the steer receipt should name the message file"
 out=$(senv "$home" "$rec" -- answer sjw5 "$req_perm" --allow) \
   || fail "c5: answer exited non-zero"
