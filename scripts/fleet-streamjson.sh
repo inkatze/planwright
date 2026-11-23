@@ -1475,7 +1475,10 @@ handle_line() {
       # permission_denials), whose keys can spell the marker; message text
       # cannot, every quote in a string being escaped.
       hl_uid=$(json_field "$hl_line" uuid)
-      if valid_reqid "$hl_uid"; then
+      # Never through a link or into anything but a regular file: an append
+      # opened on a fifo would stall this read loop, and the worker with it.
+      if valid_reqid "$hl_uid" && [ ! -L "$hl_dir/steer-acks" ] \
+        && { [ ! -e "$hl_dir/steer-acks" ] || [ -f "$hl_dir/steer-acks" ]; }; then
         hl_now=$(now_epoch) || hl_now=0
         printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks" \
           || printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
@@ -1548,8 +1551,13 @@ supervise() {
   # session that never replayed, has no acknowledgement to miss. A record a
   # failed clock read left empty would switch the scan off for good, so only a
   # valid one is kept.
-  sv_since=$(head -n 1 "$sv_dir/replay-since" 2>/dev/null) || sv_since=''
-  if ! valid_posnum "$sv_since" && sv_since=$(now_epoch) && valid_posnum "$sv_since"; then
+  sv_since=''
+  if [ -f "$sv_dir/replay-since" ] && [ ! -L "$sv_dir/replay-since" ]; then
+    sv_since=$(head -n 1 "$sv_dir/replay-since" 2>/dev/null) || sv_since=''
+  fi
+  if ! valid_posnum "$sv_since" && [ ! -L "$sv_dir/replay-since" ] \
+    && { [ ! -e "$sv_dir/replay-since" ] || [ -f "$sv_dir/replay-since" ]; } \
+    && sv_since=$(now_epoch) && valid_posnum "$sv_since"; then
     printf '%s\n' "$sv_since" >"$sv_dir/replay-since" 2>/dev/null \
       || printf '%s\n' "$me: could not write $sv_dir/replay-since; worker $sv_worker's unread steers will not be reported" >&2
   fi
@@ -3120,7 +3128,12 @@ cmd_answer() {
 # steers older than it are never judged.
 steer_scan() {
   ss_w=$1 ss_dir=$2 ss_now=$3 ss_grace=$4
+  # Only regular files are read: opening a fifo would block the scan.
   [ -f "$ss_dir/steers" ] && [ ! -L "$ss_dir/steers" ] || return 0
+  [ -f "$ss_dir/replay-since" ] && [ ! -L "$ss_dir/replay-since" ] || return 0
+  if [ -e "$ss_dir/steer-acks" ] || [ -L "$ss_dir/steer-acks" ]; then
+    [ -f "$ss_dir/steer-acks" ] && [ ! -L "$ss_dir/steer-acks" ] || return 0
+  fi
   ss_since=$(head -n 1 "$ss_dir/replay-since" 2>/dev/null) || return 0
   valid_posnum "${ss_since:-}" || return 0
   # The end epoch is the result record's third field, on either row kind.

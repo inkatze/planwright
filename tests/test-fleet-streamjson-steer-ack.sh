@@ -589,6 +589,27 @@ stop_worker "$home" sja15
 echo "ok: a15 a steer to a resumed session waiting for its first frame is idle"
 
 # ---------------------------------------------------------------------------
+# a16: a fifo where a state file belongs never stalls the scan; that runtime
+#      is skipped, not judged.
+# ---------------------------------------------------------------------------
+for a16_f in steer-acks replay-since; do
+  home="$tmp/h16-$a16_f"
+  wdir="$home/streamjson/sja16"
+  mkdir -p "$wdir"
+  printf '1000\n' >"$wdir/replay-since"
+  printf '1100\t1\t%s\t%s\tbusy\n' "$tmp/f16" "$a13_edge" >"$wdir/steers"
+  printf 'exit\t0\t1200\n' >"$wdir/result"
+  rm -f "$wdir/$a16_f"
+  mkfifo "$wdir/$a16_f"
+  a16_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
+    /bin/sh "$here/../scripts/bounded-run.sh" 20 /bin/sh "$SJ" alarm-scan --now 2000 2>&1)
+  a16_rc=$?
+  [ "$a16_rc" = 0 ] || fail "a16: a fifo at $a16_f stalled or failed the scan (exit $a16_rc): $a16_out"
+  case $a16_out in *steer-lost*) fail "a16: a runtime with a fifo at $a16_f was judged: $a16_out" ;; esac
+done
+echo "ok: a16 a fifo at a state file never stalls the scan"
+
+# ---------------------------------------------------------------------------
 # a12: an empty replay record is rewritten at launch, never kept.
 # ---------------------------------------------------------------------------
 home="$tmp/h12"
