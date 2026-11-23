@@ -182,68 +182,64 @@ assert_defer "F1.11: a check command chained with a fetch" \
   "mix test test && git fetch origin && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 
 echo "### REQ-F1.11 — a declared check command that writes or acts on git never partners"
-# Columns 1 and 3 carry no own-branch arm, so only the declaration approves
-# these on their own; column 2 adds the arm's own refusals.
+# Column 1 has no write arm, so only the declaration approves each of these
+# alone; column 4 adds both arms, whose own writes refuse the act anyway.
 WDECLS='mix test <path>...; mise exec -- mix credo <word>; git commit -m <word>'
 WDECLS="$WDECLS; git push origin <word>; git config user.name <word>; rm <path>; rm -rf <path>"
 WDECLS="$WDECLS; tee <path>; cp <path> <path>; sed -i <word> <path>; mise exec -- rm <path>"
 WDECLS="$WDECLS; ln -s <path> <path>; env mix test <path>; mise use <word>"
 WDECLS="$WDECLS; npm test; python3 -m pytest <path>; node <path>; npx <word>; pnpm dlx <word>"
-WDECLS="$WDECLS; osascript <path>; php -r <word>"
+WDECLS="$WDECLS; osascript <path>; php -r <word>; /bin/rm <path>; mise exec -- <word>..."
 : >"$WT/build.txt"
-for col in 1 2 3; do
+# Each row: a declared command that writes, acts on git or runs arbitrary
+# code. It is approved alone (column 1), and never before the own push.
+WRITERS=(
+  "git config user.name x"
+  "rm build.txt"
+  "rm -rf build.txt"
+  "tee build.txt"
+  "cp build.txt test/c.txt"
+  "sed -i 1d build.txt"
+  "mise exec -- rm build.txt"
+  "ln -s build.txt test/l.txt"
+  "env mix test test"
+  "mise use node"
+  "python3 -m pytest test"
+  "node build.txt"
+  "npx cowsay"
+  "pnpm dlx cowsay"
+  "osascript build.txt"
+  "php -r exit"
+  "/bin/rm build.txt"
+  "mise exec -- git status"
+)
+for col in 1 4; do
   under "$(with_checks "writes.$col" "$col" "$WDECLS")"
   assert_allow "F1.11 [$col]: a read-only check command still partners the own push" \
     "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
   assert_allow "F1.11 [$col]: a runner-prefixed check command still partners the own push" \
     "mise exec -- mix credo strict && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_allow "F1.11 [$col]: a declared rm alone, as before" "rm build.txt" Bash "$WT"
-  assert_allow "F1.11 [$col]: a declared sed -i alone, as before" "sed -i 1d build.txt" Bash "$WT"
-  assert_allow "F1.11 [$col]: a declared git config alone, as before" "git config user.name x" Bash "$WT"
-  assert_allow "F1.11 [$col]: a runner-prefixed rm alone, as before" "mise exec -- rm build.txt" Bash "$WT"
-  # The own-branch arm's own commit is a partner by design, so column 2 is
-  # left out here.
-  [ "$col" = 2 ] || assert_defer "F1.11 [$col]: a declared git commit before the own push" \
-    "git commit -m wip && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared git push of another branch before the own push" \
-    "git push origin other && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared git config before the own push" \
-    "git config user.name x && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a check command with a write redirect before the own push" \
-    "mix test test > build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared rm before the own push" \
-    "rm build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared rm -rf before the own push" \
-    "rm -rf build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared tee before the own push" \
-    "tee build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared cp before the own push" \
-    "cp build.txt test/c.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared sed -i before the own push" \
-    "sed -i 1d build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a runner-prefixed rm before the own push" \
-    "mise exec -- rm build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared ln before the own push" \
-    "ln -s build.txt test/l.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a check command behind env before the own push" \
-    "env mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared mise use before the own push" \
-    "mise use node && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
   assert_allow "F1.11 [$col]: a repository task runner still partners the own push" \
     "npm test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_allow "F1.11 [$col]: a declared interpreter alone, as before" "python3 -m pytest test" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared python before the own push" \
-    "python3 -m pytest test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared node before the own push" \
-    "node build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared npx before the own push" \
-    "npx cowsay && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared pnpm dlx before the own push" \
-    "pnpm dlx cowsay && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared osascript before the own push" \
-    "osascript build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_defer "F1.11 [$col]: a declared php -r before the own push" \
-    "php -r exit && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  for w in "${WRITERS[@]}"; do
+    [ "$col" != 1 ] || assert_allow "F1.11 [$col]: declared $w, alone as before" "$w" Bash "$WT"
+    assert_defer "F1.11 [$col]: declared $w before the own push" \
+      "$w && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  done
+  # The own-branch arm's own commit is a partner by design (column 4).
+  if [ "$col" = 1 ]; then
+    assert_allow "F1.11 [$col]: a declared git commit alone, as before" "git commit -m wip" Bash "$WT"
+    assert_defer "F1.11 [$col]: a declared git commit before the own push" \
+      "git commit -m wip && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  fi
+  assert_defer "F1.11 [$col]: the floor wins over a declared push of another branch" \
+    "git push origin other" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared push of another branch before the own push" \
+    "git push origin other && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  [ "$col" != 1 ] || assert_defer "F1.11 [$col]: a check command's write redirect defers alone" \
+    "mix test test > build.txt" Bash "$WT"
+  assert_defer "F1.11 [$col]: a check command with a write redirect before the own push" \
+    "mix test test > build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
   assert_defer "F1.11 [$col]: a declared rm after the own push" \
     "git push origin $CORPUS_UNIT_BRANCH && rm build.txt" Bash "$WT"
 done
