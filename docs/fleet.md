@@ -1290,7 +1290,10 @@ or `alarm-scan`, as a high-priority queue item and push naming the message
 file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE` seconds (default 60)
 have passed since the `result` or exit record written at or after it, or,
 when none has been written and the worker was idle as it was sent, since it
-was sent. A runtime with no replay record (a worker an older planwright
+was sent. The session reads frames in order, so an unread steer sent before
+one so judged is reported with it. A worker reads as idle when a result is on
+record or, for a resumed session waiting for its first frame, when its capture
+still ends at its last turn's result. A runtime with no replay record (a worker an older planwright
 launched) is never judged, nor is a steer sent before that record.
 Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into

@@ -284,10 +284,11 @@
 #       (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s) after a turn ended
 #       past it, or after it was sent to an idle worker, is reported once by
 #       the tick or `alarm-scan` (steer_scan), a high-priority attention item
-#       and push naming the file to re-send.
-#       It is NOT an answer: it never composes a
-#       control_response and never touches the receipt journal, so it cannot
-#       settle a pending permission request (the tower may not answer those).
+#       and push naming the file to re-send; so is any unread steer sent
+#       before one so judged, the session reading frames in order. It is NOT
+#       an answer: it never composes a control_response and never touches the
+#       receipt journal, so it cannot settle a pending permission request (the
+#       tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
 #       A delivered steer retires the previous turn's `result`, so the worker
@@ -482,7 +483,8 @@
 # seam once, on the tick that crosses the threshold, unless `alarm-scan --once`
 # pushed it first (they share one mark per request). Scan-based over the
 # durable journal, so it holds the same crash-window properties `alarm-scan`
-# has, and still never auto-answers and never kills the worker.
+# has, and still never auto-answers and never kills the worker. The same tick
+# reports a steer the session never read (see steer).
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
@@ -3121,11 +3123,12 @@ cmd_answer() {
 # ends, so a steer still unread <grace> seconds after a result or exit record
 # written at or after it will not be read; nor will one written to an idle
 # worker (its receipt row's last field), with no such record since, and
-# unread <grace> seconds on, since no turn was running to delay it. Raised
-# once per steer (its steer-lost-<id> mark) as a
-# high-priority attention item with a push, printing `steer-lost <worker>
-# <id>`. A runtime with no replay-since record predates the replay, and
-# steers older than it are never judged.
+# unread <grace> seconds on, since no turn was running to delay it; nor,
+# frames being read in order, any unread steer sent before one of those.
+# Raised once per steer (its steer-lost-<id> mark) as a high-priority
+# attention item with a push, printing `steer-lost <worker> <id>`. A runtime
+# with no replay-since record predates the replay, and steers older than it
+# are never judged.
 steer_scan() {
   ss_w=$1 ss_dir=$2 ss_now=$3 ss_grace=$4
   # Only regular files are read: opening a fifo would block the scan.
@@ -3844,9 +3847,9 @@ cmd_stop() {
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
 # tick's own process (internal; spawned by supervise). Sleeps in one-second
 # steps, leaving the instant either pid is gone so a closed worker never keeps
-# a ticker behind, and runs this worker's pending-age scan every
-# PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default 60) against
-# PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900).
+# a ticker behind, and every PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default
+# 60) runs this worker's unread-steer scan (steer_scan), journal or none, then
+# its pending-age scan against PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900).
 cmd__tick() {
   [ $# -eq 4 ] || usage
   tk_worker=$1
