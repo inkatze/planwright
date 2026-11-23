@@ -71,30 +71,34 @@ HOOK_ENV=("${USE_ENV[@]}")
 
 echo "### (a) the step-context export, pinned to the session's own worktree"
 CTX="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=$B PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=$WT"
-assert_allow "export of the step context, then step-record.sh write" \
-  "export $CTX && $SREC write --run 000001 --point pre-pr --step x --outcome passed" Bash "$WT"
-assert_allow "the shape a worker stalled on: tracked root, export, writes, audit, rc echo" \
-  "S=$PLUGIN_ROOT/scripts && export $CTX PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_PR_NUMBER=268 && \$S/step-record.sh write --run 000003 --point post-pr --step bot-review --outcome passed && \$S/step-record.sh write --completion --run 000003 --point post-pr && \$S/step-run.sh audit --through post-pr --base origin/main; echo rc=\$?" Bash "$WT"
+assert_allow "export of the step context, then a step-record.sh completion write" \
+  "export $CTX && $SREC write --completion --run 000001 --point pre-pr" Bash "$WT"
+assert_allow "the shape a worker stalled on: tracked root, export, completion, audit, rc echo" \
+  "S=$PLUGIN_ROOT/scripts && export $CTX PLANWRIGHT_STEP_SPEC= PLANWRIGHT_STEP_TASK_IDS= PLANWRIGHT_STEP_PR_NUMBER=268 && \$S/step-record.sh write --completion --run 000003 --point post-pr && \$S/step-run.sh audit --through post-pr --base origin/main; echo rc=\$?" Bash "$WT"
+# REQ-F1.12: the same shape with its hand-timed step write defers whole.
+assert_defer "the stalled shape with its step write" \
+  "S=$PLUGIN_ROOT/scripts && export $CTX PLANWRIGHT_STEP_PR_NUMBER=268 && \$S/step-record.sh write --run 000003 --point post-pr --step bot-review --start 2026-11-22T10:00:00Z --outcome passed && \$S/step-record.sh write --completion --run 000003 --point post-pr" Bash "$WT"
 assert_allow "export without a worktree field, then step-run.sh" "export PLANWRIGHT_STEP_BRANCH=$B && $SRUN audit --through pre-pr" Bash "$WT"
 assert_allow "export, then step-run.sh resolve" "export $CTX && $SRUN resolve --run 000001 pre-pr --unattended" Bash "$WT"
 assert_allow "from a subdirectory of the worktree" "export $CTX && $SREC new-run" Bash "$WT/sub"
-assert_defer "another worker's run store" "export PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --run 1" Bash "$WT"
-assert_defer "a worktree spelled through a dot-dot" "export PLANWRIGHT_STEP_WORKTREE=$WT/../other && $SREC write --run 1" Bash "$WT"
-assert_defer "a relative worktree" "export PLANWRIGHT_STEP_WORKTREE=. && $SREC write --run 1" Bash "$WT"
-assert_defer "an empty worktree" "export PLANWRIGHT_STEP_WORKTREE= && $SREC write --run 1" Bash "$WT"
-assert_defer "a session sitting in another worktree" "export $CTX && $SREC write --run 1" Bash "$OTHER_WT"
-assert_defer "a non-step name" "export FOO=1 && $SREC write --run 1" Bash "$WT"
-assert_defer "PATH beside the step names" "export $CTX PATH=/tmp && $SREC write --run 1" Bash "$WT"
-assert_defer "a misspelled step name" "export PLANWRIGHT_STEP_BRANC=x && $SREC write --run 1" Bash "$WT"
-assert_defer "an invalid unit kind" "export PLANWRIGHT_STEP_UNIT_KIND=evil && $SREC write --run 1" Bash "$WT"
-assert_defer "a variable in a value" "export PLANWRIGHT_STEP_BRANCH=\$B && $SREC write --run 1" Bash "$WT"
-assert_defer "a substitution in a value" "export PLANWRIGHT_STEP_BRANCH=\$(id) && $SREC write --run 1" Bash "$WT"
-assert_defer "a quoted value" "export PLANWRIGHT_STEP_BRANCH='$B' && $SREC write --run 1" Bash "$WT"
-assert_defer "a glob in a value" "export PLANWRIGHT_STEP_BRANCH=* && $SREC write --run 1" Bash "$WT"
-assert_defer "export -n" "export -n PLANWRIGHT_STEP_BRANCH && $SREC write --run 1" Bash "$WT"
-assert_defer "export -f" "export -f PLANWRIGHT_STEP_BRANCH && $SREC write --run 1" Bash "$WT"
-assert_defer "a bare export" "export && $SREC write --run 1" Bash "$WT"
-assert_defer "an export redirected to a file" "export $CTX > $WT/out && $SREC write --run 1" Bash "$WT"
+assert_defer "another worker's run store" "export PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a worktree spelled through a dot-dot" "export PLANWRIGHT_STEP_WORKTREE=$WT/../other && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a relative worktree" "export PLANWRIGHT_STEP_WORKTREE=. && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "an empty worktree" "export PLANWRIGHT_STEP_WORKTREE= && $SREC write --completion --run 1" Bash "$WT"
+# The step call names the own worktree, so only the export's directory defers.
+assert_defer "a session sitting in another worktree" "export $CTX && $SREC --worktree $WT write --completion --run 1" Bash "$OTHER_WT"
+assert_defer "a non-step name" "export FOO=1 && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "PATH beside the step names" "export $CTX PATH=/tmp && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a misspelled step name" "export PLANWRIGHT_STEP_BRANC=x && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "an invalid unit kind" "export PLANWRIGHT_STEP_UNIT_KIND=evil && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a variable in a value" "export PLANWRIGHT_STEP_BRANCH=\$B && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a substitution in a value" "export PLANWRIGHT_STEP_BRANCH=\$(id) && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a quoted value" "export PLANWRIGHT_STEP_BRANCH='$B' && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a glob in a value" "export PLANWRIGHT_STEP_BRANCH=* && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "export -n" "export -n PLANWRIGHT_STEP_BRANCH && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "export -f" "export -f PLANWRIGHT_STEP_BRANCH && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "a bare export" "export && $SREC write --completion --run 1" Bash "$WT"
+assert_defer "an export redirected to a file" "export $CTX > $WT/out && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "an export inside fish -c" "fish -c 'export $CTX'" Bash "$WT"
 assert_defer "an export followed by a command no shape approves" "export $CTX && rm -rf $OTHER_WT" Bash "$WT"
 
@@ -102,7 +106,7 @@ echo "### (b) gh pr edit <n> --body-file <file>, the session's own open PR"
 : >"$SANDBOX/gh.log"
 assert_allow "the own PR, a body file in the scratch root" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 assert_allow "the body file named through a tracked assignment" "D=$SCR && gh pr edit 12 --body-file \$D/body.md" Bash "$WT"
-assert_allow "chained after a step write" "$SREC write --run 1 && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
+assert_allow "chained after a completion write" "$SREC write --completion --run 1 && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
 HOOK_ENV=("${USE_ENV[@]}" "TMPDIR=$SCR")
 assert_allow "the body file through the recorded \$TMPDIR, under the empty policy" "gh pr edit 12 --body-file \$TMPDIR/body.md" Bash "$WT"
 assert_allow "the body file through \${TMPDIR}" "gh pr edit 12 --body-file \${TMPDIR}/body.md" Bash "$WT"
@@ -220,7 +224,7 @@ env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home"
 printf 'gitdir: %s\n' "$CS/foreign/.git" >"$WT/pointer/.git"
 assert_defer "a push from a nested repository" "git push origin $B" Bash "$WT/nested"
 assert_defer "a body edit from a nested repository" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT/nested"
-assert_defer "an export from a nested repository" "export $CTX && $SREC write --run 1" Bash "$WT/nested"
+assert_defer "an export from a nested repository" "export $CTX && $SREC write --completion --run 1" Bash "$WT/nested"
 assert_defer "a push from a gitdir pointer to another repository" "git push origin $B" Bash "$WT/pointer"
 # The nested check runs no git there: a repository whose config would run a
 # program on any git read is never read.
@@ -260,7 +264,7 @@ assert_defer "at the end of a pipeline a loop opens, over a line break" "while f
 git push origin $B" Bash "$WT"
 assert_defer "backgrounded" "git push origin $B &" Bash "$WT"
 assert_defer "a body edit backgrounded" "gh pr edit 12 --body-file $SCR/body.md & git status" Bash "$WT"
-assert_defer "an export inside a loop" "for x in a; do export $CTX; done && $SREC write --run 1" Bash "$WT"
+assert_defer "an export inside a loop" "for x in a; do export $CTX; done && $SREC write --completion --run 1" Bash "$WT"
 # A trailing `&` backgrounds the whole and-or list since the last top-level
 # `;` or newline, so an act earlier in that list is backgrounded too.
 assert_defer "a list a later & backgrounds, after &&" "git push origin $B && git status &" Bash "$WT"
@@ -280,30 +284,30 @@ assert_allow "followed by || on its failure" "git push origin $B || git status" 
 
 echo "### an exported step name keeps its checked value"
 assert_defer "a re-assignment after the export" \
-  "export PLANWRIGHT_STEP_WORKTREE=$WT && PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --run 1" Bash "$WT"
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a re-assignment of another exported name" \
-  "export PLANWRIGHT_STEP_BRANCH=$B && PLANWRIGHT_STEP_BRANCH=x; $SREC write --run 1" Bash "$WT"
+  "export PLANWRIGHT_STEP_BRANCH=$B && PLANWRIGHT_STEP_BRANCH=x; $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a read into an exported name" \
-  "export PLANWRIGHT_STEP_WORKTREE=$WT && read -r PLANWRIGHT_STEP_WORKTREE && $SREC write --run 1" Bash "$WT"
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && read -r PLANWRIGHT_STEP_WORKTREE && $SREC write --completion --run 1" Bash "$WT"
 for ou_setter in "read -a PLANWRIGHT_STEP_WORKTREE" "read PLANWRIGHT_STEP_WORKTREE" "mapfile PLANWRIGHT_STEP_WORKTREE" \
   "readarray PLANWRIGHT_STEP_WORKTREE" "printf -v PLANWRIGHT_STEP_WORKTREE %s $OTHER_WT" \
   "declare PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" "declare -x PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" \
   "typeset PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" "local PLANWRIGHT_STEP_WORKTREE=$OTHER_WT" \
   "unset PLANWRIGHT_STEP_WORKTREE"; do
   assert_defer "$ou_setter after the export" \
-    "export PLANWRIGHT_STEP_WORKTREE=$WT && $ou_setter && $SREC write --run 1" Bash "$WT"
+    "export PLANWRIGHT_STEP_WORKTREE=$WT && $ou_setter && $SREC write --completion --run 1" Bash "$WT"
 done
 assert_allow "a read into another name after the export (control)" \
-  "export PLANWRIGHT_STEP_WORKTREE=$WT && read -r X && $SREC write --run 1" Bash "$WT"
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && read -r X && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a loop over an exported name" \
-  "export PLANWRIGHT_STEP_WORKTREE=$WT && for PLANWRIGHT_STEP_WORKTREE in $OTHER_WT; do $SREC write --run 1; done" Bash "$WT"
+  "export PLANWRIGHT_STEP_WORKTREE=$WT && for PLANWRIGHT_STEP_WORKTREE in $OTHER_WT; do $SREC write --completion --run 1; done" Bash "$WT"
 assert_defer "a plain step assignment before the export" \
-  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT; export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --run 1" Bash "$WT"
+  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT; export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a plain step assignment chained before the export" \
-  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --run 1" Bash "$WT"
+  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT && export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --completion --run 1" Bash "$WT"
 HOOK_ENV=("${USE_ENV[@]}" "PLANWRIGHT_STEP_WORKTREE=$WT")
 assert_defer "a plain re-assignment of an inherited exported step name before the export" \
-  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT; export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --run 1" Bash "$WT"
+  "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT; export PLANWRIGHT_STEP_BRANCH=$B && $SREC write --completion --run 1" Bash "$WT"
 HOOK_ENV=("${USE_ENV[@]}")
 assert_allow "a non-step assignment before the export" \
   "S=$PLUGIN_ROOT/scripts && export PLANWRIGHT_STEP_BRANCH=$B && \$S/step-record.sh new-run" Bash "$WT"
@@ -314,9 +318,9 @@ assert_defer "a re-export of an exported name after ;" \
 assert_allow "a second checked export" "export PLANWRIGHT_STEP_BRANCH=$B && export PLANWRIGHT_STEP_WORKTREE=$WT && $SREC new-run" Bash "$WT"
 
 echo "### the step worktree is pinned in every spelling under a record"
-assert_defer "the prefix spelling naming another worktree" "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --run 1" Bash "$WT"
-assert_defer "the env spelling naming another worktree" "env PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --run 1" Bash "$WT"
-assert_allow "the prefix spelling naming the session's own" "PLANWRIGHT_STEP_WORKTREE=$WT $SREC write --run 1" Bash "$WT"
+assert_defer "the prefix spelling naming another worktree" "PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --completion --run 1" Bash "$WT"
+assert_defer "the env spelling naming another worktree" "env PLANWRIGHT_STEP_WORKTREE=$OTHER_WT $SREC write --completion --run 1" Bash "$WT"
+assert_allow "the prefix spelling naming the session's own" "PLANWRIGHT_STEP_WORKTREE=$WT $SREC write --completion --run 1" Bash "$WT"
 
 echo "### an own-unit act never shares a command with a policy-arm act"
 ARMS="$CS/records/arms.record"
@@ -339,7 +343,7 @@ env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home"
 assert_allow "a plain fetch alone (control)" "git fetch origin" Bash "$WT"
 assert_defer "a push after a fetch" "git fetch origin && git push origin $B" Bash "$WT"
 assert_defer "a body edit after a fetch" "git fetch origin && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
-assert_defer "an export after a fetch" "git fetch origin && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_defer "an export after a fetch" "git fetch origin && export $CTX && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a push after a fetch of its branch" "git fetch origin $B && git push origin $B" Bash "$WT"
 # Chain partners: a git add or commit the policy approves on its own, and a
 # trusted repository task, may come before the act, joined to it by `&&`.
@@ -354,7 +358,7 @@ assert_allow "a push after a mise task" "mise run check && git push origin $B" B
 assert_allow "a push after a repo test run by bash" "bash tests/x.sh && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo script" "scripts/check.sh && git push origin $B" Bash "$WT"
 assert_allow "a body edit after a mise task" "mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
-assert_allow "an installed step script beside a push stays allowed" "$SREC write --run 1 && git push origin $B" Bash "$WT"
+assert_allow "an installed step script beside a push stays allowed" "$SREC write --completion --run 1 && git push origin $B" Bash "$WT"
 assert_defer "an export before a repo script (a partner after the act)" "export $CTX && scripts/check.sh" Bash "$WT"
 assert_defer "a gate after the push" "git push origin $B && mise run check" Bash "$WT"
 assert_defer "a gate joined to the push by ;" "mise run check; git push origin $B" Bash "$WT"
@@ -369,7 +373,7 @@ git push origin $B" Bash "$WT"
 assert_allow "a push after lefthook run" "lefthook run pre-commit && git push origin $B" Bash "$WT"
 assert_allow "a push after bats" "bats tests/x.bats && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo test run by sh" "sh tests/x.sh && git push origin $B" Bash "$WT"
-assert_allow "an export after a gate" "mise run check && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_allow "an export after a gate" "mise run check && export $CTX && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a gate, a read and ; before the push" "mise run check && echo ok; git push origin $B" Bash "$WT"
 assert_defer "a gate joined to the push by &" "mise run check && git status & git push origin $B" Bash "$WT"
 assert_defer "a plugin script other than a step script before the push" "$PLUGIN_ROOT/scripts/plug.sh && git push origin $B" Bash "$WT"
@@ -385,7 +389,7 @@ assert_allow "a routed test gate alone (control)" "$CR --test tests/test-x.sh --
 assert_defer "a push after a routed check gate" "$CR --check -- mise run check && git push origin $B" Bash "$WT"
 assert_defer "a push after a routed test gate" "$CR --test tests/test-x.sh -- bash tests/test-x.sh && git push origin $B" Bash "$WT"
 assert_defer "a body edit after a routed gate" "$CR --check -- mise run check && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
-assert_defer "an export after a routed gate" "$CR --check -- mise run check && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_defer "an export after a routed gate" "$CR --check -- mise run check && export $CTX && $SREC write --completion --run 1" Bash "$WT"
 assert_allow "a timeout-wrapped routed gate alone (control)" "timeout 600 $CR --check -- mise run check" Bash "$WT"
 assert_allow "umask before a routed gate alone (control)" "umask 022 && $CR --test tests/test-x.sh -- bash tests/test-x.sh" Bash "$WT"
 assert_defer "a push after a timeout-wrapped routed gate" "timeout 600 $CR --check -- mise run check && git push origin $B" Bash "$WT"
@@ -414,7 +418,7 @@ assert_allow "a push after lefthook run under the arm" "lefthook run pre-commit 
 assert_allow "a push after bats under the arm" "bats tests/x.bats && git push origin $B" Bash "$WT"
 assert_defer "a commit with a flag the arm refuses before the push" "git commit --amend -m x && git push origin $B" Bash "$WT"
 assert_allow "a body edit after a commit" "git commit -m x && gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
-assert_allow "an export after a commit" "git commit -m x && export $CTX && $SREC write --run 1" Bash "$WT"
+assert_allow "an export after a commit" "git commit -m x && export $CTX && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a commit joined to the push by ;" "git commit -m x; git push origin $B" Bash "$WT"
 assert_defer "a commit after the push" "git push origin $B && git commit -m x" Bash "$WT"
 assert_defer "a commit backgrounded" "git commit -m x & git push origin $B" Bash "$WT"
@@ -459,7 +463,7 @@ echo "### every class needs a usable session record"
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH")
 assert_defer "no record: push" "git push origin $B" Bash "$WT"
 assert_defer "no record: body edit" "gh pr edit 12 --body-file $SCR/body.md" Bash "$WT"
-assert_defer "no record: export" "export $CTX && $SREC write --run 1" Bash "$WT"
+assert_defer "no record: export" "export $CTX && $SREC write --completion --run 1" Bash "$WT"
 NOUNIT="$CS/records/nounit.record"
 record "$NOUNIT" '' ''
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$NOUNIT" "PATH=$STUB:$PATH")
