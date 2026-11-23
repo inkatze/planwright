@@ -80,6 +80,16 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   born<TAB><name><TAB><time>          when the workflow run of a check was
                                       created, which a queued check cannot
                                       say itself
+  botmark<TAB><login><TAB><run>.<attempt><TAB><head><TAB><status><TAB><time>
+                                      one per PR-Agent run marker comment
+                                      (`<!-- pr-agent-run: ... -->`) on a
+                                      ready pull request: its author, the
+                                      run attempt, the head it reviewed,
+                                      its status and when it was last edited
+  botattempt<TAB><run>.<attempt><TAB><workflow><TAB><started><TAB><conclusion>
+                                      the run attempt behind a marker the
+                                      workflow (github-actions[bot]) posted
+                                      at the head
   thread<TAB><id><TAB>open|resolved   one per review thread
   finding<TAB><reviewer><TAB><id><TAB>answered|unanswered
                                       an automated reviewer's thread
@@ -141,7 +151,12 @@ THE WALK refuses, each failure one line:
     be the one the flip fired: where the flip time is known, a PR-Agent run
     created before the flip is not it (nor is one whose creation time is
     unread), and a ready pull request with no run created at or after the flip
-    is refused until the flip's own run exists and finishes;
+    is refused until the flip's own run exists and finishes. A re-run after
+    a fix round reviews the head while its check stays on the commit the run
+    first fired at, so a run marker stands in for the check: the latest one
+    github-actions[bot] posted for a run attempt, naming the full head with
+    status success, whose attempt is a PR-Agent one that started at or after
+    the flip and finished green. Any other marker is named and not counted;
   - a pending check on a ready pull request, told by its run's creation time:
     created at or after the flip, it is the flip's own run and only has to
     finish; created before the flip and still running at it, the flip came
@@ -451,6 +466,37 @@ walk() {
 walk_awk() {
   awk -F '\t' "$CHECK_FUNCS"'
 function fail(what, detail) { fails[++nf] = "fail\t" what "\t" detail }
+# bot_marker(): 1 when a run marker the PR-Agent workflow posted proves one of
+# its run attempts reviewed the head after the flip. A re-run keeps the check
+# on the commit the run first fired at, so only the marker names the head.
+# Only the latest marker of each author and attempt counts; each refused one
+# is named in mwhy.
+function bot_marker(    i, m, a, k, at, latest, order, n, r) {
+  for (i = 1; i <= nmk; i++) {
+    split(mk[i], m, "\t")
+    k = m[1] "\t" m[2]
+    if (!(k in at)) order[++n] = k
+    if (!(k in at) || m[5] >= at[k]) { at[k] = m[5]; latest[k] = mk[i] }
+  }
+  for (i = 1; i <= n; i++) {
+    split(latest[order[i]], m, "\t")
+    r = ""
+    if (m[1] != "github-actions[bot]") r = "marker " m[2] " was posted by " m[1] ", not the PR-Agent workflow"
+    else if (m[3] != head) r = "marker " m[2] " names " (m[3] == "" ? "no commit" : substr(m[3], 1, 12)) ", not the head"
+    else if (m[4] != "success") r = "marker " m[2] " reports " m[4]
+    else if (!(m[2] in att)) r = "attempt " m[2] " was not read"
+    else {
+      split(att[m[2]], a, "\t")
+      if (!bot_check(a[1])) r = "attempt " m[2] " belongs to " a[1] ", not PR-Agent"
+      else if (a[2] == "") r = "attempt " m[2] " has no start time read"
+      else if (flip != "" && a[2] < flip) r = "attempt " m[2] " started " a[2] ", before the flip at " flip
+      else if (!pass_check(a[3])) r = "attempt " m[2] " is " a[3]
+      else return 1
+    }
+    mwhy = mwhy "; run " r
+  }
+  return 0
+}
 FILENAME == ARGV[1] {
   if ($1 == "ready" && ($2 == "steps" || $2 == "evidence" || $2 == "body")) need[$2, ++nn[$2]] = $3
   next
@@ -459,6 +505,8 @@ FILENAME == ARGV[1] {
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
 $1 == "require" && $2 == "pr-agent" { needbot = 1 }
+$1 == "botmark" { mk[++nmk] = $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 }
+$1 == "botattempt" { att[$2] = $3 "\t" $4 "\t" $5 }
 $1 == "bypass" { byp[++nb] = $2 "\t" $3 }
 $1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
   j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
@@ -506,11 +554,12 @@ END {
   # caller that takes the first refusal as the reason sees the check first.
   for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); lead[++nlead] = "fail\t" substr(r, 1, k - 1) "\t" substr(r, k + 1) }
   if (!nc) fail("check", "no individual check context at the head")
-  if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)")
+  marked = (needbot && state != "draft") ? bot_marker() : 0
+  if (needbot && state != "draft" && !botseen && !marked) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)" mwhy)
   # After the flip the run it fired is the one wanted: a run created before
   # the flip (every PR-Agent run there is) is not it, and the run the flip
   # fires has not shown up yet. No apostrophe here: this is a shell string.
-  if (needbot && state == "ready" && botseen && flip != "") {
+  if (needbot && state == "ready" && botseen && flip != "" && !marked) {
     fired = 0; unk = 0; newest = ""
     for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
       b = born[rn[i]]
@@ -518,8 +567,8 @@ END {
       else if (b >= flip) fired = 1
       else if (b > newest) newest = b
     }
-    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again")
-    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires")
+    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again" mwhy)
+    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires" mwhy)
   }
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
@@ -1101,6 +1150,34 @@ collect() {
       FILENAME == ARGV[1] { if ($1 == "runat" && $3 != "") at[$2] = $3; next }
       $1 == "runref" && ($3 in at) { print "born\t" $2 "\t" at[$3] }' "$cl_tmp/runs" "$cl_tmp/pr" >"$cl_tmp/born" || : >"$cl_tmp/born"
   fi
+  # A PR-Agent re-run keeps its check on the commit the run first fired at,
+  # though it reviews the current head; the run marker comment the workflow
+  # posts names the head it reviewed. Every marker is collected with its
+  # author, for the walk to judge, and the attempt behind each of the
+  # workflow's markers at the head is read for its start and conclusion.
+  # Advisory like the run read: a failed read leaves no row, which the walk
+  # never counts as a review. A draft is never judged by it.
+  : >"$cl_tmp/marks"
+  # shellcheck disable=SC2016 # a jq program
+  if ! grep -qx "state$(printf '\t')draft" "$cl_tmp/pr" && gh api --paginate "repos/$2/issues/$3/comments?per_page=100" --jq '
+    def clean: tostring | gsub("[\t\r\n]"; " ");
+    .[] | ((.body // "") | split("\n")[0]
+      | capture("^<!-- pr-agent-run: id=(?<id>[0-9]+\\.[0-9]+) head=(?<head>[0-9a-f]*) status=(?<status>[a-z_]+) -->$")?) as $m
+    | "botmark\t" + ((.user.login // "-") | clean) + "\t" + $m.id + "\t" + $m.head + "\t" + $m.status + "\t" + ((.updated_at // "") | clean)' \
+    >"$cl_tmp/marks" 2>"$cl_tmp/err"; then
+    while IFS= read -r cl_att; do
+      [ -n "$cl_att" ] || continue
+      cl_row=$(gh api "repos/$2/actions/runs/${cl_att%.*}/attempts/${cl_att#*.}" --jq '
+        def clean: tostring | gsub("[\t\r\n]"; " ");
+        ((.name // "-") | clean) + "\t" + ((.run_started_at // "") | clean) + "\t"
+        + (if (.conclusion // "") != "" then .conclusion else (.status // "pending") end | ascii_upcase | clean)' 2>"$cl_tmp/err") \
+        && printf 'botattempt\t%s\t%s\n' "$cl_att" "$cl_row" >>"$cl_tmp/marks"
+    done <<EOF
+$(awk -F '\t' -v H="$cl_head" '$1 == "botmark" && $2 == "github-actions[bot]" && $4 == H && $3 ~ /^[0-9]+\.[0-9]+$/ && !seen[$3]++ { print $3 }' "$cl_tmp/marks")
+EOF
+  else
+    : >"$cl_tmp/marks"
+  fi
   : >"$cl_tmp/steps"
   cl_wt=$4
   cl_branch=$(awk -F '\t' '$1 == "branch" { print $2; exit }' "$cl_tmp/pr")
@@ -1248,7 +1325,7 @@ collect() {
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" || $1 == "runref" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/born" "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
+    cat "$cl_tmp/born" "$cl_tmp/marks" "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }

@@ -59,6 +59,28 @@ EOF
 cat >"$tmp/runs.json" <<'EOF'
 {"workflow_runs": [{"id": 111, "created_at": "2026-11-18T00:42:23Z"}, {"id": 222, "created_at": "2026-11-18T00:42:24Z"}, {"id": 333, "created_at": "2026-11-18T00:00:00Z"}]}
 EOF
+# The PR-Agent run markers on the pull request: the workflow's at the head and
+# at another head, a person's, and two that are no marker.
+cat >"$tmp/comments.json" <<EOF
+[{"user": {"login": "github-actions[bot]", "type": "Bot"}, "updated_at": "2026-11-18T01:00:00Z",
+  "body": "<!-- pr-agent-run: id=4475.3 head=$head status=success -->\nPR-Agent run 4475 reviewed it: success."},
+ {"user": {"login": "github-actions[bot]", "type": "Bot"}, "updated_at": "2026-11-18T01:01:00Z",
+  "body": "<!-- pr-agent-run: id=4476.1 head=$head status=success -->"},
+ {"user": {"login": "github-actions[bot]", "type": "Bot"}, "updated_at": "2026-11-18T00:30:00Z",
+  "body": "<!-- pr-agent-run: id=5.1 head=$H status=success -->"},
+ {"user": {"login": "alice", "type": "User"}, "updated_at": "2026-11-18T01:02:00Z",
+  "body": "<!-- pr-agent-run: id=9.1 head=$head status=success -->"},
+ {"user": {"login": "github-actions[bot]", "type": "Bot"}, "updated_at": "2026-11-18T01:03:00Z",
+  "body": "Quoting <!-- pr-agent-run: id=6.1 head=$head status=success -->"},
+ {"user": {"login": "github-actions[bot]", "type": "Bot"}, "updated_at": "2026-11-18T01:04:00Z",
+  "body": "<!-- pr-agent-run: id=x.1 head=$head status=success -->"}]
+EOF
+printf '%s\n' '{"name": "PR-Agent", "run_started_at": "2026-11-18T00:50:00Z", "status": "completed", "conclusion": "success"}' >"$tmp/attempt-4475-3.json"
+printf '%s\n' '{"name": "PR-Agent", "run_started_at": "2026-11-18T00:55:00Z", "status": "in_progress", "conclusion": null}' >"$tmp/attempt-4476-1.json"
+# Readable, so a read the collector must not make would show.
+for a in 5-1 9-1; do
+  printf '%s\n' '{"name": "PR-Agent", "run_started_at": "2026-11-18T00:56:00Z", "status": "completed", "conclusion": "success"}' >"$tmp/attempt-$a.json"
+done
 cat >"$tmp/bin/gh" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/gh.calls"
@@ -75,8 +97,13 @@ case "\$1 \$2" in
   esac ;;
   "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
   "api repos/acme/web/actions/runs?"*) exec jq -r "\$jqp" "$tmp/runs.json" ;;
+  "api repos/acme/web/actions/runs/"*/attempts/*)
+    a=\${2#repos/acme/web/actions/runs/}
+    f="$tmp/attempt-\${a%%/*}-\${a##*/}.json"
+    [ -f "\$f" ] && exec jq -r "\$jqp" "\$f" ;;
   "api --paginate") case "\$3" in
     "repos/acme/web/pulls/7/files?"*) [ -f "$tmp/files.json" ] && exec jq -r "\$jqp" "$tmp/files.json" ;;
+    "repos/acme/web/issues/7/comments?"*) [ -f "$tmp/comments.json" ] && exec jq -r "\$jqp" "$tmp/comments.json" ;;
   esac ;;
 esac
 exit 1

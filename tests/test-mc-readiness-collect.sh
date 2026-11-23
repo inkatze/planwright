@@ -93,6 +93,16 @@ has "the ready flip time is read" "flip${tab}2026-11-18T00:42:21Z"
 has "a check carries its workflow run's creation time" "born${tab}build${tab}2026-11-18T00:42:23Z"
 has "a queued check, whose own start is the zero time, still does" "born${tab}rerun${tab}2026-11-18T00:42:24Z"
 hasnt "the run reference is only a join key" "runref"
+has "the PR-Agent workflow's run marker is read" "botmark${tab}github-actions[bot]${tab}4475.3${tab}$head${tab}success${tab}2026-11-18T01:00:00Z"
+has "a person's run marker is read, for the walk to refuse" "botmark${tab}alice${tab}9.1${tab}$head${tab}success"
+has "a marker at another head is read" "botmark${tab}github-actions[bot]${tab}5.1${tab}$H${tab}success"
+hasnt "a comment that only quotes a marker is none" "${tab}6.1${tab}"
+hasnt "a marker whose run id does not parse is none" "${tab}x.1${tab}"
+has "the run attempt a workflow marker at the head names is read" "botattempt${tab}4475.3${tab}PR-Agent${tab}2026-11-18T00:50:00Z${tab}SUCCESS"
+has "an attempt still running reads its status" "botattempt${tab}4476.1${tab}PR-Agent${tab}2026-11-18T00:55:00Z${tab}IN_PROGRESS"
+hasnt "a person's marker never leads to an attempt read" "botattempt${tab}9.1"
+if grep -q 'actions/runs/9/attempts' "$tmp/gh.calls"; then fail "a person's marker led to an attempt read"; else ok "and no such read is made"; fi
+hasnt "a marker at another head leads to no attempt read" "botattempt${tab}5.1"
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
 hasnt "a worktree whose CI has no macOS jobs states no macOS requirement" "require${tab}macos"
 mkdir -p "$repo/.github/workflows"
@@ -108,6 +118,17 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 expect_rc "collect over a worktree that runs PR-Agent" 0
 c=$(cat "$tmp/collected-pa" 2>/dev/null)
 has "a repository running PR-Agent requires its run on a ready pull request" "require${tab}pr-agent"
+: >"$tmp/no-cond"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-pa" --conditions "$tmp/no-cond"
+expect_no_out "a collected re-run marker at the head meets the bot-review condition" "fail${tab}bot-review"
+mv "$tmp/comments.json" "$tmp/comments.json.keep"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-nomark"
+expect_rc "collect when the comments cannot be read" 0
+c=$(cat "$tmp/collected-nomark" 2>/dev/null)
+hasnt "a failed comment read leaves no marker" "botmark${tab}"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-nomark" --conditions "$tmp/no-cond"
+expect_out "and the walk refuses the bot review" "fail${tab}bot-review${tab}no PR-Agent run at"
+mv "$tmp/comments.json.keep" "$tmp/comments.json"
 printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
 c=$(cat "$tmp/collected-pa" 2>/dev/null)
@@ -127,6 +148,8 @@ c=$(cat "$tmp/collected-draft" 2>/dev/null)
 has "a draft is read as a draft" "state${tab}draft"
 hasnt "a draft has no run creation time read" "born${tab}"
 if grep -q '^api repos/acme/web/actions/runs' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
+hasnt "a draft has no run marker read" "botmark${tab}"
+if grep -q 'issues/7/comments' "$tmp/gh.calls"; then fail "a draft's comments were read"; else ok "a draft's comment read is skipped"; fi
 cp "$tmp/pr.json.keep" "$tmp/pr.json"
 # A failed run read leaves no creation time, and no failure.
 mv "$tmp/runs.json" "$tmp/runs.json.keep"
