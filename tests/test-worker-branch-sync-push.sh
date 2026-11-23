@@ -260,6 +260,15 @@ g -C "$primary" config --add remote.origin.pushurl git@github.com:acme/other.git
 try "two push URLs" "$(push_args "$LEASE")" --force-if-includes
 has 'single push URL' "the two-URL refusal says why"
 g -C "$primary" config --unset-all remote.origin.pushurl
+# Look-alikes: the same name under another owner, and on another host.
+for alt in git@github.com:evil/demo.git:github.com/evil/demo git@gitlab.example:acme/demo.git:gitlab.example/acme/demo \
+  ssh://git@github.com/acme/demo-fork.git:github.com/acme/demo-fork; do
+  to=${alt%:*}
+  g -C "$primary" config "url.$to.insteadOf" "$URL"
+  try "a rewrite to $to" "$(push_args "$LEASE")" --force-if-includes
+  has "sends the push to ${alt##*:}, not github.com/acme/demo" "the look-alike refusal names $to's repository"
+  g -C "$primary" config --unset "url.$to.insteadOf"
+done
 pass "F1.8: the PR is read in the one repository the push reaches"
 # A rewrite that keeps the repository (an https remote pushed over ssh) is fine.
 g -C "$primary" remote set-url origin https://github.com/acme/demo.git
