@@ -3110,10 +3110,11 @@ cmd_answer() {
 # steer_scan <worker> <dir> <now> <grace> — report each steer the session never
 # read. A frame the session reads comes back as a replay carrying its uuid
 # (steer-acks). The CLI takes a waiting frame as the next turn the moment one
-# ends, so a steer still unread <grace> seconds after a turn ended at or after
-# it will not be read; nor will one written to an idle worker (its receipt
-# row's last field) and unread <grace> seconds on, since no turn was running
-# to delay it. Raised once per steer (its steer-lost-<id> mark) as a
+# ends, so a steer still unread <grace> seconds after a result or exit record
+# written at or after it will not be read; nor will one written to an idle
+# worker (its receipt row's last field), with no such record since, and
+# unread <grace> seconds on, since no turn was running to delay it. Raised
+# once per steer (its steer-lost-<id> mark) as a
 # high-priority attention item with a push, printing `steer-lost <worker>
 # <id>`. A runtime with no replay-since record predates the replay, and
 # steers older than it are never judged.
@@ -3171,7 +3172,7 @@ SSLOST
 }
 
 # steer_grace — the PLANWRIGHT_STREAMJSON_STEER_GRACE seconds steer_scan waits
-# after a turn ends (default 60).
+# after a result or exit record, or after an idle steer is sent (default 60).
 steer_grace() {
   sg_v=${PLANWRIGHT_STREAMJSON_STEER_GRACE:-60}
   valid_posnum "$sg_v" || {
