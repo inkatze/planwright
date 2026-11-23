@@ -2,12 +2,20 @@
 # shellcheck disable=SC2034,SC2154 # prog and script_dir are the sourcing script's; MC_FORMAT is read there
 # mc-lib.sh — helpers mission control's runtime scripts share (sourced, never
 # executed). The sourcing script sets `prog` and `script_dir` and has sourced
-# echo-safety.sh first. Sourcing it runs one check: mc_warn_if_stale, below.
+# echo-safety.sh first. Sourcing it sources untrusted-git-lib.sh beside it
+# (exit 2 when missing) and runs one check: mc_warn_if_stale, below.
 # Portable bash 3.2 / BSD tooling.
 
 MC_FORMAT=1
 
 unset CDPATH
+
+if [ ! -r "$script_dir/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "$prog: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$script_dir/untrusted-git-lib.sh"
 
 # mc_warn_if_stale: a script run from an older cached copy, by a session
 # that kept its root across an upgrade, warns on stderr. Checked once per
@@ -70,11 +78,33 @@ mc_valid_uint() {
 }
 # Text with no C0 or DEL byte. A byte in the C1 range is let through, since
 # it is also a UTF-8 continuation byte; every reader strips C1 on the way to
-# a terminal (sanitize_printable, mc_clean).
+# a terminal (sanitize_printable, mc_strip_ctl, mc_clean).
 mc_valid_text() {
   case $1 in
     *[[:cntrl:]]*) return 1 ;;
   esac
+}
+
+# mc_strip_ctl <value> [placeholder]: sanitize_printable's result in
+# MC_STRIPPED, with no process started for any value within MC_STRIP_LONG. A caller that sanitizes per row of a
+# store (a command substitution plus tr per call) forks thousands of times
+# for one read; this is the same C0, DEL and C1 byte strip as a parameter
+# expansion. The class is a byte range, so the sourcing script must run
+# under LC_ALL=C, as every script that sources this file does. The expansion
+# is quadratic on a long value dense with matches (a corrupted store file), so
+# a value past MC_STRIP_LONG bytes takes the one-process tr instead.
+MC_CTL_CLASS=$'\001-\037\177-\237'
+MC_STRIP_LONG=4096
+mc_strip_ctl() {
+  if [ "${#1}" -gt "$MC_STRIP_LONG" ]; then
+    MC_STRIPPED=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')
+  else
+    MC_STRIPPED=${1//[$MC_CTL_CLASS]/}
+  fi
+  if [ -z "$MC_STRIPPED" ] && [ $# -ge 2 ]; then
+    MC_STRIPPED=$2
+  fi
+  return 0
 }
 
 # mc_seconds <cadence>: a positive count of s, m, h or d, in seconds.
@@ -327,6 +357,77 @@ mc_event_wakes() {
     NF && (($3 in r) == ENVIRON["MEW_ROUTINE"] + 0)'
 }
 
+# mc_event_gone <program>: the ids of the event rows on stdin (`mc-event.sh
+# list` lines) whose subject no longer exists, one per line: a
+# pending-prompt-overdue whose session is not among mc-session-names.sh's
+# names, a handover-requested or mission-control-announce naming a session
+# that is not the program's holder, a pull request that is merged or closed
+# (named <owner>:<name>:<n>). Every read that fails or comes back empty (no
+# holder, no session), and every subject it cannot resolve, keeps its event:
+# a wrong keep costs a turn, a wrong drop hides a live alert.
+# A pending-prompt is never judged: one event carries a whole chunk of
+# requests, other workers' included, under its first worker's name.
+mc_event_gone() {
+  meg_prog=$1
+  meg_rows=$(cat)
+  [ -n "$meg_rows" ] || return 0
+  meg_sess_state=0 meg_sess=""
+  meg_hold_state=0 meg_hold=""
+  meg_prs="" meg_forge_down=0
+  while IFS='	' read -r meg_id _ meg_kind meg_subject _; do
+    [ -n "$meg_id" ] || continue
+    case $meg_kind in
+      pending-prompt-overdue)
+        if [ "$meg_sess_state" -eq 0 ]; then
+          meg_sess_state=2
+          if meg_n=$(/bin/sh "$script_dir/mc-session-names.sh" 2>/dev/null </dev/null); then
+            meg_sess=$(printf '%s\n' "$meg_n" | awk 'NF { printf " %s", $0 } END { print " " }')
+            meg_sess_state=1
+          fi
+        fi
+        [ "$meg_sess_state" -eq 1 ] || continue
+        case $meg_sess in *" $meg_subject "*) ;; *) printf '%s\n' "$meg_id" ;; esac
+        ;;
+      handover-requested | mission-control-announce)
+        if [ "$meg_hold_state" -eq 0 ]; then
+          meg_hold_state=2
+          if meg_h=$(/bin/bash "$script_dir/mc-handover.sh" holder --program "$meg_prog" 2>/dev/null </dev/null); then
+            meg_hold=$(printf '%s\n' "$meg_h" | awk -F '\t' '$1 == "holder" { print $2; exit }')
+            case $meg_hold in '' | -) ;; *) meg_hold_state=1 ;; esac
+          fi
+        fi
+        [ "$meg_hold_state" -eq 1 ] || continue
+        [ "$meg_hold" = "$meg_subject" ] || printf '%s\n' "$meg_id"
+        ;;
+      merge-ready | readiness-due | ready-to-merge | ready-offer)
+        meg_num=${meg_subject##*:}
+        meg_rest=${meg_subject%:*}
+        meg_owner=${meg_rest%%:*}
+        meg_name=${meg_rest#*:}
+        case $meg_subject in *:*:*) ;; *) continue ;; esac
+        case $meg_num in '' | *[!0-9]*) continue ;; esac
+        case $meg_name in '' | *:*) continue ;; esac
+        [ -n "$meg_owner" ] || continue
+        meg_state=$(printf '%s' "$meg_prs" | S=$meg_subject awk -F '\t' '$1 == ENVIRON["S"] { print $2; exit }')
+        # After one failed read the rest are kept unread: a hung forge must
+        # not hold a wake past the panel mod's compose timeout.
+        if [ -z "$meg_state" ] && [ "$meg_forge_down" -eq 0 ]; then
+          meg_state=$(/bin/sh "$script_dir/bounded-run.sh" 10 gh pr view "$meg_num" --repo "$meg_owner/$meg_name" --json state --jq .state 2>/dev/null </dev/null) || meg_state=""
+          [ -n "$meg_state" ] || {
+            meg_state=unknown
+            meg_forge_down=1
+          }
+          meg_prs="$meg_prs$meg_subject	$meg_state
+"
+        fi
+        case $meg_state in MERGED | CLOSED) printf '%s\n' "$meg_id" ;; esac
+        ;;
+    esac
+  done <<EOF
+$meg_rows
+EOF
+}
+
 mc_kb() { /bin/bash "$script_dir/mc-kb.sh" "$@"; }
 
 # mc_sha256: the SHA-256 of stdin in hex; fails with no SHA-256 tool.
@@ -547,6 +648,72 @@ mc_lookup() {
 # mc_kv <file> <key>: the value of a record's key<TAB>value line, if any.
 mc_kv() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }' "$1"; }
 
+# mc_park_candidates <program> <launcher list>: the sessions a park on the
+# operator is raised for, one name per line: the program's stream-json
+# worker, reviewer and ad-hoc sessions, the kinds the keeper's bounds hold to.
+# A kickoff relay waits on the operator by design, so it is left out.
+mc_park_candidates() {
+  printf '%s\n' "$2" | P=$1 awk -F '\t' '
+    $2 == ENVIRON["P"] && ($3 == "worker" || $3 == "reviewer" || $3 == "ad-hoc") \
+      && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }'
+}
+
+# mc_operator_park <fleet home> <worker>: `parked<TAB><epoch>` while a
+# stream-json worker is parked on the operator, <epoch> when the park began;
+# `unknown` while its row records the wait but its turn's end cannot be read
+# (a steer sets the result record aside while it sends, putting it back when
+# nothing was delivered, and a delivered one leaves none until the next turn
+# ends; the supervisor also retires the record when the session reads a frame
+# queued behind it), so a caller keeps what it raised for the worker; else
+# nothing.
+# Parked: the row records an operator wait, a pidfile is left (with neither
+# it is positively dead and nothing can answer it), and the event log still
+# ends at the clean result of a turn of this launch. An event
+# after that result is a message the worker is reading, so an answer ends the
+# park. The park begins at the later of that result and the wait's own epoch,
+# so a turn that ends parked again is a new park, and a wait set long after a
+# turn ended counts from the wait.
+mc_operator_park() {
+  mop_row="$1/mission-control/sessions/$2"
+  mop_dir="$1/streamjson/$2"
+  [ -f "$mop_row" ] && [ ! -L "$mop_row" ] && [ -d "$mop_dir" ] && [ ! -L "$mop_dir" ] || return 0
+  # One read of the row, its empty fields as `-`: a tab is IFS whitespace,
+  # so read would fold two in a row into one.
+  mop_f=$(awk -F '\t' '
+    $1 == "waiting" && w == "" { w = $2 } $1 == "launched" && l == "" { l = $2 } $1 == "waited" && t == "" { t = $2 }
+    END { print (w == "" ? "-" : w) "\t" (l == "" ? "-" : l) "\t" (t == "" ? "-" : t) }' "$mop_row" 2>/dev/null) || return 0
+  IFS='	' read -r mop_wt mop_l mop_w <<EOF
+$mop_f
+EOF
+  [ "$mop_wt" = operator ] || return 0
+  [ -e "$mop_dir/worker.pid" ] || [ -e "$mop_dir/supervisor.pid" ] || return 0
+  [ ! -L "$mop_dir/result" ] && [ ! -L "$mop_dir/events.jsonl" ] || return 0
+  if [ ! -f "$mop_dir/result" ] || [ ! -f "$mop_dir/events.jsonl" ]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  mop_kind="" mop_at="" mop_err=""
+  IFS='	' read -r mop_kind _ mop_at mop_err _ <"$mop_dir/result" 2>/dev/null || :
+  mop_last=$(tail -n 1 "$mop_dir/events.jsonl" 2>/dev/null) || mop_kind=""
+  # An exit record is a run that ended, never a park; an empty or torn one
+  # is a record being rewritten.
+  case $mop_kind in
+    result) ;;
+    '') printf 'unknown\n' && return 0 ;;
+    *) return 0 ;;
+  esac
+  if ! mc_valid_uint "$mop_at"; then
+    printf 'unknown\n'
+    return 0
+  fi
+  [ "$mop_err" != true ] || return 0
+  if mc_valid_uint "$mop_l" && [ "$mop_at" -lt "$mop_l" ]; then return 0; fi
+  case $mop_last in *'"type":"result"'*) ;; *) return 0 ;; esac
+  mop_since=$mop_at
+  if mc_valid_uint "$mop_w" && [ "$mop_w" -gt "$mop_since" ]; then mop_since=$mop_w; fi
+  printf 'parked\t%s\n' "$mop_since"
+}
+
 # mc_valid_sha <sha>: a full 40-hex commit id.
 mc_valid_sha() {
   case $1 in
@@ -634,26 +801,14 @@ mc_announce_prune() {
 }
 
 # mc_untrusted_git <args>: git with what a worker-written checkout's own
-# configuration could run turned off (fsmonitor, hooks, a lazy fetch through
-# a remote helper or ssh command, signature display) and no inherited
-# repository selector. The settings ride the environment, which outranks the
-# repository's configuration, so they reach a git a called script runs too:
-# export them with mc_untrusted_git_env.
-mc_untrusted_git_env() {
-  # An inherited repository selector would point git away from the checkout
-  # the caller names, and inherited configuration would ride along.
-  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_CONFIG_PARAMETERS
-  GIT_CONFIG_COUNT=4
-  GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false
-  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null
-  GIT_CONFIG_KEY_2=protocol.allow GIT_CONFIG_VALUE_2=never
-  GIT_CONFIG_KEY_3=log.showSignature GIT_CONFIG_VALUE_3=false
-  GIT_NO_LAZY_FETCH=1
-  export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 \
-    GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_3 GIT_NO_LAZY_FETCH
-}
-mc_untrusted_git() { (mc_untrusted_git_env && git "$@"); }
+# configuration could run turned off (fsmonitor, hooks, filters, diff drivers,
+# signature programs, a lazy fetch through a remote helper or ssh command) and
+# no inherited repository selector. The settings ride the environment, which
+# outranks the repository's configuration, so they reach a git a called script
+# runs too: export them with mc_untrusted_git_env [<dir>], run in the checkout
+# or naming it. untrusted-git-lib.sh has the mechanism and its limits.
+mc_untrusted_git_env() { pw_untrusted_git_env "$@"; }
+mc_untrusted_git() { pw_untrusted_git "$@"; }
 
 # mc_subject <prefix> <key>: a stable event subject for a key outside the
 # subject grammar, <prefix>-<checksum>; the readable key goes in the event's

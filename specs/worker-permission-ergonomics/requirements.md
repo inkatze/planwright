@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -328,6 +328,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   path resolving outside every such root SHALL defer, so
   `bash ../../../tmp/evil/scripts/x.sh` and `bats /tmp/evil.bats` MUST defer.
   *(Cites: D-3, D-10; security-posture path-access (Sources).)*
+  *(Read with REQ-F1.12 (2026-11-22): an installed step script also passes
+  only in the forms REQ-F1.12 lists.)*
 - **REQ-A1.15** (supersedes REQ-A1.11) The hook SHALL NEVER emit `allow` for a
   command that any `Bash(…)` rule of the worker profile's `deny` block
   matches, at any self-approval policy value and for every approval category,
@@ -391,6 +393,7 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   (and `gh release list`) with no `--web`/`-w` and no `--repo` or `-R`
   override. Neither alters the REQ-F1.5 floor for `gh` writes.
   *(Cites: D-31; the W63 observation (Sources).)*
+  *(Read with REQ-F1.9 (2026-11-19): the floor named here is REQ-F1.9's.)*
 
 - **REQ-A1.18** The worker command guard SHALL auto-approve a command segment
   that matches a check command the repository declares, so a repository's own
@@ -635,6 +638,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   spelling, and a fish `set -x` spelling SHALL defer. Growing the allowlist
   is a spec amendment, never a runtime setting.
   *(Cites: D-24, D-32; the W63 observation (Sources).)*
+  *(Extended by REQ-E1.10 (2026-11-19): one export of several step-context
+  names is approvable.)*
 - **REQ-E1.8** The REQ-E1.3 substitution rule SHALL also admit one writing
   inner command: `mktemp`, `mktemp -d`, or either with one literal template
   operand, as the inner command of an assignment's value (`X=$(mktemp -d)`),
@@ -657,6 +662,24 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   still applies. A leading `and` or `or` with no preceding segment in the
   inner text defers.
   *(Cites: D-3, D-34; the W63 observation (Sources).)*
+- **REQ-E1.10** `export` SHALL also be approvable, under every self-approval
+  policy value and only under a session record naming the unit branch, the
+  worktree root, and a usable audit-log home, as one state-setting segment whose every operand is
+  `PLANWRIGHT_STEP_<field>=<value>`, several operands allowed, where
+  `<field>` is a field of the step context (custom-steps REQ-A1.4,
+  Sources), each value is a bare literal with no `$`, substitution, or
+  control character that passes the step recorder's own check for its field,
+  and a `WORKTREE` value is an absolute path with no `.` or `..` component
+  that canonicalizes to the recorded worktree. It applies only at the
+  command's top level, under REQ-F1.10's position rule. Any other name in the
+  same export defers it, as REQ-E1.7 states, and so does a later segment of
+  the same command that assigns or exports an exported name again. Each
+  approval SHALL be written to the audit log under the arm label `own-unit`.
+  *(Cites: D-37; REQ-E1.7; operator kickoff answer (2026-11-19).)*
+  *(Read with REQ-F1.11 (2026-11-20): the position rule is REQ-F1.11's, so
+  the export may follow a chain partner.)*
+  *(Read with REQ-F1.12 (2026-11-22): a hand-timed `step-record.sh write`
+  after the export defers the command.)*
 
 ## REQ-F — The self-approval policy
 
@@ -700,6 +723,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   approvals. The guard approves no `git push`: the profile's static
   `git push origin` rule covers the unit push.
   *(Cites: D-12, D-13; obs:82bab6e3; human-gates Task 10 (Sources).)*
+  *(Read with REQ-F1.10 (2026-11-19): this arm still approves no push; the
+  own-unit acts sit outside every arm.)*
 - **REQ-F1.4** The `scratch` arm SHALL approve writes (`mkdir`, `mktemp`, `rm`,
   `cp`, `mv`, `touch`, `tee`, and a write-redirect), under the same flag,
   `mv`-source, hard-link, and link-creation rules as REQ-F1.3, whose every
@@ -723,6 +748,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   (the human-gates deny-emitting hook, which keeps running beside the guard)
   govern independently of it.
   *(Cites: D-13; the operator's live-run delegation (Sources).)*
+  **Superseded-by: REQ-F1.9** (2026-11-19) — the floor keeps every act it
+  names but the own-unit acts of REQ-F1.10.
 - **REQ-F1.6** The `own-branch` arm SHALL exclude, and the floor SHALL refuse,
   writes to paths a tool runs or reads as trust input without a further
   prompt: the worktree's `.git` entry, the configured git hooks directory,
@@ -781,6 +808,172 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   rows leave.
   *(Cites: D-35, D-29; REQ-F1.7; mission-control D-57 (Sources); the W69
   observation (Sources).)*
+- **REQ-F1.9** (supersedes REQ-F1.5) The floor SHALL be outside every policy
+  value: the guard SHALL NOT approve a PR merge, a ready flip or its undo, a
+  force-push, `--amend`, rebase, squash, reset of a branch, any `git push`
+  but REQ-F1.10's own-unit push, a write-classified segment (writer verb,
+  in-place edit, or write-redirect) whose target canonicalizes outside the
+  worktree, the scratch root, and `/dev/null`, a write to a REQ-F1.7
+  excluded path, a `gh` write but REQ-F1.10's own-unit body edit, or
+  anything a `Bash(…)` rule of the profile's `deny` block matches, the
+  own-unit acts included. Git's own writes to its object store and index
+  during an approved `git` subcommand are not write-classified segments.
+  Evaluating the floor SHALL precede evaluating the policy and the own-unit
+  acts. The floor bounds the guard's approvals only: the profile's static
+  allow rules (which already admit `gh pr create`, `gh pr ready`,
+  `git commit` including a permitted `--amend`, and `git push origin`), its
+  `deny` block, and `policy-guard.sh` (the human-gates deny-emitting hook,
+  which keeps running beside the guard and refuses a push into the protected
+  set) govern independently of it.
+  *(Cites: D-13, D-37; the operator's live-run delegation (Sources);
+  operator kickoff answers (2026-11-19).)*
+  *(Read with REQ-F1.11 (2026-11-20): the own-unit acts are REQ-F1.11's,
+  which keeps REQ-F1.10's acts unchanged.)*
+  *(Read with REQ-F1.12 (2026-11-22): a hand-timed step record write is
+  outside every policy value too.)*
+- **REQ-F1.10** The guard SHALL approve the own-unit acts below under every
+  self-approval policy value, the empty list included, and only when all of
+  these hold: the session record names the unit branch, the worktree root,
+  and a usable audit-log home (REQ-G1.8, REQ-H1.4); the payload's working
+  directory canonicalizes inside the recorded worktree with no `.git` entry
+  between it and the worktree root (a nested repository defers), decided
+  without running `git` there; the act is a top-level segment of the command,
+  never inside a substitution, a `fish -c` string, a subshell, a loop, a
+  pipeline, a background job, or an `if` or `case` body, and never after
+  `||`; it carries no redirect, prefix, or leading assignment; every word but
+  the body file is a bare literal as written; and every other segment of the
+  command is one the guard approves on its own (a `cd` into the recorded
+  worktree, a read-only segment, a REQ-E1.10 export, an installed step
+  script). The acts are exactly:
+  - `git push origin <unit>` or `git push origin <unit>:<unit>`, where
+    `<unit>` is the recorded unit branch, with no flag (`-u`, every force
+    spelling, and `--delete` included), no `+` refspec, and no other remote
+    or ref; a push the profile's `deny` block refuses (a recorded unit of
+    `main`, `master`, or a spec branch) gets no approval, and
+    `policy-guard.sh` refuses a push into the human-gates protected set
+    independently, so the guard reads no protected set itself;
+  - `gh pr edit <n> --body-file <file>` with `--body-file` and `<file>` as two
+    words and no other flag, where `<n>` is a decimal integer, `<file>` is an
+    absolute path as written or as resolved from a tracked plain assignment
+    or the recorded `$TMPDIR`, naming a regular file, not a symlink, that
+    canonicalizes inside the recorded scratch root, and `<n>` is a pull
+    request that one read from GitHub, bounded at 15 seconds, reports open,
+    not from a fork, and with the recorded unit branch as its head; the read
+    runs in the payload's working directory and the hook's own environment,
+    which the approved command cannot change (it carries no prefix,
+    assignment, or export of another name), so it resolves the repository
+    the edit will; a timeout, an error, or any other answer defers.
+
+  The check matches the branch, not the worker: a launch or relaunch onto an
+  existing pull request's worktree SHALL record that pull request's head
+  branch as the unit branch, so a respawned worker on the same branch passes
+  and no other does. Each approval SHALL be written to the audit log
+  (REQ-H1.4) under the arm label `own-unit`. The `own-branch` and `scratch`
+  arms gain nothing from this requirement.
+  *(Cites: D-37; REQ-F1.9; operator kickoff answers (2026-11-19).)*
+  **Superseded-by: REQ-F1.11** (2026-11-20) — the acts are unchanged; a
+  `git add`, a commit and a gate task may now share their command.
+- **REQ-F1.11** (supersedes REQ-F1.10) The guard SHALL approve the own-unit
+  acts below under every self-approval policy value, the empty list included,
+  and only when all of these hold: the session record names the unit branch,
+  the worktree root, and a usable audit-log home (REQ-G1.8, REQ-H1.4); the
+  payload's working directory canonicalizes inside the recorded worktree with
+  no `.git` entry between it and the worktree root (a nested repository
+  defers), decided without running `git` there; the act is a top-level
+  segment of the command, never inside a substitution, a `fish -c` string, a
+  subshell, a loop, a pipeline, a background job, or an `if` or `case` body,
+  and never after `||`; it carries no redirect, prefix, or leading
+  assignment; every word but the body file is a bare literal as written; and
+  every other segment of the command is one the guard approves on its own and
+  is one of: a `cd` into the recorded worktree, a read-only segment, a
+  REQ-E1.10 export, an installed step script, or a chain partner. The acts
+  are exactly:
+  - `git push origin <unit>` or `git push origin <unit>:<unit>`, where
+    `<unit>` is the recorded unit branch, with no flag (`-u`, every force
+    spelling, and `--delete` included), no `+` refspec, and no other remote
+    or ref; a push the profile's `deny` block refuses (a recorded unit of
+    `main`, `master`, or a spec branch) gets no approval, and
+    `policy-guard.sh` refuses a push into the human-gates protected set
+    independently, so the guard reads no protected set itself;
+  - `gh pr edit <n> --body-file <file>` with `--body-file` and `<file>` as two
+    words and no other flag, where `<n>` is a decimal integer, `<file>` is an
+    absolute path as written or as resolved from a tracked plain assignment
+    or the recorded `$TMPDIR`, naming a regular file, not a symlink, that
+    canonicalizes inside the recorded scratch root, and `<n>` is a pull
+    request that one read from GitHub, bounded at 15 seconds, reports open,
+    not from a fork, and with the recorded unit branch as its head; the read
+    runs in the payload's working directory and the hook's own environment,
+    which the approved command cannot change (it carries no prefix,
+    assignment, or export of another name), so it resolves the repository
+    the edit will; a timeout, an error, or any other answer defers.
+
+  A chain partner is exactly one of: a `git add` or `git commit` that the
+  policy in force approves on its own (the `own-branch` arm's shapes and its
+  unit-branch check, REQ-F1.3), so under a policy without that arm the
+  command defers; or a trusted repository task the guard approves on its own
+  under every policy (a `mise run` task, `lefthook run`, `bats`, a
+  repository `tests/*.sh` or `scripts/*.sh` run directly or through `bash`
+  or `sh`, a declared check command (REQ-A1.18), or a declared command-step
+  line). Every chain partner SHALL sit before the first own-unit act at the
+  command's top level, and every operator from the first chain partner to
+  that act SHALL be `&&` (no `;`, line break, `||`, or `&` between them), so
+  the act runs only when every partner succeeded; a partner after an act
+  defers the command. No other write or `git` act shares a command with an
+  own-unit act: a file writer, an in-place edit, or a write-redirect of
+  either arm, a spec-root write, `git rm`, `git mv`, `git restore`,
+  `git checkout`, `git fetch`, `git merge`, and a plugin script other than
+  an installed step script each defer it. A `git add` or `git commit`
+  partner adds its `own-branch` label to the approval's audit line
+  (`own-branch,own-unit`); a trusted-task partner adds none, so the line
+  reads `own-unit`.
+
+  The check matches the branch, not the worker: a launch or relaunch onto an
+  existing pull request's worktree SHALL record that pull request's head
+  branch as the unit branch, so a respawned worker on the same branch passes
+  and no other does. Each act's approval SHALL be written to the audit log
+  (REQ-H1.4) under the arm label `own-unit`. The `own-branch` and `scratch`
+  arms gain nothing from this requirement.
+  *(Cites: D-37, D-38; REQ-F1.9; operator kickoff answers (2026-11-19,
+  2026-11-20).)*
+  *(Read with REQ-F1.12 (2026-11-22): an installed step script is a
+  companion segment only when REQ-F1.12 lets it pass on its own.)*
+- **REQ-F1.12** The guard SHALL NOT approve a `step-record.sh` `write`
+  that sets a step's times by hand, under every self-approval policy value:
+  every `write` but a `--completion` write (one carrying `--completion` as
+  a word; a step, re-fire, or full-suite write gives `--start`), and any
+  `write` carrying a word that is `--start` or `--end` or begins `--start=`
+  or `--end=`. The defer holds however the call is spelled: alone, behind a
+  step-context prefix, after a REQ-E1.10 export, or as a companion segment
+  of an own-unit act (REQ-F1.11), so the whole command defers. The guard
+  reads a call as the script path, at most one `--worktree <dir>` given as
+  two words, then the verb; any other leading word, a `--worktree=<dir>`
+  spelling, and a word anywhere in the call whose value the guard cannot
+  resolve to a literal (an unresolved `$`, a substitution, or a glob) defer
+  it. Every other installed step-script call SHALL pass only on the recorded
+  worktree's step cache: its `--worktree` is absent, with the payload's
+  working directory inside the recorded worktree and no `.git` entry between
+  them (decided as REQ-F1.11 decides it), or a plain literal absolute path
+  that canonicalizes to the recorded worktree; and a step-context
+  `WORKTREE` value it runs under, by prefix or export, names the recorded
+  worktree. Another worktree, and a session record naming no worktree, defer
+  it. On that cache these pass, and every other verb defers:
+  - of `step-record.sh`: a `--completion` write, a `supersede` carrying
+    `--source` (the script checks the source against the session's own
+    events), `render`, `list`, `lookup`, `heads`, `untrue`, `fingerprint`,
+    `new-run`, `regenerate`, and `status`;
+  - of `step-run.sh`: `resolve`, `audit`, `command`, `begin`, `end`,
+    `resume`, and `refire`, whose records the script times itself;
+  - `step-record.sh excerpt <file>`, which reads no cache, only for a file
+    that canonicalizes inside the recorded worktree or the recorded scratch
+    root.
+
+  `step-record.sh args-digest`, which reads no worktree or file, is the one
+  exception to the own-cache rule: it passes as it does today.
+
+  A command step's own record, written inside `step-run.sh`, is not a
+  command the guard sees and is unaffected.
+  *(Cites: D-39; REQ-F1.9, REQ-F1.11, REQ-A1.14; the hand-timed step record
+  report (Sources); operator kickoff answers (2026-11-22).)*
 
 ## REQ-G — Profiles, delivery, and the unattended contract
 
@@ -860,6 +1053,9 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   location and the overlay config files the policy resolves through. A policy
   change reaches a worker only through relaunch (REQ-G1.3).
   *(Cites: D-23; kickoff Amendment 2 decision (2026-10-05).)*
+  *(Read with REQ-F1.10 (2026-11-19): a relaunch onto a pull request records
+  its head branch as the unit branch, and the own-unit body edit's GitHub
+  read is the one live input beside the record.)*
 
 ## REQ-H — Source fixes and verified premises
 
@@ -1023,6 +1219,20 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   repository-declared check commands approved with their per-run arguments
   within a declared shape (REQ-A1.18; D-36). Tasks 19 and 20. The githooks
   narrowing itself is REQ-F1.7's and is not redone.
+- 2026-11-19 — Delta re-walkthrough via `/spec-kickoff` (brief Amendment 7),
+  meaning-class: the guard pre-approves a worker's own push and its own pull
+  request's body edit under every policy value (REQ-F1.9 supersedes
+  REQ-F1.5; REQ-F1.10; D-37) and an export of the step-context names
+  (REQ-E1.10). Task 21.
+- 2026-11-20 — Delta re-walkthrough via `/spec-kickoff` (brief Amendment 8),
+  meaning-class: an own-unit act may share its command with a `git add` or
+  `git commit` the policy approves alone and with a trusted repository task,
+  joined by `&&` before the act (REQ-F1.11 supersedes REQ-F1.10; D-38).
+  Task 22.
+- 2026-11-22 — Delta re-walkthrough via `/spec-kickoff` (brief Amendment 9),
+  meaning-class: the guard defers every step record write that sets a
+  step's times by hand, and lets every other step-script call pass only on
+  the worker's own worktree (REQ-F1.12; D-39). Task 23.
 
 ## Sources
 
@@ -1212,3 +1422,8 @@ mechanism with one doctrine clarification of what "unattended" means (D-9).
   command step is approved by exact word sequence, and the layer that
   declares it places the trust; neither covers a runner taking per-file
   arguments, which is the gap REQ-A1.18 fills with a declared shape.
+- **The hand-timed step record report** (planwright mission control,
+  2026-11-22) — a worker wrote a step record with hand-set start and end
+  times, so a step that did not run read as run; the operator's ruling "1
+  but don't we need a core fix for it?" asked for the guard-side fix.
+  Framed REQ-F1.12, D-39.

@@ -159,6 +159,24 @@ run "$h" /bin/sh "$SC/fleet-register.sh" --retire-marker "$h/dispatch-markers/w9
 [ ! -e "$h/dispatch-markers/w9" ] || fail "a5: the marker was not removed"
 [ "$fails" = "$f0" ] && ok "a5 fleet-register.sh --retire-marker closes a nine-column row"
 
+# A registry it cannot read is not one with nothing left to close: the marker
+# stays for the next sweep, and the exit says the retirement failed (1), never
+# that there was nothing to do (3).
+f0=$fails
+h=$(mixed_home a5u)
+mkdir -p "$h/dispatch-markers"
+printf '%s\n' "$want" >"$h/dispatch-markers/w9"
+rm -f "$h/registry"
+mkdir "$h/registry"
+rc=0
+run "$h" /bin/sh "$SC/fleet-register.sh" --retire-marker "$h/dispatch-markers/w9" --expect "$want" \
+  >/dev/null 2>"$tmp/err" || rc=$?
+[ "$rc" = 1 ] || fail "a5: --retire-marker over an unreadable registry exited $rc, not 1"
+grep -q "could not read the registry" "$tmp/err" \
+  || fail "a5: --retire-marker over an unreadable registry gave no reason: $(cat "$tmp/err")"
+[ -e "$h/dispatch-markers/w9" ] || fail "a5: the marker was dropped over an unreadable registry"
+[ "$fails" = "$f0" ] && ok "a5 fleet-register.sh --retire-marker keeps the marker when the registry cannot be read"
+
 # --- a6 -----------------------------------------------------------------------
 f0=$fails
 h=$(mixed_home a6)

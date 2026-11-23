@@ -28,6 +28,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 FTS="$here/../scripts/fleet-tower-signpost.sh"
 FTM="$here/../scripts/fleet-tower-marker.sh"
 
@@ -62,9 +64,7 @@ mkdir -p "$bin"
 uuid="123e4567-e89b-42d3-a456-426614174000"
 
 # A dead pid and an alive pid.
-/bin/sh -c 'exit 0' &
-dead_pid=$!
-wait "$dead_pid" 2>/dev/null || true
+dead_pid=$(dead_owner_pid)
 sleep 300 &
 alive_pid=$!
 

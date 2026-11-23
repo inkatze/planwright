@@ -47,6 +47,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 lib="$here/../scripts/spec-parse.sh"
 scripts_dir="$here/../scripts"
 
@@ -435,21 +437,26 @@ case $err in
 esac
 echo "ok: a missing file fails closed"
 
-# Unreadable file (skipped under uid 0: root reads mode-000 files).
-if [ "$(id -u)" -ne 0 ]; then
-  cp "$tmp/zero.md" "$tmp/unreadable.md"
-  chmod 000 "$tmp/unreadable.md"
+# Unreadable file.
+cp "$tmp/zero.md" "$tmp/unreadable.md"
+chmod 000 "$tmp/unreadable.md"
+if hermetic_access_denied r "$tmp/unreadable.md"; then
   if err=$(spec_parse_extract_tasks "$tmp/unreadable.md" 2>&1 >/dev/null); then
     chmod 644 "$tmp/unreadable.md"
     fail "unreadable file did not fail"
   fi
-  chmod 644 "$tmp/unreadable.md"
   case $err in
     *"missing or unreadable"*) ;;
-    *) fail "unreadable-file failure lacks a clear message: $err" ;;
+    *)
+      chmod 644 "$tmp/unreadable.md"
+      fail "unreadable-file failure lacks a clear message: $err"
+      ;;
   esac
   echo "ok: an unreadable file fails closed"
+else
+  printf '%s\n' "skip: unreadable task file: the running user still reads $tmp/unreadable.md under mode 000"
 fi
+chmod 644 "$tmp/unreadable.md"
 
 # ---------------------------------------------------------------------------
 # Property 5: consumers fail closed when the lib cannot be sourced
@@ -543,13 +550,12 @@ fi
 echo "ok: migrate-format-version.sh fails closed on a syntax-erroring lib (REQ-B1.6a)"
 
 # An unreadable lib must trip the guards' [ -r ] branch in both consumers
-# (skipped under uid 0: root reads mode-000 files).
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir "$tmp/scripts-noread"
-  cp "$scripts_dir/spec-anchor.sh" "$scripts_dir/migrate-format-version.sh" \
-    "$scripts_dir/echo-safety.sh" "$scripts_dir/orchestrate-lock.sh" \
-    "$scripts_dir/spec-parse.sh" "$tmp/scripts-noread/"
-  chmod 000 "$tmp/scripts-noread/spec-parse.sh"
+mkdir "$tmp/scripts-noread"
+cp "$scripts_dir/spec-anchor.sh" "$scripts_dir/migrate-format-version.sh" \
+  "$scripts_dir/echo-safety.sh" "$scripts_dir/orchestrate-lock.sh" \
+  "$scripts_dir/spec-parse.sh" "$tmp/scripts-noread/"
+chmod 000 "$tmp/scripts-noread/spec-parse.sh"
+if hermetic_access_denied r "$tmp/scripts-noread/spec-parse.sh"; then
   if out=$(sh "$tmp/scripts-noread/spec-anchor.sh" "$tmp/spec" 2>"$tmp/noread.err"); then
     fail "spec-anchor.sh succeeded with an unreadable lib (fail-open, REQ-B1.6a)"
   fi
@@ -561,9 +567,11 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
   grep -q "spec-parse.sh" "$tmp/noread-m.err" \
     || fail "migrate-format-version.sh unreadable-lib refusal does not name the lib: $(cat "$tmp/noread-m.err")"
-  chmod 644 "$tmp/scripts-noread/spec-parse.sh"
   echo "ok: both consumers fail closed on an unreadable lib (REQ-B1.6a)"
+else
+  printf '%s\n' "skip: unreadable spec-parse lib: the running user still reads $tmp/scripts-noread/spec-parse.sh under mode 000"
 fi
+chmod 644 "$tmp/scripts-noread/spec-parse.sh"
 
 # ---------------------------------------------------------------------------
 # Property 5b: the consumers the header-declaration, parked-map, and line-80
@@ -1668,6 +1676,58 @@ eq "a NUL-bearing brief is refused" 1 "$rc"
 rc=0
 spec_parse_latest_anchor_entry "$tmp/b-two.md" --bogus >/dev/null 2>&1 || rc=$?
 eq "an unknown flag is a usage refusal" 2 "$rc"
+
+# A prose paragraph that opens with the word `Class:` is not the record's
+# field: spec-format's record is the block of lines ending at the Anchor line,
+# and its Class field names a grammar value. The prose is kept verbatim from a
+# real kickoff brief's amendment entry, which the gate used to refuse.
+prose='Class: the operator classified the delta "Changes what'"'"'s built
+(Recommended)" (meaning-class).'
+# shellcheck disable=SC2016 # literal backticks: the record format
+{
+  printf 'The gate now sits behind the hold.\n\n%s\n\n' "$prose"
+  printf 'Lens pass (delta-scoped): one agent per lens.\n\n'
+  printf 'Signed off by the operator.\n\n'
+  printf 'Class: meaning\nLens-pass: this entry\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1"
+} >"$tmp/b-prose.md"
+eq "a prose paragraph opening with Class: leaves the field's class standing" \
+  "$h1	scripts/spec-anchor.sh specs/x	meaning	this entry" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-prose.md" --record)"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf '%s\n\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$prose" "$h1" >"$tmp/b-proseonly.md"
+eq "a prose Class: paragraph alone reads as no class" \
+  "$h1	scripts/spec-anchor.sh specs/x		" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-proseonly.md" --record)"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\n\nClass: expression-only\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-dupsep.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-dupsep.md" --record >/dev/null 2>&1 || rc=$?
+eq "two grammar-valued Class lines refuse even a blank line apart" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meanin\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-malformed.md"
+eq "a malformed Class field in the record block is still read as the class" \
+  "$h1	scripts/spec-anchor.sh specs/x	meanin	" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-malformed.md" --record)"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meaning\n\nClass: meanin\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-malformeddup.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-malformeddup.md" --record >/dev/null 2>&1 || rc=$?
+eq "a malformed Class field in the record block still counts toward a duplicate" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Class: meanin\nClass: expression-onl\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-malformedpair.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-malformedpair.md" --record >/dev/null 2>&1 || rc=$?
+eq "two malformed Class fields in the record block refuse" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf '%s\nClass: meaning\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$prose" "$h1" >"$tmp/b-proseblock.md"
+rc=0
+spec_parse_latest_anchor_entry "$tmp/b-proseblock.md" --record >/dev/null 2>&1 || rc=$?
+eq "a Class: line with no blank line before the Anchor stays a field" 2 "$rc"
+# shellcheck disable=SC2016 # literal backticks: the record format
+printf 'Signed off.\n\nLens-pass: §8\nAnchor: `%s` — computed as\n`scripts/spec-anchor.sh specs/x`\n' "$h1" >"$tmp/b-noclass.md"
+eq "an entry without a Class line reads an empty class" \
+  "$h1	scripts/spec-anchor.sh specs/x		§8" \
+  "$(spec_parse_latest_anchor_entry "$tmp/b-noclass.md" --record)"
 echo "ok: the anchor-entry parse reads the newest entry, its own labels, and refuses the undecidable"
 
 # --- The declared Format-version to rule-arm map (invariant-tasks REQ-F1.7,

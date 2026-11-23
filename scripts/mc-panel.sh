@@ -71,8 +71,12 @@ reads it through `lookup`, and writes its acknowledgment (`ack`); `await`
 is the skill's side of that handshake. PLANWRIGHT_MC_PROGRAM=<program>
 (and optionally PLANWRIGHT_MC_TARGET=<its wake target>, the program's
 name by default) in a session's environment stays a fast path: the mod
-reads them once, clears them, and records the activation itself. Under
-<fleet-home>/mission-control/_panel/, owner-only, no symlink followed:
+reads them once, clears them, and records the activation itself. No
+session the fleet launches inherits them (scripts/fleet-dispatch-env.sh
+drops them), and a session carrying a worker identity
+(PLANWRIGHT_WORKER_HANDLE) never activates, by the variables, a record or
+a reload. Under <fleet-home>/mission-control/_panel/, owner-only, no
+symlink followed:
   sessions/<host pid>        format, session, written: which session the
                              host process carries, rewritten at every
                              session start (a /clear included)
@@ -968,18 +972,21 @@ knobs() {
   done
 }
 
-# The windows of the tmux server, when a registry row names one. A server
-# that is not running has no windows; one that does not answer is unknown,
-# and its rows count neither way. It is said unreadable only once a row
-# the attention store has not already finished depends on it, so the
-# panel's qualified count agrees with this one.
+# The windows of the tmux server, when a registry row names one, each as
+# `<id> <server> <session>:<name>`: no tab, which tmux prints as `_` under
+# LC_ALL=C, a session name never holds a `:`, and the window name, which may
+# hold anything, comes last. A server that is not running has no windows;
+# one that does not answer is unknown, and its rows count neither way. It is
+# said unreadable only once a row the attention store has not already
+# finished depends on it, so the panel's qualified count agrees with this
+# one.
 flight_windows() {
   fl_windows=''
   fl_tmux=1
   case $fl_open in
     *"	tmux-window "*)
       if fl_out=$(/bin/sh "$script_dir/bounded-run.sh" "$TMUX_BOUND" \
-        tmux list-windows -a -F '#{session_name}	#{window_id}	#{window_name}' 2>&1); then
+        tmux list-windows -a -F '#{window_id} #{pid}.#{start_time} #{session_name}:#{window_name}' 2>&1); then
         fl_windows=$fl_out
       else
         case $?:$fl_out in
@@ -1053,15 +1060,25 @@ flights() {
   flight_windows
   flight_attention
   # Each row classed as live, a pid to probe, done or unknown. A window id
-  # is looked up across the server, as a renamed session keeps its windows;
-  # the token is also tried as a window name in its session. A session the
+  # names a window only for its server's life. A handle pinned to the server
+  # that issued it is live only while that server runs it under the pinned
+  # name. One written before the pin is live only in its recorded session,
+  # and never once it was registered before the running server started; its
+  # token is also tried as a window name in its session. A session the
   # attention store calls ended in any way is still probed (pidend, liveend,
   # unknownend) for the health checks, and counted finished whatever the
   # probe says.
   fl_class=$(printf '%s\n' "$fl_open" | W=$fl_windows A=$fl_attn T=$fl_tmux awk -F '\t' '
     BEGIN {
       m = split(ENVIRON["W"], wl, "\n")
-      for (i = 1; i <= m; i++) if (split(wl[i], x, "\t") == 3) { id[x[2]] = 1; nm[x[1] SUBSEP x[3]] = 1 }
+      for (i = 1; i <= m; i++) {
+        if (split(wl[i], x, " ") < 3 || x[1] !~ /^@[0-9]+$/ || x[2] !~ /^[0-9]+[.][0-9]+$/) continue
+        r = wl[i]; sub(/^[^ ]* [^ ]* /, "", r)
+        c = index(r, ":"); if (!c) continue
+        srv = x[2]; ws[x[1]] = substr(r, 1, c - 1); wn[x[1]] = substr(r, c + 1)
+        nm[ws[x[1]] SUBSEP wn[x[1]]] = 1
+      }
+      started = srv; sub(/^[^.]*[.]/, "", started)
       m = split(ENVIRON["A"], al, "\n")
       for (i = 1; i <= m; i++) if (split(al[i], x, "\t") == 4) { st[x[1]] = x[2]; at[x[1]] = x[3] }
     }
@@ -1072,9 +1089,12 @@ flights() {
       tail = $5 "\t" (s == "" ? "-" : s) "\t" (($1 in at) ? at[$1] : "-")
       row = $1 "\t" $2 "\t" $3 "\t" word
       if ($4 ~ /^process [1-9][0-9]*$/) { print (ended ? "pidend" : "pid") "\t" row "\t" substr($4, 9) "\t" tail; next }
-      if (split($4, h, " ") == 3 && h[1] == "tmux-window") {
+      hn = split($4, h, " ")
+      if ((hn == 3 || hn == 5) && h[1] == "tmux-window") {
         if (ENVIRON["T"] != "1") { print (ended ? "unknownend" : "unknown"); next }
-        seen = (h[3] ~ /^@[0-9]+$/ && (h[3] in id)) || ((h[2] SUBSEP h[3]) in nm)
+        if (hn == 5) seen = (srv != "" && h[4] == srv && (h[3] in wn) && wn[h[3]] == h[5])
+        else if (srv != "" && $5 ~ /^[0-9]+$/ && $5 + 0 < started + 0) seen = 0
+        else seen = ((h[3] in ws) && ws[h[3]] == h[2]) || ((h[2] SUBSEP h[3]) in nm)
         print (!seen ? "done" : (ended ? "liveend" : "live") "\t" row "\t-\t" tail)
         next
       }

@@ -17,7 +17,11 @@ WT="$SANDBOX/install/worktree"
 mkdir -p "$WT/scripts"
 : >"$WT/.git"
 : >"$WT/scripts/step-run.sh"
-HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+# A step-script call passes only on the recorded worktree (REQ-F1.12), so the
+# session record names this one, canonically, as the launcher writes it.
+WT=$(cd "$WT" && pwd -P)
+write_record "$SANDBOX/install/stepenv.record" "$WT"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/install/stepenv.record")
 
 CTX="PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=planwright/flight/x PLANWRIGHT_STEP_BASE_BRANCH=main PLANWRIGHT_STEP_WORKTREE=$WT"
 assert_allow "the bare step-record call (baseline)" "$SREC new-run" Bash "$WT"

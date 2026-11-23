@@ -4,7 +4,8 @@ unset CDPATH
 # Hermetic inside a worker session: the session variables a stream-json worker
 # exports are not this suite's, and one leaking in changes which backend the
 # launcher resolves. Fixtures that want one set it through ml.
-unset PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+unset PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE \
+  PLANWRIGHT_SESSION_HANDLE
 # Shared fixture for the mission-control launch tests (sourced at top level by
 # tests/test-mission-control-launch*.sh): the failure counters, the scratch tree
 # and its cleanup, the CLI and tmux shims, the ml runner and its wait helpers.
@@ -80,6 +81,7 @@ pwd -P >"$SHIM_RECORD_DIR/cwd"
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
 printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
 printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
+printf '%s\n' "${PLANWRIGHT_SESSION_HANDLE-<unset>}" >"$SHIM_RECORD_DIR/sessionhandle"
 printf '%s\n' "${TMUX-<unset>}" >"$SHIM_RECORD_DIR/tmuxvar"
 printf '%s\n' "${TMUX_PANE-<unset>}" >"$SHIM_RECORD_DIR/tmuxpane"
 printf '%s\n' "${PLANWRIGHT_LOCAL_CONFIG-<unset>}" >"$SHIM_RECORD_DIR/localcfg"
@@ -88,12 +90,25 @@ printf '%s\n' "$line" >"$SHIM_RECORD_DIR/stdin"
 exit 0
 SHIM
 # The tmux stub: a window table under $TMUX_STUB (one file per window id,
-# holding its name), argv recorded per call. TMUX_LIST_FAIL makes listing
-# fail, as an unreachable server does.
+# holding its name), argv recorded per call. The server's identity is
+# $TMUX_STUB/server when that exists. TMUX_LIST_FAIL makes every query fail,
+# as an unreachable server does; TMUX_NO_SERVER answers that none runs.
+# if-shell evaluates the pin a close carries and runs its command only when
+# the window's server, id and name match it.
 cat >"$tmp/bin/tmux" <<'STUB'
 #!/bin/sh
 all="$*"
 printf '%s\n' "$all" >>"$TMUX_STUB/calls"
+srv=$(cat "$TMUX_STUB/server" 2>/dev/null || echo 4242.1700000000)
+case $1 in
+  display-message | if-shell)
+    [ "${TMUX_LIST_FAIL:-0}" = 1 ] && exit 1
+    if [ "${TMUX_NO_SERVER:-0}" = 1 ]; then
+      echo "no server running on /tmp/tmux-stub/default" >&2
+      exit 1
+    fi
+    ;;
+esac
 case $1 in
   new-window)
     n=$(($(cat "$TMUX_STUB/next" 2>/dev/null || echo 1)))
@@ -113,7 +128,10 @@ case $1 in
     if [ "${TMUX_BAD_ID:-0}" = 1 ]; then
       echo 'not a window id'
     else
-      echo "@$n"
+      case $all in
+        *'#{window_id} #{pid}.#{start_time} #{window_name}'*) echo "@$n $srv $wname" ;;
+        *) echo "@$n" ;;
+      esac
     fi
     ;;
   list-windows)
@@ -123,6 +141,12 @@ case $1 in
       exit 1
     fi
     case $all in
+      *'#{pid}.#{start_time} #{window_id} #{window_name}'*)
+        for w in "$TMUX_STUB"/@*; do
+          [ -f "$w" ] && printf '%s %s %s\n' "$srv" "${w##*/}" "$(cat "$w")"
+        done
+        exit 0
+        ;;
       *'#{window_id} #{window_name}'*) ;;
       *)
         for w in "$TMUX_STUB"/@*; do
@@ -142,8 +166,31 @@ case $1 in
       [ "$1" = -t ] && t=$2
       shift
     done
+    case $all in
+      *'#{pid}.#{start_time}/#{window_id}/#{window_name}'*)
+        [ -f "$TMUX_STUB/$t" ] || {
+          echo "can't find window: $t" >&2
+          exit 1
+        }
+        echo "$srv/$t/$(cat "$TMUX_STUB/$t")"
+        exit 0
+        ;;
+      *'#{pid}.#{start_time}'*)
+        echo "$srv"
+        exit 0
+        ;;
+    esac
     [ -e "$TMUX_STUB/$t" ] || exit 1
     case $all in *session_name*) echo stub ;; *) echo "$t" ;; esac
+    ;;
+  if-shell)
+    # if-shell -F -t <target> <condition> <command>
+    t=$4 cond=$5 cmd=$6
+    want=${cond##*,}
+    want=${want%\}}
+    [ -f "$TMUX_STUB/$t" ] && [ "$want" = "$srv/$t/$(cat "$TMUX_STUB/$t")" ] || exit 0
+    # shellcheck disable=SC2086 # the command's words
+    exec "$0" $cmd
     ;;
   kill-window)
     [ "${TMUX_KILL_FAIL:-0}" = 1 ] && exit 1
@@ -164,7 +211,7 @@ mkdir -p "$tmp/tmux"
 ml() {
   OUT=$(cd "${ML_CD:-$repo}" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
-    -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_SESSION_HANDLE \
     -u PLANWRIGHT_WORKER_SESSION_RECORD -u PLANWRIGHT_SESSION_BACKEND \
     -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID -u PLANWRIGHT_MC_TOKEN -u CLAUDE_CONFIG_DIR \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="${ML_REPO_ROOT-$repo}" \
@@ -172,6 +219,8 @@ ml() {
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
     TMUX_PANE="${ML_TMUX_PANE:-}" ${ML_TMUX:+TMUX="$ML_TMUX"} ${ML_MC_TOKEN:+PLANWRIGHT_MC_TOKEN="$ML_MC_TOKEN"} \
+    ${ML_SESSION_HANDLE:+PLANWRIGHT_SESSION_HANDLE="$ML_SESSION_HANDLE"} \
+    ${ML_WORKER_HANDLE:+PLANWRIGHT_WORKER_HANDLE="$ML_WORKER_HANDLE"} \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
     TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" TMUX_BAD_ID="${TMUX_BAD_ID:-0}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")
@@ -210,14 +259,38 @@ wait_done() {
   done
 }
 
+# cwd_holder <dir> — the cwd link of one process working in <dir> or below it,
+# empty when none does. busybox find has no -lname, where an erroring find
+# would read as no holder, so it falls back to a readlink per process. It
+# mirrors dir_users in scripts/mission-control-launch.sh, whose guard it waits
+# out; keep the two scans alike.
+cwd_holder() {
+  if [ -n "$(find /proc/self/cwd -prune -lname '*' 2>/dev/null)" ]; then
+    ch_glob=$(printf '%s' "$1" | sed 's/[][*?\\]/\\&/g')
+    find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$ch_glob" -o -lname "$ch_glob/*" \) 2>/dev/null | head -n 1
+    return 0
+  fi
+  for ch_c in /proc/[0-9]*/cwd; do
+    ch_t=$(readlink "$ch_c" 2>/dev/null) || continue
+    case $ch_t in
+      "$1" | "$1"/*)
+        printf '%s\n' "$ch_c"
+        return 0
+        ;;
+    esac
+  done
+}
+
 # wait_cwd_free <dir> — until no process runs with <dir> as its working
 # directory (bounded at 60s, the load-tolerant wait for an exit). Where procfs
-# is absent there is no portable scan, so it returns at once.
+# is absent there is no portable scan, so it returns at once, as it does for an
+# empty <dir>, which would match every process.
 wait_cwd_free() {
-  [ -d /proc/self ] || return 0
+  [ -n "$1" ] && [ -d /proc/self ] || return 0
+  held=''
   wc_end=$(($(date +%s) + 60))
   while [ "$(date +%s)" -lt "$wc_end" ]; do
-    held=$(find /proc -mindepth 2 -maxdepth 2 -name cwd \( -lname "$1" -o -lname "$1/*" \) 2>/dev/null | head -n 1)
+    held=$(cwd_holder "$1")
     [ -n "$held" ] || return 0
     sleep 0.1
   done

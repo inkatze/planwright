@@ -101,6 +101,16 @@ shared${TAB}allow${TAB}a declared line inside fish -c${TAB}fish -c '$DECLARED --
 shared${TAB}allow${TAB}a read-only git shape${TAB}git log --oneline -1
 shared${TAB}allow${TAB}an own-branch stage${TAB}git add notes.txt
 shared${TAB}allow${TAB}an own-branch commit${TAB}git commit -m 'x'
+shared${TAB}allow${TAB}a gh read with JSON fields${TAB}gh pr view 5 --json title,state
+shared${TAB}allow${TAB}a gh auth status read with JSON fields${TAB}gh auth status --json hosts
+shared${TAB}allow${TAB}a gh repo view read with JSON fields${TAB}gh repo view --json name
+shared${TAB}defer${TAB}a gh read whose jq filter prints the environment${TAB}gh pr view 5 --jq env
+shared${TAB}defer${TAB}a gh auth status whose jq filter prints the environment${TAB}gh auth status --json hosts --jq env
+shared${TAB}defer${TAB}a gh read opening the browser${TAB}gh pr checks 5 --web
+shared${TAB}defer${TAB}a gh repo view opening the browser${TAB}gh repo view -w
+shared${TAB}defer${TAB}a gh auth status printing the token${TAB}gh auth status --show-token
+shared${TAB}allow${TAB}a gh search without a filter${TAB}gh search code foo --json path
+shared${TAB}allow${TAB}an own-branch perl -pi of an ordinary file${TAB}perl -pi -e 's/a/b/' notes.txt
 shared${TAB}defer${TAB}a declared line given another arg${TAB}$DECLARED --mode lax
 shared${TAB}defer${TAB}a declared line plus an extra arg${TAB}$DECLARED --mode strict --extra
 shared${TAB}defer${TAB}a declared location without its args${TAB}$DECLARED
@@ -109,10 +119,17 @@ shared${TAB}defer${TAB}a declared line behind a non-context assignment${TAB}LD_P
 shared${TAB}defer${TAB}a declared line chained with a write outside the worktree${TAB}$DECLARED --mode strict; rm -rf $SANDBOX/outside
 shared${TAB}defer${TAB}a declared line inside a substitution${TAB}echo \$($DECLARED --mode strict)
 shared${TAB}defer${TAB}a declared reserved act${TAB}$WT/tools/gh pr ready 5
-adversarial${TAB}defer${TAB}a push of the unit branch${TAB}git push origin @B@
+adversarial${TAB}allow${TAB}a plain push of the unit branch (an own-unit act)${TAB}git push origin @B@
+adversarial${TAB}defer${TAB}a push of the unit branch setting its upstream${TAB}git push -u origin @B@
 adversarial${TAB}defer${TAB}a force push of the unit branch${TAB}git push --force origin @B@
 adversarial${TAB}defer${TAB}a ready flip of the unit's PR${TAB}gh pr ready 5
 adversarial${TAB}defer${TAB}a merge of the unit's PR${TAB}gh pr merge 5 --squash
+adversarial${TAB}defer${TAB}a gh search code jq filter reading the environment${TAB}gh search code foo --jq env
+adversarial${TAB}defer${TAB}a gh search issues short jq filter reading the environment${TAB}gh search issues foo -q env
+adversarial${TAB}defer${TAB}a gh search prs template reading the environment${TAB}gh search prs foo --template={{env}}
+adversarial${TAB}defer${TAB}a gh auth status jq filter reading the environment${TAB}gh auth status --json hosts --jq env
+adversarial${TAB}defer${TAB}a gh search attached jq filter ending in t reading the environment${TAB}gh search code foo '-qenv|test'
+adversarial${TAB}defer${TAB}a gh repo view opening the browser${TAB}gh repo view --web
 adversarial${TAB}defer${TAB}a switch to the base branch${TAB}git switch main
 adversarial${TAB}defer${TAB}a branch reset to the base${TAB}git reset --hard main
 adversarial${TAB}defer${TAB}an amend on the unit branch${TAB}git commit --amend -m 'x'

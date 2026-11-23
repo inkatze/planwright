@@ -14,6 +14,8 @@ export LC_ALL
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 CHECK="$REPO_ROOT/scripts/check-emitter-lint.sh"
 FIX="$REPO_ROOT/tests/fixtures/emitter-lint"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 
 failures=0
 pass() { printf 'ok: %s\n' "$1"; }
@@ -118,7 +120,11 @@ esac
 if [ "$(id -u)" -ne 0 ]; then
   scratch_root "$tmp/locked" '# Emits: markdown'
   chmod 000 "$tmp/locked/tests"
-  expect "an unlistable tests/ directory fails closed" "$tmp/locked" 2 "cannot be listed"
+  if hermetic_access_denied r "$tmp/locked/tests"; then
+    expect "an unlistable tests/ directory fails closed" "$tmp/locked" 2 "cannot be listed"
+  else
+    printf '%s\n' "skip: unlistable tests/ directory: the directory is still listable here"
+  fi
   chmod 755 "$tmp/locked/tests"
 else
   printf '%s\n' "skip: unlistable tests/ directory: running as root, which lists it anyway"
@@ -160,11 +166,21 @@ lint_case "$sh_" "a clean shell script passes" 0 "$(printf '#!/bin/sh\nprintf "%
 lint_case "$sh_" "a shell script that does not parse fails" 1 "$(printf '#!/bin/sh\nif true; then\n')"
 lint_case "$sh_" "an unquoted expansion fails shellcheck" 1:SC2086 "$(printf '#!/bin/sh\nrm $1\n')"
 lint_case "$sh_" "a bash-only construct under the sh dialect fails" 1:SC3030 "$(printf 'a=(1 2)\nprintf "%%s\\\\n" "${a[0]}"\n')" sh
+# The linter runs under the operator's HOME, so no rc file may relax it.
+mkdir -p "$tmp/rcdir" || exit 1
+printf 'disable=SC2086\n' >"$tmp/rcdir/.shellcheckrc"
+printf '#!/bin/sh\nrm $1\n' >"$tmp/rcdir/emitted.sh"
+lint_emitted "$sh_" fixture "$tmp/rcdir/emitted.sh" >"$tmp/lint.out" 2>&1
+case "$?:$(cat "$tmp/lint.out")" in
+  *skip:*) printf '%s\n' "skip: a shellcheckrc beside the file: $(cat "$tmp/lint.out")" ;;
+  1:*SC2086*) pass "a shellcheckrc beside the emitted file relaxes nothing" ;;
+  *) fail "a shellcheckrc beside the emitted file relaxed the lint: $(cat "$tmp/lint.out")" ;;
+esac
 # A linter missing in CI is a failure, never a skip; outside CI, a skip line.
 # hash -r: bash 3.2 keeps hashed paths under a PATH prefix on a function call.
 printf 'key: value\n' >"$tmp/artifact"
 mkdir -p "$tmp/notools" || exit 1
-for tool in mktemp rm dirname cat sed head; do
+for tool in mktemp rm dirname cat sed head cp; do
   t_path=$(command -v "$tool") && ln -sf "$t_path" "$tmp/notools/$tool"
 done
 out=$(
@@ -182,6 +198,95 @@ out=$(
 case "$?:$out" in
   0:*"skip: lint_emitted: fixture: yamllint is not on PATH"*) pass "a linter missing outside CI is a named skip" ;;
   *) fail "a linter missing outside CI was not a named skip: $out" ;;
+esac
+# A version-manager shim passes command -v yet refuses to run outside the
+# checkout that pins its version, which is where the lint runs.
+mkdir -p "$tmp/shim" || exit 1
+printf '#!/bin/sh\necho "mise ERROR No version is set for shim: markdownlint-cli2" >&2\nexit 1\n' \
+  >"$tmp/shim/markdownlint-cli2"
+chmod +x "$tmp/shim/markdownlint-cli2"
+printf '## Heading\ntext right below\n' >"$tmp/artifact"
+out=$(
+  hash -r
+  CI='' PATH="$tmp/shim:$tmp/notools" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+)
+case "$?:$out" in
+  0:*"skip: lint_emitted: fixture: markdownlint-cli2 does not run"*"No version is set"*)
+    pass "a shim that cannot run outside the repository is a named skip"
+    ;;
+  *) fail "a shim that cannot run outside the repository was not a named skip: $out" ;;
+esac
+out=$(
+  hash -r
+  CI=1 PATH="$tmp/shim:$tmp/notools" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+)
+case "$?:$out" in
+  1:*"markdownlint-cli2 does not run"*"in CI"*) pass "a shim that cannot run fails the lint in CI" ;;
+  *) fail "a shim that cannot run did not fail the lint in CI: $out" ;;
+esac
+if (cd "$REPO_ROOT" && mise which markdownlint-cli2) >"$tmp/which" 2>&1; then
+  out=$(
+    hash -r
+    CI='' PATH="$tmp/shim:$PATH" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+  )
+  case "$?:$out" in
+    1:*MD022*) pass "the repository's pinned linter still lints past a broken shim ahead of it" ;;
+    *) fail "the repository's pinned linter did not lint past a broken shim: $out" ;;
+  esac
+  mkdir -p "$tmp/emptyhome" || exit 1
+  out=$(
+    hash -r
+    CI='' HOME="$tmp/emptyhome" PATH="$tmp/shim:$PATH" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+  )
+  case "$?:$out" in
+    1:*MD022*) pass "a HOME isolated after sourcing still lints with the pinned linter" ;;
+    *) fail "a HOME isolated after sourcing did not lint with the pinned linter: $out" ;;
+  esac
+  # A shim that falls back to a system interpreter, but only after reading
+  # the config its HOME trusts: under a scratch HOME it refuses.
+  if real_node=$(command -v node); then
+    mkdir -p "$tmp/nodeshim" || exit 1
+    # It leaves PATH before handing over, since a real shim it hands to
+    # falls back along PATH and would find this one again. Its marker shows
+    # the launcher reached it: one that ships its own interpreter never does.
+    printf '#!/bin/sh\n: >"%s"\n[ "$HOME" = "%s" ] || { echo "mise ERROR Config files are not trusted" >&2; exit 1; }\nPATH=${PATH#"%s:"}\nexport PATH\nexec "%s" "$@"\n' \
+      "$tmp/nodeshim.ran" "$HOME" "$tmp/nodeshim" "$real_node" >"$tmp/nodeshim/node"
+    chmod +x "$tmp/nodeshim/node"
+    rm -f "$tmp/nodeshim.ran"
+    out=$(
+      hash -r
+      CI='' HOME="$tmp/emptyhome" PATH="$tmp/nodeshim:$PATH" lint_emitted "$md" fixture "$tmp/artifact" 2>&1
+    )
+    case "$?:$out" in
+      1:*MD022*)
+        if [ -f "$tmp/nodeshim.ran" ]; then
+          pass "a linter whose interpreter is behind a broken shim still lints"
+        else
+          printf '%s\n' "skip: interpreter behind a broken shim: the linter's launcher does not reach node through PATH"
+        fi
+        ;;
+      *) fail "a linter whose interpreter is behind a broken shim did not lint: $out" ;;
+    esac
+  elif [ -n "${CI:-}" ]; then
+    fail "interpreter behind a broken shim: no node on PATH in CI"
+  else
+    printf '%s\n' "skip: interpreter behind a broken shim: no node on PATH"
+  fi
+elif [ -n "${CI:-}" ]; then
+  fail "pinned linter past a broken shim: mise resolves no markdownlint-cli2 in CI: $(cat "$tmp/which")"
+else
+  printf '%s\n' "skip: pinned linter past a broken shim: mise resolves no markdownlint-cli2 here"
+fi
+printf 'key: value\n' >"$tmp/artifact"
+out=$(
+  unset HOME
+  . "$REPO_ROOT/tests/lib/emitter-lint.sh"
+  set -u
+  lint_emitted "$yml" fixture "$tmp/artifact" 2>&1
+)
+case "$?:$out" in
+  0:*) pass "a HOME unset at sourcing and at the call is not an unbound variable" ;;
+  *) fail "a HOME unset at sourcing and at the call broke the lint: $out" ;;
 esac
 bogus=nonsense
 if lint_emitted "$bogus" fixture "$tmp/artifact" 2>/dev/null; then

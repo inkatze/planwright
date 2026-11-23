@@ -2148,3 +2148,129 @@ Class: meaning
 Lens-pass: Amendment 15, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `2382840828be4b416a291dfebe9bc3d225d2bbc2` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 20 (2026-11-20, amendment: Task 51 carried by control-plane's request ledger)
+
+Spec path `specs/mission-control`; walk started at `bba0c4c5`; walkthrough
+date 2026-11-20. Mode: amendment on an Active bundle, operator-declared
+through the hub and walked by relay, one plain question per turn. Validator
+at walk start: 0 errors, 0 warnings. Scope: record Task 51 as carried by
+control-plane Amendment 2 (the request ledger, merged 2026-11-20), and what
+that strictly implies. Numbering re-read on origin/main and every
+mission-control amendment branch, remote and local: Amendment 20, REQ-F1.26
+and the next D-ID and task id were free; this amendment mints REQ-F1.26
+only.
+
+#### Goal and glossary (Amendment 20)
+
+Restatement: the record of operator asks gets one code home. Control-plane's
+request ledger captures every arrival by code, closes each only on checked
+evidence, holds a turn's first stop and makes the handover refuse while a
+request is open; this bundle stops listing the same work as undone, so
+neither bundle can be dispatched for it twice. Rules out: any change to the
+follow-up item rules (owner, trigger, done-condition, refusal at add), which
+Task 50 built and which stay here. Terms: *intake row* (REQ-F1.19's record
+of an operator message) maps to an arrival in control-plane's request
+ledger; *carried* means another bundle builds a signed task, recorded here
+by parking the task out of scope.
+
+#### Requirements walkthrough (Amendment 20)
+
+Inconsistency surfaced: REQ-F1.19 says neither a turn nor a handover can end
+while an intake row is open, and control-plane D-25 rejects exactly that
+reading (an unbounded hold can trap a headless session), holding a turn's
+first stop once (control-plane REQ-J1.6). Recording the carry alone would
+leave a signed requirement nothing builds. The operator's answer, relayed
+through the hub, verbatim: "Retire, point to ledger (Recommended)".
+Resolved by spec edit: REQ-F1.26 supersedes REQ-F1.19, points asks at the
+request ledger (control-plane REQ-J1.1 to REQ-J1.7, with REQ-J1.12's
+recording-only rollout) and keeps the follow-up item rules unchanged; the
+REQ-F1.19 body is not edited.
+
+Spec edits: `requirements.md` (REQ-F1.19's `Superseded-by` line, REQ-F1.26,
+a Sources entry for control-plane Amendment 2, the changelog line);
+`design.md` (an amendment note on D-56); `tasks.md` (Task 51's Out of scope
+bullet); `test-spec.md` (the REQ-F1.26 entry).
+
+#### Design walkthrough (Amendment 20)
+
+D-56 is amended by note only: its intake rows and turn-end and handover
+refusals are built by control-plane's request ledger (control-plane D-22,
+D-25); its follow-up item rules stand. No decision is minted or
+superseded.
+
+#### Verification approach (Amendment 20)
+
+REQ-F1.26 has a `[test]` entry: the refusal of an item with no
+done-condition is the existing `tests/test-mc-kb.sh` case Task 50 shipped,
+and the ledger behaviour is verified by control-plane's REQ-J1.1 to
+REQ-J1.7 entries, run by that bundle's CI suite. No dead path: every named
+verification either runs today or is owned by a signed control-plane task.
+REQ-F1.19's entry stays as the superseded requirement's record, as
+REQ-F1.23's did.
+
+#### Task graph (Amendment 20)
+
+No task is added and no edge changes: no task depends on Task 51. Task 51 is
+parked out of scope as carried, so it leaves this bundle's Done universe.
+Control-plane Task 5.1's Awaiting-input hold clears when this amendment
+lands; that bullet is control-plane's to remove, not this bundle's.
+
+#### Risk register (Amendment 20)
+
+1. Amendment 8's risk 1 (the turn-end check depends on the host's stop hook,
+   mitigated by Task 51's fixture) now rests on control-plane Task 5.2's
+   fixture and its capture probe (control-plane D-24). Mitigation:
+   control-plane's REQ-J1.6 test entry.
+2. This bundle can derive Done while control-plane Tasks 5.1 to 5.3 are
+   unbuilt, so the asks record may look finished here before it exists.
+   Mitigation: Task 51's Out of scope bullet names the carrying tasks, and
+   control-plane's own render tracks them. Accepted.
+3. REQ-F1.24's list of state kinds still names intake rows. Mitigation:
+   REQ-F1.26 names the request ledger as the store that register names for
+   asks, so Task 56 registers it there.
+
+Decision-domain gap check: data storage (the asks record moves to the
+request ledger's store, decided by control-plane D-23) and failure handling
+(the recording-only rollout, control-plane D-29) are touched and decided
+there; no other domain is touched.
+
+#### Lens review (Amendment 20, delta-scoped)
+
+Walked inline over the Amendment 20 delta (REQ-F1.26, REQ-F1.19's
+supersede line, the D-56 note, Task 51's bullet, the REQ-F1.26 test entry,
+the Sources entry), a small, narrow delta.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 1 | Applied (the operator: "Keep the sentence (Recommended)"): REQ-F1.26 stated the hold and the handover refusal without control-plane REQ-J1.12's recording-only rollout, so a reader could expect enforcement from landing; the sentence and citation are added |
+| Ambiguity and interpretation forks | 0 | None |
+| Citation and coverage integrity | 0 | Every cited ID resolves in its bundle; REQ-F1.26 has a test entry |
+| Dead verification paths | 0 | None |
+| Decision-domain gaps | 0 | Decided above |
+| Testability | 0 | None |
+| Cross-file consistency | 0 | None |
+| Documentation and glossary drift | 0 | REQ-F1.24's intake rows: risk 3 |
+| Rendered-content safety and data hygiene | 0 | None |
+
+Altitude check: not applicable; the delta pins no altitude claim. Ship-gate
+check: no out-of-band fix is named. Enumeration cross-check: the ranges
+named (control-plane REQ-J1.1 to REQ-J1.7, D-22 to D-26, Tasks 5.1 to 5.3)
+were checked against that bundle's headings. Stale-reference sweep for the
+minted REQ-F1.26 and the superseded REQ-F1.19: the remaining REQ-F1.19
+citations (REQ-F1.24, the Amendment 8 changelog line, REQ-F1.19's test
+entry, Task 51's block) are historical records and stay valid.
+
+#### Sign-off record (Amendment 20)
+
+Signed off 2026-11-20 by the operator, relayed through the hub, asked with
+no option preselected: "Sign off". Amendment on an Active bundle: no status
+flip; `Last reviewed:` 2026-11-20 on all four spec files; validator re-run
+with 0 errors. The delta supersedes a requirement, so it is meaning-class.
+The observation that asked for this amendment (obs:def1eb0b) is consumed.
+Accepted risks: see the register above.
+
+Class: meaning
+Lens-pass: Amendment 20, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
+Anchor: `e8a82e83c86249cc4318668a621324b622bfc864` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
