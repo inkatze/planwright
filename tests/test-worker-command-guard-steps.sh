@@ -101,12 +101,18 @@ assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --
 assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
 assert_allow "declared line chained with a known-safe segment approved" \
   "$DECLARED --mode strict && git status" Bash "$FXC"
-# A declared step may write, so an own-unit push never shares its command.
+# A declared command-step line is a chain partner: it may come before an
+# own-unit push joined only by `&&`, never after it or by `;`.
 OU_B=planwright/flight/demo-0123abcd
 write_record "$FX/own.record" "$FXC" '' "$OU_B"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
 assert_allow "the own-unit push alone under a record (control)" "git push origin $OU_B" Bash "$FXC"
-assert_defer "an own-unit push after a declared line" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+assert_allow "an own-unit push after a declared line" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+assert_defer "a declared line after an own-unit push" "git push origin $OU_B && $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a declared line joined to an own-unit push by ;" "$DECLARED --mode strict; git push origin $OU_B" Bash "$FXC"
+write_record "$FX/own-arm.record" "$FXC" own-branch "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own-arm.record")
+assert_allow "an own-unit push after a declared line under the own-branch arm" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
 HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The declarations resolve from the payload cwd, so after a `cd` a declared
 # line's relative args would name other files than the ones declared.
