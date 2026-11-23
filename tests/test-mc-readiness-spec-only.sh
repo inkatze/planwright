@@ -90,6 +90,11 @@ hasnt "a rename from a file that is not prose is no spec-only scope" "scope${tab
 spec_pr "$sh_ready" 'specs/demo/copy.md|COPIED|specs/demo/design.md'
 has "a copy within the spec root is spec-only" "scope${tab}spec-only${tab}$sh_ready"
 has "and signs off the bundle it lands in" "signoff${tab}demo${tab}signed${tab}-"
+spec_pr "$sh_ready" 'specs/demo/copy.md|COPIED|specs/gone/design.md'
+has "a copy between bundles is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+hasnt "and holds nothing of the bundle it copies from, which it leaves unchanged" "signoff${tab}gone${tab}"
+SP_REST=fail spec_pr "$sh_ready" 'specs/demo/copy.md|COPIED|specs/demo/design.md'
+hasnt "a copy whose source could not be read is no spec-only scope" "scope${tab}"
 spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED|specs/gone/moved.md'
 has "a rename between bundles is spec-only" "scope${tab}spec-only${tab}$sh_ready"
 has "and the bundle it leaves is held for its sign-off too" "signoff${tab}gone${tab}unsigned${tab}it has no requirements.md at the head"
