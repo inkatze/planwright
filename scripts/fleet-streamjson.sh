@@ -3154,12 +3154,12 @@ steer_scan() {
     ss_text="steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"
     # A report the store refused gives its mark back, so the next scan
     # retries; it was pushed once already, so the retry only writes the item.
-    if [ -e "$ss_dir/steer-pushed-$ss_id" ]; then
+    if [ -e "$ss_dir/steer-pushed-$ss_id" ] || [ -L "$ss_dir/steer-pushed-$ss_id" ]; then
       attention_item "$ss_w" "$ss_dir" "$ss_text"
     else
       attention_failure "$ss_w" "$ss_dir" "$ss_text"
     fi || {
-      : >"$ss_dir/steer-pushed-$ss_id" 2>/dev/null || :
+      mark_claim "$ss_dir/steer-pushed-$ss_id" || :
       rm -f "$ss_dir/steer-lost-$ss_id" 2>/dev/null || :
       continue
     }

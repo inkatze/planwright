@@ -454,8 +454,30 @@ if [ "$(id -u)" != 0 ]; then
   done
   chmod 755 "$home/attention"
   [ ! -e "$wdir/steer-lost-$a11_id" ] || fail "a11: the store never took the report, so its mark must be free"
+  [ -f "$wdir/steer-pushed-$a11_id" ] || fail "a11: a refused report must record that its push was made"
   a11_pushes=$(grep -c 'never read' "$home/attention/toasts")
   [ "$a11_pushes" = 1 ] || fail "a11: three refused scans must push once, pushed $a11_pushes: $(cat "$home/attention/toasts")"
+  # The store is back: the retry lands the item, pushes nothing more, and
+  # clears the push record.
+  a11_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_REPO_ROOT=none \
+    PLANWRIGHT_CONFIG_DEFAULTS="$tmp/a11-core.yml" PLANWRIGHT_LOCAL_CONFIG="$tmp/a11-pin.yml" \
+    /bin/sh "$SJ" alarm-scan --now 2003 2>/dev/null)
+  case $a11_out in
+    *"steer-lost sja11 $a11_id"*) : ;;
+    *) fail "a11: the retry must land once the store is back: $a11_out" ;;
+  esac
+  [ "$(grep -c 'never read' "$home/attention/toasts")" = 1 ] || fail "a11: the landed retry must not push again"
+  [ ! -e "$wdir/steer-pushed-$a11_id" ] || fail "a11: a landed retry must clear its push record"
+  # A link planted at the push record's name is never written through.
+  a11_id3='3b3b3b3b-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+  printf '1160\t12\t%s\t%s\tbusy\n' "$tmp/steer11c" "$a11_id3" >>"$wdir/steers"
+  ln -s "$tmp/a11-target" "$wdir/steer-pushed-$a11_id3"
+  chmod 555 "$home/attention"
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_REPO_ROOT=none \
+    PLANWRIGHT_CONFIG_DEFAULTS="$tmp/a11-core.yml" PLANWRIGHT_LOCAL_CONFIG="$tmp/a11-pin.yml" \
+    /bin/sh "$SJ" alarm-scan --now 2004 >/dev/null 2>&1
+  chmod 755 "$home/attention"
+  [ ! -e "$tmp/a11-target" ] || fail "a11: the push record was written through a planted link"
 fi
 echo "ok: a11 a refused report is retried without another push, and an unwritable mark still reports"
 
