@@ -248,8 +248,11 @@ printf 'answer: take the narrower reading\n' >"$tmp/steer3"
 (cd "$tmp" && senv "$home" "$rec" -- steer sja3 --message-file steer3) >/dev/null || fail "a3: steer exited non-zero"
 poll_until --what 'the unread-steer report' -- reported "$home" sja3 \
   || fail "a3: a steer the session never read must be reported: $(cat "$home/attention/state" 2>&1)"
-grep "^sja3$tab" "$home/attention/state" | grep -q "re-send $tmp/steer3 with" \
-  || fail "a3: the report must name the message file to re-send by its full path: $(cat "$home/attention/state")"
+# The directory as the steering shell saw it: a TMPDIR ending in a slash (as
+# macOS sets it) leaves a doubled slash in $tmp that cd normalises away.
+a3_dir=$(cd "$tmp" && pwd)
+grep "^sja3$tab" "$home/attention/state" | grep -qF "re-send $a3_dir/steer3 with" \
+  || fail "a3: the report must name the message file to re-send by its full path ($a3_dir/steer3): $(cat "$home/attention/state")"
 awk -F'\t' '$1 == "sja3" && $5 == "high" { f = 1 } END { exit !f }' "$home/attention/state" \
   || fail "a3: the report must be high priority: $(cat "$home/attention/state")"
 a3_marks=$(find "$wdir" -name 'steer-lost-*' | wc -l | tr -d ' ')
