@@ -108,6 +108,8 @@
 #   replay-since     the epoch of the first supervisor whose session replays;
 #                    older steers are never judged unread
 #   steer-lost-<id>  the mark of a steer reported unread
+#   steer-pushed-<id>  a refused report's push already made, until a retry
+#                    lands the item
 #   unregistered-announced  the session-keeper's claim that its one-time
 #                    event about a worker with no launcher row was raised
 #                    (scripts/mc-keeper.sh announce_once); `.claim.*` its
@@ -1182,17 +1184,23 @@ attention_resync() {
 }
 
 # attention_failure <worker> <dir> <text> — a visible failure item
-# (REQ-E1.4, REQ-E1.5: surfaced, never silent), and 1 when the store refused
-# it. Text is caller-fixed prose plus sanitized fragments.
+# (REQ-E1.4, REQ-E1.5: surfaced, never silent) and its push; 1 when the store
+# refused the item, which is pushed all the same. Text is caller-fixed prose
+# plus sanitized fragments.
 attention_failure() {
-  af_scope=$(read_scope "$2")
-  af_rc=0
-  /bin/sh "$FA" decide "$1" "$af_scope" "$3" acknowledge "acknowledge|investigate" high || {
-    af_rc=1
-    printf '%s\n' "$me: attention failure-item write failed for $1" >&2
-  }
+  attention_item "$1" "$2" "$3"
+  af_rc=$?
   /bin/sh "$FA" notify "$3" >/dev/null 2>&1 || :
   return "$af_rc"
+}
+
+# attention_item <worker> <dir> <text> — attention_failure's queue item alone,
+# for a caller retrying one it has already pushed.
+attention_item() {
+  ai_scope=$(read_scope "$2")
+  /bin/sh "$FA" decide "$1" "$ai_scope" "$3" acknowledge "acknowledge|investigate" high && return 0
+  printf '%s\n' "$me: attention failure-item write failed for $1" >&2
+  return 1
 }
 
 # --- the supervisor loop ----------------------------------------------------
@@ -3124,12 +3132,19 @@ steer_scan() {
       exit) ss_why="the worker exited ${ss_age}s ago without taking it" ;;
       *) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
     esac
-    # A report the store refused gives its mark back, so the next scan retries.
-    if ! attention_failure "$ss_w" "$ss_dir" \
-      "steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"; then
+    ss_text="steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"
+    # A report the store refused gives its mark back, so the next scan
+    # retries; it was pushed once already, so the retry only writes the item.
+    if [ -e "$ss_dir/steer-pushed-$ss_id" ]; then
+      attention_item "$ss_w" "$ss_dir" "$ss_text"
+    else
+      attention_failure "$ss_w" "$ss_dir" "$ss_text"
+    fi || {
+      : >"$ss_dir/steer-pushed-$ss_id" 2>/dev/null || :
       rm -f "$ss_dir/steer-lost-$ss_id" 2>/dev/null || :
       continue
-    fi
+    }
+    rm -f "$ss_dir/steer-pushed-$ss_id" 2>/dev/null || :
     printf 'steer-lost %s %s\n' "$ss_w" "$ss_id"
   done <<SSLOST
 $ss_lost

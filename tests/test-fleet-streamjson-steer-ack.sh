@@ -414,7 +414,30 @@ if [ "$(id -u)" != 0 ]; then
     *) fail "a11: a mark that cannot be written must still report: $a11_out" ;;
   esac
 fi
-echo "ok: a11 a refused report is retried, and an unwritable mark still reports"
+# Retries are pushed once: the store refuses the item (its directory is read
+# only) while pushes still land in the existing toast file.
+if [ "$(id -u)" != 0 ]; then
+  home="$tmp/h11b"
+  wdir="$home/streamjson/sja11"
+  mkdir -p "$wdir" "$home/attention"
+  : >"$home/attention/toasts"
+  chmod 555 "$home/attention"
+  printf '1000\n' >"$wdir/replay-since"
+  printf '1100\t12\t%s\t%s\tbusy\n' "$tmp/steer11" "$a11_id" >"$wdir/steers"
+  printf 'exit\t0\t1200\n' >"$wdir/result"
+  printf 'notification_channel: none\n' >"$tmp/a11-core.yml"
+  printf 'notification_channel: editor-toast\n' >"$tmp/a11-pin.yml"
+  for a11_now in 2000 2001 2002; do
+    env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_REPO_ROOT=none \
+      PLANWRIGHT_CONFIG_DEFAULTS="$tmp/a11-core.yml" PLANWRIGHT_LOCAL_CONFIG="$tmp/a11-pin.yml" \
+      /bin/sh "$SJ" alarm-scan --now "$a11_now" >/dev/null 2>&1
+  done
+  chmod 755 "$home/attention"
+  [ ! -e "$wdir/steer-lost-$a11_id" ] || fail "a11: the store never took the report, so its mark must be free"
+  a11_pushes=$(grep -c 'never read' "$home/attention/toasts")
+  [ "$a11_pushes" = 1 ] || fail "a11: three refused scans must push once, pushed $a11_pushes: $(cat "$home/attention/toasts")"
+fi
+echo "ok: a11 a refused report is retried without another push, and an unwritable mark still reports"
 
 # ---------------------------------------------------------------------------
 # a13: the scan's boundaries, on a hand-built runtime: a steer older than the
