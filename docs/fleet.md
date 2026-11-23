@@ -1026,7 +1026,7 @@ an `&&` chain of partners that each pass the guard on their own: a
 (`mise run`, `lefthook run`, `bats`, a repository `tests/` or `scripts/`
 script, a declared check command or command step), so `git commit -m <msg> && git push origin
 <unit branch>` and `mise run check && git push origin <unit branch>` run
-unprompted. A partner joined by `;`, a line break, `||` or `&`, a partner after
+unprompted. A partner joined by `;`, a line break, `||`, `|` or `&`, a partner after
 the act, and any file write, other git act or non-step plugin script in the
 command keep it prompting. `docs/options-reference.md`
 (`worker_self_approval`) has the full conditions.
