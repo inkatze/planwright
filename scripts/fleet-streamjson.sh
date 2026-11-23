@@ -3127,9 +3127,12 @@ steer_scan() {
   ss_lost=$(awk -F'\t' -v acks="$ss_dir/steer-acks" -v since="$ss_since" -v end="$ss_end" \
     -v now="$ss_now" -v grace="$ss_grace" -v how="$ss_kind" '
     BEGIN { while ((getline l < acks) > 0) { split(l, f, "\t"); seen[f[2]] = 1 } }
+    # The third field printed is the record kind that ended past the steer
+    # (result or exit), or idle when the steer is judged on its own age.
     NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && !($4 in seen) {
-      if (end != "" && $1 + 0 <= end + 0 && now - end >= grace + 0) print $4 "\t" $3 "\t" how "\t" now - end
-      else if ($5 == "idle" && now - $1 >= grace + 0) print $4 "\t" $3 "\tidle\t" now - $1
+      ended = end != "" && $1 + 0 <= end + 0
+      if (ended && now - end >= grace + 0) print $4 "\t" $3 "\t" how "\t" now - end
+      else if (!ended && $5 == "idle" && now - $1 >= grace + 0) print $4 "\t" $3 "\tidle\t" now - $1
     }
   ' "$ss_dir/steers" 2>/dev/null) || ss_lost=''
   while IFS="$TAB" read -r ss_id ss_file ss_how ss_age; do

@@ -475,6 +475,17 @@ a13_out=$(a13_scan 1259)
 a13_out=$(a13_scan 1260)
 [ "$a13_out" = "steer-lost sja13 $a13_edge" ] \
   || fail "a13: only the steer at the turn's end is judged, at exactly the grace; got: $a13_out"
+# An idle steer a turn has ended after is judged from that end, not its own age.
+home="$tmp/h13b"
+wdir="$home/streamjson/sja13"
+mkdir -p "$wdir"
+printf '1000\n' >"$wdir/replay-since"
+printf '1100\t1\t%s\t%s\tidle\n' "$tmp/idle" "$a13_edge" >"$wdir/steers"
+printf 'result\tsuccess\t1200\tfalse\n' >"$wdir/result"
+a13_out=$(a13_scan 1170)
+[ -z "$a13_out" ] || fail "a13: an idle steer with a later turn end is judged from that end: $a13_out"
+a13_out=$(a13_scan 1260)
+[ "$a13_out" = "steer-lost sja13 $a13_edge" ] || fail "a13: the idle steer must be judged once the end is old enough; got: $a13_out"
 echo "ok: a13 the replay record, the turn's end and the grace bound what is judged"
 
 # ---------------------------------------------------------------------------
