@@ -280,11 +280,11 @@
 #       nothing. Written is not read: the CLI reads a frame that lands
 #       mid-turn only once the tool call in flight returns or the turn ends,
 #       so steer says on stderr that the message is queued whenever the worker
-#       was not idle. The session's
-#       replay of the frame (the launch passes --replay-user-messages) lands
-#       its uuid in `<dir>/steer-acks`; a steer still unread a grace
-#       (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s) after a turn ended
-#       past it, or after it was sent to an idle worker, is reported once by
+#       was not idle. The session's replay of the frame (the launch passes
+#       --replay-user-messages) lands its uuid in `<dir>/steer-acks`; a steer
+#       still unread a grace (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s)
+#       after a turn ended past it, or after it was sent to an idle worker,
+#       is reported once by
 #       the tick or `alarm-scan` (steer_scan), a high-priority attention item
 #       and push naming the file to re-send; so is any unread steer sent
 #       before one so judged, the session reading frames in order. It is NOT
