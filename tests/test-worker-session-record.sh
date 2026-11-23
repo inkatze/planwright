@@ -371,6 +371,19 @@ else
 fi
 set_layer machine-local ''
 
+git -C "$MAIN" config user.name 'Launch Author'
+git -C "$MAIN" config user.email launch@example.invalid
+write "$WT"
+a1=$(field author)
+git -C "$MAIN" config --unset user.name
+git -C "$MAIN" config --unset user.email
+write "$WT"
+if [ "$a1" = 'Launch Author <launch@example.invalid>' ] && ! grep -q '^author=' "$REC"; then
+  pass "F1.8: the record carries the primary checkout's author identity at launch, and none when it has none"
+else
+  fail "F1.8: author field '$a1', then $(grep '^author=' "$REC")"
+fi
+
 echo "### the worktree's own record, at a path the worktree fixes"
 fixed=$PLANWRIGHT_FLEET_STATE_DIR/session-records/$(printf '%s' "$WT" | git hash-object --stdin).record
 rm -f "$fixed"

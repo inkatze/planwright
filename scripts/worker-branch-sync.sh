@@ -402,35 +402,31 @@ case $verb in
     git reflog show --format=%H "refs/heads/$branch" -- 2>/dev/null | grep -qxF "$lease" \
       || refuse "the lease $lease is a tip $(safe "$branch") never held (its reflog does not record it), so it was read from elsewhere, such as the remote-tracking ref at push time; lease on the tip the rewrite started from"
 
+    # The push goes to the remote of the record's PR base.
     pr_base=$(field pr_base)
     remote=${pr_base%%/*}
-    base_branch=${pr_base#*/}
-    [ -n "$pr_base" ] && [ "$base_branch" != "$pr_base" ] && [ -n "$remote" ] && [ -n "$base_branch" ] \
-      || refuse "the session record names no PR base (<remote>/<branch>), so the commits this push replaces cannot be bounded; refusing"
+    [ -n "$pr_base" ] && [ "$remote" != "$pr_base" ] && [ -n "$remote" ] && [ -n "${pr_base#*/}" ] \
+      || refuse "the session record names no PR base (<remote>/<branch>), so the remote to push to is unknown; refusing"
     case $remote in [A-Za-z0-9]*) ;; *) refuse "the record's PR base names an unreadable remote; refusing" ;; esac
     case $remote in *[!A-Za-z0-9._-]*) refuse "the record's PR base names an unreadable remote; refusing" ;; esac
-    base_ref="refs/remotes/$remote/$base_branch"
-    git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null \
-      || refuse "the PR base $(safe "$pr_base") does not resolve here; fetch it first (git fetch $(safe "$remote") $(safe "$base_branch"))"
 
-    me_name=$(git config --get user.name 2>/dev/null) || me_name=''
-    me_mail=$(git config --get user.email 2>/dev/null) || me_mail=''
-    [ -n "$me_name" ] && [ -n "$me_mail" ] \
-      || refuse "this repository has no configured author identity (user.name and user.email), so whose commits the push replaces cannot be told; refusing"
-    # The replaced commits: on the lease, and on neither the PR base nor the
-    # new head (a commit the rewrite keeps as it is replaces nothing).
-    authors=$(git log --no-show-signature --format="%H$TAB%an$TAB%ae" "$lease" "^$base_ref" "^$head" -- 2>/dev/null) \
+    # The author identity is the one the launch recorded, never the
+    # repository config, which the worker can write.
+    rec_author=$(field author)
+    [ -n "$rec_author" ] \
+      || refuse "the session record names no author identity, so whose commits the push replaces cannot be told; refusing"
+    # The replaced commits are the ones the push drops: on the lease, not on
+    # the new head. No local ref a worker can move bounds them.
+    authors=$(git log --no-show-signature --format="%H$TAB%an <%ae>" "$lease" "^$head" -- 2>/dev/null) \
       || broken "the commits the push replaces could not be listed; nothing was pushed"
     old_ifs=$IFS
     IFS=$NL
     for line in $authors; do
       a_sha=${line%%"$TAB"*}
-      rest=${line#*"$TAB"}
-      a_name=${rest%%"$TAB"*}
-      a_mail=${rest#*"$TAB"}
-      if [ "$a_name" != "$me_name" ] || [ "$a_mail" != "$me_mail" ]; then
+      a_who=${line#*"$TAB"}
+      if [ "$a_who" != "$rec_author" ]; then
         IFS=$old_ifs
-        refuse "commit $a_sha, which this push would replace, is by $(safe "$a_name") <$(safe "$a_mail")>, not this repository's configured author; a rewrite never replaces someone else's commit. Add new commits instead"
+        refuse "commit $a_sha, which this push would replace, is by $(safe "$a_who"), not the author this session's launch recorded; a rewrite never replaces someone else's commit. Add new commits instead"
       fi
     done
     IFS=$old_ifs

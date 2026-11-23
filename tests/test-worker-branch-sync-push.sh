@@ -150,7 +150,26 @@ LEASE=$(g -C "$wt" rev-parse HEAD)
 g -C "$wt" commit -q --allow-empty --amend --no-edit --reset-author
 try "a replaced commit by another author" "$(push_args "$LEASE")" --force-if-includes
 has 'else@example.invalid' "the author refusal names the commit's author"
-pass "F1.8: a rewrite replacing another author's commit is refused"
+# The identity is the launch's, not the repository config the worker can write.
+g -C "$primary" config user.name 'Someone Else'
+g -C "$primary" config user.email else@example.invalid
+try "another author's commit, under a config rewritten to that author" "$(push_args "$LEASE")" --force-if-includes
+has 'else@example.invalid' "the rewritten-config refusal names the commit's author"
+g -C "$primary" config user.name t
+g -C "$primary" config user.email t@example.invalid
+# The replaced set is what the push drops, bounded by no local ref a worker can move.
+base_before=$(g -C "$wt" rev-parse refs/remotes/origin/main)
+g -C "$wt" update-ref refs/remotes/origin/main "$LEASE"
+try "another author's commit, under a PR base moved onto the lease" "$(push_args "$LEASE")" --force-if-includes
+has 'else@example.invalid' "the moved-base refusal names the commit's author"
+g -C "$wt" update-ref refs/remotes/origin/main "$base_before"
+fixed=$(rec_path "$wt")
+grep -v '^author=' "$fixed" >"$tmp/r" && mv "$tmp/r" "$fixed" && chmod 600 "$fixed"
+try "a record naming no author" "$(push_args "$LEASE")" --force-if-includes
+has 'no author' "the no-author refusal says why"
+# shellcheck disable=SC2086
+record "$wt" "$B" $ALLOW
+pass "F1.8: a rewrite replacing another author's commit is refused, whatever the repository config or the local PR base"
 
 # --- the pull request -------------------------------------------------------------------
 

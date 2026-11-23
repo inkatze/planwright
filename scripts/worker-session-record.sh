@@ -30,7 +30,10 @@
 #                      mission-control, which mission-control-launch.sh passes
 #                      for the workers it launches; never read from config,
 #                      the checkout or the environment, omitted otherwise
-#   scratch_root      with --scratch, the worktree's scratch root, a short
+#   author             `<user.name> <<user.email>>` from the primary checkout's
+#                      git config at launch, which the branch-sync push holds
+#                      every replaced commit to (omitted when either is unset)
+#   scratch_root       with --scratch, the worktree's scratch root, a short
 #                      directory outside the fleet home that
 #                      scripts/fleet-scratch.sh places and records, whatever
 #                      the launch id: created owner-only when absent and kept,
@@ -368,6 +371,18 @@ if [ -n "$primary" ]; then
   esac
 fi
 
+# The author identity the branch-sync push compares replaced commits against,
+# read at launch so a later edit of the repository config changes nothing.
+author=''
+if [ -n "$primary" ]; then
+  a_name=$(gitq "$primary" config --get user.name) || a_name=''
+  a_mail=$(gitq "$primary" config --get user.email) || a_mail=''
+  case "$a_name$a_mail" in
+    *[[:cntrl:]]* | *'<'* | *'>'*) ;;
+    *) [ -z "$a_name" ] || [ -z "$a_mail" ] || author="$a_name <$a_mail>" ;;
+  esac
+fi
+
 draft_rewrite=''
 if [ -n "$primary" ]; then
   draft_rewrite=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary /bin/sh "$script_dir/resolve-policy-knob.sh" \
@@ -484,6 +499,7 @@ record_lines() {
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
   [ -z "$draft_rewrite" ] || printf 'draft_rewrite=%s\n' "$draft_rewrite"
   [ -z "$launcher" ] || printf 'launcher=%s\n' "$launcher"
+  [ -z "$author" ] || printf 'author=%s\n' "$author"
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
