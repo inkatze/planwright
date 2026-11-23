@@ -16,7 +16,11 @@ unset CDPATH
 # shellcheck source=tests/lib/committed-fixture.sh
 . "$REPO_ROOT/tests/lib/committed-fixture.sh"
 
-BOX=$(cd "$SANDBOX" && pwd -P)/loaders
+# The box sits outside the harness sandbox, which is itself a checkout: OUTER
+# and the scratch folder must be in none.
+BOX=$(mktemp -d /tmp/worker-command-guard-loaders.XXXXXX) || exit 1
+trap 'rm -rf "$SANDBOX" "$BOX"' EXIT
+BOX=$(cd "$BOX" && pwd -P)
 # OUTER is no checkout, so a config file in it cannot be held to a commit.
 OUTER=$BOX/outer
 R=$OUTER/repo
