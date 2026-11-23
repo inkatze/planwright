@@ -174,10 +174,16 @@ HOOK_ENV=()
 echo "### a script a declaration names is held to what HEAD commits"
 # scripts/ok.sh is committed in the corpus base; tests/run.sh is not.
 printf '#!/bin/sh\n' >"$WT/tests/run.sh"
-LIT='scripts/ok.sh <word>; bash tests/run.sh; bash tests/ok.sh'
+mkdir -p "$WT/tools"
+printf '#!/bin/sh\n' >"$WT/tools/run"
+printf '#!/bin/sh\n' >"$WT/check.sh"
+LIT='scripts/ok.sh <word>; bash tests/run.sh; bash tests/ok.sh; tools/run; bash check.sh; mix test tests'
 under "$(with_checks literal 1 "$LIT")"
 assert_allow "a committed script a declaration names" "scripts/ok.sh lint" Bash "$WT"
 assert_defer "an untracked script a declaration names" "bash tests/run.sh" Bash "$WT"
+assert_defer "an untracked runner outside scripts/ a declaration names" "tools/run" Bash "$WT"
+assert_defer "an untracked script a declaration names by a bare word" "bash check.sh" Bash "$WT"
+assert_allow "a directory a declaration names stays as declared" "mix test tests" Bash "$WT"
 cp "$WT/scripts/ok.sh" "$STATE/ok.orig"
 printf 'printf pwned\n' >>"$WT/scripts/ok.sh"
 assert_defer "a named script edited since HEAD" "scripts/ok.sh lint" Bash "$WT"
@@ -188,7 +194,7 @@ assert_allow "the named script put back" "scripts/ok.sh lint" Bash "$WT"
 under "$(with_checks literal.ob 2 "$LIT")"
 assert_defer "a write beside a committed script a declaration names" "cp f scripts/ok.sh && scripts/ok.sh lint" Bash "$WT"
 assert_allow "the same run with no write beside it" "scripts/ok.sh lint" Bash "$WT"
-rm -f "$WT/tests/run.sh"
+rm -rf "$WT/tests/run.sh" "$WT/tools" "$WT/check.sh"
 HOOK_ENV=()
 
 finish_suite worker-command-guard-checks

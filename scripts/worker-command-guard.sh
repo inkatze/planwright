@@ -6387,26 +6387,29 @@ check_command_ok() {
 }
 
 # check_literals_committed <declaration> <canonical-cwd>: every literal word
-# of the declaration that names an existing file (a word holding a `/`) is
-# held to what HEAD commits, as a declared step's location is
-# (declared_location_ok): the declaration names the file, not its content, and
-# the worker can Write it. A `<path>` placeholder is the declarer's choice of
-# what the runner is given, and stays as declared.
+# of the declaration that names an existing file, from the working directory
+# or by its absolute path, is held to what HEAD commits, as a declared step's
+# location is (declared_location_ok): the declaration names the file, not its
+# content, and the worker can Write it. A bare first word is looked up on PATH,
+# never in the working directory, and a `<path>` placeholder is the declarer's
+# choice of what the runner is given; both stay as declared.
 check_literals_committed() {
   local -a dw=()
-  local w full
+  local w full j=0
   IFS=' ' read -r -a dw <<<"$1"
   for w in "${dw[@]}"; do
+    j=$((j + 1))
     case $w in
       '<'*) continue ;;
       /*) full=$w ;;
       */*) full=$2/$w ;;
-      *) continue ;;
+      *)
+        [ "$j" -gt 1 ] || continue
+        full=$2/$w
+        ;;
     esac
     [ -e "$full" ] || [ -L "$full" ] || continue
-    if [ -d "$full" ] && [ ! -L "$full" ]; then
-      continue
-    fi
+    [ -d "$full" ] && [ ! -L "$full" ] && continue
     declared_location_ok "$full" || return 1
   done
   return 0

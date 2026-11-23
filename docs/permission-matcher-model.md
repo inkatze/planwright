@@ -572,11 +572,13 @@ What still runs code a worker wrote without a prompt:
   `lefthook run <hook>` and a check command the repository declares in
   `worker_check_commands` run config the path denies protect, and whatever
   that config or a check command's `<path>` names, the test files a worker
-  wrote among them: the gate has to run what the worker wrote. A script a
-  declaration names in its literal words (`scripts/check.sh <word>`) is held
-  to HEAD like any repository script, but a declaration whose `<path>` is the
-  script it runs (`bash <path>`) admits any file in the worktree, committed or
-  not, so it is the repository's own choice to make.
+  wrote among them: the gate has to run what the worker wrote. A file a
+  declaration names in its literal words (`scripts/check.sh <word>`, `bash
+  check.sh`) is held to the HEAD of the checkout it lies in, like a declared
+  step's location (a file in no checkout keeps the declaration's trust, and a
+  symlink defers), but a declaration whose `<path>` is the script it runs
+  (`bash <path>`) admits any file in the worktree, committed or not, so it is
+  the repository's own choice to make.
 - **What a committed script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
   globs, any of which a worker may have written or edited. That includes
