@@ -54,9 +54,11 @@ run "$wt" push "$(push_args "$LEASE")" --force-if-includes
 has "^pushed	$B	$LEASE	$NEW" "the push names the branch, the lease and the new head"
 has "^replaced	$LEASE	work $n" "the push names the commit it replaced"
 grep -q -- '--repo github.com/acme/demo' "$GHLOG" || fail "the PR read did not pass the push remote's repository: $(cat "$GHLOG")"
-audit="$tmp/fleet/allow-audit/$(basename "$(rec_path "$wt")" .record).log"
+# The line lands in the session's own log, the one its record_key names.
+audit="$tmp/fleet/allow-audit/session-$(basename "$(rec_path "$wt")" .record).log"
 grep -q "	draft-rewrite-push	$B	$LEASE	$NEW\$" "$audit" 2>/dev/null || fail "no audit line for the push in $audit"
-pass "F1.8: a draft branch's rewrite is pushed on the lease, naming what it replaced, with an audit line"
+[ ! -e "$tmp/fleet/allow-audit/$(basename "$(rec_path "$wt")" .record).log" ] || fail "the push wrote a log named after the worktree's copy, not the session's"
+pass "F1.8: a draft branch's rewrite is pushed on the lease, naming what it replaced, with an audit line in the session's own log"
 
 # --- the record's authority ------------------------------------------------------
 
@@ -66,11 +68,37 @@ try "a record with no draft_rewrite" "$(push_args "$LEASE")" --force-if-includes
 has 'draft_rewrite is not allow' "the knob refusal names it"
 record "$wt" "$B" launcher=mission-control draft_rewrite=deny
 try "draft_rewrite=deny" "$(push_args "$LEASE")" --force-if-includes
+has 'draft_rewrite is not allow' "the deny refusal names the knob"
+record "$wt" "$B" launcher=mission-control draft_rewrite=sometimes
+try "draft_rewrite with a value outside allow and deny" "$(push_args "$LEASE")" --force-if-includes
+has 'draft_rewrite is not allow' "the invalid-value refusal names the knob"
 record "$wt" "$B" launcher=tower draft_rewrite=allow
 try "a record naming another launcher" "$(push_args "$LEASE")" --force-if-includes
 has 'mission control' "the launcher refusal names mission control"
 record "$wt" "$B" draft_rewrite=allow
 try "a record naming no launcher" "$(push_args "$LEASE")" --force-if-includes
+has 'mission control' "the no-launcher refusal names mission control"
+rm -f "$(rec_path "$wt")"
+try "no record at the worktree's own path" "$(push_args "$LEASE")" --force-if-includes
+has 'no session record' "the missing-record refusal says why"
+# shellcheck disable=SC2086
+record "$wt" "$B" $ALLOW
+chmod 000 "$(rec_path "$wt")"
+if [ -r "$(rec_path "$wt")" ]; then
+  chmod 600 "$(rec_path "$wt")"
+else
+  try "an unreadable record" "$(push_args "$LEASE")" --force-if-includes
+  chmod 600 "$(rec_path "$wt")"
+fi
+grep -v '^record_key=' "$(rec_path "$wt")" >"$tmp/r" && mv "$tmp/r" "$(rec_path "$wt")" && chmod 600 "$(rec_path "$wt")"
+try "a record naming no record_key" "$(push_args "$LEASE")" --force-if-includes
+has 'record_key' "the no-record-key refusal says why"
+# shellcheck disable=SC2086
+record "$wt" "$B" $ALLOW
+grep -v '^audit_log_home=' "$(rec_path "$wt")" >"$tmp/r" && printf 'audit_log_home=%s\n' "$tmp/no-such-home" >>"$tmp/r" \
+  && mv "$tmp/r" "$(rec_path "$wt")" && chmod 600 "$(rec_path "$wt")"
+try "an audit-log home that does not exist" "$(push_args "$LEASE")" --force-if-includes
+has 'audit' "the missing audit-home refusal says why"
 # A forged record the environment names never stands in for the worktree's.
 # shellcheck disable=SC2086
 record "$wt" "$B" $ALLOW
@@ -102,13 +130,25 @@ pass "F1.8: a GH_REPO, GH_HOST or planwright config override in the environment 
 # --- the grammar and the lease ------------------------------------------------------
 
 try "no --force-if-includes" "$(push_args "$LEASE")"
+has 'exactly' "the missing-flag refusal names the grammar"
 try "--force-if-includes first" --force-if-includes "$(push_args "$LEASE")"
+has 'first' "the flag-order refusal says the lease comes first"
 try "a remote" "$(push_args "$LEASE")" --force-if-includes origin
+has 'exactly' "the extra-remote refusal names the grammar"
 try "a refspec" "$(push_args "$LEASE")" --force-if-includes "$B:$B"
-try "a + form" "$(push_args "$LEASE")" "+$B"
+has 'exactly' "the extra-refspec refusal names the grammar"
+try "a + form" "$(push_args "$LEASE")" --force-if-includes "+$B"
+has 'exactly' "the + form refusal names the grammar"
 try "--force" --force --force-if-includes
+has 'first' "the --force refusal asks for the lease"
 try "a bare lease" --force-with-lease --force-if-includes
+has 'first' "the bare-lease refusal asks for the branch and the id"
 try "a short lease" "$(push_args "${LEASE%????????????????????????????}")" --force-if-includes
+has 'full commit id' "the short-lease refusal says why"
+try "a lease that is HEAD" "$(push_args "$NEW")" --force-if-includes
+has 'nothing to rewrite' "the lease-is-HEAD refusal says why"
+try "a lease HEAD descends from" "$(push_args "$(g -C "$wt" rev-parse "$LEASE^")")" --force-if-includes
+has 'fast-forward' "the fast-forward-lease refusal says a plain push suffices"
 try "a lease on another branch" "--force-with-lease=planwright/flight/other:$LEASE" --force-if-includes
 has 'checked out' "the other-branch lease refusal says why"
 stranger=$(g -C "$wt" commit-tree -p "$LEASE^" -m "never a tip here" "HEAD^{tree}")
@@ -125,13 +165,16 @@ pass "F1.8: any other grammar, a short, foreign or unrecorded lease, or a missin
 
 printf 'dirty\n' >"$wt/untracked.txt"
 try "a dirty tree" "$(push_args "$LEASE")" --force-if-includes
+has 'not clean' "the dirty-tree refusal says why"
 rm -f "$wt/untracked.txt"
 twin="$tmp/wt-twin"
 g -C "$primary" worktree add -q --force "$twin" "$B"
 try "a branch another worktree holds" "$(push_args "$LEASE")" --force-if-includes
+has 'another worktree' "the shared-branch refusal names the other worktree"
 g -C "$primary" worktree remove --force "$twin"
 g -C "$wt" switch -q -c planwright/flight/unrecorded
 try "an unrecorded branch" "--force-with-lease=planwright/flight/unrecorded:$LEASE" --force-if-includes
+has 'names the unit branch' "the unrecorded-branch refusal names the recorded branch"
 g -C "$wt" switch -q "$B"
 pd="$tmp/wt-prot"
 worktree "$pd" planwright/flight/prot
@@ -175,20 +218,27 @@ pass "F1.8: a rewrite replacing another author's commit is refused, whatever the
 
 g -C "$wt" reset -q --hard "origin/$B"
 rewrite
-for c in "[]:no PR" \
-  "[{\"number\":7,\"isDraft\":false,\"headRefName\":\"$B\",\"isCrossRepository\":false}]:a ready PR" \
-  "[{\"number\":7,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":false},{\"number\":8,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":false}]:two PRs" \
-  "[{\"number\":7,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":true}]:a cross-repository PR" \
-  "[{\"number\":7,\"headRefName\":\"$B\",\"isCrossRepository\":false}]:a PR with no draft state" \
-  "not json:an unreadable answer"; do
-  STUB_HEADS=${c%:*} try "${c##*:}" "$(push_args "$LEASE")" --force-if-includes
+# Each case is <gh answer>|<label>|<the reason the refusal must give>.
+for c in "[]|no PR|heads no open pull request" \
+  "[{\"number\":7,\"isDraft\":false,\"headRefName\":\"$B\",\"isCrossRepository\":false}]|a ready PR|ready for review" \
+  "[{\"number\":7,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":false},{\"number\":8,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":false}]|two PRs|more than one" \
+  "[{\"number\":7,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":true}]|a cross-repository PR|another repository" \
+  "[{\"number\":7,\"headRefName\":\"$B\",\"isCrossRepository\":false}]|a PR with no draft state|could not be read" \
+  "not json|an unreadable answer|could not be read"; do
+  label=${c#*|}
+  label=${label%|*}
+  STUB_HEADS=${c%%|*} try "$label" "$(push_args "$LEASE")" --force-if-includes
+  has "${c##*|}" "the refusal for $label says why"
 done
 STUB_BASES='[{"number":9}]' try "a PR based on the branch" "$(push_args "$LEASE")" --force-if-includes
 has 'as its base' "the stacked-PR refusal says why"
 STUB_BASES='{' try "an unreadable base answer" "$(push_args "$LEASE")" --force-if-includes
+has 'could not be read' "the unreadable-base refusal says why"
 STUB_GH_FAIL=1 try "a failed host read" "$(push_args "$LEASE")" --force-if-includes
+has 'could not list' "the failed-read refusal says why"
 g -C "$primary" remote set-url origin "$origin"
 try "a push remote naming no GitHub repository" "$(push_args "$LEASE")" --force-if-includes
+has 'names no repository' "the non-GitHub-remote refusal says why"
 g -C "$primary" remote set-url origin "$URL"
 pass "F1.8: no PR, a ready, cross-repository or doubled PR, a stacked PR, or an unreadable host answer is refused"
 

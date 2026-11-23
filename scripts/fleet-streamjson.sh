@@ -228,7 +228,7 @@
 #       guard (docs/permission-matcher-model.md, "The spec-branch launch
 #       record"). --launcher mission-control (worker profile only, recorded
 #       for a recover) names mission control as the launcher in the session
-#       record, which the draft-branch rewrite needs (human-gates REQ-F1.6).
+#       record, which the draft-branch rewrite needs.
 #       --tier-key and --tier-unit record the
 #       allocation key and unit the caller resolved the tier in the extra
 #       args at, for `relaunch` to re-resolve it; --tier-model, --tier-effort and

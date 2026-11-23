@@ -161,17 +161,19 @@ case $rec in /?*) ;; *) refuse "the worktree's session record path is not absolu
   || refuse "the session record is writable by other users; refusing it"
 rec_dir=$(cd "${rec%/*}/" 2>/dev/null && pwd -P) || refuse "the session record's directory could not be entered"
 case "$rec_dir/" in "$top"/*) refuse "the session record's directory resolves inside the worktree, where the worker could write it; refusing it" ;; esac
-size=$(wc -c <"$rec" 2>/dev/null | tr -d ' ') || size=''
-[ -n "$size" ] && [ "$size" -le 4096 ] 2>/dev/null || refuse "the session record is unreadable or oversized; refusing it"
+# Read once: every field below comes from this one copy, so a record
+# replaced while the helper runs never yields a mixed view.
+rec_body=$(cat -- "$rec" 2>/dev/null) || refuse "the session record is unreadable; refusing it"
+[ -n "$rec_body" ] && [ "${#rec_body}" -le 4096 ] || refuse "the session record is empty or oversized; refusing it"
 # Every line is key=value with a lowercase key, and no key appears twice.
-awk '
+printf '%s\n' "$rec_body" | awk '
   !/^[a-z_]+=/ { bad = 1 }
   { k = $0; sub(/=.*/, "", k); if (seen[k]++) bad = 1 }
-  END { exit bad }' "$rec" 2>/dev/null \
-  || refuse "the session record is unreadable or malformed (a line that is not key=value, or a key given twice); refusing it"
+  END { exit bad }' 2>/dev/null \
+  || refuse "the session record is malformed (a line that is not key=value, or a key given twice); refusing it"
 # field <key> — the value of the one <key>= line, or nothing when there is none.
 field() {
-  awk -v k="$1=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }' "$rec"
+  printf '%s\n' "$rec_body" | awk -v k="$1=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }'
 }
 rec_branch=$(field unit_branch)
 rec_top=$(field worktree_root)
@@ -183,7 +185,8 @@ rec_top_p=$(cd "$rec_top" 2>/dev/null && pwd -P) || rec_top_p=$rec_top
 [ "$rec_branch" = "$branch" ] \
   || refuse "this worktree's record names the unit branch $(safe "$rec_branch"), and $(safe "$branch") is checked out; check out your own unit branch"
 
-# The push re-reads its authority here, as its own last line (REQ-G1.14).
+# The push re-reads its authority here, as its own last line: the policy
+# guard's admission is never taken as the grant.
 if [ "$verb" = push ]; then
   [ "$(field launcher)" = mission-control ] \
     || refuse "the session record does not name mission control as this worker's launcher, so no draft-branch rewrite is published; add new commits instead"
@@ -448,8 +451,12 @@ case $verb in
       && [ -n "$(find "$audit_home" -prune -user "$(id -u)" -print 2>/dev/null)" ] \
       || refuse "the session's audit-log home is not this user's own writable directory, so the push would leave no audit line; refusing"
     case "$(cd "$audit_home" 2>/dev/null && pwd -P)/" in "$top"/*) refuse "the audit-log home lies inside the worktree; refusing" ;; esac
-    audit_key=${rec##*/}
-    audit_key=${audit_key%.record}
+    # The session's own log, the one its command guard appends to, which the
+    # launch names in every copy of its record.
+    audit_key=$(field record_key)
+    case $audit_key in
+      '' | .* | *[!A-Za-z0-9._-]*) refuse "the session record names no usable record_key, so the session's audit log is unknown and the push would leave no audit line; refusing" ;;
+    esac
     audit_log=$audit_home/$audit_key.log
     if [ -e "$audit_log" ] || [ -L "$audit_log" ]; then
       [ -f "$audit_log" ] && [ ! -L "$audit_log" ] && [ -n "$(find "$audit_log" -prune -user "$(id -u)" -print 2>/dev/null)" ] \
@@ -486,13 +493,18 @@ case $verb in
       *) refuse "an open pull request takes $(safe "$branch") as its base, so rewriting it would rewrite that PR's base; refusing" ;;
     esac
 
+    # The vetted tip itself is pushed, so a branch that moved after the checks
+    # publishes nothing they did not see. Hooks write to stderr, kept apart
+    # from the porcelain on stdout that the rejection is read from.
+    errf=$(mktemp "${TMPDIR:-/tmp}/worker-branch-sync.XXXXXX") || broken "a scratch file for the push's messages could not be made; nothing was pushed"
+    prc=0
     out=$(hook_git push --porcelain --force-with-lease="refs/heads/$branch:$lease" --force-if-includes \
-      "$remote" "refs/heads/$branch:refs/heads/$branch" 2>&1 </dev/null)
-    prc=$?
+      "$remote" "$head:refs/heads/$branch" 2>"$errf" </dev/null) || prc=$?
+    tr -d '\000-\010\013-\037\177' <"$errf" >&2
+    rm -f -- "$errf"
     if [ "$prc" != 0 ]; then
       printf '%s\n' "$out" | tr -d '\000-\010\013-\037\177' >&2
-      # Read only git's own porcelain status line for the ref, never hook text.
-      if printf '%s\n' "$out" | grep -q "^!${TAB}refs/heads/$branch:refs/heads/$branch${TAB}\\[rejected\\]"; then
+      if printf '%s\n' "$out" | grep -q "^!${TAB}[^${TAB}]*:refs/heads/$branch${TAB}\\[rejected\\]"; then
         refuse "$(safe "$remote")/$(safe "$branch") moved past the lease $lease, so someone else pushed to it: treat the branch as shared from now on, and never retry with another lease or a broader force"
       fi
       broken "git push failed (exit $prc)"

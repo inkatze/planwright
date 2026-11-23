@@ -986,7 +986,7 @@ messaging_heal_cadence_seconds: 300
 #                               PR is a draft: deny or allow. Read once, at
 #                               launch, into the session record, from the
 #                               core, adopter, and machine-local layers only.
-# converge_sync_main           whether the convergence sync merges origin/main
+# converge_sync_main            whether the convergence sync merges origin/main
 #                               every time (always) or only on a need
 #                               (on-need): a conflict with it, a need the
 #                               caller records, or ready_guard_behind_base of

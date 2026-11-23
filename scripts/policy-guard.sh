@@ -1426,7 +1426,7 @@ refresh_upstream() {
 # check_unpushed <dir> <what> <range> [<base>] — after refresh_upstream. The
 # range's knob is unpushed_rewrite while no remote-tracking ref contains a
 # commit of it, and draft_rewrite, read from the worktree's launch record,
-# once one does (human-gates REQ-F1.6). <base> is a rebase's upstream as
+# once one does. <base> is a rebase's upstream as
 # written, or --root or --onto for those forms; empty for an amend, squash,
 # or fixup. UNPUSHED_OK is unpushed_rewrite's value, set by the caller.
 UNPUSHED_OK=0
@@ -1476,15 +1476,17 @@ draft_record_ok() {
   case "${pdir%/}/" in "${ptop%/}"/*) return 1 ;; esac
   size=$(wc -c <"$p" 2>/dev/null) || return 1
   [ "${size// /}" -le 4096 ] 2>/dev/null || return 1
+  # As strict as the helper's read: every line key=value, no key twice.
   while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ ^[a-z_]+= ]] || return 1
     k=${line%%=*}
     v=${line#*=}
+    case $seen in *" $k "*) return 1 ;; esac
+    seen="$seen$k "
     case $k in
       launcher | draft_rewrite | unit_branch | worktree_root | pr_base) ;;
       *) continue ;;
     esac
-    case $seen in *" $k "*) return 1 ;; esac
-    seen="$seen$k "
     case $k in
       launcher) lnch=$v ;;
       draft_rewrite) drw=$v ;;
@@ -3744,13 +3746,13 @@ classify_gh_api() {
   return 0
 }
 
-# queue_protected <eff> <eff_ok> <what> <branch...>
 # worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
 # unit branch on the remote.
 worker_delete_deny() {
   printf '%s' "$1 deletes $(sanitize_printable "$2" 'a unit branch') on the remote; a worker never deletes a unit branch, its own included, since deleting and pushing it again would publish a rewrite with no lease - refusing. Add new commits, or publish a rewrite of your own draft branch through scripts/worker-branch-sync.sh push."
 }
 
+# queue_protected <eff> <eff_ok> <what> <branch...>
 queue_protected() {
   local eff=$1 eff_ok=$2 what=$3 b
   shift 3
@@ -4965,7 +4967,7 @@ classify_git_push() {
     k=$((k + 1))
   done
   if [ "$force" = 1 ]; then
-    deny_now 'this git push forces; a force-push is never performed by a worker, and by the tower only on an explicit operator request through its own path. Push new commits instead.'
+    deny_now 'this git push forces, and a raw force-push is refused at every tier. Push new commits instead; a worker whose launch record allows a draft-branch rewrite publishes it through scripts/worker-branch-sync.sh push, and any other force-push is the tower'"'"'s, on the operator'"'"'s explicit request.'
     return 0
   fi
   if [ "$bulk" = 1 ]; then
@@ -5006,7 +5008,7 @@ classify_git_push() {
   done
   # Deleting a unit branch on the remote, and pushing it again, would publish
   # a rewrite with no lease: refused to the worker tier whatever the branch's
-  # state (human-gates REQ-F1.8, REQ-G1.14).
+  # state.
   if [ "$TIER" = worker ]; then
     local t
     for r in ${refs[@]+"${refs[@]}"}; do
@@ -7683,8 +7685,8 @@ EOF
 }
 
 # sync_record_set <text> — 0 when a worker's command sets, exports, reads into
-# or clears the session-record variable: the record is the launcher's, and the
-# helper trusts the one the session started with.
+# or clears the session-record variable: the record is the launcher's, and this
+# guard's unit and sync checks read the one the session started with.
 SYNC_REC=PLANWRIGHT_WORKER_SESSION_RECORD
 SYNC_SETTERS=' export declare typeset readonly local read unset readarray mapfile getopts env printf '
 sync_record_set() {
@@ -7779,7 +7781,7 @@ branch_sync_check() {
 
   on_unit_branch "$eff" 'this run of scripts/worker-branch-sync.sh'
   record_usable "$UNIT_TOP" \
-    || emit_deny "scripts/worker-branch-sync.sh runs only for a dispatched worker whose launch-written session record (PLANWRIGHT_WORKER_SESSION_RECORD, this user's own file outside the worktree) names its worktree and unit branch, and this session has no usable one - refusing. Leave the sync to the operator and name it in your handoff."
+    || emit_deny "scripts/worker-branch-sync.sh runs only for a dispatched worker whose launch-written session record (the one PLANWRIGHT_WORKER_SESSION_RECORD names to this guard, this user's own file outside the worktree) names its worktree and unit branch, and this session has no usable one - refusing. Leave the sync to the operator and name it in your handoff."
   record_field unit_branch && [ "$RF" = "$UNIT_BRANCH" ] \
     || emit_deny "this session's record does not name $(sanitize_printable "$UNIT_BRANCH" 'the unit branch') as its one unit branch, so scripts/worker-branch-sync.sh is refused here."
   record_field worktree_root \
@@ -7868,7 +7870,7 @@ handle_bash() {
     esac
   else
     [ "$TIER" != worker ] || ! sync_record_set "$cmd" \
-      || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which scripts/worker-branch-sync.sh trusts - refusing. Run commands under the record the session started with.'
+      || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which this guard reads its unit and sync checks from - refusing. Run commands under the record the session started with.'
   fi
   if [ "${#cmd}" -le "$MAX_CMD_LEN" ] && branch_sync_run "$cmd"; then
     branch_sync_check "$cmd"

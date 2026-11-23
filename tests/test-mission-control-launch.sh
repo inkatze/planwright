@@ -135,7 +135,9 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   lmark=$(cat "$fleet/streamjson/$name/launcher" 2>/dev/null) || lmark=''
   case $prof:$lmark in
     worker:mission-control)
-      if grep -lqx 'launcher=mission-control' "$fleet"/session-records/*.record 2>/dev/null; then
+      # The session's own record: <worktree hash>-<handle hash>.record.
+      nh=$(printf '%s' "$name" | git hash-object --stdin)
+      if grep -lqx 'launcher=mission-control' "$fleet"/session-records/*-"$nh".record 2>/dev/null; then
         ok "[$kind] the session record names mission control as the launcher, kept for a recover"
       else
         fail "[$kind] no session record names mission control as the launcher"

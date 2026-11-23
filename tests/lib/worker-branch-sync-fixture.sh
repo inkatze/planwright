@@ -130,6 +130,7 @@ record() {
     printf 'policy=own-branch\nunit_branch=%s\nworktree_root=%s\npr_base=origin/main\n' "$b" "$w"
     printf 'audit_log_home=%s\n' "$PLANWRIGHT_FLEET_STATE_DIR/allow-audit"
     printf 'author=t <t@example.invalid>\n'
+    printf 'record_key=session-%s\n' "$(basename "$f" .record)"
     [ "$#" = 0 ] || printf '%s\n' "$@"
   } >"$f"
   chmod 600 "$f"

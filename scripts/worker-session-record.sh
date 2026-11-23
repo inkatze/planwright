@@ -33,6 +33,8 @@
 #   author             `<user.name> <<user.email>>` from the primary checkout's
 #                      git config at launch, which the branch-sync push holds
 #                      every replaced commit to (omitted when either is unset)
+#   record_key         the record's own file name less `.record`, which names
+#                      the session's audit log in every copy of the record
 #   scratch_root       with --scratch, the worktree's scratch root, a short
 #                      directory outside the fleet home that
 #                      scripts/fleet-scratch.sh places and records, whatever
@@ -510,7 +512,12 @@ record_lines() {
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
     stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;
   esac
+  printf 'record_key=%s\n' "$key"
 }
+# An earlier launch's copy at the worktree's own path goes first, so a write
+# that fails part way leaves no stale authority behind.
+fixed=$dir/$wt_key.record
+rm -f -- "$fixed"
 tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
 record_lines >"$tmp" || {
   rm -f -- "$tmp"
@@ -528,21 +535,20 @@ if [ -n "$check_commands" ] && { [ -z "$size" ] || [ "$size" -gt "$MAX_RECORD_SI
     die "cannot write the record"
   }
 fi
-fixed=$dir/$wt_key.record
+mv -f -- "$tmp" "$rec" || {
+  rm -f -- "$tmp" "$fixed"
+  die "cannot write the record"
+}
+# The worktree's own copy lands last, so it never names a launch whose own
+# record is missing; any failure leaves no copy rather than an older one.
 if [ "$rec" != "$fixed" ]; then
-  # The worktree's own copy lands first: a record the launcher hands the
-  # worker never names a launch whose copy is missing.
   ftmp=$(mktemp "$dir/.$wt_key.XXXXXX") || {
-    rm -f -- "$tmp"
+    rm -f -- "$fixed"
     die "cannot write the worktree's record"
   }
-  if ! cp -- "$tmp" "$ftmp" || ! mv -f -- "$ftmp" "$fixed"; then
-    rm -f -- "$tmp" "$ftmp"
+  if ! cp -- "$rec" "$ftmp" || ! mv -f -- "$ftmp" "$fixed"; then
+    rm -f -- "$ftmp" "$fixed"
     die "cannot write the worktree's record"
   fi
 fi
-mv -f -- "$tmp" "$rec" || {
-  rm -f -- "$tmp"
-  die "cannot write the record"
-}
 printf '%s\n' "$rec"

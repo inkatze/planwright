@@ -137,6 +137,24 @@ expect deny "[worker] allow: a protected_branches entry denies"
 set_knobs 'unpushed_rewrite: allow'
 no_gh_calls
 
+echo "# main, master, and a spec branch, even with an allowing record naming them"
+for br in main master planwright/demo/spec; do
+  d="$SANDBOX/wt-$(printf '%s' "$br" | tr / -)"
+  case $br in
+    master) gitq -C "$PRIM" branch master origin/main ;;
+  esac
+  gitq -C "$PRIM" worktree add --force "$d" "$br"
+  d=$(cd "$d" && pwd -P)
+  f="$FLEET/session-records/$(printf '%s' "$d" | git hash-object --stdin).record"
+  printf 'unit_branch=%s\nworktree_root=%s\npr_base=origin/main\nlauncher=mission-control\ndraft_rewrite=allow\n' "$br" "$d" >"$f"
+  chmod 600 "$f"
+  pg worker 'git rebase origin/main' "$d" "$d"
+  expect deny "[worker] allow: a rebase on $br denies"
+  pg worker 'git commit --amend --no-edit' "$d" "$d"
+  expect deny "[worker] allow: an amend on $br denies"
+done
+no_gh_calls
+
 echo "# the record's authority: launcher, branch, worktree, path"
 for bad in launcher=tower ''; do
   if [ -n "$bad" ]; then record "$bad" draft_rewrite=allow; else record draft_rewrite=allow; fi
