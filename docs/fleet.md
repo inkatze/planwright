@@ -1024,7 +1024,7 @@ own open pull request, and an `export` of its step context. An act may close
 an `&&` chain of partners that each pass the guard on their own: a
 `git add` or `git commit` the `own-branch` arm approves, and a gate task
 (`mise run`, `lefthook run`, `bats`, a repository `tests/` or `scripts/`
-script, a declared command step), so `git commit -m <msg> && git push origin
+script, a declared check command or command step), so `git commit -m <msg> && git push origin
 <unit branch>` and `mise run check && git push origin <unit branch>` run
 unprompted. A partner joined by `;`, a line break, `||` or `&`, a partner after
 the act, and any file write, other git act or non-step plugin script in the
