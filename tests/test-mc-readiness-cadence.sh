@@ -184,9 +184,17 @@ if [ -f "$own_done" ] && printf '%s' "$(cat "$own_done")" >"$own_done.new" && mv
 else
   fail "fixture: the own completion record without its final newline"
 fi
-# A completion git cannot place keeps the point stale.
+# A completion git cannot place keeps the point stale. write refuses a head
+# naming no commit, so the records are written at a real head and then
+# repointed, as records outliving their commit would read.
 rm -rf "$tmp/feature-wt/.claude/steps"
-post_pr_at "$H"
+post_pr_at "$prev"
+for rec in "$tmp/feature-wt/.claude/steps"/*/*.rec; do
+  if ! { awk -v FROM="$prev" -v TO="$H" 'BEGIN { FS = OFS = "\t" } ($1 == "head" || $1 == "end-head") && $2 == FROM { $2 = TO } { print }' \
+    "$rec" >"$rec.new" && mv "$rec.new" "$rec"; }; then
+    fail "fixture: repointing $rec"
+  fi
+done
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"
 c=$(cat "$tmp/collected" 2>/dev/null)
 has "a post-pr completion on a commit the worktree lacks stays stale" "cadence${tab}gap${tab}post-pr${tab}stale${tab}$H"
