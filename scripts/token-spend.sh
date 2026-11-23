@@ -29,8 +29,9 @@ help_text() {
   cat <<'EOF'
 token-spend.sh: where a host's Claude tokens go.
 
-rows    Prints one tab-separated line per assistant message and at most one
-        per transcript file, reading each file alone (grep, then jq) so a
+rows    Prints one tab-separated line per assistant message, at most one s
+        line per transcript file and, with --asks, one a line per use of a
+        tool that reaches the operator, reading each file alone (grep, then jq) so a
         sweep never holds more than one transcript. With no files it walks
         every *.jsonl under $CLAUDE_CONFIG_DIR/projects (default
         ~/.claude/projects), sub-agent transcripts included; --since (walk
@@ -156,10 +157,23 @@ rows_of() {
     grep -F -e '"type":"assistant"' -- "$rf" | jq -Rr "fromjson? | $ROWS_JQ" 2>/dev/null
   fi
   grep -m 8 -F -e '"type":"user"' -- "$rf" | jq -Rr "$PROMPT_JQ" 2>/dev/null | head -n 1
-  if [ "$asks" -eq 1 ]; then
-    grep -F -e '"name":"AskUserQuestion"' -e '"name":"PushNotification"' -- "$rf" | jq -Rr "$ASKS_JQ" 2>/dev/null
+  [ "$asks" -eq 1 ] || return 0
+  hits=$(grep -F -e '"name":"AskUserQuestion"' -e '"name":"PushNotification"' -- "$rf")
+  case $? in
+    0) ;;
+    1) return 0 ;;
+    *)
+      printf '%s: unreadable, skipped: %s\n' "$prog" "$(clean "$rf")" >&2
+      skipped=1
+      return 0
+      ;;
+  esac
+  if out=$(printf '%s\n' "$hits" | jq -Rr "$ASKS_JQ" 2>/dev/null); then
+    [ -z "$out" ] || printf '%s\n' "$out"
+  else
+    printf '%s: tool uses unparsed, skipped: %s\n' "$prog" "$(clean "$rf")" >&2
+    skipped=1
   fi
-  return 0
 }
 
 cmd_rows() {

@@ -11,10 +11,12 @@ Recorded numbers are machine-local data and never enter the repository.
 
 Record a baseline on the machine the control plane will run on, before the
 first slice's code is wired or enabled there (the stall watcher hook and the
-dedupe gate). Record it again over the same length of window at each slice's
-design walk, so the walk reads the measured change against the baseline. A
-window of 14 whole days is a sensible default; a shorter one is noisy and a
-longer one blurs a change.
+dedupe gate). After a slice lands, record again over a window of the same
+length that starts after the landing (for slice one, after its shadow window
+and again after its first class moves to enforce); that recording is the
+slice's measured change, and the next slice's design walk reads it against
+the baseline. A window of 14 whole days is a sensible default; a shorter one
+is noisy and a longer one blurs a change.
 
 ## How to record
 
@@ -26,9 +28,9 @@ scripts/control-plane-baseline.sh record --since <YYYY-MM-DD> --until <YYYY-MM-D
 Pass every repository the program merges into. The script reads this host's
 Claude Code transcripts and asks the forge (`gh`) for each repository's merged
 pull requests, then writes one file per window under the fleet home:
-`<fleet-home>/control-plane/baseline/<since>--<until>.tsv`. It refuses a
-location inside a git work tree. `--help` prints the file's format and the
-exit codes.
+`<fleet-home>/control-plane/baseline/<since>--<until>.tsv`, readable by its
+owner only. It refuses a location inside a git work tree. `--help` prints the
+file's format and the exit codes.
 
 Days are whole UTC days, `--since` to `--until` inclusive. Record only
 windows that have ended: a window that includes today undercounts it.
@@ -64,7 +66,7 @@ slice starts.
 
 | Slice | What it builds | The number it moves |
 | --- | --- | --- |
-| One | The approval engine, the event dedupe gate, the request ledger | Mission control's model turns per day. While the approval classes are in shadow they answer nothing, so the shadow-period number is the share of prompts the engine would have answered with no mismatch; the turn change is read at the first class's move to enforce, and the dedupe gate's drops and wakes at its landing. |
+| One | The approval engine, the event dedupe gate, the request ledger | Mission control's model turns per day. While the approval classes are in shadow they answer nothing, so the shadow-period number is the share of prompts the engine would have answered with no mismatch; the change in turns and in operator interruptions is read at the first class's move to enforce, and the dedupe gate's drops and wakes at its landing. |
 | Two | The queue and the dispatcher | Merges per day, with the work-in-progress limit and landing order held by code. |
 | Three | The reconciler | Operator interruptions per day, as syncs, check hygiene, flips and evidence stop reaching the operator. |
 | Four | Briefs from state and a thin hub | Mission control's share of the spend. |

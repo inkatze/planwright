@@ -1,3 +1,5 @@
 {"type":"user","sessionId":"s-wk","message":{"role":"user","content":"<command-name>/planwright:execute-task</command-name> 1 demo <!-- mc-rules begin -->RULES<!-- mc-rules end -->"}}
-{"type":"assistant","timestamp":"2026-11-01T05:00:00.000Z","sessionId":"s-wk","message":{"id":"w1","model":"m1","usage":{"input_tokens":4,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}
-{"type":"assistant","timestamp":"2026-11-02T05:00:00.000Z","sessionId":"s-wk","message":{"id":"w2","model":"m1","usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}
+{"type":"assistant","timestamp":"2026-11-01T04:00:00.000Z","sessionId":"s-wk","message":{"id":"z1","model":"m1","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}
+{"type":"assistant","timestamp":"2026-11-01T05:00:00.000Z","sessionId":"s-wk","message":{"id":"w1","model":"m1","usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":10,"output_tokens":1}}}
+{"type":"assistant","timestamp":"2026-11-02T05:00:00.000Z","sessionId":"s-wk","message":{"id":"w2","model":"m1","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}
+{"type":"assistant","timestamp":"2026-11-02T05:00:00.500Z","sessionId":"s-wk","message":{"id":"w2","model":"m1","usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}

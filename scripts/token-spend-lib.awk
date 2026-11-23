@@ -1,6 +1,6 @@
-# token-spend-lib.awk: what token-spend-report.awk, token-spend-total.awk and
-# control-plane-baseline.awk share, loaded first with `awk -f token-spend-lib.awk -f <stage>.awk`. The
-# first input is the price table, the rest token-spend.sh rows. Portable awk.
+# token-spend-lib.awk: what the stages loaded after it share, loaded first
+# with `awk -f token-spend-lib.awk -f <stage>.awk`. The first input is the
+# price table, the rest token-spend.sh rows. Portable awk.
 
 # epoch(<ISO-8601 UTC>): seconds since 1970 by the days-from-civil formula;
 # 0 for anything else, which callers treat as no timestamp.

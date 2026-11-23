@@ -16,7 +16,7 @@ unset CDPATH
 
 prog=control-plane-baseline
 here=$(cd "$(dirname "$0")" && pwd) || exit 2
-# Fixture numbers made up for the tests, never recorded from a host.
+# Exempt from check-committed: its numbers are made up for the tests.
 fixture_dir=tests/fixtures/control-plane-baseline
 
 usage() {
@@ -38,11 +38,12 @@ record   Reads every transcript under $CLAUDE_CONFIG_DIR/projects (default
          ~/.claude/projects) written since the window opened, through
          `token-spend.sh rows --asks`, and each --repo's pull requests merged
          in the window, through `gh pr list`; computes the baseline (compute,
-         below) and writes it to
+         below) and writes it, owner-only, to
            <fleet-home>/control-plane/baseline/<since>--<until>.tsv
-         replacing an earlier recording of the same window, then prints
-         `recorded<TAB><path>`. The fleet home is scripts/fleet-state.sh
-         root's. A location inside a git work tree is refused, so a
+         replacing an earlier recording of the same window (the last run to
+         finish wins), then prints `recorded<TAB><path>`. The fleet home is
+         scripts/fleet-state.sh root's and must be an absolute path. A
+         location with a .git entry in it or above it is refused, so a
          recording never lands where it could be committed.
 compute  Prints the baseline of a rows file holding token-spend.sh rows
          (m, s and a lines) and merge lines (g <repo> <number> <merged-at>).
@@ -58,27 +59,30 @@ compute  Prints the baseline of a rows file holding token-spend.sh rows
            summary spend-share <role> <usd> <percent>
            summary merges-per-day <n>
            summary interruptions-per-day <asked> <pushed>
-         A turn is a message with usage, each message id once (as
-         token-spend-total.awk counts); main or sub is the transcript's chain.
-         The role is the session's kind from its first prompt
-         (token-spend-lib.awk's session_kind); a session with no prompt line
-         is `unknown`. Asked counts AskUserQuestion uses and pushed
-         PushNotification uses, each tool-use id once. A merge counts once per
-         repository and number, on its merged-at day. Dollars use --prices
-         (default config/token-prices.tsv); a model missing from it is priced
-         at zero and named on stderr.
+         The rows are sorted before they are read, so where a message, a
+         session's prompt line or a tool use appears in more than one
+         transcript the same copy counts on every run. A turn is a message
+         with usage, each message id once (as token-spend-total.awk counts);
+         main or sub is the transcript's chain. The role is the session's kind
+         from its first prompt (token-spend-lib.awk's session_kind); a session
+         with no prompt line is `unknown`. Asked counts AskUserQuestion uses and
+         pushed PushNotification uses, each tool-use id once and a use with no
+         id on every line. A merge counts once per repository and number, on
+         its merged-at day. Dollars use --prices (default
+         config/token-prices.tsv); a model missing from it is priced at zero
+         and named on stderr.
 check-committed
          Fails when a file git tracks under --repo-root (default the
-         enclosing work tree's top level), its working-tree copy included,
-         holds a recorded figure: the format line above, or a turns, spend,
-         interruptions, merges or summary row. The fixture set under
-         tests/fixtures/control-plane-baseline/ is exempt.
+         enclosing work tree's top level), in its committed (HEAD) or its
+         working-tree copy, holds a recorded figure: the format line above,
+         or a turns, spend, interruptions, merges or summary row. The fixture
+         set under tests/fixtures/control-plane-baseline/ is exempt.
 
 Exit: 0 done (check-committed: no figure found); 1 a transcript or forge read
       failed, a forge read hit its limit, or check-committed found a figure,
-      each named on stderr; 2 usage, a missing tool, an unreadable rows file
-      or price table, an unresolved or refused location, or a --repo-root
-      that is not a git work tree.
+      each named on stderr; 2 usage, a missing tool, an unreadable rows file,
+      an unreadable or malformed price table, an unresolved or refused
+      location, or a --repo-root that is not a git work tree.
 EOF
 }
 
@@ -90,7 +94,11 @@ die() {
 clean() { printf '%s' "$1" | tr -d '\000-\010\013-\037\177'; }
 
 scratch=""
-cleanup() { [ -z "$scratch" ] || rm -rf "$scratch"; }
+part=""
+cleanup() {
+  [ -z "$scratch" ] || rm -rf "$scratch"
+  [ -z "$part" ] || rm -f -- "$part"
+}
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -98,13 +106,38 @@ scratch_dir() {
   [ -n "$scratch" ] || scratch=$(mktemp -d "${TMPDIR:-/tmp}/$prog.XXXXXX") || die 2 "mktemp failed"
 }
 
+# awk reads an operand shaped name=value as an assignment, not a file.
+awk_operand() {
+  case $1 in
+    /*) printf '%s' "$1" ;;
+    *) printf './%s' "$1" ;;
+  esac
+}
+
 valid_day() {
   case $1 in
-    [0-9][0-9][0-9][0-9]-0[1-9]-[0-2][0-9] | [0-9][0-9][0-9][0-9]-0[1-9]-3[01]) ;;
-    [0-9][0-9][0-9][0-9]-1[0-2]-[0-2][0-9] | [0-9][0-9][0-9][0-9]-1[0-2]-3[01]) ;;
+    [1-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]) ;;
     *) return 1 ;;
   esac
-  case $1 in *-00) return 1 ;; esac
+  vy=${1%%-*}
+  vm=${1#*-}
+  vm=${vm%-*}
+  vm=${vm#0}
+  vd=${1##*-}
+  vd=${vd#0}
+  [ "$vm" -ge 1 ] && [ "$vm" -le 12 ] && [ "$vd" -ge 1 ] || return 1
+  case $vm in
+    2)
+      if [ $((vy % 4)) -eq 0 ] && { [ $((vy % 100)) -ne 0 ] || [ $((vy % 400)) -eq 0 ]; }; then
+        vmax=29
+      else
+        vmax=28
+      fi
+      ;;
+    4 | 6 | 9 | 11) vmax=30 ;;
+    *) vmax=31 ;;
+  esac
+  [ "$vd" -le "$vmax" ]
 }
 
 valid_repo() {
@@ -116,8 +149,8 @@ valid_repo() {
 }
 
 check_window() { # check_window <since> <until>
-  valid_day "$1" || die 2 "--since takes YYYY-MM-DD"
-  valid_day "$2" || die 2 "--until takes YYYY-MM-DD"
+  valid_day "$1" || die 2 "--since takes a real YYYY-MM-DD date"
+  valid_day "$2" || die 2 "--until takes a real YYYY-MM-DD date"
   [ "$(printf '%s' "$1" | tr -d -)" -le "$(printf '%s' "$2" | tr -d -)" ] || die 2 "--until is before --since"
 }
 
@@ -129,8 +162,10 @@ check_prices() {
 # first, on stdout.
 compute_baseline() {
   scratch_dir
+  sort -- "$4" >"$scratch/sorted" || die 2 "sorting the rows failed"
   awk -F '\t' -v prog="$prog" -v since="$1" -v until="$2" \
-    -f "$here/token-spend-lib.awk" -f "$here/control-plane-baseline.awk" "$3" "$4" >"$scratch/body" \
+    -f "$here/token-spend-lib.awk" -f "$here/control-plane-baseline.awk" \
+    "$(awk_operand "$3")" "$(awk_operand "$scratch/sorted")" >"$scratch/body" \
     || die 2 "computing the baseline failed"
   printf '# control-plane-baseline: format 1\n# window\t%s\t%s\n' "$1" "$2"
   sort "$scratch/body"
@@ -159,18 +194,19 @@ cmd_compute() {
   compute_baseline "$since" "$until" "$prices" "$1"
 }
 
-# inside_work_tree <dir>: whether <dir>, or its nearest existing ancestor,
-# lies inside a git work tree.
-inside_work_tree() {
-  iw=$1
-  while [ ! -d "$iw" ]; do
-    case $iw in
-      */*) iw=${iw%/*} ;;
-      *) return 1 ;;
-    esac
-    [ -n "$iw" ] || iw=/
+# under_git <absolute dir>: whether <dir> or an ancestor holds a .git entry,
+# or <dir> lies inside one. Read without git, so a repository git refuses to
+# open, or a host without git, still counts as one.
+under_git() {
+  ug=$1
+  case $ug in */.git | */.git/*) return 0 ;; esac
+  while :; do
+    if [ -e "$ug/.git" ] || [ -L "$ug/.git" ]; then
+      return 0
+    fi
+    [ -n "$ug" ] && [ "$ug" != / ] || return 1
+    ug=${ug%/*}
   done
-  [ "$(git -C "$iw" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]
 }
 
 cmd_record() {
@@ -195,8 +231,12 @@ cmd_record() {
   command -v jq >/dev/null 2>&1 || die 2 "jq is required"
   command -v gh >/dev/null 2>&1 || die 2 "gh is required"
   home=$(/bin/sh "$here/fleet-state.sh" root 2>/dev/null) && [ -n "$home" ] || die 2 "the fleet home does not resolve"
+  case $home in
+    /*) ;;
+    *) die 2 "the fleet home is not an absolute path: $(clean "$home")" ;;
+  esac
   dir=${home%/}/control-plane/baseline
-  if inside_work_tree "$dir"; then
+  if under_git "$dir"; then
     die 2 "refusing a location inside a git work tree: $(clean "$dir")"
   fi
   scratch_dir
@@ -208,26 +248,40 @@ cmd_record() {
     gh pr list --repo "$repo" --state merged --search "merged:${since}T00:00:00Z..${until}T23:59:59Z" \
       --limit "$limit" --json number,mergedAt >"$scratch/prs.json" 2>"$scratch/gh.err" \
       || die 1 "the forge read failed for $repo: $(clean "$(head -n 3 "$scratch/gh.err")")"
-    n=$(jq 'length' "$scratch/prs.json" 2>/dev/null) || die 1 "the forge returned no list for $repo"
+    n=$(jq 'if type == "array" then length else error end' "$scratch/prs.json" 2>/dev/null)
+    case $n in
+      '' | *[!0-9]*) die 1 "the forge returned no list for $repo" ;;
+    esac
     [ "$n" -lt "$limit" ] || die 1 "the forge read for $repo hit its $limit-row limit; record a shorter window"
     jq -r --arg r "$repo" '.[] | ["g", $r, (.number | tostring), (.mergedAt // "")] | @tsv' \
       "$scratch/prs.json" >>"$scratch/rows" || die 1 "the forge returned malformed rows for $repo"
   done
   compute_baseline "$since" "$until" "$prices" "$scratch/rows" >"$scratch/baseline" || exit $?
-  prev=$(umask)
   umask 077
   mkdir -p -- "$dir" || die 2 "cannot create $(clean "$dir")"
-  umask "$prev"
   dest=$dir/$since--$until.tsv
   part=$dir/.$since--$until.tsv.$$
   if ! cp -- "$scratch/baseline" "$part" || ! mv -f -- "$part" "$dest"; then
-    rm -f -- "$part"
     die 2 "cannot write $(clean "$dest")"
   fi
+  part=""
   printf 'recorded\t%s\n' "$dest"
 }
 
-cmd_check() {
+# grep_figures <top> [<tree>]: the tracked files holding a figure, in the
+# working tree, or in <tree> when one is named; git grep's status.
+grep_figures() {
+  tab=$(printf '\t')
+  gf_top=$1
+  shift
+  git -C "$gf_top" grep -l -I -E \
+    -e '^# control-plane-baseline: format [0-9]+' \
+    -e "^(turns|spend|interruptions|merges)${tab}[0-9]{4}-[0-9]{2}-[0-9]{2}${tab}" \
+    -e "^summary${tab}(days|turns-per-day|spend-share|merges-per-day|interruptions-per-day)${tab}" \
+    "$@" -- . ":(exclude)$fixture_dir/"
+}
+
+cmd_check_committed() {
   root=""
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || usage
@@ -240,24 +294,34 @@ cmd_check() {
   [ -n "$root" ] || root=.
   top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] \
     || die 2 "not a git work tree: $(clean "$root")"
-  tab=$(printf '\t')
   scratch_dir
-  git -C "$top" grep -l -I -E \
-    -e '^# control-plane-baseline: format [0-9]+$' \
-    -e "^(turns|spend|interruptions|merges)${tab}[0-9]{4}-[0-9]{2}-[0-9]{2}${tab}" \
-    -e "^summary${tab}(days|turns-per-day|spend-share|merges-per-day|interruptions-per-day)$tab" \
-    -- . ":(exclude)$fixture_dir/" >"$scratch/hits" 2>"$scratch/grep.err"
+  found=0
+  grep_figures "$top" >"$scratch/hits" 2>"$scratch/grep.err"
   case $? in
-    0)
-      while IFS= read -r f; do
-        printf '%s: a recorded figure is committed: %s\n' "$prog" "$(clean "$f")" >&2
-      done <"$scratch/hits"
-      printf '%s: baselines are machine-local data; see docs/control-plane-baseline.md\n' "$prog" >&2
-      exit 1
-      ;;
-    1) printf '%s: no recorded figure in a tracked file\n' "$prog" ;;
+    0) found=1 ;;
+    1) ;;
     *) die 2 "git grep failed: $(clean "$(head -n 3 "$scratch/grep.err")")" ;;
   esac
+  if git -C "$top" rev-parse -q --verify HEAD >"$scratch/head" 2>&1; then
+    grep_figures "$top" HEAD >"$scratch/head-hits" 2>"$scratch/grep.err"
+    case $? in
+      0)
+        found=1
+        sed 's/^HEAD://' "$scratch/head-hits" >>"$scratch/hits"
+        ;;
+      1) ;;
+      *) die 2 "git grep failed: $(clean "$(head -n 3 "$scratch/grep.err")")" ;;
+    esac
+  fi
+  if [ "$found" -eq 0 ]; then
+    printf '%s: no recorded figure in a tracked file\n' "$prog"
+    return 0
+  fi
+  sort -u "$scratch/hits" | while IFS= read -r f; do
+    printf '%s: a recorded figure is committed: %s\n' "$prog" "$(clean "$f")" >&2
+  done
+  printf '%s: baselines are machine-local data; see docs/control-plane-baseline.md\n' "$prog" >&2
+  exit 1
 }
 
 [ $# -ge 1 ] || usage
@@ -266,7 +330,7 @@ shift
 case $verb in
   record) cmd_record "$@" ;;
   compute) cmd_compute "$@" ;;
-  check-committed) cmd_check "$@" ;;
+  check-committed) cmd_check_committed "$@" ;;
   -h | --help) help_text ;;
   *) usage ;;
 esac

@@ -1,3 +1,3 @@
-# fixture: one dollar per input token, every other class free
+# fixture: whole-dollar prices per token class
 model	input	output	cache_read	cache_write_5m	cache_write_1h
-m1	1000000	0	0	0	0
+m1	1000000	2000000	100000	500000	1500000
