@@ -579,10 +579,11 @@ plain forms:
   folder's own config still loads beside it. A glob or folder operand defers,
   and so, without `--no-globs`, does an options file in the working directory,
   since either reaches folders the guard does not walk. The check reads the
-  folders before the command runs, so a lint beside a write the own-branch
-  arm admits defers. What still passes: a settings file the worker committed
-  in an earlier call counts as committed, as any committed file does (the
-  commit sits on the branch, where review sees it), and a committed settings
+  folders before the command runs, so a lint beside anything the own-branch
+  arm admits (a write, or a git act such as `git add`) defers. What still
+  passes: a settings file the worker committed in an earlier call counts as
+  committed, as any committed file does (the commit sits on the branch,
+  where review sees it), and a committed settings
   file's `extends` reads the file it names, which a parse error prints part
   of, so a worker that commits one naming another readable file can see that
   file's start.
