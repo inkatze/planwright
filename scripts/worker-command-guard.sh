@@ -6533,31 +6533,62 @@ check_command_ok() {
 }
 
 # check_partner_ok: 0 when the matched check command (`sw` / `swn`) may be a
-# chain partner of an own-unit act: no word of it, by its last path
-# component, names git or gh, a program the guard approves only as a write or
-# screens for a write or exec vector, another file writer, a program that
-# runs its arguments as a command, or a general interpreter. Every word is
-# read, a placeholder's included, so a runner prefix or a wrapper cannot carry
-# one past the check; the leading `mise exec` runner prefix is the one
-# exception, its program read like any other word. A repository's own task
-# runner (`mix`, `npm`, `make`) runs the tasks the repository defines, the
-# trust its scripts/ get, so it names none of these and partners as before.
+# chain partner of an own-unit act: no word of it names a program
+# check_tool_word knows, and it holds no `go run`. Every word is read, a
+# placeholder's included, so a runner prefix or a wrapper cannot carry one
+# past the check; the leading `mise exec` runner prefix is the one exception,
+# its program read like any other word. A repository's own task runner
+# (`mix`, `npm`, `make`) runs the tasks the repository defines, the trust its
+# scripts/ get, so it names none of these and partners as before. The list
+# fails open for a program it does not name.
 check_partner_ok() {
-  local i=0
+  local i=0 prev=''
   [ "${sw[0]}" != mise ] || [ "${sw[1]-}" != exec ] || i=2
   for (( ; i < swn; i++)); do
-    case ${sw[i]##*/} in
-      git | gh | mise | tee | mkdir | rm | touch | cp | mv | mktemp | sed | perl | awk | find | sort | uniq | date | file | yq | shfmt | rg | fd | jq | gitleaks | markdownlint | markdownlint-cli2 | lefthook | bats | bash | sh | fish | zsh | dash | ksh | env | command | builtin | exec | eval | xargs | sudo | doas | nohup | setsid | timeout | nice | time | stdbuf | busybox | ln | chmod | chown | chgrp | dd | install | truncate | shred | unlink | rmdir | rsync | scp | curl | wget | tar | unzip | patch)
-        return 1
-        ;;
-      # General interpreters and fetch-and-run launchers run whatever code
-      # their arguments name, inline code included.
-      python | python[0-9]* | node | nodejs | ruby | ruby[0-9]* | irb | php | php[0-9]* | deno | bun | bunx | npx | pnpx | uvx | pipx | dlx | osascript | lua | lua[0-9]* | luajit | Rscript | tclsh | pwsh | powershell)
-        return 1
-        ;;
-    esac
+    ! check_tool_word "${sw[i]}" || return 1
+    [ "$prev:${sw[i]}" != go:run ] || return 1
+    prev=${sw[i]##*/}
   done
   return 0
+}
+
+# check_tool_word <word>: 0 when the word, lowercased (a case-insensitive
+# filesystem runs `GIT` as git), names by its last path component, whole or
+# after its last `=` (`--cmd=rm`, `SHELL=bash`), a program check_tool_name
+# lists.
+check_tool_word() {
+  local w=$1
+  case $w in
+    *[A-Z]*)
+      lower "$w"
+      w=$LOWER
+      ;;
+  esac
+  check_tool_name "${w##*/}" && return 0
+  case $w in
+    *=*)
+      w=${w##*=}
+      check_tool_name "${w##*/}"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# check_tool_name <lowercase name>: 0 for a program that writes files, acts
+# on git, runs another program, or interprets code.
+check_tool_name() {
+  case $1 in
+    # git and gh, and the programs the guard approves only as a write or
+    # screens for a write or exec vector.
+    git | gh | mise | tee | mkdir | rm | touch | cp | mv | mktemp | sed | perl | perl[0-9]* | awk | find | sort | uniq | date | file | yq | shfmt | rg | fd | jq | gitleaks | markdownlint | markdownlint-cli2 | lefthook | bats) ;;
+    # Other writers and editors, GNU tools under their g-prefixed names.
+    gsed | gawk | mawk | nawk | gtee | gcp | gmv | grm | gln | gfind | ginstall | gdd | gtar | ln | chmod | chown | chgrp | dd | install | truncate | shred | unlink | rmdir | rsync | scp | curl | wget | tar | unzip | zip | gzip | xz | cpio | sponge | split | patch | ed | ex | vi | vim | nvim | nano | emacs | sqlite3 | psql) ;;
+    # Shells and programs that run another program.
+    bash | sh | fish | zsh | dash | ksh | env | command | builtin | exec | x | eval | xargs | sudo | doas | su | ssh | nc | socat | docker | podman | nohup | setsid | timeout | nice | ionice | time | stdbuf | flock | watch | parallel | strace | busybox) ;;
+    # General interpreters and fetch-and-run launchers, inline code included.
+    python | python[0-9]* | node | nodejs | ruby | ruby[0-9]* | irb | php | php[0-9]* | deno | bun | bunx | npx | pnpx | uvx | pipx | dlx | osascript | lua | lua[0-9]* | luajit | rscript | tclsh | pwsh | powershell | elixir | iex | erl | escript | java | jshell) ;;
+    *) return 1 ;;
+  esac
 }
 
 # --------------------------------------------------------------------------
