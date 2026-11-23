@@ -9,7 +9,8 @@
 #
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
-# --output-format stream-json --verbose --permission-prompt-tool stdio
+# --output-format stream-json --verbose --replay-user-messages
+# --permission-prompt-tool stdio
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
 # worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
 # PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
