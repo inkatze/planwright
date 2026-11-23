@@ -85,7 +85,8 @@ assert_defer "another worker's run store" "export PLANWRIGHT_STEP_WORKTREE=$OTHE
 assert_defer "a worktree spelled through a dot-dot" "export PLANWRIGHT_STEP_WORKTREE=$WT/../other && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a relative worktree" "export PLANWRIGHT_STEP_WORKTREE=. && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "an empty worktree" "export PLANWRIGHT_STEP_WORKTREE= && $SREC write --completion --run 1" Bash "$WT"
-assert_defer "a session sitting in another worktree" "export $CTX && $SREC write --completion --run 1" Bash "$OTHER_WT"
+# The step call names the own worktree, so only the export's directory defers.
+assert_defer "a session sitting in another worktree" "export $CTX && $SREC --worktree $WT write --completion --run 1" Bash "$OTHER_WT"
 assert_defer "a non-step name" "export FOO=1 && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "PATH beside the step names" "export $CTX PATH=/tmp && $SREC write --completion --run 1" Bash "$WT"
 assert_defer "a misspelled step name" "export PLANWRIGHT_STEP_BRANC=x && $SREC write --completion --run 1" Bash "$WT"
