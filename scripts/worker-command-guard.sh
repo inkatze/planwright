@@ -6909,13 +6909,9 @@ verify_simple() {
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
-  # A declared check command keeps an own-unit act out of its command; a
-  # declared command step is a chain partner before one.
-  if check_command_ok; then
-    ARM_ACT=1
-    return 0
-  fi
-  declared_line_ok || return 1
+  # A declared check command or command step is a trusted repository task:
+  # a chain partner before an own-unit act.
+  check_command_ok || declared_line_ok || return 1
   OU_PARTNER=1
 }
 
