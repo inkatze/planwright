@@ -943,7 +943,7 @@ q_plant() {
   printf '%s\n' "$2" >"$q_dir/$1.$(opt_in_name "$q_dir" "$2" | sed 's/^planwright-opt-in\.//')"
 }
 q_clear() {
-  find "$q_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name mise-task-edit -o -name lefthook-edit -o -name spec-branch \) -exec rm -f {} +
+  find "$q_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name mise-task-edit -o -name lefthook-edit -o -name spec-branch -o -name launcher \) -exec rm -f {} +
 }
 # q_recover: a recover of sjw9q1, its argv and env captured; sets q_rc.
 q_recover() {
@@ -1001,6 +1001,24 @@ spec_branch=planwright/demo/amendment-2" ;;
   q_recover
   [ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: an untrusted record ($q_case) must refuse the recover (exit 7), got $q_rc"
 done
+# The launcher kind is an opt-in of the record like the others: a recover
+# carries it into the session record, a duplicate line refuses, and an old
+# `launcher` file alone is ignored, never honoured and never a refusal.
+q_clear
+q_plant planwright-opt-in launcher=mission-control
+q_recover
+{ [ -s "$rec/argv" ] && grep -qx 'launcher=mission-control' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+  || fail "c9q: a recover must carry the recorded launcher into the session record (rc $q_rc)"
+q_clear
+q_plant planwright-opt-in "launcher=mission-control
+launcher=mission-control"
+q_recover
+[ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: a launcher line twice must refuse the recover (exit 7), got $q_rc"
+q_clear
+printf 'mission-control\n' >"$q_dir/launcher"
+q_recover
+{ [ -s "$rec/argv" ] && ! grep -q '^launcher=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+  || fail "c9q: an old launcher file must be ignored, neither honoured nor refused (rc $q_rc)"
 q_clear
 echo "ok: c9q an opt-in is read only from its own exact, unaltered entry"
 # c9l (lefthook config opt-in): `launch --lefthook-edit` on the worker profile
