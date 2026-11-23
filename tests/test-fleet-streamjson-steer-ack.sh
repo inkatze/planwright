@@ -1,23 +1,22 @@
 #!/bin/bash
 # Tests for knowing whether a steer reached the stream-json worker it was
-# written to. The CLI writes nothing to stdout for a user frame it reads unless
-# the session runs with --replay-user-messages, so `steered` was the only
-# record there was.
+# written to: the CLI writes nothing for a user frame it reads unless the
+# session runs with --replay-user-messages.
 #
-#   a1: every launch passes --replay-user-messages.
-#   a2: a steer frame carries its own uuid, the receipt row records it, and the
-#       session's replay of it is recorded as read; such a steer is never
-#       reported.
-#   a3: a steer never replayed, on a worker whose turn then ended, is reported
-#       once past the grace, high priority, naming the message file.
-#   a4: a steer replayed just after the turn's result is not reported.
-#   a5: a mid-turn steer says on stderr that it is queued; an idle one is quiet.
-#   a6: a runtime that predates the replay record is never judged.
-#   a7: `alarm-scan` reports the unread steer of a worker that has died.
-#   a9: only a user line is a replay; a10: an idle worker's untaken steer is
-#       reported by its own age; a11: a refused report is retried; a12: an
-#       empty replay record is rewritten; a13: the scan's boundaries.
-#   a8: no supervisor, tick or shim from this run outlives the suite.
+#   a1  every launch passes --replay-user-messages
+#   a2  a steer's own uuid is on its receipt row; its replay records it read
+#   a3  a steer unread past a later turn end is reported once, high priority
+#   a4  a steer replayed just after the turn's result is not reported
+#   a5  a mid-turn steer says it is queued; an idle one is quiet
+#   a6  a runtime that predates the replay record is never judged
+#   a7  alarm-scan reports the unread steer of a worker that has died
+#   a9  only a user line ending in the marker is a replay
+#   a10 an idle worker's untaken steer is reported by its own age
+#   a11 a refused report is retried and pushed once
+#   a13 the scan's boundaries
+#   a14 a frame read after a result retires it
+#   a12 an empty replay record is rewritten at launch
+#   a8  nothing from this run outlives the suite
 #
 # Hermetic: the fleet home and the CLI seam are case-local; the CLI is a shim.
 # Runs standalone under /bin/bash (bash 3.2).
@@ -181,6 +180,12 @@ start_worker() {
     || fail "$sw_h: the worker never received its launch prompt"
 }
 
+# stop_worker <home> <handle> — close a case's worker once the case is done, so
+# its tick stops loading the host for the cases after it.
+stop_worker() {
+  senv "$1" "$tmp/r-stop" -- stop "$2" >/dev/null 2>&1 || :
+}
+
 # reported <home> <worker> — the worker's attention row names an unread steer.
 reported() {
   [ -f "$1/attention/state" ] && grep -q "^$2$tab.*steer .*never read" "$1/attention/state"
@@ -240,6 +245,7 @@ env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$here/../scrip
   || fail "a3: the attention row could not be cleared"
 sleep 3
 reported "$home" sja3 && fail "a3: an unread steer must be raised once, not on every tick"
+stop_worker "$home" sja3
 echo "ok: a3 a steer the session never read is reported once, high priority, naming the message file"
 
 # ---------------------------------------------------------------------------
@@ -260,6 +266,7 @@ poll_until --what 'the late acknowledgement' -- grep -q "$tab$a4_id\$" "$wdir/st
 # Past the grace, so an unacknowledged steer would have been reported by now.
 sleep 10
 reported "$home" sja4 && fail "a4: a steer read as the next turn was reported unread: $(cat "$home/attention/state")"
+stop_worker "$home" sja4
 echo "ok: a4 a steer read just after the turn ended is not reported"
 
 # ---------------------------------------------------------------------------
@@ -287,6 +294,8 @@ rec="$tmp/r2"
 poll_until --what 'the idle result' -- test -f "$home/streamjson/sja2/result" || fail "a5: the a2 worker never went idle"
 senv "$home" "$rec" -- steer sja2 --message-file "$tmp/steer2" >/dev/null 2>"$tmp/a5i.err" || fail "a5: idle steer exited non-zero"
 [ ! -s "$tmp/a5i.err" ] || fail "a5: a steer to an idle worker must print nothing on stderr: $(cat "$tmp/a5i.err")"
+stop_worker "$tmp/h5" sja5
+stop_worker "$tmp/h2" sja2
 echo "ok: a5 a mid-turn steer says it is queued until a tool call or the turn ends; an idle one says nothing"
 
 # ---------------------------------------------------------------------------
@@ -308,6 +317,7 @@ reported "$home" sja6 && fail "a6: a steer to a runtime with no acknowledgement 
 printf '1\n' >"$wdir/replay-since"
 poll_until --what 'the unread-steer report' -- reported "$home" sja6 \
   || fail "a6: the tick never judged the steer once the record was back"
+stop_worker "$home" sja6
 echo "ok: a6 a runtime that predates the acknowledgement record is never judged"
 
 # ---------------------------------------------------------------------------
@@ -367,6 +377,7 @@ grep -q '6a6a6a6a-1b1b-4c2c-8d3d-4e4e4e4e4e4e' "$wdir/steer-acks" \
 grep -q '7a7a7a7a' "$wdir/steer-acks" && fail "a9: a replay in an unexpected shape was recorded"
 grep -q 'a replay line in an unexpected shape' "$tmp/sup-sja9.err" \
   || fail "a9: a replay in an unexpected shape must be named: $(cat "$tmp/sup-sja9.err")"
+stop_worker "$home" sja9
 echo "ok: a9 only a user line is a replay, and an out-of-grammar uuid records nothing"
 
 # ---------------------------------------------------------------------------
@@ -386,6 +397,7 @@ poll_until --what 'the unread-steer report' -- reported "$home" sja10 \
   || fail "a10: an idle worker's untaken steer must be reported: $(cat "$home/attention/state" 2>&1)"
 grep "^sja10$tab" "$home/attention/state" | grep -q 'idle' \
   || fail "a10: the report must say the worker was idle: $(cat "$home/attention/state")"
+stop_worker "$home" sja10
 echo "ok: a10 a steer an idle worker never takes is reported by its own age"
 
 # ---------------------------------------------------------------------------
@@ -511,6 +523,7 @@ printf 'second\n' >"$tmp/steer14b"
 senv "$home" "$rec" -- steer sja14 --message-file "$tmp/steer14b" >/dev/null 2>"$tmp/a14.err" || fail "a14: second steer exited non-zero"
 grep -q 'is mid-turn: the message is queued' "$tmp/a14.err" || fail "a14: the second steer must be queued: $(cat "$tmp/a14.err")"
 tail -n 1 "$wdir/steers" | grep -q "${tab}busy\$" || fail "a14: the second steer must be recorded busy: $(tail -n 1 "$wdir/steers")"
+stop_worker "$home" sja14
 echo "ok: a14 a frame read after the result retires it, so the next steer is queued"
 
 # ---------------------------------------------------------------------------
@@ -523,6 +536,7 @@ mkdir -p "$home/streamjson/sja12"
 start_worker "$home" "$rec" sja12
 grep -Eq '^[1-9][0-9]*$' "$home/streamjson/sja12/replay-since" \
   || fail "a12: an empty replay record must be rewritten: '$(cat "$home/streamjson/sja12/replay-since")'"
+stop_worker "$home" sja12
 echo "ok: a12 an empty replay record is rewritten at launch"
 
 # ---------------------------------------------------------------------------
