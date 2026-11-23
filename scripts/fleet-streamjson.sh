@@ -3377,7 +3377,8 @@ cmd_steer() {
       ;;
   esac
   if [ "$st_sent" = 0 ]; then
-    printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_row_file" "$st_id" "$st_turn" >>"$dir/steers" || :
+    printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_row_file" "$st_id" "$st_turn" >>"$dir/steers" \
+      || printf '%s\n' "$me: the steer was delivered, but its receipt could not be written, so it will not be reported if it goes unread" >&2
     journal_unlock "$dir"
     [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
       || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
