@@ -3182,7 +3182,8 @@ steer_scan() {
   while IFS="$TAB" read -r ss_id ss_file ss_how ss_age; do
     valid_reqid "${ss_id:-}" || continue
     mark_claim "$ss_dir/steer-lost-$ss_id" || continue
-    ss_name=$(sanitize_printable "$ss_file" unnamed | cut -c1-200)
+    # Cut from the front when long, marked, so the file name itself survives.
+    ss_name=$(sanitize_printable "$ss_file" unnamed | awk '{ if (length($0) > 200) print "..." substr($0, length($0) - 196); else print }')
     case $ss_how in
       idle) ss_why="the worker was idle when it was sent ${ss_age}s ago and has not taken it" ;;
       exit) ss_why="the worker exited ${ss_age}s ago without taking it" ;;

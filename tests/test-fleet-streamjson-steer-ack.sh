@@ -665,7 +665,20 @@ if [ "$(id -u)" != 0 ]; then
   a16_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2000 2>&1)
   chmod 644 "$wdir/steer-acks"
   case $a16_out in *steer-lost*) fail "a16: unreadable acknowledgements read every steer as unread: $a16_out" ;; esac
+else
+  echo "skip: a16 the unreadable-acknowledgements check needs a non-root run"
 fi
+# A long message path is cut from the front, so its file name survives.
+home="$tmp/h16-long"
+wdir="$home/streamjson/sja16"
+mkdir -p "$wdir"
+a16_long="/$(awk 'BEGIN { for (i = 0; i < 40; i++) printf "deep-dir/" }')relay-message.txt"
+printf '1000\n' >"$wdir/replay-since"
+printf '1100\t1\t%s\t%s\tbusy\n' "$a16_long" "$a16_id" >"$wdir/steers"
+printf 'exit\t0\t1200\n' >"$wdir/result"
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2000 >/dev/null 2>&1
+grep "^sja16$tab" "$home/attention/state" | grep -q 're-send \.\.\.[a-z/-]*/relay-message\.txt with' \
+  || fail "a16: a long path must keep its file name and mark the cut: $(cat "$home/attention/state" 2>&1)"
 echo "ok: a16 a fifo or an unreadable file at a state file never stalls or misjudges the scan"
 
 # ---------------------------------------------------------------------------
