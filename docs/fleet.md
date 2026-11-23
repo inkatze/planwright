@@ -1279,16 +1279,19 @@ previous turn's `result`: the worker reads `running` again until that turn
 records its own. A steer delivered while the worker is still inside a turn is
 not read at once: the session takes it when the tool call in flight returns,
 folding it into that turn, or, when the turn is already writing its answer,
-as the next turn once that turn's `result` lands (which reads `completed`
-until the new turn records its own). A long-running command or bounded wait
-therefore delays it, and `steer` says on stderr that the message is queued
-whenever no result is on record. Written is not read, so each steer frame
-carries its own uuid, recorded in its receipt row, and the worker runs with
-`--replay-user-messages`, whose replay of the frame records the steer as read.
-A steer still unread `PLANWRIGHT_STREAMJSON_STEER_GRACE` seconds (default 60)
-after a turn ended past it, after its worker exited, or after it was sent to an
-idle worker, is reported once by the supervisor's tick or `alarm-scan` as a
-high-priority queue item and push naming the message file to re-send.
+as the next turn once that turn's `result` lands (the session reading it then
+retires that `result`, so the worker reads `running` again). A long-running
+command or bounded wait therefore delays it, and `steer` says on stderr that
+the message is queued whenever no result is on record. Written is not read, so
+each steer frame carries its own uuid, recorded in its receipt row, and the
+worker runs with `--replay-user-messages`, whose replay of the frame records
+the steer as read. A steer is reported unread, once, by the supervisor's tick
+or `alarm-scan`, as a high-priority queue item and push naming the message
+file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE` seconds (default 60)
+have passed since the `result` or exit record written at or after it, or,
+when none has been written and the worker was idle as it was sent, since it
+was sent. A runtime with no replay record (a worker an older planwright
+launched) is never judged, nor is a steer sent before that record.
 Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
