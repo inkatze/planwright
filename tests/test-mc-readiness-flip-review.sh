@@ -228,6 +228,85 @@ walk_rows "ready, label opt-out" $READY "check,PR-Agent,SKIPPED" "born,PR-Agent,
 expect_rc "a skipped run after the flip (the skip-pr-agent label) is the opt-out" 0
 
 # ---------------------------------------------------------------------------
+# A re-run of the flip's run after a fix round reviews the current head, but
+# its check stays on the commit the run was first fired at, so no PR-Agent
+# check reaches the head. The run's own marker comment names the head instead.
+# ---------------------------------------------------------------------------
+MARK="botmark,github-actions[bot],4475.3,$H,success,2026-11-18T01:00:00Z"
+ATT="botattempt,4475.3,PR-Agent,2026-11-18T00:50:00Z,SUCCESS"
+NO_RUN="fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+marker_refused() { # marker_refused <label> <why> <row>...
+  label=$1 why=$2
+  shift 2
+  # shellcheck disable=SC2086
+  walk_rows "$label" $READY "$@"
+  expect_rc "$label: not merge-ready" 4
+  expect_out "$label: no PR-Agent run counted" "$NO_RUN"
+  expect_out "$label: the marker's refusal named" "$why"
+}
+# shellcheck disable=SC2086
+walk_rows "ready, re-run marker names the head" $READY "$MARK" "$ATT"
+expect_rc "a re-run whose marker names the current head is the bot review" 0
+expect_eq "and reads ready" "ready${tab}$H"
+# shellcheck disable=SC2086
+walk_rows "ready, re-run marker beside a pre-flip check at the head" $READY "$MARK" "$ATT" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:40:10Z"
+expect_rc "a re-run after the flip is the flip's run even beside a pre-flip check at the head" 0
+marker_refused "marker names an older head" "run marker 4475.3 names 222222222222, not the head" \
+  "botmark,github-actions[bot],4475.3,2222222222222222222222222222222222222222,success,2026-11-18T01:00:00Z" "$ATT"
+marker_refused "marker names a prefix of the head" "run marker 4475.3 names 111111111111, not the head" \
+  "botmark,github-actions[bot],4475.3,111111111111,success,2026-11-18T01:00:00Z" "$ATT"
+marker_refused "marker posted by a person" "run marker 4475.3 was posted by alice, not the PR-Agent workflow" \
+  "botmark,alice,4475.3,$H,success,2026-11-18T01:00:00Z" "$ATT"
+marker_refused "marker posted by another bot" "run marker 4475.3 was posted by cubic-dev-ai[bot], not the PR-Agent workflow" \
+  "botmark,cubic-dev-ai[bot],4475.3,$H,success,2026-11-18T01:00:00Z" "$ATT"
+marker_refused "marker status failure" "run marker 4475.3 reports failure" \
+  "botmark,github-actions[bot],4475.3,$H,failure,2026-11-18T01:00:00Z" "$ATT"
+marker_refused "a later marker of the same attempt reports failure" "run marker 4475.3 reports failure" \
+  "$MARK" "botmark,github-actions[bot],4475.3,$H,failure,2026-11-18T01:05:00Z" "$ATT"
+marker_refused "a newer failing marker listed first" "run marker 4475.3 reports failure" \
+  "botmark,github-actions[bot],4475.3,$H,failure,2026-11-18T01:05:00Z" "$MARK" "$ATT"
+# shellcheck disable=SC2086
+walk_rows "ready, an older failing marker listed last" $READY "botmark,github-actions[bot],4475.3,$H,success,2026-11-18T01:05:00Z" "$MARK" "botmark,github-actions[bot],4475.3,$H,failure,2026-11-18T00:59:00Z" "$ATT"
+expect_rc "the latest marker of an attempt is judged, not the last listed" 0
+marker_refused "marker names no commit" "run marker 4475.3 names no commit, not the head" \
+  "botmark,github-actions[bot],4475.3,,success,2026-11-18T01:00:00Z" "$ATT"
+# shellcheck disable=SC2086
+walk_rows "ready, a person's later failing marker for the same attempt" $READY "$MARK" "botmark,alice,4475.3,$H,failure,2026-11-18T01:10:00Z" "$ATT"
+expect_rc "a person's marker never overrides the workflow's for the same attempt" 0
+# shellcheck disable=SC2086
+walk_rows "ready, attempt started at the flip" $READY "$MARK" "botattempt,4475.3,PR-Agent,$FLIP_T,SUCCESS"
+expect_rc "an attempt that started at the flip counts" 0
+# shellcheck disable=SC2086
+walk_rows "ready, good marker beside a red PR-Agent check" $READY "$MARK" "$ATT" "check,PR-Agent,FAILURE" "born,PR-Agent,2026-11-18T00:40:10Z"
+expect_rc "a good marker never clears a red check at the head" 4
+expect_out "the red check is still named" "fail${tab}check${tab}PR-Agent is FAILURE"
+# shellcheck disable=SC2086
+walk_rows "ready, pre-flip check and a refused marker" $READY "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:40:10Z" "botmark,alice,4475.3,$H,success,2026-11-18T01:00:00Z" "$ATT"
+expect_rc "a refused marker beside a pre-flip run is not the bot review" 4
+expect_out "the pre-flip refusal names the refused marker" "before the flip at $FLIP_T; wait for the run the flip fires; run marker 4475.3 was posted by alice, not the PR-Agent workflow"
+# shellcheck disable=SC2086
+walk_rows "ready, unread run creation and a refused marker" $READY "check,PR-Agent,SUCCESS" "botmark,alice,4475.3,$H,success,2026-11-18T01:00:00Z" "$ATT"
+expect_rc "a refused marker beside a run of unknown creation is not the bot review" 4
+expect_out "the unknown-creation refusal names the refused marker" "read it again; run marker 4475.3 was posted by alice, not the PR-Agent workflow"
+marker_refused "attempt started before the flip" "run attempt 4475.3 started 2026-11-18T00:40:00Z, before the flip at $FLIP_T" \
+  "$MARK" "botattempt,4475.3,PR-Agent,2026-11-18T00:40:00Z,SUCCESS"
+marker_refused "attempt start unread" "run attempt 4475.3 has no start time read" \
+  "$MARK" "botattempt,4475.3,PR-Agent,,SUCCESS"
+marker_refused "attempt not read" "run attempt 4475.3 was not read" "$MARK"
+marker_refused "attempt still running" "run attempt 4475.3 is IN_PROGRESS" \
+  "$MARK" "botattempt,4475.3,PR-Agent,2026-11-18T00:50:00Z,IN_PROGRESS"
+marker_refused "attempt of another workflow" "run attempt 4475.3 belongs to ci, not PR-Agent" \
+  "$MARK" "botattempt,4475.3,ci,2026-11-18T00:50:00Z,SUCCESS"
+# shellcheck disable=SC2086
+walk_rows "ready, a refused marker beside a good one" $READY "botmark,alice,9.1,$H,success,2026-11-18T01:10:00Z" "$MARK" "$ATT"
+expect_rc "one good marker is enough" 0
+walk_rows "ready, no flip time, re-run marker" "state,ready" "require,pr-agent" "$MARK" "$ATT"
+expect_rc "a pull request opened ready has no flip to date the re-run against" 0
+# shellcheck disable=SC2086
+walk_rows "draft, re-run marker" $DRAFT "$MARK" "$ATT"
+expect_eq "a draft is never asked for the bot review, marker or not" "ready${tab}$H"
+
+# ---------------------------------------------------------------------------
 # The contract names the token.
 # ---------------------------------------------------------------------------
 mc_run mc-readiness.sh --help

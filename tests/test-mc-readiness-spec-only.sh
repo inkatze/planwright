@@ -70,6 +70,37 @@ spec_pr "$sh_ready" specs//demo/requirements.md
 hasnt "a path with an empty component is outside it" "scope${tab}"
 spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED'
 hasnt "a rename into the spec root, its source unnamed, is no spec-only scope" "scope${tab}"
+# A rename or copy is spec-only when both its ends lie under the spec root; the
+# source comes from the REST file list, which the GraphQL one leaves out.
+spec_pr "$sh_ready" 'specs/_observations/archive/e.md|RENAMED|specs/_observations/entries/e.md'
+has "an observation archived by a rename within the spec root is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+hasnt "and touches no bundle to sign off" "signoff${tab}"
+has "the evidence carries the rename's source" "path${tab}specs/_observations/archive/e.md${tab}RENAMED${tab}specs/_observations/entries/e.md"
+spec_pr "$sh_ready" specs/demo/design.md 'specs/_observations/archive/e.md|RENAMED|specs/_observations/entries/e.md'
+has "a bundle edit beside an archived observation is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+has "and its bundle is signed off as before" "signoff${tab}demo${tab}signed${tab}-"
+spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED|scripts/moved.md'
+hasnt "a rename from outside the spec root into it is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" 'docs/moved.md|RENAMED|specs/demo/moved.md'
+hasnt "a rename out of the spec root is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED|specs/../src/moved.md'
+hasnt "a rename whose source climbs out of the spec root is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED|specs/demo/run.sh'
+hasnt "a rename from a file that is not prose is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" 'specs/demo/copy.md|COPIED|specs/demo/design.md'
+has "a copy within the spec root is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+has "and signs off the bundle it lands in" "signoff${tab}demo${tab}signed${tab}-"
+spec_pr "$sh_ready" 'specs/demo/copy.md|COPIED|specs/gone/design.md'
+has "a copy between bundles is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+hasnt "and holds nothing of the bundle it copies from, which it leaves unchanged" "signoff${tab}gone${tab}"
+SP_REST=fail spec_pr "$sh_ready" 'specs/demo/copy.md|COPIED|specs/demo/design.md'
+hasnt "a copy whose source could not be read is no spec-only scope" "scope${tab}"
+spec_pr "$sh_ready" 'specs/demo/moved.md|RENAMED|specs/gone/moved.md'
+has "a rename between bundles is spec-only" "scope${tab}spec-only${tab}$sh_ready"
+has "and the bundle it leaves is held for its sign-off too" "signoff${tab}gone${tab}unsigned${tab}it has no requirements.md at the head"
+SP_REST=fail spec_pr "$sh_ready" 'specs/_observations/archive/e.md|RENAMED|specs/_observations/entries/e.md'
+hasnt "a rename whose source could not be read is no spec-only scope" "scope${tab}"
+hasnt "and carries no source" "RENAMED${tab}specs/"
 bundle demo Active signed
 bundle other Draft signed
 sh_two=$(commit_specs)
