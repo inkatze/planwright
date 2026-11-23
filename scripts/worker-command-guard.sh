@@ -6477,7 +6477,9 @@ classify_verb() {
 # declarations come from the session record, read by the launcher at the
 # primary checkout, never from a file the worker can write; the floor is read
 # before them (verify_simple). Running one runs repository code, the same
-# trust the guard gives the repository's scripts/.
+# trust the guard gives the repository's scripts/. That trust stops at a
+# config loader: a declared markdownlint or mise run still passes the screen
+# the undeclared command does (check_loader_ok).
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6679,9 +6681,54 @@ check_command_ok() {
   [ "$CHECK_STATE" = 1 ] || check_decls_load
   for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
     [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
-    check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" && return 0
+    check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
+    # The loader verdict reads only the words, so no other declaration
+    # could turn it.
+    check_loader_ok
+    return
   done
   return 1
+}
+
+# check_loader_ok: 0 unless the current simple command (`sw` / `swn`) runs a
+# loader the guard screens by its words, as its first word or the word after a
+# runner prefix's `--`, and that loader's own screen defers it. A declaration
+# vouches for the words it spells, never for the config the loader reads from
+# folders a worker can Write, so a declared loader is approved only where the
+# undeclared command would be: markdownlint by guard_mdlint, and mise before an
+# option, `run`, `tasks` or their aliases by guard_mise, which knows no alias
+# and so defers one. Any other markdownlint name (the `-fix` and `-config`
+# binaries older releases ship) defers, as the undeclared one does. The
+# subcommand list must stay a superset of what guard_mise screens, or a new
+# spelling passes on the declaration alone. The name is matched
+# case-insensitively, since a case-insensitive filesystem runs a recased one.
+check_loader_ok() {
+  local k
+  for ((k = 0; k < swn; k++)); do
+    [ "$k" -eq 0 ] || [ "${sw[k - 1]}" = -- ] || continue
+    lower "${sw[k]##*/}"
+    case $LOWER in
+      markdownlint | markdownlint-cli2) check_loader_screen "$k" guard_mdlint "$LOWER" || return 1 ;;
+      markdownlint*) return 1 ;;
+      mise)
+        case ${sw[k + 1]-} in
+          -* | run | r | tasks | task | t) check_loader_screen "$k" guard_mise || return 1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+# check_loader_screen <from> <screen> [<arg>]: run <screen> on the words from
+# index <from> on, as `cw` / `cwn`. The parallel per-word arrays are not
+# sliced, so a screen run here must read only those two.
+check_loader_screen() {
+  local from=$1
+  shift
+  local -a cw=("${sw[@]:from}")
+  local cwn=${#cw[@]}
+  "$@"
 }
 
 # --------------------------------------------------------------------------

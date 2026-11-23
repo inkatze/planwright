@@ -2873,7 +2873,8 @@ is dropped alone. The launcher reads the knob at the primary checkout into the
 session record, so an edit inside the worker's own worktree changes nothing
 and a change reaches a worker only by relaunch. Running a declared command
 runs the repository's own code, the trust the guard already gives its
-`scripts/`. The full rules are in
+`scripts/`, except that a declared markdownlint or `mise run` still passes
+the config-loader screen the undeclared command does. The full rules are in
 [the options reference](options-reference.md).
 
 The launcher's `retire <name>` closes what it launched from its registry row.
