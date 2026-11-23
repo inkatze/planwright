@@ -231,6 +231,45 @@ cp "$BOX/pml.orig" "$P/.markdownlint.jsonc"
 with_file "$P/.markdownlint.yaml" 'MD013: false' "a config the enclosing checkout does not hold" \
   'markdownlint-cli2 README.md' "$W"
 
+echo "### declared check commands: a declared loader still passes its screen"
+DECLS='markdownlint-cli2 <path>...; markdownlint <path>...; mise exec -- markdownlint-cli2 <path>...'
+DECLS="$DECLS; ./node_modules/.bin/markdownlint-cli2 <path>...; mise run <word>; mise r <word>"
+DECLS="$DECLS; mise run --cd <path> <word>; mise run --env <word> <word>; mise tasks run --tool <word> <word>"
+DECLS="$DECLS; mise exec -- mix credo <word>; bin/check <word>"
+write_record "$BOX/cc.record" "$R" '' || exit 1
+printf 'check_commands=%s\n' "$DECLS" >>"$BOX/cc.record"
+HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$BOX/cc.record")
+for c in 'markdownlint-cli2 README.md' 'markdownlint README.md' 'mise exec -- markdownlint-cli2 README.md' \
+  './node_modules/.bin/markdownlint-cli2 docs/a.md' 'mise run check' 'mise exec -- mix credo strict' 'bin/check lint'; do
+  assert_allow "declared, committed config only: $c" "$c" Bash "$R"
+done
+for n in .markdownlint-cli2.cjs .markdownlint.mjs; do
+  for c in 'markdownlint-cli2 README.md' 'markdownlint README.md' 'mise exec -- markdownlint-cli2 README.md' \
+    './node_modules/.bin/markdownlint-cli2 README.md'; do
+    with_file "$R/$n" "$JS" "declared, a worker-written $n: $c" "$c"
+  done
+done
+with_file "$R/docs/.markdownlint.yaml" 'extends: ../x.json' \
+  "declared, an uncommitted config beside the linted file" 'markdownlint-cli2 docs/a.md'
+with_file "$R/docs/.markdownlint.yaml" 'extends: ../x.json' \
+  "declared behind a runner prefix, an uncommitted config beside the linted file" \
+  'mise exec -- markdownlint-cli2 docs/a.md'
+with_file "$R/package.json" '{ "markdownlint-cli2": { "customRules": ["./rule.js"] } }' \
+  "declared, a worker-written package.json in the working directory" 'markdownlint-cli2 README.md'
+assert_defer "declared, a folder operand the walk cannot follow" 'markdownlint-cli2 docs' Bash "$R"
+mkdir -p "$R/sub"
+printf '[tasks.t]\nrun = "touch /tmp/pwned"\n' >"$R/sub/mise.toml"
+for c in 'mise run --cd sub t' 'mise run --env evil t' 'mise tasks run --tool node@20 t' 'mise r check'; do
+  assert_defer "declared mise, another config or an unscreened spelling: $c" "$c" Bash "$R"
+done
+rm -rf "$R/sub"
+HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1")
+assert_allow "undeclared, unchanged: committed config only" 'markdownlint-cli2 README.md' Bash "$R"
+with_file "$R/.markdownlint-cli2.cjs" "$JS" "undeclared, unchanged: a worker-written module config" \
+  'markdownlint-cli2 README.md'
+assert_allow "undeclared, unchanged: mise run" 'mise run check' Bash "$R"
+assert_defer "undeclared, unchanged: mise exec" 'mise exec -- markdownlint-cli2 README.md' Bash "$R"
+
 # The approval stands on the folders as they are before the command runs: a
 # write the own-branch arm admits in the same command could plant a config.
 write_record "$BOX/ob.record" "$R" own-branch planwright/demo/task-1 || exit 1
