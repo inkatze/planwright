@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"s-wk","isSidechain":true,"agentId":"ag1","message":{"role":"user","content":"You are a read-only reviewer of one file."}}
+{"type":"assistant","timestamp":"2026-11-02T06:00:00.000Z","sessionId":"s-wk","isSidechain":true,"agentId":"ag1","message":{"id":"b1","model":"m1","usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}

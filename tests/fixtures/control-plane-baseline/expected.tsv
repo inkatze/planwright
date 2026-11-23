@@ -1,0 +1,27 @@
+# control-plane-baseline: format 1
+# window	2026-11-01	2026-11-02
+interruptions	2026-11-01	mission-control	1	0
+interruptions	2026-11-02	interactive	1	0
+interruptions	2026-11-02	mission-control	0	1
+merges	2026-11-01	example/one	1
+merges	2026-11-02	example/one	1
+merges	2026-11-02	example/two	1
+spend	2026-11-01	mc-launched	4.00
+spend	2026-11-01	mission-control	4.00
+spend	2026-11-02	interactive	1.00
+spend	2026-11-02	mc-launched	4.00
+spend	2026-11-02	mission-control	2.00
+summary	days	2
+summary	interruptions-per-day	1.00	0.50
+summary	merges-per-day	1.50
+summary	spend-share	interactive	1.00	6.7
+summary	spend-share	mc-launched	8.00	53.3
+summary	spend-share	mission-control	6.00	40.0
+summary	turns-per-day	interactive	0.50	0.00
+summary	turns-per-day	mc-launched	1.00	0.50
+summary	turns-per-day	mission-control	1.50	0.00
+turns	2026-11-01	mc-launched	1	0
+turns	2026-11-01	mission-control	2	0
+turns	2026-11-02	interactive	1	0
+turns	2026-11-02	mc-launched	1	1
+turns	2026-11-02	mission-control	1	0
