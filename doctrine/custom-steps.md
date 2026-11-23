@@ -181,6 +181,11 @@ values to a command step.
 
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
+A location in a git checkout is run, or its line printed, only as that
+checkout's HEAD commits it, and the step is recorded `failed` otherwise or
+when git cannot answer for the checkout: the declaration names a file, not
+its content, and a worker can write the file. A location with no `.git`
+entry above it, an installed tool, keeps the declaration's trust.
 
 An `isolated` session takes the unit's own launch backend. A headless unit
 (`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or

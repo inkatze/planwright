@@ -1827,8 +1827,8 @@ guard_rm() {
 }
 
 # mise: `mise run <task>` / `mise tasks` (and its read-only leaves) only. Any
-# pre-subcommand flag, a `--shell`/`-s` interpreter override, or another
-# subcommand defers.
+# pre-subcommand flag, a run option that changes what the task runs
+# (mise_run_args_ok), or another subcommand defers.
 guard_mise() {
   local sub=''
   local i a j leaf
@@ -1856,20 +1856,32 @@ guard_mise() {
       done
       case $leaf in
         '' | ls | info | deps) return 0 ;;
-        run) i=$j ;; # fall through to the shell-override guard on the run args
+        run) ;; # screened below from the words after `tasks`, a global option before `run` included
         *) return 1 ;;
       esac
       ;;
-    run) ;; # fall through to the shell-override guard below
+    run) ;; # fall through to the run-option screen below
     *) return 1 ;;
   esac
   # A task runs whatever its body says, a release among them, so under the
   # mission-control mode a task run reaches the prompt.
   [ "$GUARD_MODE" != mission-control ] || return 1
-  for (( ; i < cwn; i++)); do
+  mise_run_args_ok "$((i + 1))"
+}
+
+# mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
+# that changes what a task runs, turning the trusted repo-task runner into an
+# arbitrary-command runner: --shell runs the task through any
+# command, --cd takes it from another directory's config, --env loads a
+# mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
+# reads no abbreviation of a long option, but a short-flag cluster can carry
+# any of the letters (`-nC`), so a cluster holding one defers.
+mise_run_args_ok() {
+  local i
+  for ((i = $1; i < cwn; i++)); do
     case ${cw[i]} in
-      --shell | --shell=*) return 1 ;;
-      -[!-]*s* | -s*) return 1 ;;
+      --shell | --shell=* | --cd | --cd=* | --env | --env=* | --tool | --tool=*) return 1 ;;
+      -[sCEt]* | -[!-]*[sCEt]*) return 1 ;;
     esac
   done
   return 0
@@ -1952,6 +1964,15 @@ guard_git() {
   done
   [ -n "$sub" ] || return 1
   git_help_req "$sub" && return 1
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       for ((i = subidx + 1; i < cwn; i++)); do
@@ -2041,10 +2062,8 @@ guard_git() {
       return 0
       ;;
     stash)
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`.
+      return 1
       ;;
     symbolic-ref)
       local positional=0
@@ -2060,8 +2079,9 @@ guard_git() {
       return 0
       ;;
     reflog)
+      # `reflog show` arrives above as `log`.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;

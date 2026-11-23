@@ -764,6 +764,74 @@ canon_contained() {
   canon_under "$1" "$2" "$root"
 }
 
+# committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
+# <rel> under the work tree <root>) is a regular file whose bytes are exactly
+# the blob HEAD records for <rel>, as a plain or executable file. Where a file
+# sits proves nothing about who wrote it, since a worker may Write it, so a
+# file the guard trusts by its content is trusted only as a commit holds it.
+# Plumbing only, so no index refresh (no write, no index.lock race with a
+# concurrent commit) and no filter or textconv driver runs. A verdict is kept
+# per path for the rest of the hook call, since a loop re-checks its body.
+#
+# COMMITTED_USED records that the approval leans on such a check, which holds
+# only for the file as it is before the command runs: main refuses a command
+# that also makes a write the own-branch arm admits, since that write could
+# land on the file before the shell reaches it.
+COMMITTED_OK=''
+COMMITTED_USED=0
+committed_blob() {
+  local root=$1 rel=$2 full=$3 key line meta path want have
+  key=$'\n'"$full"$'\n'
+  case $COMMITTED_OK in
+    *"$key"*)
+      committed_used "$full"
+      return 0
+      ;;
+  esac
+  [ -f "$full" ] && [ ! -L "$full" ] || return 1
+  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
+  case $line in
+    *$'\n'*) return 1 ;;
+  esac
+  meta=${line%%$'\t'*}
+  path=${line#*$'\t'}
+  [ "$path" = "$rel" ] || return 1
+  case $meta in
+    '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
+    *) return 1 ;;
+  esac
+  have=$(git_plain -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ] || return 1
+  COMMITTED_OK=$COMMITTED_OK$key
+  committed_used "$full"
+  return 0
+}
+
+# committed_used <full>: note a committed check the approval leans on, when the
+# file lies in the recorded worktree, the only place an own-branch write lands.
+committed_used() {
+  case $1 in
+    "$REC_WT"/*) [ -z "$REC_WT" ] || COMMITTED_USED=1 ;;
+  esac
+}
+
+# git_plain <args>: git answering about the repository its -C names, never one
+# a GIT_DIR, GIT_WORK_TREE or index variable inherited from a git hook points at.
+git_plain() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR -u GIT_OBJECT_DIRECTORY git "$@"
+}
+
+# committed_in_checkout <full>: 0 when <full>, a canonical path, is a file the
+# git checkout holding it commits unchanged (committed_blob). The checkout must
+# answer for itself: a `.git` that is no repository of its own would let git
+# answer from the one around it.
+committed_in_checkout() {
+  local root
+  root=$(repo_root_of "$(dirname -- "$1")") || return 1
+  [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+  committed_blob "$root" "${1#"$root"/}" "$1"
+}
+
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
 # tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10).
 is_repo_script() {
@@ -3721,14 +3789,133 @@ guard_umask() {
   return 1
 }
 
+# guard_mdlint <verb>: markdownlint-cli2 and markdownlint load their config
+# from the folder of each file they lint, the working directory and the folders
+# above, and a config can run code: a .cjs or .mjs one is a module, and an
+# options file can name custom-rule, plugin and formatter modules. A worker can
+# Write any of those, so a run is approved only on named files inside the
+# repository, since a glob or a folder reaches folders this does not check,
+# and only when mdlint_configs_ok clears every folder. An option defers (it
+# can name a config, a rule module or an output file, or fix files), but for
+# `--no-globs` and markdownlint's `-q`.
 guard_mdlint() {
-  local i a
+  local verb=$1 i a p full root ends=0 nog=0 dirs=()
+  root=$(repo_root_of "$HOOK_CWD") || return 1
+  [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
-    case $a in
-      --fix | -f | --output | --output=* | -o) return 1 ;;
+    if [ "$ends" = 0 ]; then
+      case $verb:$a in
+        *:--)
+          ends=1
+          continue
+          ;;
+        markdownlint-cli2:--no-globs)
+          nog=1
+          continue
+          ;;
+        markdownlint:-q | markdownlint:--quiet) continue ;;
+        *:-*) return 1 ;;
+      esac
+    fi
+    p=$a
+    # markdownlint-cli2 reads a leading `:` as "a literal path".
+    [ "$verb" != markdownlint-cli2 ] || p=${p#:}
+    # Glob and extended-glob syntax, and a newline, which no folder walk below
+    # could follow.
+    case $p in
+      '' | -* | '#'* | '!'* | '~'* | *[][*?{}\(\)\|\\]* | *$'\n'*) return 1 ;;
+    esac
+    case /$p/ in
+      */../*) return 1 ;;
+    esac
+    mdlint_unlinked "$p" || return 1
+    full=$(canon_under "$p" "$HOOK_CWD" "$root") || return 1
+    [ -f "$full" ] || return 1
+    dirs+=("${full%/*}")
+  done
+  [ "${#dirs[@]}" -ge 1 ] || return 1
+  mdlint_configs_ok "$verb" "$nog" "${dirs[@]}"
+}
+
+# mdlint_unlinked <operand>: 0 unless a folder the operand names on its way to
+# the file is a symbolic link. The linters look for config along the path as
+# written, so a linked folder's own config would lie off the canonical walk.
+mdlint_unlinked() {
+  local d
+  case $1 in
+    */*) d=${1%/*} ;;
+    *) return 0 ;;
+  esac
+  while [ -n "$d" ]; do
+    case $d in
+      /*) [ ! -L "$d" ] || return 1 ;;
+      *) [ ! -L "$HOOK_CWD/$d" ] || return 1 ;;
+    esac
+    case $d in
+      */*) d=${d%/*} ;;
+      *) d='' ;;
     esac
   done
+  return 0
+}
+
+# The files markdownlint-cli2 and markdownlint read from a folder, by what
+# they can do: a module runs whatever it imports, an options file can name
+# modules to import and, in the working directory, add globs, and a config
+# file holds rule settings only (its `extends` reads another such file).
+MDLINT_MODULES=(.markdownlint-cli2.cjs .markdownlint-cli2.mjs .markdownlint.cjs .markdownlint.mjs)
+MDLINT_OPTIONS=(.markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.yml package.json)
+MDLINT_SETTINGS=(.markdownlint.jsonc .markdownlint.json .markdownlint.yaml .markdownlint.yml .markdownlintrc)
+
+# mdlint_configs_ok <verb> <no-globs> <dir>...: 0 when the working directory,
+# each <dir> and every folder above them hold no module config, and every
+# options and settings file there is one a git checkout commits unchanged.
+# A committed module may still import a file the worker wrote, so it defers
+# too, and so does an options file naming a module key or holding a
+# backslash, through which an escape could spell one. Without --no-globs, an
+# options file in the working directory may add globs reaching folders this
+# does not walk, so one there defers. The verdict holds only for the folders as
+# they are before the command runs, so the approval leans on a committed check
+# (COMMITTED_USED) and main refuses it beside an own-branch write.
+mdlint_configs_ok() {
+  local verb=$1 nog=$2 d f seen=$'\n' cwdp
+  shift 2
+  cwdp=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  # A newline in a folder name would forge an entry of the walk's seen list.
+  case $cwdp in
+    *$'\n'*) return 1 ;;
+  esac
+  if [ "$verb" = markdownlint-cli2 ] && [ "$nog" = 0 ]; then
+    for f in "${MDLINT_OPTIONS[@]}"; do
+      [ ! -e "$cwdp/$f" ] && [ ! -L "$cwdp/$f" ] || return 1
+    done
+  fi
+  for d in "$cwdp" "$@"; do
+    while :; do
+      case $seen in
+        *$'\n'"$d"$'\n'*) break ;;
+      esac
+      seen=$seen$d$'\n'
+      for f in "${MDLINT_MODULES[@]}"; do
+        [ ! -e "$d/$f" ] && [ ! -L "$d/$f" ] || return 1
+      done
+      for f in "${MDLINT_OPTIONS[@]}" "${MDLINT_SETTINGS[@]}"; do
+        [ -e "$d/$f" ] || [ -L "$d/$f" ] || continue
+        committed_in_checkout "${d%/}/$f" || return 1
+      done
+      for f in "${MDLINT_OPTIONS[@]}"; do
+        [ -f "$d/$f" ] || continue
+        # grep exits 1 only on a file read whole with no match.
+        LC_ALL=C grep -a -q -E 'customRules|markdownItPlugins|outputFormatters|modulePaths|[\]' -- "$d/$f"
+        [ $? -eq 1 ] || return 1
+      done
+      [ "$d" != / ] || break
+      d=${d%/*}
+      [ -n "$d" ] || d=/
+    done
+  done
+  COMMITTED_USED=1
   return 0
 }
 
@@ -3807,9 +3994,9 @@ guard_mise() {
       # `mise tasks` is a subcommand TREE, not a read-only leaf. Bare
       # `mise tasks` and the display leaves (`ls`/`info`/`deps`) list tasks, but
       # `edit` launches $EDITOR (arbitrary exec), `add` writes a task file, and
-      # `run` is an alias of `mise run` (so it can carry the `--shell`
-      # interpreter override, REQ-A1.6). Enumerate the read-only leaves, route
-      # `run` through the shell-override guard below, and defer edit/add/unknown.
+      # `run` is an alias of `mise run` (so it can carry the options that
+      # change what a task runs). Enumerate the read-only leaves, route
+      # `run` through the run-option screen below, and defer edit/add/unknown.
       leaf=''
       for ((j = i + 1; j < cwn; j++)); do
         case ${cw[j]} in
@@ -3822,20 +4009,29 @@ guard_mise() {
       done
       case $leaf in
         '' | ls | info | deps) return 0 ;;
-        run) i=$j ;; # fall through to the shell-override guard on the run args
+        run) ;; # screened below from the words after `tasks`, a global option before `run` included
         *) return 1 ;;
       esac
       ;;
-    run) ;; # fall through to the shell-override guard below
+    run) ;; # fall through to the run-option screen below
     *) return 1 ;;
   esac
-  # `mise run --shell/-s '<cmd>'` overrides the interpreter, turning the trusted
-  # repo-task runner into an arbitrary-command runner (REQ-A1.6). Defer any
-  # short-flag token carrying `s` (`-s`, `-ns`, …) or the long `--shell` form.
-  for (( ; i < cwn; i++)); do
+  mise_run_args_ok "$((i + 1))"
+}
+
+# mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
+# that changes what a task runs, turning the trusted repo-task runner into an
+# arbitrary-command runner: --shell runs the task through any
+# command, --cd takes it from another directory's config, --env loads a
+# mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
+# reads no abbreviation of a long option, but a short-flag cluster can carry
+# any of the letters (`-nC`), so a cluster holding one defers.
+mise_run_args_ok() {
+  local i
+  for ((i = $1; i < cwn; i++)); do
     case ${cw[i]} in
-      --shell | --shell=*) return 1 ;;
-      -[!-]*s* | -s*) return 1 ;;
+      --shell | --shell=* | --cd | --cd=* | --env | --env=* | --tool | --tool=*) return 1 ;;
+      -[sCEt]* | -[!-]*[sCEt]*) return 1 ;;
     esac
   done
   return 0
@@ -4139,6 +4335,15 @@ guard_git() {
       *) return 1 ;;
     esac
   fi
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       # Read-only, but reject a following flag that WRITES a file
@@ -4264,11 +4469,9 @@ guard_git() {
       return 0
       ;;
     stash)
-      # Only the read-only subcommands; bare `git stash` PUSHES, so it defers.
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`; bare `git stash`
+      # PUSHES, and every other subcommand writes, so it defers.
+      return 1
       ;;
     symbolic-ref)
       # `git symbolic-ref <name>` READS a ref, but `git symbolic-ref HEAD <ref>`
@@ -4286,10 +4489,10 @@ guard_git() {
       return 0
       ;;
     reflog)
-      # `git reflog` / `reflog show` / `reflog exists` READ; `expire`/`delete`
-      # destroy recovery data.
+      # `git reflog` and `reflog exists` READ (`reflog show` arrives above as
+      # `log`); `expire`/`delete` destroy recovery data.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -6060,7 +6263,7 @@ classify_verb() {
     perl) guard_perl_inplace ;;
     awk) guard_awk ;;
     jq) guard_jq ;;
-    markdownlint | markdownlint-cli2) guard_mdlint ;;
+    markdownlint | markdownlint-cli2) guard_mdlint "$verb" ;;
     env) guard_env ;;
     printenv) guard_printenv ;;
     read) [ -z "${FISH_INNER-}" ] && guard_read ;;
@@ -8086,6 +8289,7 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
+  COMMITTED_USED=0
   AUDIT_OU=0
   OU_EXPORTED=0
   OU_EXP_NAMES=''
@@ -8094,6 +8298,7 @@ main() {
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
+  [ "$COMMITTED_USED" = 0 ] || [ "$AUDIT_OB" = 0 ] || return 0
   # An own-unit act shares its command only with a cd into the worktree, a
   # read-only segment, a step-context export or an installed step script:
   # never with a write or git act the own-branch or scratch arm or the
