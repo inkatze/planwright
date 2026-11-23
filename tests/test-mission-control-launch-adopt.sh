@@ -63,7 +63,8 @@ wait_done "$orch"
 
 rec_d="$tmp/rec-direct"
 mkdir -p "$rec_d"
-SHIM_RECORD_DIR=$rec_d ML_SESSION_HANDLE=$orch ml launch --program alpha --kind tower --scope spec:direct --brief "$tmp/brief.md"
+SHIM_RECORD_DIR=$rec_d ML_SESSION_HANDLE=$orch ML_WORKER_HANDLE=mc-alpha-worker-0000000001 \
+  ml launch --program alpha --kind tower --scope spec:direct --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the direct launch exited $RC: $ERR"
 direct=$(field name)
 [ ! -e "$fleet/streamjson/$direct/parent" ] && ok "a direct launch from inside a session records no parent" \
@@ -90,6 +91,12 @@ SHIM_RECORD_DIR=$rec_w ml launch --program alpha --kind worker --scope flight-st
 stepper=$(field name)
 ml adopt "$stepper" --scope demo:task-2 --plan
 [ "$RC" = 4 ] && ok "a worker's own launches are its steps, never adopted (exit 4)" || fail "--plan for a worker session exited $RC: $ERR"
+half=mc-alpha-orchestrator-7777777777
+printf 'format\t1\nname\t%s\nstate\tlaunching\ntoken\tt\nprogram\talpha\nowner\tmission-control:alpha\nkind\torchestrator\nscope\tx\nbackend\tstream-json\nhandle\t%s\nlaunched\t1\n' \
+  "$half" "$half" >"$reg/$half"
+ml adopt "$half" --scope demo:task-2 --plan
+[ "$RC" = 4 ] && ok "a session whose launch is not complete adopts nothing (exit 4)" || fail "--plan for a launching session exited $RC: $ERR"
+rm -f "$reg/$half"
 wait_done "$stepper"
 ml retire "$stepper"
 
@@ -113,7 +120,7 @@ wait_for "$rec_c/towerid" || fail "the dispatched worker never started"
 ml adopt "$orch" --scope demo:task-3
 [ "$RC" = 4 ] && ok "a worker that is not running under the planned name is not adopted (exit 4)" || fail "adopting an absent worker exited $RC: $ERR"
 ml adopt "$orch" --scope demo:task-2
-if [ "$RC" = 0 ] && [ "$OUT" = "adopt${TAB}$want${TAB}alpha" ]; then
+if [ "$RC" = 0 ] && [ "$OUT" = "adopt${TAB}$want${TAB}adopted${TAB}alpha" ]; then
   ok "the record adopts the dispatched worker"
 else
   fail "the record exited $RC and printed: $OUT $ERR"
@@ -139,6 +146,16 @@ ml adopt "$orch" --scope demo:task-4
 [ "$RC" = 4 ] && ok "a worker launched from another session is not adopted (exit 4)" || fail "adopting a stray worker exited $RC: $ERR"
 [ ! -e "$reg/$other" ] || fail "the refused adoption wrote a row"
 wait_done "$other"
+# Nor one launched under another profile, or for another scope.
+printf '%s\n' "$orch" >"$fleet/streamjson/$other/parent"
+printf 'tower\n' >"$fleet/streamjson/$other/profile"
+ml adopt "$orch" --scope demo:task-4
+[ "$RC" = 4 ] && ok "a session not launched under the worker profile is not adopted (exit 4)" || fail "adopting a tower-profile session exited $RC: $ERR"
+printf 'worker\n' >"$fleet/streamjson/$other/profile"
+printf 'demo:task-9\n' >"$fleet/streamjson/$other/scope"
+ml adopt "$orch" --scope demo:task-4
+[ "$RC" = 4 ] && ok "a worker whose launch recorded another scope is not adopted (exit 4)" || fail "adopting a worker of another scope exited $RC: $ERR"
+[ ! -e "$reg/$other" ] || fail "a refused adoption wrote a row"
 
 # ---------------------------------------------------------------------------
 # list, wait, unwait and retire take the adopted worker as alpha's.

@@ -849,11 +849,50 @@ m22() {
   STEP_REAL_RUNG=''
   [ "$RC" -eq 0 ] || fail "m22: the dispatch from an unregistered session exited $RC: $ERR"
   [ "$(field handle)" = demo-task-1 ] || fail "m22: unregistered session: handle line '$(field handle)'"
-  case $ERR in
-    *'no registered session is named mc-alpha-orchestrator-9999999999'*'registered without one'*'no tower identity available'*) ;;
-    *) fail "m22: an unregistered session's dispatch did not say why it has no owner: $ERR" ;;
-  esac
+  for frag in 'no registered session is named mc-alpha-orchestrator-9999999999' \
+    'this dispatch is registered with no owner' 'no tower identity available'; do
+    case $ERR in
+      *"$frag"*) ;;
+      *) fail "m22: an unregistered session's dispatch did not say '$frag': $ERR" ;;
+    esac
+  done
   pass "m22: a dispatch no program owns still registers, and says so"
+}
+
+# --- m23: the owner reaches the rung, and a record that fails is said -----
+m23() {
+  begin
+  seed m23 || return
+  copy_root
+  cat >"$C/root/scripts/fleet-streamjson.sh" <<EOF
+#!/bin/sh
+printf '%s\n' "\${PLANWRIGHT_TOWER_ID-<unset>}" >"$C/rec/sj-towerid"
+printf '%s\n' "\$2" >"$C/rec/sj-handle"
+exit 0
+EOF
+  chmod +x "$C/root/scripts/fleet-streamjson.sh"
+  # shellcheck disable=SC2016 # the stub body expands in the stub, not here
+  stub mission-control-launch.sh 'for a in "$@"; do [ "$a" = --plan ] && plan=1; done
+if [ "${plan:-}" = 1 ]; then
+  printf "adopt\tname\tmc-alpha-worker-0123456789\nadopt\tprogram\talpha\nadopt\towner\tmission-control:alpha\n"
+  exit 0
+fi
+echo "mission-control-launch: refusing to adopt (stub)" >&2
+exit 4'
+  RUN_STEP=$STEP_COPY STEP_SESSION_HANDLE=mc-alpha-orchestrator-0123456789 dispatch stream-json-persistent
+  [ "$RC" -eq 0 ] || fail "m23: a dispatch whose record failed exited $RC, not 0: $ERR"
+  [ "$(cat "$C/rec/sj-towerid" 2>/dev/null)" = mission-control:alpha ] \
+    || fail "m23: the rung was not handed the owner: $(cat "$C/rec/sj-towerid" 2>&1)"
+  [ "$(cat "$C/rec/sj-handle" 2>/dev/null)" = mc-alpha-worker-0123456789 ] \
+    || fail "m23: the rung did not launch under the planned name: $(cat "$C/rec/sj-handle" 2>&1)"
+  [ "$(field handle)" = mc-alpha-worker-0123456789 ] || fail "m23: handle line '$(field handle)'"
+  for frag in 'refusing to adopt (stub)' 'the launcher recorded no row for it (adopt exit 4)'; do
+    case $ERR in
+      *"$frag"*) ;;
+      *) fail "m23: the failed record did not say '$frag': $ERR" ;;
+    esac
+  done
+  pass "m23: the planned owner reaches the rung, and a failed record is said without failing the dispatch"
 }
 
 m1
@@ -878,6 +917,7 @@ m19
 m20
 m21
 m22
+m23
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

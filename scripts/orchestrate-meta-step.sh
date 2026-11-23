@@ -540,47 +540,38 @@ case $backend in
     # owner the launcher's row for this session gives, so the worker's
     # prompts reach its mission control and the launcher can wait, unwait and
     # retire it. Anywhere else the worker is registered as before.
-    if [ -n "${PLANWRIGHT_SESSION_HANDLE:-}" ]; then
-      plan_rc=0
+    adopt() {
       /bin/sh "$script_dir/mission-control-launch.sh" adopt "$PLANWRIGHT_SESSION_HANDLE" \
-        --scope "$spec_name:task-$task_id" --plan \
-        </dev/null >"$wtmp/adopt.out" 2>"$wtmp/adopt.err" || plan_rc=$?
-      if [ "$plan_rc" -eq 0 ]; then
-        planned=$(field "$wtmp/adopt.out" adopt name)
+        --scope "$spec_name:task-$task_id" "$@" </dev/null >"$wtmp/adopt.out" 2>"$wtmp/adopt.err"
+    }
+    if [ -n "${PLANWRIGHT_SESSION_HANDLE:-}" ]; then
+      adopt_rc=0
+      adopt --plan || adopt_rc=$?
+      if [ "$adopt_rc" -eq 0 ]; then
         owner=$(field "$wtmp/adopt.out" adopt owner)
-        if [ -n "$planned" ] && [ -n "$owner" ]; then
-          handle=$planned
-        else
-          owner=""
-        fi
+        planned=$(field "$wtmp/adopt.out" adopt name)
+        if [ -n "$planned" ] && [ -n "$owner" ]; then handle=$planned; else owner=""; fi
       fi
       if [ -z "$owner" ]; then
         relay "$wtmp/adopt.err"
-        printf '%s\n' "$me: no program owns this session's dispatches (mission-control-launch.sh adopt --plan exit $plan_rc); the worker is registered without one" >&2
+        printf '%s\n' "$me: this dispatch is registered with no owner: mission-control-launch.sh adopt --plan named none (exit $adopt_rc)" >&2
       fi
     fi
     say owner "${owner:-none}"
     launch_started=1
-    if [ -n "$owner" ]; then
-      PLANWRIGHT_TOWER_ID=$owner "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
-        --prompt-file "$prompt" --cwd "$worktree" "$@" \
-        </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
-    else
-      "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
-        --prompt-file "$prompt" --cwd "$worktree" "$@" \
-        </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
-    fi
+    env ${owner:+"PLANWRIGHT_TOWER_ID=$owner"} "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
+      --prompt-file "$prompt" --cwd "$worktree" "$@" \
+      </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
     if [ "$launch_rc" -eq 2 ] && grep -q 'did not start within' "$wtmp/launch.err" 2>/dev/null; then
       launch_failed 2 "fleet-streamjson exit 2" keep
     fi
     [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-streamjson exit $launch_rc"
     if [ -n "$owner" ]; then
       adopt_rc=0
-      /bin/sh "$script_dir/mission-control-launch.sh" adopt "$PLANWRIGHT_SESSION_HANDLE" \
-        --scope "$spec_name:task-$task_id" </dev/null >"$wtmp/adopt.out" 2>"$wtmp/adopt.err" || adopt_rc=$?
+      adopt || adopt_rc=$?
       if [ "$adopt_rc" -ne 0 ]; then
         relay "$wtmp/adopt.err"
-        printf '%s\n' "$me: $handle runs and is registered to $owner, but the launcher holds no row for it (adopt exit $adopt_rc): mission control cannot wait or unwait it, and retires it by name" >&2
+        printf '%s\n' "$me: $handle was launched and registered to $owner, but the launcher recorded no row for it (adopt exit $adopt_rc): its prompts still route there, and mission control retires it by name but cannot wait or unwait it" >&2
       fi
     fi
     ;;

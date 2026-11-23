@@ -563,7 +563,7 @@ owner_inputs() {
 # stream-json worker belongs to and where that was read, as
 # <program><TAB>row|record|parent|name: its launcher row's; else the owner
 # its dispatch record keeps (mission-control:<program>), which outlives a row
-# that was removed; else its parent's (the worker it was launched from
+# that was removed; else its parent's (the session it was launched from
 # inside, as fleet-streamjson.sh records it), but only from the parent's own
 # row or record, never the parent's parent: the launching process sets the
 # parent, so it counts only while a record the launcher wrote vouches for it,

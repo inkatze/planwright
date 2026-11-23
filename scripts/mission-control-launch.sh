@@ -233,7 +233,8 @@ Output, tab separated:
            unrecorded=<undo,event-<program>> when the move landed but a
            record did not (exit 1)
   name     the name alone
-  adopt    adopt <name> <program>; --plan: adopt name|program|owner <value>
+  adopt    adopt <name> adopted <program>; --plan: adopt name|program|owner
+           <value>
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
@@ -256,8 +257,8 @@ as gone once tmux no longer has it or it is no longer that window (another
 server, or another name: nothing is done to tmux then, and stderr says so in
 one line); one recorded without its server is never closed by its id, only
 the windows carrying the session's name are. A session with no row
-(one an older planwright or /orchestrate launched, named by its worker
-handle) is retired through its stream-json runtime directory: the rung's
+(one an older planwright, a /orchestrate outside a program's session or a
+hand launch started, named by its worker handle) is retired through its stream-json runtime directory: the rung's
 final close, then its fleet record and attention row, over the classes
 process, registry and attention, refused while the rung's own launch,
 recover or relaunch of it is in flight; with no such directory either, the
@@ -1576,7 +1577,7 @@ cmd_adopt() {
     die "cannot complete the row for $name; it was removed"
   fi
   name_unlock
-  printf 'adopt\t%s\t%s\n' "$name" "$program"
+  printf 'adopt\t%s\tadopted\t%s\n' "$name" "$program"
 }
 
 # windows_named <name> — print `<server> <id>` for each tmux window named

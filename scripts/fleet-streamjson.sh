@@ -3216,9 +3216,10 @@ cmd__frame_check() {
 # launch token); a worker the launcher's dispatch record names but no copy
 # covers is refused, exit 3, since no row can be rebuilt without inventing a
 # token. A worker the launcher never launched has nothing to restore, and
-# neither has one a program's session dispatched (it records that session as
-# its parent, which the launcher's own launches never do) whose adoption into
-# the launcher's registry did not land.
+# neither has one a program's session dispatched whose adoption into the
+# launcher's registry did not land: it records that session as its parent,
+# and not the tier unit (mission-control:<worker>) every launch of the
+# launcher's own records.
 recover_launcher_row() {
   rl_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || return 0
   rl_row="$rl_root/mission-control/sessions/$1"
@@ -3227,7 +3228,9 @@ recover_launcher_row() {
   fi
   rl_copy="$2/launcher-row"
   if [ ! -f "$rl_copy" ] || [ -L "$rl_copy" ]; then
-    [ ! -s "$2/parent" ] || return 0
+    if [ -s "$2/parent" ] && [ "$(cat "$2/tier_unit" 2>/dev/null)" != "mission-control:$1" ]; then
+      return 0
+    fi
     rl_owner=$(awk -F '\t' 'NR == 1 { print $3 }' "$rl_root/dispatch-markers/$1" 2>/dev/null) || rl_owner=''
     case $rl_owner in
       mission-control:*)
