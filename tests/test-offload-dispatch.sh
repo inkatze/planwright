@@ -215,7 +215,7 @@ if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-
   fail "dispatch tmux --profile: the session does not accept inbound messages"
 fi
 grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
-for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
+for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN PLANWRIGHT_SESSION_HANDLE; do
   grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
 done
 # A window starts from the tmux server's environment, which may carry some

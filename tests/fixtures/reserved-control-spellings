@@ -84,6 +84,8 @@ force-push       any    floor                        deny   defer  defer  defer 
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --force-with-lease=feature origin feature
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin +feature
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin +HEAD:feature
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --force-with-lease=planwright/demo/task-1:0123456789abcdef0123456789abcdef01234567 --force-if-includes origin planwright/demo/task-1
+force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin +planwright/demo/task-1
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push --mirr origin
 force-push       any    floor                        deny   defer  defer  defer  deny   deny   deny   git push origin --mi
 

@@ -231,10 +231,10 @@ attendance (interactive asks, headless parks), never a loop trigger.
   finding without reproducing secrets or sensitive operational detail.
 
 A gate failure on a pushed commit failing the commit-range lint names its
-repair in the entry and the handoff: such a commit is reworded only through
-the tower's force-push path (`scripts/tower-force-push.sh`, on the operator's
-request, [Human Gates](human-gates.md)), so name that path as the reason and
-add no commit for it.
+repair in its entry and handoff, adding no commit: a reword through
+`scripts/worker-branch-sync.sh`'s `push` while the PR is a draft its launch
+record allows, else the tower's `scripts/tower-force-push.sh`
+([Human Gates](human-gates.md)), naming each legacy checklist id it changed.
 
 The human's direction is the finding's disposition: the finding does not
 re-enter the routing order and the zone screen does not fire again. The agent

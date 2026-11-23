@@ -563,7 +563,7 @@ owner_inputs() {
 # stream-json worker belongs to and where that was read, as
 # <program><TAB>row|record|parent|name: its launcher row's; else the owner
 # its dispatch record keeps (mission-control:<program>), which outlives a row
-# that was removed; else its parent's (the worker it was launched from
+# that was removed; else its parent's (the session it was launched from
 # inside, as fleet-streamjson.sh records it), but only from the parent's own
 # row or record, never the parent's parent: the launching process sets the
 # parent, so it counts only while a record the launcher wrote vouches for it,
@@ -1031,7 +1031,8 @@ idle_since_tmux() {
 # (its final text's last line ends in `?`, the tmux pane's rule), which
 # parks it on the operator. The event log's last line must be that result:
 # a steer queued during a turn leaves the earlier turn's record reading
-# completed while the next turn runs, and its events follow the result.
+# completed until the session reads the steer, which retires the record; the
+# steer's events follow the result.
 # Without jq the question cannot be told, so it is never idle. The record is
 # read first, so a recent turn costs no status call or log read.
 idle_since_streamjson() {

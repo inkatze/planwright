@@ -262,7 +262,7 @@ grep -q "^$req_perm$tab.*${tab}pending" "$wdir5/journal" \
   || fail "c5: steer must not settle the pending request"
 [ "$(wc -l <"$wdir5/steers" | tr -d ' ')" = 1 ] \
   || fail "c5: steer should leave exactly one receipt row"
-grep -q "$tab$tmp/steer5\$" "$wdir5/steers" \
+grep -Eq "$tab$tmp/steer5${tab}[0-9a-f-]{36}${tab}(idle|busy)\$" "$wdir5/steers" \
   || fail "c5: the steer receipt should name the message file"
 out=$(senv "$home" "$rec" -- answer sjw5 "$req_perm" --allow) \
   || fail "c5: answer exited non-zero"
@@ -466,6 +466,23 @@ senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w2" -
 [ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover must never spawn the worker"
 grep -q 'no launcher registry row' "$tmp/o8r" || fail "c8r: the refusal must name its reason: $(cat "$tmp/o8r")"
 [ ! -e "$home8r/mission-control/sessions/$w2" ] || fail "c8r: a refused recover must write no row"
+w4='mc-p-worker-5555555555'
+mk8r "$w4" mission-control:p
+printf 'mc-p-orchestrator-0123456789\n' >"$home8r/streamjson/$w4/parent"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w4" --foreground >"$tmp/o8r4" 2>&1 \
+  || fail "c8r: a worker a program's session dispatched, its row never written, must still recover: $(cat "$tmp/o8r4")"
+[ -s "$rec8r/argv" ] || fail "c8r: the recover of a dispatched worker never spawned it"
+[ ! -e "$home8r/mission-control/sessions/$w4" ] || fail "c8r: a recover must not invent a row for a dispatched worker"
+w5='mc-p-worker-6666666666'
+mk8r "$w5" mission-control:p
+printf 'mc-p-orchestrator-0123456789\n' >"$home8r/streamjson/$w5/parent"
+printf 'mission-control:%s\n' "$w5" >"$home8r/streamjson/$w5/tier_unit"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w5" --foreground >"$tmp/o8r5" 2>&1
+[ $? -eq 3 ] || fail "c8r: a launcher's own worker with no row and no copy must be refused even when it records a parent"
+grep -q 'no launcher registry row' "$tmp/o8r5" || fail "c8r: the refusal of a launcher's own worker must name its reason: $(cat "$tmp/o8r5")"
+[ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover of a launcher's own worker spawned it"
 w3=sjw8r-plain
 mk8r "$w3" tower-abc
 : >"$rec8r/argv"

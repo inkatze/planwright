@@ -167,10 +167,12 @@ OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
 # 1 once the own-branch or scratch arm or the spec-root zone approved a write
-# or git act, a plain fetch was approved, and once trusted repository code, a
-# declared check command or a declared step was approved (main reads both).
+# or a git act other than add and commit, a plain fetch was approved, or a
+# plugin script other than an installed step script ran (main reads it).
 ARM_ACT=0
-TASK_ACT=0
+# 1 while the segment being verified is an own-unit partner: git add or
+# commit through the own-branch arm, or a gate task (fin reads it).
+OU_PARTNER=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -964,6 +966,155 @@ is_trusted_script() {
   # A hardlink of the helper is refused by each arm, against the root the path
   # resolves under.
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
+}
+
+# --------------------------------------------------------------------------
+# The step scripts (REQ-F1.12). A record whose times a worker sets by hand
+# can make a step that never ran read as run, so the guard approves only the
+# calls that leave the times to the scripts, on the session's own step cache.
+# A call is read as the script path, at most one two-word `--worktree <dir>`,
+# then the verb; every word must be the literal the script will see.
+
+# step_script_kind <path>: 0 when the trusted script <path> is a step script,
+# its kind left in STEP_KIND (`record` or `run`): by name under any casing a
+# case-insensitive filesystem runs, or as a link of a trusted root's copy.
+step_script_kind() {
+  local p=$1 root
+  lower "${p##*/}"
+  case $LOWER in
+    step-record.sh)
+      STEP_KIND=record
+      return 0
+      ;;
+    step-run.sh)
+      STEP_KIND=run
+      return 0
+      ;;
+  esac
+  case $p in
+    /*) ;;
+    *) p=$HOOK_CWD/$p ;;
+  esac
+  cache_roots
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    if [ "$p" -ef "$root/scripts/step-record.sh" ]; then
+      STEP_KIND=record
+      return 0
+    fi
+    if [ "$p" -ef "$root/scripts/step-run.sh" ]; then
+      STEP_KIND=run
+      return 0
+    fi
+  done <<EOF
+$PW_ROOTS
+EOF
+  return 1
+}
+
+# step_call_ok <index>: the step-script call whose script path is word
+# <index> of the current simple command, STEP_KIND set, is one REQ-F1.12
+# passes.
+step_call_ok() {
+  local i=$1 j wt='' given=0 verb
+  for ((j = i; j < cwn; j++)); do
+    [ -z "${csub[j]-}" ] || return 1
+    word_unresolved "${cw[j]}" "${cdyn[j]}" "${cglob[j]}" "${cx[j]}" && return 1
+  done
+  j=$((i + 1))
+  if [ "${cw[j]-}" = --worktree ]; then
+    [ $((j + 1)) -lt "$cwn" ] || return 1
+    wt=${cw[j + 1]}
+    given=1
+    j=$((j + 2))
+  fi
+  [ "$j" -lt "$cwn" ] || return 1
+  verb=${cw[j]}
+  # It reads no worktree or file, so no cache to keep it to.
+  [ "$STEP_KIND:$verb" != record:args-digest ] || return 0
+  step_own_cache_ok "$given" "$wt" || return 1
+  case $STEP_KIND:$verb in
+    record:write) step_write_ok $((j + 1)) ;;
+    # The script checks the source against the session's own events.
+    record:supersede) step_has_word $((j + 1)) --source ;;
+    record:render | record:list | record:lookup | record:heads | record:untrue | record:fingerprint) ;;
+    record:new-run | record:regenerate | record:status) ;;
+    record:excerpt) [ $((j + 2)) -eq "$cwn" ] && step_excerpt_ok "${cw[j + 1]}" ;;
+    # Their records are timed by the script itself.
+    run:resolve | run:audit | run:command | run:begin | run:end | run:resume | run:refire) ;;
+    *) return 1 ;;
+  esac
+}
+
+# step_own_cache_ok <given> <dir>: the call works on the recorded worktree's
+# cache: a given `--worktree` is a plain absolute path canonically that
+# worktree; an absent one leaves the script to find the git top level from
+# the session's directory, which must then lie in the worktree's own
+# repository. A step-context WORKTREE is held to the same worktree where
+# step_context_value_ok reads it.
+step_own_cache_ok() {
+  local here
+  [ -n "$REC_WT" ] || return 1
+  if [ "$1" = 1 ]; then
+    bare_abs_path_ok "$2" || return 1
+    case $2/ in
+      */./* | */../* | *//*/*) return 1 ;;
+    esac
+    [ "$(cd -- "$2" 2>/dev/null && pwd -P)" = "$REC_WT" ]
+    return
+  fi
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  own_unit_same_repo "$here"
+}
+
+# step_write_ok <index>: the write from word <index> on is a --completion
+# write setting no time: a step, re-fire or full-suite write gives --start.
+step_write_ok() {
+  local j c=0
+  for ((j = $1; j < cwn; j++)); do
+    case ${cw[j]} in
+      --completion) c=1 ;;
+      --start | --end | --start=* | --end=*) return 1 ;;
+    esac
+  done
+  [ "$c" = 1 ]
+}
+
+# step_has_word <index> <word>: <word> is one of the words from <index> on.
+step_has_word() {
+  local j
+  for ((j = $1; j < cwn; j++)); do
+    [ "${cw[j]}" != "$2" ] || return 0
+  done
+  return 1
+}
+
+# step_excerpt_ok <file>: <file> canonicalizes inside the recorded worktree
+# or scratch root, never through a symlinked leaf.
+step_excerpt_ok() {
+  local f=$1 d b full root
+  case $f in
+    /*) ;;
+    *) f=$HOOK_CWD/$f ;;
+  esac
+  b=${f##*/}
+  case $b in
+    '' | . | ..) return 1 ;;
+  esac
+  d=$(cd "${f%/*}/" 2>/dev/null && pwd -P) || return 1
+  full=${d%/}/$b
+  [ ! -L "$full" ] || return 1
+  for root in "$REC_WT" "$REC_SCRATCH"; do
+    [ -n "$root" ] || continue
+    case $full in
+      "$root"/*) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
@@ -2245,7 +2396,6 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
-  ARM_ACT=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -3927,7 +4077,10 @@ guard_bashsh() {
   case ${cw[1]} in
     -*) return 1 ;;
   esac
-  is_trusted_script "${cw[1]}" "$HOOK_CWD"
+  is_trusted_script "${cw[1]}" "$HOOK_CWD" || return 1
+  step_script_kind "${cw[1]}" || return 0
+  STEP_CALL=1
+  step_call_ok 1
 }
 
 guard_fish() {
@@ -4549,14 +4702,27 @@ guard_git() {
       # objects. Not through -C.
       if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
         HOOK_WT_ROOT=$REC_WT
-        # It writes remote-tracking refs, so it is no own-unit partner.
+        # It writes remote-tracking refs: no own-unit partner, whichever arm
+        # approves it.
         cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && ARM_ACT=1 && return 0
       fi
-      ob_git "$sub" "$subidx"
+      ob_git "$sub" "$subidx" && ARM_ACT=1
       ;;
-    add | rm | mv | restore | checkout | commit | merge) ob_git "$sub" "$subidx" ;;
+    add | commit) ob_git_partner "$sub" "$subidx" ;;
+    rm | mv | restore | checkout | merge) ob_git "$sub" "$subidx" && ARM_ACT=1 ;;
     *) return 1 ;;
   esac
+}
+
+# ob_git_partner <sub> <index>: ob_git for the own-branch arm's `git add` and
+# `git commit`, the two git acts that may come before an own-unit act in its
+# chain (OU_PARTNER): a read their checks make (a `commit -F` file) is no
+# write, so it leaves ARM_ACT as it was.
+ob_git_partner() {
+  local arm=$ARM_ACT
+  ob_git "$1" "$2" || return 1
+  ARM_ACT=$arm
+  OU_PARTNER=1
 }
 
 # ls_remote_url_ok <remote>: 0 only when `git ls-remote <remote>` would use a
@@ -6880,14 +7046,15 @@ verify_simple() {
   # The floor comes before every arm and the declared steps. An own-unit act
   # it reserves is weighed exactly by verify_known_simple, and nothing else
   # may approve it.
-  local own_cand=0
+  local own_cand=0 STEP_CALL=0
   [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
   if [ "$cwn" -gt 0 ] && floor_act_words "${sw[@]}"; then
     own_unit_candidate || return 1
     own_cand=1
   fi
   verify_known_simple && return 0
-  [ "$own_cand" = 0 ] || return 1
+  # A step-script call step_call_ok refused is never a declared line's.
+  [ "$own_cand" = 0 ] && [ "$STEP_CALL" = 0 ] || return 1
   # A declared check command or step is an operator's line, never one around
   # a substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
@@ -6895,8 +7062,10 @@ verify_simple() {
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
+  # A declared check command or command step is a trusted repository task:
+  # a chain partner before an own-unit act.
   check_command_ok || declared_line_ok || return 1
-  TASK_ACT=1
+  OU_PARTNER=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -7085,6 +7254,9 @@ strip_compute_route() {
   fi
   shift_words $((n + 1))
   PREFIXED=1
+  # The router is a plugin script other than a step script: whatever it
+  # routes, it keeps an own-unit act out of its command.
+  ARM_ACT=1
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
   esac
@@ -7725,12 +7897,11 @@ verify_known_simple() {
   case $verb in
     */*)
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
-      # Trusted code that may write, which no own-unit act may share a
-      # command with; an installed step script is the one exception.
-      case $verb in
-        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || TASK_ACT=1 ;;
-        *) TASK_ACT=1 ;;
-      esac
+      if step_script_kind "$verb"; then
+        STEP_CALL=1
+        step_call_ok 0 || return 1
+      fi
+      ou_script_kind "$verb"
       return 0
       ;;
   esac
@@ -7739,9 +7910,25 @@ verify_known_simple() {
   fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats | bash | sh) TASK_ACT=1 ;;
+    mise | lefthook | bats) OU_PARTNER=1 ;;
+    bash | sh) ou_script_kind "${cw[1]}" ;;
   esac
   return 0
+}
+
+# ou_script_kind <trusted script>: what the script is to an own-unit act in
+# the same command. A repository script is a chain partner (a gate task); an
+# installed step script is neither; any other plugin script keeps the act
+# from being approved, since it may write.
+ou_script_kind() {
+  if is_repo_script "$1" "$HOOK_CWD"; then
+    OU_PARTNER=1
+    return 0
+  fi
+  case $1 in
+    */step-run.sh | */step-record.sh) return 0 ;;
+  esac
+  ARM_ACT=1
 }
 
 # --------------------------------------------------------------------------
@@ -7776,6 +7963,12 @@ verify_tokens() {
   # trailing `&` can drop what that list assigned, and whether the last `;`
   # was a newline continuing that list (fin).
   local list_var=$VAR_C list_cont=0
+  # An own-unit act's chain partners (OU_PARTNER: a git add or commit the
+  # policy approves, a trusted repository task) come before it, joined only
+  # by `&&`. ou_chain: a partner was seen and its chain is still open;
+  # ou_bad: one was seen anywhere else, or after an act (ou_seen), so no act
+  # in this command is approved.
+  local ou_chain=0 ou_bad=0 ou_seen=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -7820,6 +8013,7 @@ verify_tokens() {
     PENDING_OUT_DIR=''
     SEG_SCOPED=0
     OU_SEG=0
+    OU_PARTNER=0
     verify_simple || return 1
     if [ "$close" = '|' ]; then
       ou_pipe=1
@@ -7827,6 +8021,25 @@ verify_tokens() {
       ou_pipe=0
     fi
     [ "$OU_SEG" = 0 ] || ou_list=1
+    if [ "$OU_PARTNER" = 1 ]; then
+      if [ "$ctl_depth" -ne 0 ] || [ "$close" != '&&' ] || [ "$ou_seen" = 1 ] || [ "$ou_or" = 1 ]; then
+        ou_bad=1
+      fi
+      case $seg_open in
+        '' | ';' | '&&') ;;
+        *) ou_bad=1 ;;
+      esac
+      ou_chain=1
+    elif [ "$OU_SEG" = 0 ] && [ "$ou_chain" = 1 ] && [ "$ou_seen" = 0 ] && [ "$ctl_depth" -eq 0 ]; then
+      # A segment between a partner and the act keeps the chain only by `&&`,
+      # with no line break either.
+      [ "$close" = '&&' ] && [ "$empty" = 0 ] || ou_bad=1
+    fi
+    if [ "$OU_SEG" = 1 ]; then
+      ou_seen=1
+      [ "$ou_bad" = 0 ] || return 1
+    fi
+    [ "$ou_seen" = 0 ] || [ "$ou_bad" = 0 ] || return 1
     if [ "$ctl_depth" -eq 0 ]; then
       [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1
       # The tokenizer reads every line break as `;`, but one right after
@@ -8294,19 +8507,15 @@ main() {
   OU_EXPORTED=0
   OU_EXP_NAMES=''
   ARM_ACT=0
-  TASK_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
   [ "$COMMITTED_USED" = 0 ] || [ "$AUDIT_OB" = 0 ] || return 0
-  # An own-unit act shares its command only with a cd into the worktree, a
-  # read-only segment, a step-context export or an installed step script:
-  # never with a write or git act the own-branch or scratch arm or the
-  # spec-root zone approved, nor with trusted repository code (a mise or
-  # lefthook task, bats, a repo or other plugin script, a declared check
-  # command or step), so a worker commits or runs its gate, then pushes in a
-  # call of its own.
-  [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
+  # An own-unit act shares its command only with a cd into the worktree,
+  # read-only segments, a step-context export, an installed step script, and
+  # the partners verify_tokens places before it (git add or commit, a gate
+  # task): never with a file write, another git act or a spec-root write.
+  [ "$AUDIT_OU" = 0 ] || [ "$ARM_ACT" = 0 ] || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0

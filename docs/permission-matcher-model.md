@@ -387,15 +387,21 @@ a value can grant a worker left the deny list with human-gates Task 6:
 - the base merge (`git merge`, `git pull`, and their `git -*` global-option
   spellings), granted by `worker_base_merge`;
 - the never-pushed rewrites (amend, squash, fixup, rebase, at every prefix git
-  accepts, and `git -* rebase*`), granted by `unpushed_rewrite`.
+  accepts, and `git -* rebase*`), granted by `unpushed_rewrite`, and the same
+  acts on the worker's own pushed commits, granted by `draft_rewrite` from the
+  launch record alone.
 
-The hard-reset deny stays whole. The one route past it is
-`scripts/worker-branch-sync.sh`, which runs its reset to the branch's own
-remote branch and its fast-forward inside its own process, below every hook:
-no Bash rule sees those git commands, so none is narrowed for it, and the
-helper pushes nothing. The policy guard decides which runs of the helper reach
-it, and the helper re-checks the rest at run time (the worktree-sync row of
-`doctrine/human-gates.md`).
+The hard-reset and force-push denies stay whole in every profile. The one
+route past them is `scripts/worker-branch-sync.sh`, which runs its leased
+push, its reset to the branch's own remote branch, and its fast-forward inside
+its own process, below every hook: no Bash rule sees those git commands, so
+none is narrowed for it, and a raw `git push --force*` or `+` refspec stays
+denied at every tier. The worker reaches the helper through the worker command
+guard's approval of installed planwright scripts; the policy guard admits only
+the helper's literal grammar (for the push, `push
+--force-with-lease=<branch>:<sha> --force-if-includes`), and the helper
+re-reads the worktree's launch record and re-checks the rest at run time (the
+worktree-sync and draft-branch rewrite rows of `doctrine/human-gates.md`).
 
 `scripts/policy-guard.sh`, wired into the same profile with the `worker` tier,
 is the deny-emitting layer for those acts: it reads the knob, the session's
@@ -573,10 +579,11 @@ plain forms:
   folder's own config still loads beside it. A glob or folder operand defers,
   and so, without `--no-globs`, does an options file in the working directory,
   since either reaches folders the guard does not walk. The check reads the
-  folders before the command runs, so a lint beside a write the own-branch
-  arm admits defers. What still passes: a settings file the worker committed
-  in an earlier call counts as committed, as any committed file does (the
-  commit sits on the branch, where review sees it), and a committed settings
+  folders before the command runs, so a lint beside anything the own-branch
+  arm admits (a write, or a git act such as `git add`) defers. What still
+  passes: a settings file the worker committed in an earlier call counts as
+  committed, as any committed file does (the commit sits on the branch,
+  where review sees it), and a committed settings
   file's `extends` reads the file it names, which a parse error prints part
   of, so a worker that commits one naming another readable file can see that
   file's start.

@@ -106,6 +106,12 @@ if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" 
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/uuid-lib.sh" ]; then
+  printf '%s\n' "$me: uuid-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/uuid-lib.sh
+. "$script_dir/uuid-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 FR="$script_dir/fleet-register.sh"
@@ -489,20 +495,6 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-mint_id() {
-  mi_hex=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-  case $mi_hex in
-    *[!0-9a-f]* | "") return 1 ;;
-  esac
-  [ "${#mi_hex}" -eq 32 ] || return 1
-  printf '%s\n' "$mi_hex" | awk '{
-    v = substr($0, 17, 1)
-    n = index("0123456789abcdef", v) - 1
-    v = substr("89ab", (n % 4) + 1, 1)
-    printf "%s-%s-4%s-%s%s-%s", substr($0, 1, 8), substr($0, 9, 4), substr($0, 14, 3), v, substr($0, 18, 3), substr($0, 21, 12)
-  }'
-}
-
 # write_frame <message-file> <reply-socket> <id> — the inbox's JSON line on
 # stdout, the body escaped as a JSON string and never interpreted.
 write_frame() {
@@ -663,7 +655,7 @@ cmd_send() {
     printf '%s\n' "$me: send: the target is not an existing socket owned by this user; nothing posted" >&2
     exit 6
   fi
-  sd_id=$(mint_id) || {
+  sd_id=$(uuid_v4) || {
     printf '%s\n' "$me: send: could not mint a message id" >&2
     exit 4
   }
