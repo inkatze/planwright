@@ -4,28 +4,28 @@ interruptions	2026-11-01	mission-control	1	0
 interruptions	2026-11-02	interactive	1	0
 interruptions	2026-11-02	mc-launched	1	0
 interruptions	2026-11-02	mission-control	0	1
-merges	2026-11-01	example/one	1
+merges	2026-11-01	example/one	2
 merges	2026-11-02	example/one	1
 merges	2026-11-02	example/two	1
 spend	2026-11-01	mc-launched	4.00
-spend	2026-11-01	mission-control	4.00
+spend	2026-11-01	mission-control	5.00
 spend	2026-11-01	unknown	4.00
 spend	2026-11-02	interactive	1.00
 spend	2026-11-02	mc-launched	4.00
 spend	2026-11-02	mission-control	2.00
 summary	days	2
 summary	interruptions-per-day	1.50	0.50
-summary	merges-per-day	1.50
-summary	spend-share	interactive	1.00	5.3
-summary	spend-share	mc-launched	8.00	42.1
-summary	spend-share	mission-control	6.00	31.6
-summary	spend-share	unknown	4.00	21.1
+summary	merges-per-day	2.00
+summary	spend-share	interactive	1.00	5.0
+summary	spend-share	mc-launched	8.00	40.0
+summary	spend-share	mission-control	7.00	35.0
+summary	spend-share	unknown	4.00	20.0
 summary	turns-per-day	interactive	1.00	0.00
 summary	turns-per-day	mc-launched	1.00	0.50
-summary	turns-per-day	mission-control	1.50	0.00
+summary	turns-per-day	mission-control	2.00	0.00
 summary	turns-per-day	unknown	0.50	0.00
 turns	2026-11-01	mc-launched	1	0
-turns	2026-11-01	mission-control	2	0
+turns	2026-11-01	mission-control	3	0
 turns	2026-11-01	unknown	1	0
 turns	2026-11-02	interactive	2	0
 turns	2026-11-02	mc-launched	1	1

@@ -71,6 +71,10 @@ if [ "\$repo" = example/many ]; then
   jq -n '[range(1000) | {number: ., mergedAt: "2026-11-01T00:00:00Z"}]'
   exit 0
 fi
+if [ "\$repo" = example/object ]; then
+  echo '{"message": "not a list"}'
+  exit 0
+fi
 f="$FIX/merges/\$(printf '%s' "\$repo" | tr / -).json"
 [ -f "\$f" ] || { echo "no such repo" >&2; exit 1; }
 cat "\$f"
@@ -122,8 +126,11 @@ assert_exit "compute: a malformed date is a usage error" 2 $?
 assert_contains "compute: the malformed date is named" "--since takes a real YYYY-MM-DD date" "$(cat "$T/out")"
 "$BASELINE" compute --since 2026-02-01 --until 2026-02-30 --prices "$prices" "$T/rows.tsv" >"$T/out" 2>&1
 assert_exit "compute: a day the month does not have is a usage error" 2 $?
-"$BASELINE" compute --since 2028-02-29 --until 2028-02-29 --prices "$prices" "$T/rows.tsv" >"$T/out" 2>&1
+"$BASELINE" compute --since 2028-02-28 --until 2028-03-01 --prices "$prices" "$T/rows.tsv" >"$T/out" 2>&1
 assert_exit "compute: a leap day is a real date" 0 $?
+assert_contains "compute: a window across a leap day counts its days" "$(printf 'summary\tdays\t3')" "$(cat "$T/out")"
+"$BASELINE" compute --since 2026-10-31 --until 2026-11-01 --prices "$prices" "$T/rows.tsv" >"$T/out" 2>&1
+assert_contains "compute: a window across a month end counts its days" "$(printf 'summary\tdays\t2')" "$(cat "$T/out")"
 "$BASELINE" compute --since 2026-11-01 --until 2026-11-02 --prices "$prices" "$T/missing.tsv" >"$T/out" 2>&1
 assert_exit "compute: an unreadable rows file is a usage error" 2 $?
 assert_contains "compute: the unreadable rows file is named" "unreadable rows file" "$(cat "$T/out")"
@@ -184,6 +191,9 @@ assert_contains "record: the failed forge read names the repository" "example/no
 "$BASELINE" record --since 2026-11-01 --until 2026-11-03 --repo example/many --prices "$prices" >"$T/out" 2>&1
 assert_exit "record: a forge read at its limit exits 1" 1 $?
 assert_contains "record: the limit is named" "hit its 1000-row limit" "$(cat "$T/out")"
+"$BASELINE" record --since 2026-11-01 --until 2026-11-03 --repo example/object --prices "$prices" >"$T/out" 2>&1
+assert_exit "record: a forge reply that is not a list exits 1" 1 $?
+assert_contains "record: the reply is named" "the forge returned no list for example/object" "$(cat "$T/out")"
 assert_eq "failed records leave the location as it was" "$dest" "$(find "$base" -type f -print)"
 inrepo="$T/work"
 git init -q "$inrepo"
@@ -191,6 +201,11 @@ PLANWRIGHT_FLEET_STATE_DIR="$inrepo/fleet" "$BASELINE" record --since 2026-11-01
 assert_exit "record refuses a location inside a git work tree" 2 $?
 assert_contains "record names the refused location" "inside a git work tree" "$(cat "$T/out")"
 assert_eq "the refused record writes nothing" "" "$(find "$inrepo" -path "$inrepo/.git" -prune -o -type f -print)"
+mkdir -p "$inrepo/sub"
+ln -s "$inrepo/sub" "$T/linked-fleet"
+PLANWRIGHT_FLEET_STATE_DIR="$T/linked-fleet" "$BASELINE" record --since 2026-11-01 --until 2026-11-02 --repo example/one --prices "$prices" >"$T/out" 2>&1
+assert_exit "record refuses a location a symbolic link puts inside a work tree" 2 $?
+assert_eq "the refused linked record writes nothing" "" "$(find "$inrepo" -path "$inrepo/.git" -prune -o -type f -print)"
 PLANWRIGHT_FLEET_STATE_DIR="relative/fleet" "$BASELINE" record --since 2026-11-01 --until 2026-11-02 --repo example/one --prices "$prices" >"$T/out" 2>&1
 assert_exit "record refuses a relative fleet home" 2 $?
 
@@ -219,6 +234,17 @@ assert_exit "check-committed reads the committed copy of a file deleted locally"
 git -C "$sk" rm -q docs/baseline.tsv && git -C "$sk" commit -q -m drop
 "$BASELINE" check-committed --repo-root "$sk" >"$T/cc.out" 2>&1
 assert_exit "check-committed passes once the figures are gone" 0 $?
+printf '*.dat binary\n' >"$sk/.gitattributes"
+cp "$FIX/expected.tsv" "$sk/docs/figures.dat"
+git -C "$sk" add .gitattributes docs/figures.dat && git -C "$sk" commit -q -m binary
+"$BASELINE" check-committed --repo-root "$sk/docs" >"$T/cc.out" 2>&1
+assert_exit "check-committed reads a file git treats as binary" 1 $?
+assert_contains "check-committed scans the whole work tree from a subdirectory" "docs/figures.dat" "$(cat "$T/cc.out")"
+git -C "$sk" rm -q docs/figures.dat .gitattributes && git -C "$sk" commit -q -m unbinary
+empty="$T/empty-repo"
+git init -q "$empty"
+"$BASELINE" check-committed --repo-root "$empty" >"$T/cc.out" 2>&1
+assert_exit "check-committed passes in a repository with no commits" 0 $?
 cp "$sk/docs/notes.md" "$T/notes.clean"
 while IFS= read -r row; do
   printf 'The hub ran hot:\n\n%s\n' "$row" >>"$sk/docs/notes.md"

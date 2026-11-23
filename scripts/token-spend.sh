@@ -31,9 +31,9 @@ token-spend.sh: where a host's Claude tokens go.
 
 rows    Prints one tab-separated line per assistant message, at most one s
         line per transcript file and, with --asks, one a line per use of a
-        tool that reaches the operator, reading each file alone (grep, then jq) so a
-        sweep never holds more than one transcript. With no files it walks
-        every *.jsonl under $CLAUDE_CONFIG_DIR/projects (default
+        tool that reaches the operator, reading each file alone (grep, then
+        jq) so a sweep never holds more than one transcript. With no files
+        it walks every *.jsonl under $CLAUDE_CONFIG_DIR/projects (default
         ~/.claude/projects), sub-agent transcripts included; --since (walk
         only) skips files last written at or before local midnight of that
         date, so a file written since still contributes its older messages.
@@ -46,7 +46,9 @@ rows    Prints one tab-separated line per assistant message, at most one s
           a <tool-use-id> <session> main|sub <timestamp> <tool>
         An a line, printed only with --asks, is one use of a tool that
         reaches the operator (AskUserQuestion or PushNotification); a use
-        written on several lines prints per line, its id `-` when absent.
+        written on several lines prints per line, its id `-` when absent. A
+        file whose tool uses cannot be parsed is named on stderr and skipped,
+        and rows then exits 1.
         The s line is the file's first user prompt that is not a system or
         local-command message, from its first eight user lines. A message the
         transcript writes on several lines (one per content block) is printed
@@ -70,7 +72,8 @@ report  Reads rows output and prints totals by token class, model, day,
         a model missing from it is priced at zero and named on stderr.
         Control bytes in transcript text are dropped before printing.
 
-Exit: 0 printed; 1 rows skipped a file it could not read or list;
+Exit: 0 printed; 1 rows skipped a file it could not read or list, or
+      whose tool uses it could not parse (--asks);
       2 usage, a missing tool or transcript directory, an unreadable rows
       file, or an unreadable or malformed price table.
 EOF

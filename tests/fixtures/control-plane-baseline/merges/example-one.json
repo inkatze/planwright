@@ -1,4 +1,6 @@
 [
   {"number": 1, "mergedAt": "2026-11-01T10:00:00Z"},
-  {"number": 2, "mergedAt": "2026-11-02T11:00:00Z"}
+  {"number": 2, "mergedAt": "2026-11-02T11:00:00Z"},
+  {"number": 3, "mergedAt": "2026-11-03T01:00:00Z"},
+  {"number": 7, "mergedAt": "2026-11-01T12:00:00Z"}
 ]

@@ -15,10 +15,10 @@ $1 == "s" {
   next
 }
 
-# A message counts once, as a turn and at its price, the way
-# token-spend-total.awk counts it: a message with no usage is no turn. The id
-# is marked only once a line counts, so a zero-usage or out-of-window line
-# never hides a sibling line that does.
+# A message counts once, as a turn and at its price; a message with no usage
+# is no turn. Unlike token-spend-total.awk, the id is marked only once a line
+# counts, so a zero-usage or out-of-window line never hides a sibling line
+# that does.
 $1 == "m" {
   if ($2 != "-" && ($2 in seen)) next
   d = day_of($5)

@@ -66,7 +66,7 @@ slice starts.
 
 | Slice | What it builds | The number it moves |
 | --- | --- | --- |
-| One | The approval engine, the event dedupe gate, the request ledger | Mission control's model turns per day. While the approval classes are in shadow they answer nothing, so the shadow-period number is the share of prompts the engine would have answered with no mismatch; the change in turns and in operator interruptions is read at the first class's move to enforce, and the dedupe gate's drops and wakes at its landing. |
+| One | The approval engine, the event dedupe gate, the request ledger | Mission control's model turns per day. While the approval classes are in shadow they answer nothing, so the shadow-period number is the share of prompts the engine would have answered with no mismatch; the change in turns and in operator interruptions is read at the first class's move to enforce, the dedupe gate's drops and wakes at its landing, and the request ledger's landing records its change in operator interruptions. |
 | Two | The queue and the dispatcher | Merges per day, with the work-in-progress limit and landing order held by code. |
 | Three | The reconciler | Operator interruptions per day, as syncs, check hygiene, flips and evidence stop reaching the operator. |
 | Four | Briefs from state and a thin hub | Mission control's share of the spend. |

@@ -43,8 +43,9 @@ record   Reads every transcript under $CLAUDE_CONFIG_DIR/projects (default
          replacing an earlier recording of the same window (the last run to
          finish wins), then prints `recorded<TAB><path>`. The fleet home is
          scripts/fleet-state.sh root's and must be an absolute path. A
-         location with a .git entry in it or above it is refused, so a
-         recording never lands where it could be committed.
+         location with a .git entry in it or above it, its symbolic links
+         resolved, is refused, so a recording never lands where it could be
+         committed.
 compute  Prints the baseline of a rows file holding token-spend.sh rows
          (m, s and a lines) and merge lines (g <repo> <number> <merged-at>).
          The window is whole UTC days, --since to --until inclusive. Lines,
@@ -62,27 +63,31 @@ compute  Prints the baseline of a rows file holding token-spend.sh rows
          The rows are sorted before they are read, so where a message, a
          session's prompt line or a tool use appears in more than one
          transcript the same copy counts on every run. A turn is a message
-         with usage, each message id once (as token-spend-total.awk counts);
-         main or sub is the transcript's chain. The role is the session's kind
-         from its first prompt (token-spend-lib.awk's session_kind); a session
-         with no prompt line is `unknown`. Asked counts AskUserQuestion uses and
+         with usage, each message id once, counted from the first of its
+         lines that has usage in the window; main or sub is the transcript's
+         chain. The role is the session's kind read from its prompt line
+         (token-spend-lib.awk's session_kind; where several transcripts carry
+         one, the first in sort order); a session with no prompt line is
+         `unknown`. Asked counts AskUserQuestion uses and
          pushed PushNotification uses, each tool-use id once and a use with no
          id on every line. A merge counts once per repository and number, on
          its merged-at day. Dollars use --prices (default
          config/token-prices.tsv); a model missing from it is priced at zero
          and named on stderr.
 check-committed
-         Fails when a file git tracks under --repo-root (default the
-         enclosing work tree's top level), in its committed (HEAD) or its
+         Fails when any file git tracks in the work tree holding --repo-root
+         (default the current directory), in its committed (HEAD) or its
          working-tree copy, holds a recorded figure: the format line above,
-         or a turns, spend, interruptions, merges or summary row. The fixture
-         set under tests/fixtures/control-plane-baseline/ is exempt.
+         or a turns, spend, interruptions, merges or summary row. Files git
+         treats as binary are read as text. The fixture set under
+         tests/fixtures/control-plane-baseline/ is exempt.
 
 Exit: 0 done (check-committed: no figure found); 1 a transcript or forge read
       failed, a forge read hit its limit, or check-committed found a figure,
       each named on stderr; 2 usage, a missing tool, an unreadable rows file,
       an unreadable or malformed price table, an unresolved or refused
-      location, or a --repo-root that is not a git work tree.
+      location, a --repo-root that is not a git work tree, or a git read
+      that failed (a file it could not read, a HEAD it could not resolve).
 EOF
 }
 
@@ -100,6 +105,7 @@ cleanup() {
   [ -z "$part" ] || rm -f -- "$part"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 scratch_dir() {
@@ -167,8 +173,9 @@ compute_baseline() {
     -f "$here/token-spend-lib.awk" -f "$here/control-plane-baseline.awk" \
     "$(awk_operand "$3")" "$(awk_operand "$scratch/sorted")" >"$scratch/body" \
     || die 2 "computing the baseline failed"
+  sort "$scratch/body" >"$scratch/body.sorted" || die 2 "sorting the baseline failed"
   printf '# control-plane-baseline: format 1\n# window\t%s\t%s\n' "$1" "$2"
-  sort "$scratch/body"
+  cat "$scratch/body.sorted"
 }
 
 cmd_compute() {
@@ -209,6 +216,29 @@ under_git() {
   done
 }
 
+# physical_path <absolute path>: the path with every symbolic link in its
+# longest existing prefix resolved.
+physical_path() {
+  pp_head=$1 pp_tail=""
+  while [ ! -d "$pp_head" ]; do
+    pp_tail=/${pp_head##*/}$pp_tail
+    pp_head=${pp_head%/*}
+    [ -n "$pp_head" ] || pp_head=/
+  done
+  pp_real=$(cd -P -- "$pp_head" && pwd -P) || return 1
+  pp_out=${pp_real%/}$pp_tail
+  printf '%s' "${pp_out:-/}"
+}
+
+# refuse_git_location <absolute dir>: die unless neither <dir> nor its
+# physical path has a .git entry in it or above it.
+refuse_git_location() {
+  rg_real=$(physical_path "$1") || die 2 "cannot resolve $(clean "$1")"
+  if under_git "$1" || under_git "$rg_real"; then
+    die 2 "refusing a location inside a git work tree: $(clean "$1")"
+  fi
+}
+
 cmd_record() {
   since="" until="" prices=$here/../config/token-prices.tsv repos=""
   while [ $# -gt 0 ]; do
@@ -236,9 +266,7 @@ cmd_record() {
     *) die 2 "the fleet home is not an absolute path: $(clean "$home")" ;;
   esac
   dir=${home%/}/control-plane/baseline
-  if under_git "$dir"; then
-    die 2 "refusing a location inside a git work tree: $(clean "$dir")"
-  fi
+  refuse_git_location "$dir"
   scratch_dir
   # token-spend.sh's --since is local midnight; the window's days are UTC.
   TZ=UTC0 "$here/token-spend.sh" rows --asks --since "$since" >"$scratch/rows" \
@@ -256,9 +284,10 @@ cmd_record() {
     jq -r --arg r "$repo" '.[] | ["g", $r, (.number | tostring), (.mergedAt // "")] | @tsv' \
       "$scratch/prs.json" >>"$scratch/rows" || die 1 "the forge returned malformed rows for $repo"
   done
-  compute_baseline "$since" "$until" "$prices" "$scratch/rows" >"$scratch/baseline" || exit $?
+  compute_baseline "$since" "$until" "$prices" "$scratch/rows" >"$scratch/baseline"
   umask 077
   mkdir -p -- "$dir" || die 2 "cannot create $(clean "$dir")"
+  refuse_git_location "$dir"
   dest=$dir/$since--$until.tsv
   part=$dir/.$since--$until.tsv.$$
   if ! cp -- "$scratch/baseline" "$part" || ! mv -f -- "$part" "$dest"; then
@@ -274,11 +303,28 @@ grep_figures() {
   tab=$(printf '\t')
   gf_top=$1
   shift
-  git -C "$gf_top" grep -l -I -E \
+  git -C "$gf_top" grep -l -a -E \
     -e '^# control-plane-baseline: format [0-9]+' \
     -e "^(turns|spend|interruptions|merges)${tab}[0-9]{4}-[0-9]{2}-[0-9]{2}${tab}" \
     -e "^summary${tab}(days|turns-per-day|spend-share|merges-per-day|interruptions-per-day)${tab}" \
     "$@" -- . ":(exclude)$fixture_dir/"
+}
+
+# scan_figures <top> [<tree>]: append grep_figures' hits to $scratch/hits and
+# set found; a file git could not read fails the check even though git grep
+# then exits 1.
+scan_figures() {
+  grep_figures "$@" >"$scratch/scan" 2>"$scratch/grep.err"
+  sf=$?
+  [ ! -s "$scratch/grep.err" ] || die 2 "git grep failed: $(clean "$(head -n 3 "$scratch/grep.err")")"
+  case $sf in
+    0)
+      found=1
+      sed 's/^HEAD://' "$scratch/scan" >>"$scratch/hits"
+      ;;
+    1) ;;
+    *) die 2 "git grep failed with status $sf" ;;
+  esac
 }
 
 cmd_check_committed() {
@@ -292,26 +338,16 @@ cmd_check_committed() {
     shift 2
   done
   [ -n "$root" ] || root=.
+  command -v git >/dev/null 2>&1 || die 2 "git is required"
   top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] \
     || die 2 "not a git work tree: $(clean "$root")"
   scratch_dir
   found=0
-  grep_figures "$top" >"$scratch/hits" 2>"$scratch/grep.err"
-  case $? in
-    0) found=1 ;;
-    1) ;;
-    *) die 2 "git grep failed: $(clean "$(head -n 3 "$scratch/grep.err")")" ;;
-  esac
-  if git -C "$top" rev-parse -q --verify HEAD >"$scratch/head" 2>&1; then
-    grep_figures "$top" HEAD >"$scratch/head-hits" 2>"$scratch/grep.err"
-    case $? in
-      0)
-        found=1
-        sed 's/^HEAD://' "$scratch/head-hits" >>"$scratch/hits"
-        ;;
-      1) ;;
-      *) die 2 "git grep failed: $(clean "$(head -n 3 "$scratch/grep.err")")" ;;
-    esac
+  scan_figures "$top"
+  if git -C "$top" rev-parse -q --verify HEAD >"$scratch/head" 2>"$scratch/head.err"; then
+    scan_figures "$top" HEAD
+  elif [ -n "$(git -C "$top" for-each-ref --count=1 2>"$scratch/head.err")" ] || [ -s "$scratch/head.err" ]; then
+    die 2 "HEAD does not resolve: $(clean "$(head -n 3 "$scratch/head.err")")"
   fi
   if [ "$found" -eq 0 ]; then
     printf '%s: no recorded figure in a tracked file\n' "$prog"
