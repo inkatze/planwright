@@ -102,6 +102,10 @@ each assert_defer "an untracked word in a completion write" "$SREC write --compl
 each assert_defer "a substitution in a completion write" "$SREC write --completion --run \$(cat run) --point pre-pr"
 each assert_defer "a glob in a completion write" "$SREC write --completion --run 0* --point pre-pr"
 each assert_defer "a supersede without --source" "$SREC supersede --record 000001:pre-pr:1 --start $T"
+one assert_defer "--start spliced from quoted parts" "$SREC write --completion --run 000001 --point pre-pr --st''art $T"
+one assert_defer "--start reached through a brace expansion" "$SREC write --completion --run 000001 --point pre-pr --{start,x} $T"
+one assert_defer "--completion reached through a brace expansion" "$SREC write --{completion,x} --run 000001 --point pre-pr"
+one assert_defer "--start quoted whole" "$SREC write --completion --run 000001 --point pre-pr \"--start\" $T"
 
 echo "### REQ-F1.12 — the reading: one two-word --worktree, then the verb"
 each assert_defer "--worktree=<dir>" "$SREC --worktree=$WT new-run"
