@@ -1,34 +1,23 @@
 #!/bin/bash
 # Tests for knowing whether a steer reached the stream-json worker it was
-# written to (scripts/fleet-streamjson.sh `steer`, the supervisor's capture and
-# the escalation tick). The CLI reads a user frame that lands mid-turn at the
-# worker's next tool boundary, or after the turn ends, and writes nothing to
-# stdout for it unless the session runs with --replay-user-messages; without
-# that, a steer the session never read left no trace, and `steered` was the
-# only record there was.
+# written to. The CLI writes nothing to stdout for a user frame it reads unless
+# the session runs with --replay-user-messages, so `steered` was the only
+# record there was.
 #
-#   a1: every launch passes --replay-user-messages, so a frame the session reads
-#       comes back on its stdout.
+#   a1: every launch passes --replay-user-messages.
 #   a2: a steer frame carries its own uuid, the receipt row records it, and the
-#       session's replay of that uuid is recorded as the steer's
-#       acknowledgement; an acknowledged steer is never reported.
-#   a3: a steer the session never replays, on a worker whose turn then ended,
-#       is reported past the grace: a high-priority attention item naming the
-#       worker and the message file, raised once however many ticks see it.
-#   a4: a steer replayed after the turn's result, within the grace (the
-#       message read as the next turn), is not reported.
-#   a5: a steer written while the worker is mid-turn says on stderr that it is
-#       queued and when the session will read it; one written to an idle
-#       worker says nothing.
-#   a6: steers to a worker whose runtime predates the acknowledgement record
-#       are never judged.
-#   a7: `alarm-scan` reports an unread steer of a worker that has since died,
-#       which no tick of its own can.
+#       session's replay of it is recorded as read; such a steer is never
+#       reported.
+#   a3: a steer never replayed, on a worker whose turn then ended, is reported
+#       once past the grace, high priority, naming the message file.
+#   a4: a steer replayed just after the turn's result is not reported.
+#   a5: a mid-turn steer says on stderr that it is queued; an idle one is quiet.
+#   a6: a runtime that predates the replay record is never judged.
+#   a7: `alarm-scan` reports the unread steer of a worker that has died.
 #   a8: no supervisor, tick or shim from this run outlives the suite.
 #
-# Hermetic: the fleet home and the CLI seam are case-local, the CLI is a shim
-# that records its argv and stdin and replays what it is told to. Runs
-# standalone under /bin/bash (bash 3.2).
+# Hermetic: the fleet home and the CLI seam are case-local; the CLI is a shim.
+# Runs standalone under /bin/bash (bash 3.2).
 set -u
 LC_ALL=C
 export LC_ALL
