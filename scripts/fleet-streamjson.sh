@@ -1479,11 +1479,13 @@ handle_line() {
       hl_uid=$(json_field "$hl_line" uuid)
       # Never through a link or into anything but a regular file: an append
       # opened on a fifo would stall this read loop, and the worker with it.
-      if valid_reqid "$hl_uid" && [ ! -L "$hl_dir/steer-acks" ] \
-        && { [ ! -e "$hl_dir/steer-acks" ] || [ -f "$hl_dir/steer-acks" ]; }; then
+      if valid_reqid "$hl_uid"; then
         hl_now=$(now_epoch) || hl_now=0
-        printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks" \
-          || printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
+        if [ -L "$hl_dir/steer-acks" ] \
+          || { [ -e "$hl_dir/steer-acks" ] && [ ! -f "$hl_dir/steer-acks" ]; } \
+          || ! printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks"; then
+          printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
+        fi
       fi
       # A frame read while a result is on record opens the next turn, so that
       # result no longer speaks for the worker, as when a steer retires it.

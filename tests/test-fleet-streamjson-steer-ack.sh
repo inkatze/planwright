@@ -13,8 +13,11 @@
 #   a9  only a user line ending in the marker is a replay
 #   a10 an idle worker's untaken steer is reported by its own age
 #   a11 a refused report is retried and pushed once
-#   a13 the scan's boundaries
+#   a13 the scan's boundaries, the in-order rule and its ties
 #   a14 a frame read after a result retires it
+#   a15 a steer to a resumed session waiting for its first frame is idle
+#   a16 a fifo or unreadable state file never stalls or misjudges the scan
+#   a17 a fifo at the acknowledgements never stalls the supervisor
 #   a12 an empty replay record is rewritten at launch
 #   a8  nothing from this run outlives the suite
 #
@@ -587,6 +590,8 @@ senv "$home" "$rec" -- steer sja14 --message-file "$tmp/steer14" >/dev/null 2>&1
 poll_until --what 'the steer on stdin' -- lines_cmp "$rec/stdin" -ge 2 || fail "a14: the steer never reached the worker"
 a14_id=$(sed -n 2p "$rec/stdin" | jq -r '.uuid // empty')
 poll_until --what 'the acknowledgement' -- grep -q "$tab$a14_id\$" "$wdir/steer-acks" || fail "a14: the replay was not recorded"
+# The read is recorded before the result is retired, so wait for both.
+poll_until --what 'the retired result' -- test ! -f "$wdir/result" || fail "a14: the read never retired the result"
 case $(senv "$home" "$rec" -- status sja14) in
   "status sja14 running "*) : ;;
   *) fail "a14: a turn started by a read frame must read running: $(senv "$home" "$rec" -- status sja14)" ;;
@@ -664,6 +669,26 @@ fi
 echo "ok: a16 a fifo or an unreadable file at a state file never stalls or misjudges the scan"
 
 # ---------------------------------------------------------------------------
+# a17: a fifo at the acknowledgements never stalls the supervisor: the read
+#      is not recorded, and the turn's result still is.
+# ---------------------------------------------------------------------------
+home="$tmp/h17"
+rec="$tmp/r17"
+start_worker "$home" "$rec" sja17 SHIM_STEER_MODE=ack
+wdir="$home/streamjson/sja17"
+poll_until --what 'the launch turn result' -- test -f "$wdir/result" || fail "a17: the launch turn never ended"
+rm -f "$wdir/steer-acks"
+mkfifo "$wdir/steer-acks"
+printf 'through a fifo\n' >"$tmp/steer17"
+senv "$home" "$rec" -- steer sja17 --message-file "$tmp/steer17" >/dev/null 2>&1 || fail "a17: steer exited non-zero"
+poll_until --deadline 30 --what 'the next turn result' -- test -f "$wdir/result" \
+  || fail "a17: a fifo at the acknowledgements stalled the supervisor"
+grep -q 'could not record that worker sja17 read frame' "$tmp/sup-sja17.err" \
+  || fail "a17: the skipped read must be named: $(cat "$tmp/sup-sja17.err")"
+stop_worker "$home" sja17
+echo "ok: a17 a fifo at the acknowledgements never stalls the supervisor"
+
+# ---------------------------------------------------------------------------
 # a12: an empty replay record is rewritten at launch, never kept.
 # ---------------------------------------------------------------------------
 home="$tmp/h12"
@@ -679,11 +704,10 @@ echo "ok: a12 an empty replay record is rewritten at launch"
 # ---------------------------------------------------------------------------
 # a8: nothing outlives the suite.
 # ---------------------------------------------------------------------------
-for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10 sja12 sja14; do
-  for d in "$tmp"/h*/streamjson/"$h"; do
-    [ -d "$d" ] || continue
-    senv "${d%/streamjson/*}" "$tmp/r-stop" -- stop "$h" >/dev/null 2>&1 || :
-  done
+# Every runtime any case made, so a case added later is closed here too.
+for d in "$tmp"/h*/streamjson/*; do
+  [ -d "$d" ] || continue
+  senv "${d%/streamjson/*}" "$tmp/r-stop" -- stop "${d##*/}" >/dev/null 2>&1 || :
 done
 poll_until --what 'the fixture processes to exit' -- fixture_none "$tmp/" \
   || fail "a8: fixture processes outlived their close: $(fixture_report "$tmp/")"
