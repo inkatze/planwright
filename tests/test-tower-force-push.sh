@@ -580,6 +580,7 @@ else
   fail "gate-wiring's pause protocol does not name the path that applies and the re-identified legacy ids"
 fi
 gwfx=$(mktemp -d "${TMPDIR:-/tmp}/gate-wiring.XXXXXX") || exit 1
+# shellcheck disable=SC2016 # the backticks are markdown, matched literally
 sed 's|`scripts/worker-branch-sync.sh`'"'"'s `push` while the PR is a draft its launch|the draft-branch path while the PR is a draft its launch|' "$here/../doctrine/gate-wiring.md" >"$gwfx/gate-wiring.md"
 if gw_names "$gwfx/gate-wiring.md"; then
   fail "the handoff check passed a fixture copy without the draft-branch path"

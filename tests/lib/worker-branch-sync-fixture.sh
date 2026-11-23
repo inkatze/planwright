@@ -25,7 +25,6 @@ fx_here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=tests/lib/hermetic-env.sh
 . "$fx_here/lib/hermetic-env.sh"
 SCRIPT="$fx_here/../scripts/worker-branch-sync.sh"
-WRITER="$fx_here/../scripts/worker-session-record.sh"
 
 passes=0
 fail() {
@@ -123,14 +122,15 @@ rec_path() {
 # record <worktree> <unit branch> [<line>...] — the worktree's own session
 # record as the launcher writes one, with any extra key=value lines.
 record() {
-  local w=$1 b=$2 f
+  local w=$1 b=$2 f k
   shift 2
   f=$(rec_path "$w")
+  k=$(basename "$f" .record)
   {
     printf 'policy=own-branch\nunit_branch=%s\nworktree_root=%s\npr_base=origin/main\n' "$b" "$w"
     printf 'audit_log_home=%s\n' "$PLANWRIGHT_FLEET_STATE_DIR/allow-audit"
     printf 'author=t <t@example.invalid>\n'
-    printf 'record_key=session-%s\n' "$(basename "$f" .record)"
+    printf 'record_key=session-%s\n' "$k"
     [ "$#" = 0 ] || printf '%s\n' "$@"
   } >"$f"
   chmod 600 "$f"

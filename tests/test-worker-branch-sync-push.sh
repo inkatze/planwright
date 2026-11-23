@@ -15,17 +15,19 @@ here=$(cd "$(dirname "$0")" && pwd)
 ALLOW='launcher=mission-control draft_rewrite=allow'
 # shellcheck disable=SC2086 # the two record lines, split on purpose
 record "$wt" "$B" $ALLOW
-DRAFT="[{\"number\":7,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":false}]"
-STUB_HEADS=$DRAFT
+# The gh stub's JSON answers, printed verbatim, never parsed by the shell.
+# shellcheck disable=SC2089,SC2090
+STUB_HEADS="[{\"number\":7,\"isDraft\":true,\"headRefName\":\"$B\",\"isCrossRepository\":false}]"
 STUB_BASES='[]'
+# shellcheck disable=SC2090
 export STUB_HEADS STUB_BASES
 
-# rewrite [<git commit options>...] — push a new commit plainly, then amend
-# it with a content change; sets LEASE (the pushed tip) and NEW (the rewrite).
+# rewrite — push a new commit plainly, then amend it with a content change;
+# sets LEASE (the pushed tip) and NEW (the rewrite).
 n=0
 rewrite() {
   n=$((n + 1))
-  g -C "$wt" commit -q --allow-empty "$@" -m "work $n"
+  g -C "$wt" commit -q --allow-empty -m "work $n"
   g -C "$wt" push -q origin "$B"
   LEASE=$(g -C "$wt" rev-parse HEAD)
   printf '%s\n' "$n" >"$wt/f$n"
@@ -109,6 +111,7 @@ RC=0
 OUT=$(cd "$wt" && PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/forged.record" "$SCRIPT" push "$(push_args "$LEASE")" --force-if-includes 2>&1) || RC=$?
 refused "an allowing record the environment names"
 untouched "an allowing record the environment names"
+# shellcheck disable=SC2086
 record "$wt" "$B" $ALLOW 'pr_base=origin/main'
 try "a malformed record (a key given twice)" "$(push_args "$LEASE")" --force-if-includes
 has 'malformed' "the malformed-record refusal says why"

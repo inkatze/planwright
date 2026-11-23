@@ -402,6 +402,7 @@ fi
 # A plain write (no launch id, no session) is the worktree's path itself, and
 # its earlier record is replaced in place, never removed first.
 REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
+# shellcheck disable=SC2012 # the fixture's own hash-named file
 before=$(ls -i "$REC" | awk '{print $1}')
 chmod 500 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
 if [ -w "$PLANWRIGHT_FLEET_STATE_DIR/session-records" ]; then
@@ -411,6 +412,7 @@ else
   /bin/sh "$WRITER" write "$WT" >/dev/null 2>&1
   rc=$?
   chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  # shellcheck disable=SC2012 # the fixture's own hash-named file
   if [ "$rc" != 0 ] && [ -f "$fixed" ] && [ "$(ls -i "$fixed" | awk '{print $1}')" = "$before" ]; then
     pass "a plain write that fails leaves the live record at the worktree's path in place"
   else
@@ -418,7 +420,11 @@ else
   fi
 fi
 mode=$(stat -c %a "$fixed" 2>/dev/null || stat -f %Lp "$fixed")
-[ "$mode" = 600 ] && pass "the worktree's own record is owner-only" || fail "the worktree's own record has mode $mode"
+if [ "$mode" = 600 ]; then
+  pass "the worktree's own record is owner-only"
+else
+  fail "the worktree's own record has mode $mode"
+fi
 REC=$(/bin/sh "$WRITER" write "$WT" "$id" 2>/dev/null)
 if cmp -s "$REC" "$fixed" && ! grep -q '^launcher=' "$fixed"; then
   pass "the latest launch into the worktree replaces its own record"
