@@ -366,7 +366,8 @@ cmd_check_committed() {
   elif ! branch=$(git -C "$top" symbolic-ref -q HEAD 2>>"$scratch/head.err") \
     || git -C "$top" rev-parse -q --verify "$branch" >>"$scratch/head" 2>>"$scratch/head.err"; then
     # Only a branch with no commit yet has nothing committed to read.
-    die 2 "HEAD does not resolve to a commit: $(clean "$(head -n 3 "$scratch/head.err")")"
+    why=$(clean "$(head -n 3 "$scratch/head.err")")
+    die 2 "HEAD does not resolve to a commit${why:+: $why}"
   fi
   if [ "$found" -eq 0 ]; then
     printf '%s: no recorded figure in a tracked file\n' "$prog"
