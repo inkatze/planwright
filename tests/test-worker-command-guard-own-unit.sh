@@ -411,6 +411,7 @@ HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$ARMS
 assert_allow "git add and commit alone (control)" "git add -A && git commit -m x" Bash "$WT"
 assert_allow "a push after add and commit" "git add -A && git commit -m x && git push origin $B" Bash "$WT"
 assert_allow "a push after a commit and a gate" "git commit -m x && mise run check && git push origin $B" Bash "$WT"
+assert_allow "a push after a commit and a committed repo test" "git commit -m x && bash tests/x.sh && git push origin $B" Bash "$WT"
 assert_allow "a push after a mise task under the arm" "mise run check && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo test run by bash under the arm" "bash tests/x.sh && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo script under the arm" "scripts/check.sh && git push origin $B" Bash "$WT"
@@ -439,8 +440,8 @@ if grep -q ' arm=own-branch,own-unit ' "$ARMS_LOG" 2>/dev/null; then
 else
   fail "a commit chain's audit line: $(cat "$ARMS_LOG" 2>&1)"
 fi
-# Off the unit branch the arm approves no commit, so no chain either. The
-# fixture repository has no commits, so HEAD is moved by symbolic-ref.
+# Off the unit branch the arm approves no commit, so no chain either. HEAD is
+# moved by symbolic-ref, to a branch that need not exist.
 env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
   GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git -C "$WT" symbolic-ref HEAD refs/heads/off-unit || exit 1
 assert_defer "a commit chain off the unit branch" "git commit -m x && git push origin $B" Bash "$WT"

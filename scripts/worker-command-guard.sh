@@ -165,6 +165,10 @@ emit_allow() {
 AUDIT_OB=0
 AUDIT_SC=0
 AUDIT_OU=0
+# 1 once the own-branch arm approved an act that can change a worktree file
+# (a file write, or a git act other than add and commit); main reads it beside
+# COMMITTED_USED.
+OB_TOUCH=0
 OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
@@ -770,8 +774,9 @@ canon_under() {
 #
 # COMMITTED_USED records that the approval leans on such a check, which holds
 # only for the file as it is before the command runs: main refuses a command
-# that also makes a write the own-branch arm admits, since that write could
-# land on the file before the shell reaches it.
+# that also makes an own-branch act that can change a worktree file
+# (OB_TOUCH), since that act could land on the file before the shell reaches
+# it. Staging and committing change no worktree file, so they do not count.
 COMMITTED_OK=''
 COMMITTED_USED=0
 committed_blob() {
@@ -1994,7 +1999,7 @@ ob_path() {
   fi
   OB_PATH=$acc
   case $OB_ZONE in
-    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1; } ;;
+    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1 && OB_TOUCH=1; } ;;
     sc) AUDIT_SC=1 ARM_ACT=1 ;;
   esac
 }
@@ -2256,6 +2261,7 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
+  OB_TOUCH=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -2318,8 +2324,13 @@ git_fetch_ok() {
 # object store and index are not write targets; the worktree
 # files a `rm`, `mv`, `restore`, or `checkout --` writes are.
 ob_git() {
-  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src=''
+  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' touch=$OB_TOUCH
   ob_git_ready || return 1
+  # Staging and committing write only git's own store, never a worktree file,
+  # so they leave a script HEAD already holds as it was (OB_TOUCH).
+  case $sub in
+    add | commit) OB_TOUCH=$touch ;;
+  esac
   case $sub in
     add)
       for (( ; i < cwn; i++)); do
@@ -4129,7 +4140,7 @@ gh_release_ok() {
 # path is read through ob_path, whose audit marks a write arm: a read is no
 # arm's act, so the marks are put back.
 guard_gitleaks() {
-  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC
+  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC ot=$OB_TOUCH
   [ "${cw[1]-}" = detect ] || return 1
   for ((i = 2; i < cwn; i++)); do
     a=${cw[i]}
@@ -4155,6 +4166,7 @@ guard_gitleaks() {
   ob_path "$src" exists read || return 1
   AUDIT_OB=$ao
   AUDIT_SC=$as
+  OB_TOUCH=$ot
   return 0
 }
 
@@ -8409,6 +8421,7 @@ main() {
   AUDIT_OB=0
   AUDIT_SC=0
   COMMITTED_USED=0
+  OB_TOUCH=0
   AUDIT_OU=0
   OU_EXPORTED=0
   OU_EXP_NAMES=''
@@ -8416,7 +8429,7 @@ main() {
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
-  [ "$COMMITTED_USED" = 0 ] || [ "$AUDIT_OB" = 0 ] || return 0
+  [ "$COMMITTED_USED" = 0 ] || [ "$OB_TOUCH" = 0 ] || return 0
   # An own-unit act shares its command only with a cd into the worktree,
   # read-only segments, a step-context export, an installed step script, and
   # the partners verify_tokens places before it (git add or commit, a gate

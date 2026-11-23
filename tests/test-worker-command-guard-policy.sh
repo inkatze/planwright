@@ -228,6 +228,12 @@ for c in "cp f scripts/ok.sh && sh scripts/ok.sh" "echo x > scripts/ok.sh && sh 
   assert_defer "F1.6: a write and a committed script in one command: $c" "$c" Bash "$WT"
 done
 assert_allow "F1.6: a committed script with no write beside it" "umask 022 && bash tests/ok.sh" Bash "$WT"
+# Staging and committing change no worktree file, so a committed script beside
+# them keeps its trust; a git act that rewrites worktree files does not.
+assert_allow "F1.6: a commit, then a committed script" "git add f && git commit -m x && bash tests/ok.sh" Bash "$WT"
+for c in "git checkout -- scripts/ok.sh && sh scripts/ok.sh" "git restore scripts/ok.sh && sh scripts/ok.sh"; do
+  assert_defer "F1.6: a worktree-writing git act and a committed script: $c" "$c" Bash "$WT"
+done
 
 echo "### REQ-F1.5 — the floor holds under every policy value"
 for col in 1 2 3 4; do

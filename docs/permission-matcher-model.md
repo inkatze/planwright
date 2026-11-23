@@ -555,7 +555,9 @@ path, a symlinked folder, a `..` walk, inside `fish -c` or a loop), and so
 does `bats` on a folder. The check reads the file as it is before the command
 runs, so a command that relies on it and also makes a write the own-branch
 arm admits defers as a whole (`cp f scripts/ok.sh && sh scripts/ok.sh`, and
-equally `touch build/x && bash tests/ok.sh`). So a worker cannot write a
+equally `touch build/x && bash tests/ok.sh`); staging and committing change
+no worktree file and do not count, so `git commit -m x && bash tests/ok.sh`
+keeps its approval. So a worker cannot write a
 script and run it unprompted to reach a path its file tools are refused: the
 local and primary-checkout hook config, the fleet state folder's opt-in
 record, the session records.
