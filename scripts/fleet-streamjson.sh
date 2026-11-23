@@ -606,6 +606,12 @@ if [ ! -r "$lock_lib" ]; then
 fi
 # shellcheck source=scripts/lock-lib.sh
 . "$lock_lib"
+if [ ! -r "$script_dir/uuid-lib.sh" ]; then
+  printf '%s\n' "$me: required helper uuid-lib.sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/uuid-lib.sh
+. "$script_dir/uuid-lib.sh"
 
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
@@ -3075,17 +3081,6 @@ cmd_answer() {
   fi
 }
 
-# steer_id — a fresh v4 uuid, the shape the CLI takes for a user frame's uuid.
-steer_id() {
-  si_h=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || return 1
-  case $si_h in '' | *[!0-9a-f]*) return 1 ;; esac
-  [ "${#si_h}" = 32 ] || return 1
-  printf '%s\n' "$si_h" | awk '{
-    v = substr("89ab", (index("0123456789abcdef", substr($0, 17, 1)) - 1) % 4 + 1, 1)
-    printf "%s-%s-4%s-%s%s-%s\n", substr($0, 1, 8), substr($0, 9, 4), substr($0, 14, 3), v, substr($0, 18, 3), substr($0, 21, 12)
-  }'
-}
-
 # steer_scan <worker> <dir> <now> <grace> — report each steer the session never
 # read. A frame the session reads comes back as a replay carrying its uuid
 # (steer-acks). The CLI takes a waiting frame as the next turn the moment one
@@ -3249,7 +3244,8 @@ cmd_steer() {
     journal_unlock "$dir"
     exit 2
   }
-  st_id=$(steer_id) || {
+  # A v4 uuid is the shape the CLI takes for a user frame's own uuid.
+  st_id=$(uuid_v4) || {
     journal_unlock "$dir"
     printf '%s\n' "$me: steer refused, nothing written to worker $worker: no steer id could be drawn" >&2
     exit 2

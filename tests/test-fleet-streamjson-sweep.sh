@@ -77,6 +77,7 @@ cp "$SJ" "$copy/fleet-streamjson.sh"
 # A helper that never returns: before the fix the bare call sourced it first.
 printf '#!/bin/sh\nsleep 30\n' >"$copy/echo-safety.sh"
 printf '#!/bin/sh\nsleep 30\n' >"$copy/lock-lib.sh"
+printf '#!/bin/sh\nsleep 30\n' >"$copy/uuid-lib.sh"
 for args in "" "no-such-verb"; do
   # shellcheck disable=SC2086 # the empty case is no argument at all
   /bin/sh "$S/bounded-run.sh" 10 /bin/sh "$copy/fleet-streamjson.sh" $args >"$tmp/w1.out" 2>"$tmp/w1.err"
