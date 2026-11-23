@@ -14,6 +14,9 @@
 #   a5: a mid-turn steer says on stderr that it is queued; an idle one is quiet.
 #   a6: a runtime that predates the replay record is never judged.
 #   a7: `alarm-scan` reports the unread steer of a worker that has died.
+#   a9: only a user line is a replay; a10: an idle worker's untaken steer is
+#       reported by its own age; a11: a refused report is retried; a12: an
+#       empty replay record is rewritten; a13: the scan's boundaries.
 #   a8: no supervisor, tick or shim from this run outlives the suite.
 #
 # Hermetic: the fleet home and the CLI seam are case-local; the CLI is a shim.
@@ -220,7 +223,7 @@ poll_until --what 'the unread-steer report' -- reported "$home" sja3 \
   || fail "a3: a steer the session never read must be reported: $(cat "$home/attention/state" 2>&1)"
 grep "^sja3$tab" "$home/attention/state" | grep -q "$tmp/steer3" \
   || fail "a3: the report must name the message file to re-send: $(cat "$home/attention/state")"
-grep "^sja3$tab" "$home/attention/state" | grep -q "${tab}high$tab\|${tab}high\$" \
+awk -F'\t' '$1 == "sja3" && $5 == "high" { f = 1 } END { exit !f }' "$home/attention/state" \
   || fail "a3: the report must be high priority: $(cat "$home/attention/state")"
 a3_marks=$(find "$wdir" -name 'steer-lost-*' | wc -l | tr -d ' ')
 [ "$a3_marks" = 1 ] || fail "a3: one unread steer, one report mark; got $a3_marks"
@@ -236,7 +239,7 @@ echo "ok: a3 a steer the session never read is reported once, high priority, nam
 # ---------------------------------------------------------------------------
 home="$tmp/h4"
 rec="$tmp/r4"
-start_worker "$home" "$rec" sja4 SHIM_STEER_MODE=late PLANWRIGHT_STREAMJSON_STEER_GRACE=4
+start_worker "$home" "$rec" sja4 SHIM_STEER_MODE=late PLANWRIGHT_STREAMJSON_STEER_GRACE=8
 wdir="$home/streamjson/sja4"
 poll_until --what 'the launch turn result' -- test -f "$wdir/result" || fail "a4: the launch turn never ended"
 printf 'one more thing\n' >"$tmp/steer4"
@@ -246,7 +249,8 @@ poll_until --what 'the steer on stdin' -- lines_cmp "$rec/stdin" -ge 2 || fail "
 a4_id=$(sed -n 2p "$rec/stdin" | jq -r '.uuid // empty')
 poll_until --what 'the late acknowledgement' -- grep -q "$tab$a4_id\$" "$wdir/steer-acks" \
   || fail "a4: the late replay was not recorded"
-sleep 6
+# Past the grace, so an unacknowledged steer would have been reported by now.
+sleep 10
 reported "$home" sja4 && fail "a4: a steer read as the next turn was reported unread: $(cat "$home/attention/state")"
 echo "ok: a4 a steer read just after the turn ended is not reported"
 
@@ -291,6 +295,11 @@ senv "$home" "$rec" -- steer sja6 --message-file "$tmp/steer6" >/dev/null || fai
 poll_until --what 'the steer on stdin' -- lines_cmp "$rec/stdin" -ge 2 || fail "a6: the steer never reached the worker"
 sleep 4
 reported "$home" sja6 && fail "a6: a steer to a runtime with no acknowledgement record was judged"
+# The control: the same steer is judged once the record is back, so the
+# silence above came from the record's absence and not from an idle tick.
+printf '1\n' >"$wdir/replay-since"
+poll_until --what 'the unread-steer report' -- reported "$home" sja6 \
+  || fail "a6: the tick never judged the steer once the record was back"
 echo "ok: a6 a runtime that predates the acknowledgement record is never judged"
 
 # ---------------------------------------------------------------------------
@@ -401,6 +410,36 @@ if [ "$(id -u)" != 0 ]; then
   esac
 fi
 echo "ok: a11 a refused report is retried, and an unwritable mark still reports"
+
+# ---------------------------------------------------------------------------
+# a13: the scan's boundaries, on a hand-built runtime: a steer older than the
+#      replay record, a busy steer newer than the last turn's end, and one
+#      inside the grace are not judged; the turn's end and the grace count
+#      inclusively.
+# ---------------------------------------------------------------------------
+home="$tmp/h13"
+wdir="$home/streamjson/sja13"
+mkdir -p "$wdir"
+a13_old='3a3a3a3a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+a13_new='4a4a4a4a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+a13_edge='5a5a5a5a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+printf '1000\n' >"$wdir/replay-since"
+{
+  printf '999\t1\t%s\t%s\tbusy\n' "$tmp/old" "$a13_old"
+  printf '1300\t1\t%s\t%s\tbusy\n' "$tmp/new" "$a13_new"
+  printf '1200\t1\t%s\t%s\tbusy\n' "$tmp/edge" "$a13_edge"
+} >"$wdir/steers"
+printf 'result\tsuccess\t1200\tfalse\n' >"$wdir/result"
+a13_scan() {
+  env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_STEER_GRACE=60 \
+    /bin/sh "$SJ" alarm-scan --now "$1"
+}
+a13_out=$(a13_scan 1259)
+[ -z "$a13_out" ] || fail "a13: nothing is judged inside the grace: $a13_out"
+a13_out=$(a13_scan 1260)
+[ "$a13_out" = "steer-lost sja13 $a13_edge" ] \
+  || fail "a13: only the steer at the turn's end is judged, at exactly the grace; got: $a13_out"
+echo "ok: a13 the replay record, the turn's end and the grace bound what is judged"
 
 # ---------------------------------------------------------------------------
 # a12: an empty replay record is rewritten at launch, never kept.

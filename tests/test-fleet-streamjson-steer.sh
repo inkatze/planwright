@@ -419,10 +419,13 @@ tail -n 1 "$tmp/r1/stdin" | jq -r '.message.content[0].text' | grep -q 'from a d
 # Control bytes in the message reach the worker as data, never as terminal
 # output: nothing steer prints carries one.
 printf 'clear\033[2J\007 me\n' >"$tmp/steer5"
-out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>&1) \
-  || fail "s5: a control-byte message should still deliver, got: $out"
-[ "$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\011\013-\037\177')" = "$out" ] \
-  || fail "s5: steer echoed a control byte"
+out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>"$tmp/s5c.err") \
+  || fail "s5: a control-byte message should still deliver, got: $out $(cat "$tmp/s5c.err")"
+err=$(cat "$tmp/s5c.err")
+for s5_stream in "$out" "$err"; do
+  [ "$(printf '%s' "$s5_stream" | LC_ALL=C tr -d '\000-\037\177')" = "$s5_stream" ] \
+    || fail "s5: steer echoed a control byte"
+done
 poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt $((before + 1)) \
   || fail "s5: the control-byte message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -e . >/dev/null 2>&1 \
