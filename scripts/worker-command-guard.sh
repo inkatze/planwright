@@ -6532,6 +6532,28 @@ check_command_ok() {
   return 1
 }
 
+# check_partner_ok: 0 when the matched check command (`sw` / `swn`) may be a
+# chain partner of an own-unit act: no word of it, by its last path
+# component, names git or gh, a program the guard approves only as a write or
+# screens for a write or exec vector, another file writer, or a program that
+# runs its arguments as a command. Every word is read, a placeholder's
+# included, so a runner prefix or a wrapper cannot carry one past the check;
+# the leading `mise exec` runner prefix is the one exception, its program
+# read like any other word. A repository's own runner (`mix`, `npm`, `make`)
+# names none of these and partners as before.
+check_partner_ok() {
+  local i=0
+  [ "${sw[0]}" != mise ] || [ "${sw[1]-}" != exec ] || i=2
+  for (( ; i < swn; i++)); do
+    case ${sw[i]##*/} in
+      git | gh | mise | tee | mkdir | rm | touch | cp | mv | mktemp | sed | perl | awk | find | sort | uniq | date | file | yq | shfmt | rg | fd | jq | gitleaks | markdownlint | markdownlint-cli2 | lefthook | bats | bash | sh | fish | zsh | dash | ksh | env | command | builtin | exec | eval | xargs | sudo | doas | nohup | setsid | timeout | nice | time | stdbuf | busybox | ln | chmod | chown | chgrp | dd | install | truncate | shred | unlink | rmdir | rsync | scp | curl | wget | tar | unzip | patch)
+        return 1
+        ;;
+    esac
+  done
+  return 0
+}
+
 # --------------------------------------------------------------------------
 # Declared command steps (custom-steps REQ-G1.2, REQ-G1.3). A segment no rule
 # above approved is still approved when its words equal a command step an
@@ -6910,8 +6932,18 @@ verify_simple() {
     [ -z "${csub[i]-}" ] || return 1
   done
   # A declared check command or command step is a trusted repository task:
-  # a chain partner before an own-unit act.
-  check_command_ok || declared_line_ok || return 1
+  # a chain partner before an own-unit act. A check command that names a git,
+  # write or wrapper program (check_partner_ok) reached this point only
+  # because the guard's own rules refused it as a read, so it is a write and
+  # keeps every own-unit act in its command from being approved.
+  if check_command_ok; then
+    check_partner_ok || {
+      ARM_ACT=1
+      return 0
+    }
+  else
+    declared_line_ok || return 1
+  fi
   OU_PARTNER=1
 }
 

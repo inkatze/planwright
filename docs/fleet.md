@@ -1030,7 +1030,8 @@ script, a declared check command or command step), so `git commit -m <msg> && gi
 <unit branch>` and `mise run check && git push origin <unit branch>` run
 unprompted. A partner joined by `;`, a line break, `||`, `|` or `&`, a partner after
 the act, and any file write, other git act or non-step plugin script in the
-command keep it prompting. `docs/options-reference.md`
+command keep it prompting, a declared check command that is itself one
+included. `docs/options-reference.md`
 (`worker_self_approval`) has the full conditions.
 
 Before spawning a worker-profile session, `launch` proves the auto-approve
