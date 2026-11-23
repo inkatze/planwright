@@ -235,7 +235,7 @@ echo "### declared check commands: a declared loader still passes its screen"
 DECLS='markdownlint-cli2 <path>...; markdownlint <path>...; mise exec -- markdownlint-cli2 <path>...'
 DECLS="$DECLS; ./node_modules/.bin/markdownlint-cli2 <path>...; mise run <word>; mise r <word>"
 DECLS="$DECLS; mise run --cd <path> <word>; mise run --env <word> <word>; mise tasks run --tool <word> <word>"
-DECLS="$DECLS; mise exec -- mix credo <word>; bin/check <word>"
+DECLS="$DECLS; mise exec -- mix credo <word>; bin/check <word>; MarkdownLint-CLI2 <path>..."
 write_record "$BOX/cc.record" "$R" '' || exit 1
 printf 'check_commands=%s\n' "$DECLS" >>"$BOX/cc.record"
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$BOX/cc.record")
@@ -245,7 +245,7 @@ for c in 'markdownlint-cli2 README.md' 'markdownlint README.md' 'mise exec -- ma
 done
 for n in .markdownlint-cli2.cjs .markdownlint.mjs; do
   for c in 'markdownlint-cli2 README.md' 'markdownlint README.md' 'mise exec -- markdownlint-cli2 README.md' \
-    './node_modules/.bin/markdownlint-cli2 README.md'; do
+    './node_modules/.bin/markdownlint-cli2 README.md' 'MarkdownLint-CLI2 README.md'; do
     with_file "$R/$n" "$JS" "declared, a worker-written $n: $c" "$c"
   done
 done
