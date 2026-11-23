@@ -151,6 +151,10 @@ if [ "$(tail -n 1 "$STATE/audit.4/ouchk.log" 2>/dev/null | grep -o 'arm=[a-z,-]*
 else
   fail "F1.11: audit line: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
 fi
+assert_allow "F1.11: a check command before a git add partner" \
+  "mix test test && git add test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command piped into a read before the own push" \
+  "mix test test 2>&1 | tail -n 5 && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command behind ||" \
   "mix test test || git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command behind &" \
