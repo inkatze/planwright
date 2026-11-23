@@ -1175,13 +1175,17 @@ attention_resync() {
 }
 
 # attention_failure <worker> <dir> <text> — a visible failure item
-# (REQ-E1.4, REQ-E1.5: surfaced, never silent). Text is caller-fixed prose
-# plus sanitized fragments.
+# (REQ-E1.4, REQ-E1.5: surfaced, never silent), and 1 when the store refused
+# it. Text is caller-fixed prose plus sanitized fragments.
 attention_failure() {
   af_scope=$(read_scope "$2")
-  /bin/sh "$FA" decide "$1" "$af_scope" "$3" acknowledge "acknowledge|investigate" high \
-    || printf '%s\n' "$me: attention failure-item write failed for $1" >&2
+  af_rc=0
+  /bin/sh "$FA" decide "$1" "$af_scope" "$3" acknowledge "acknowledge|investigate" high || {
+    af_rc=1
+    printf '%s\n' "$me: attention failure-item write failed for $1" >&2
+  }
   /bin/sh "$FA" notify "$3" >/dev/null 2>&1 || :
+  return "$af_rc"
 }
 
 # --- the supervisor loop ----------------------------------------------------
@@ -3107,15 +3111,18 @@ steer_scan() {
   ' "$ss_dir/steers" 2>/dev/null) || ss_lost=''
   while IFS="$TAB" read -r ss_id ss_file ss_how ss_age; do
     valid_reqid "${ss_id:-}" || continue
-    [ ! -e "$ss_dir/steer-lost-$ss_id" ] && [ ! -L "$ss_dir/steer-lost-$ss_id" ] || continue
-    (set -C && : >"$ss_dir/steer-lost-$ss_id") 2>/dev/null || continue
+    mark_claim "$ss_dir/steer-lost-$ss_id" || continue
     ss_name=$(sanitize_printable "$ss_file" unnamed | cut -c1-200)
     case $ss_how in
       idle) ss_why="the worker was idle when it was sent ${ss_age}s ago and has not taken it" ;;
       *) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
     esac
-    attention_failure "$ss_w" "$ss_dir" \
-      "steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"
+    # A report the store refused gives its mark back, so the next scan retries.
+    if ! attention_failure "$ss_w" "$ss_dir" \
+      "steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"; then
+      rm -f "$ss_dir/steer-lost-$ss_id" 2>/dev/null || :
+      continue
+    fi
     printf 'steer-lost %s %s\n' "$ss_w" "$ss_id"
   done <<SSLOST
 $ss_lost
@@ -4064,15 +4071,20 @@ alarm_marks_prune() {
 
 # alarm_claim <dir> <id> — 0 when this call is the first to push the
 # request's overdue alarm: the tick and `alarm-scan --once` share one mark per
-# request, so a worker both watch is pushed once. Anything already at the
-# mark's path, a link included, claims nothing: noclobber refuses only an
-# existing regular file and would open a link to a fifo or a device. The
-# create is exclusive, so two callers never both claim. A mark that cannot be
-# written at all still claims: a second push beats none.
+# request, so a worker both watch is pushed once.
 alarm_claim() {
-  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ] || return 1
-  (set -C && : >"$1/alarmed-$2") 2>/dev/null && return 0
-  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ]
+  mark_claim "$1/alarmed-$2"
+}
+
+# mark_claim <path> — 0 when this call is the first to claim the once-only
+# mark at <path>. Anything already there, a link included, claims nothing:
+# noclobber refuses only an existing regular file and would open a link to a
+# fifo or a device. The create is exclusive, so two callers never both claim.
+# A mark that cannot be written at all still claims: a second push beats none.
+mark_claim() {
+  [ ! -e "$1" ] && [ ! -L "$1" ] || return 1
+  (set -C && : >"$1") 2>/dev/null && return 0
+  [ ! -e "$1" ] && [ ! -L "$1" ]
 }
 
 # result_snapshot <dir> — one read of the result record into rs_raw; 0 when

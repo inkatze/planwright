@@ -361,6 +361,42 @@ grep "^sja10$tab" "$home/attention/state" | grep -q 'idle' \
 echo "ok: a10 a steer an idle worker never takes is reported by its own age"
 
 # ---------------------------------------------------------------------------
+# a11: a report the attention store refused is retried by the next scan, and
+#      a mark that cannot be written still reports.
+# ---------------------------------------------------------------------------
+home="$tmp/h11"
+wdir="$home/streamjson/sja11"
+mkdir -p "$wdir"
+a11_id='1a1a1a1a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+printf '1000\n' >"$wdir/replay-since"
+printf '1100\t12\t%s\t%s\tbusy\n' "$tmp/steer11" "$a11_id" >"$wdir/steers"
+printf 'exit\t0\t1200\n' >"$wdir/result"
+printf 'not a directory\n' >"$home/attention"
+a11_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2000 2>/dev/null)
+case $a11_out in
+  *steer-lost*) fail "a11: a report the store refused must not read as made: $a11_out" ;;
+esac
+[ ! -e "$wdir/steer-lost-$a11_id" ] || fail "a11: a refused report must not keep its mark"
+rm -f "$home/attention"
+a11_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2001)
+case $a11_out in
+  *"steer-lost sja11 $a11_id"*) : ;;
+  *) fail "a11: the next scan must report what the store refused: $a11_out" ;;
+esac
+if [ "$(id -u)" != 0 ]; then
+  a11_id2='2a2a2a2a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+  printf '1150\t12\t%s\t%s\tbusy\n' "$tmp/steer11b" "$a11_id2" >>"$wdir/steers"
+  chmod 555 "$wdir"
+  a11_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2002 2>/dev/null)
+  chmod 755 "$wdir"
+  case $a11_out in
+    *"steer-lost sja11 $a11_id2"*) : ;;
+    *) fail "a11: a mark that cannot be written must still report: $a11_out" ;;
+  esac
+fi
+echo "ok: a11 a refused report is retried, and an unwritable mark still reports"
+
+# ---------------------------------------------------------------------------
 # a8: nothing outlives the suite.
 # ---------------------------------------------------------------------------
 for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10; do
