@@ -3217,9 +3217,9 @@ cmd__frame_check() {
 # covers is refused, exit 3, since no row can be rebuilt without inventing a
 # token. A worker the launcher never launched has nothing to restore, and
 # neither has one a program's session dispatched whose adoption into the
-# launcher's registry did not land: one that records a parent and a tier unit
-# other than mission-control:<worker>, which every launch of the launcher's
-# own records.
+# launcher's registry did not land: it records a parent and a tier unit other
+# than mission-control:<worker>, the unit every launch of the launcher's own
+# records.
 recover_launcher_row() {
   rl_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || return 0
   rl_row="$rl_root/mission-control/sessions/$1"
