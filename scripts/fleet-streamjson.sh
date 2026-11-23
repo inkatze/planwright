@@ -1474,15 +1474,17 @@ handle_line() {
       # raw JSON elsewhere in the stream (an assistant tool_use, a result's
       # permission_denials), whose keys can spell the marker; message text
       # cannot, every quote in a string being escaped.
-      # A frame read while a result is on record opens the next turn, so that
-      # result no longer speaks for the worker, as when a steer retires it.
-      [ ! -f "$hl_dir/result" ] || rm -f "$hl_dir/result"
       hl_uid=$(json_field "$hl_line" uuid)
       if valid_reqid "$hl_uid"; then
         hl_now=$(now_epoch) || hl_now=0
         printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks" \
           || printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
       fi
+      # A frame read while a result is on record opens the next turn, so that
+      # result no longer speaks for the worker, as when a steer retires it.
+      # After the read is recorded: a scan that saw the old result then finds
+      # the read too.
+      rm -f "$hl_dir/result"
       ;;
     '{"type":"user",'*'"isReplay":true'*)
       # Not taken as a replay, but said once: were the CLI to write the
