@@ -610,22 +610,46 @@ echo "ok: a15 a steer to a resumed session waiting for its first frame is idle"
 # a16: a fifo where a state file belongs never stalls the scan; that runtime
 #      is skipped, not judged.
 # ---------------------------------------------------------------------------
-for a16_f in steer-acks replay-since; do
+a16_id='6b6b6b6b-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+# The control first: as regular files, this runtime's steer is judged.
+for a16_f in none steer-acks replay-since; do
   home="$tmp/h16-$a16_f"
   wdir="$home/streamjson/sja16"
   mkdir -p "$wdir"
   printf '1000\n' >"$wdir/replay-since"
-  printf '1100\t1\t%s\t%s\tbusy\n' "$tmp/f16" "$a13_edge" >"$wdir/steers"
+  printf '1100\t1\t%s\t%s\tbusy\n' "$tmp/f16" "$a16_id" >"$wdir/steers"
+  : >"$wdir/steer-acks"
   printf 'exit\t0\t1200\n' >"$wdir/result"
-  rm -f "$wdir/$a16_f"
-  mkfifo "$wdir/$a16_f"
+  if [ "$a16_f" != none ]; then
+    rm -f "$wdir/$a16_f"
+    mkfifo "$wdir/$a16_f"
+  fi
   a16_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" \
     /bin/sh "$here/../scripts/bounded-run.sh" 20 /bin/sh "$SJ" alarm-scan --now 2000 2>&1)
   a16_rc=$?
   [ "$a16_rc" = 0 ] || fail "a16: a fifo at $a16_f stalled or failed the scan (exit $a16_rc): $a16_out"
-  case $a16_out in *steer-lost*) fail "a16: a runtime with a fifo at $a16_f was judged: $a16_out" ;; esac
+  case $a16_f:$a16_out in
+    none:*"steer-lost sja16 $a16_id"*) : ;;
+    none:*) fail "a16: the control runtime must be judged: $a16_out" ;;
+    *steer-lost*) fail "a16: a runtime with a fifo at $a16_f was judged: $a16_out" ;;
+  esac
 done
-echo "ok: a16 a fifo at a state file never stalls the scan"
+# Acknowledgements the scan cannot read leave the runtime unjudged, never all
+# unread.
+if [ "$(id -u)" != 0 ]; then
+  home="$tmp/h16-unread"
+  wdir="$home/streamjson/sja16"
+  mkdir -p "$wdir"
+  printf '1000\n' >"$wdir/replay-since"
+  printf '1100\t1\t%s\t%s\tbusy\n' "$tmp/f16" "$a16_id" >"$wdir/steers"
+  printf '1101\t%s\n' "$a16_id" >"$wdir/steer-acks"
+  printf 'exit\t0\t1200\n' >"$wdir/result"
+  chmod 000 "$wdir/steer-acks"
+  a16_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2000 2>&1)
+  chmod 644 "$wdir/steer-acks"
+  case $a16_out in *steer-lost*) fail "a16: unreadable acknowledgements read every steer as unread: $a16_out" ;; esac
+fi
+echo "ok: a16 a fifo or an unreadable file at a state file never stalls or misjudges the scan"
 
 # ---------------------------------------------------------------------------
 # a12: an empty replay record is rewritten at launch, never kept.

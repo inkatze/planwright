@@ -3134,8 +3134,9 @@ steer_scan() {
   # Only regular files are read: opening a fifo would block the scan.
   [ -f "$ss_dir/steers" ] && [ ! -L "$ss_dir/steers" ] || return 0
   [ -f "$ss_dir/replay-since" ] && [ ! -L "$ss_dir/replay-since" ] || return 0
+  # Readable too: an awk that cannot open it reads every steer as unread.
   if [ -e "$ss_dir/steer-acks" ] || [ -L "$ss_dir/steer-acks" ]; then
-    [ -f "$ss_dir/steer-acks" ] && [ ! -L "$ss_dir/steer-acks" ] || return 0
+    [ -f "$ss_dir/steer-acks" ] && [ ! -L "$ss_dir/steer-acks" ] && [ -r "$ss_dir/steer-acks" ] || return 0
   fi
   ss_since=$(head -n 1 "$ss_dir/replay-since" 2>/dev/null) || return 0
   valid_posnum "${ss_since:-}" || return 0
