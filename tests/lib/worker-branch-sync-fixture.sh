@@ -4,8 +4,9 @@
 # tests/test-worker-branch-sync.sh (reset, ff, the record and the shared
 # checks) and tests/test-worker-branch-sync-push.sh (the leased push).
 #
-# A bare origin the primary reaches through a GitHub-shaped URL (an insteadOf
-# rewrite), so the push verb can name the repository to gh; a gh stub that
+# A bare origin the primary reaches through a GitHub-shaped ssh URL, served
+# by an ssh stub (GIT_SSH_COMMAND) from a local directory, so the push verb
+# can name the repository to gh with no URL rewrite; a gh stub that
 # answers the two pull-request reads from STUB_HEADS and STUB_BASES and logs
 # every call; a fleet home whose session records sit at each worktree's own
 # path (scripts/worker-session-record.sh path); and the primary's
@@ -51,7 +52,21 @@ GIT_CONFIG_NOSYSTEM=1
 PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet"
 GHLOG="$tmp/gh.log"
 PATH="$tmp/bin:$PATH"
-export HOME XDG_CONFIG_HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM PLANWRIGHT_FLEET_STATE_DIR GHLOG PATH
+# The ssh stub runs the git service it is handed (its last argument) in the
+# directory standing in for github.com.
+GIT_SSH_COMMAND="$tmp/bin/fake-ssh"
+GIT_SSH_VARIANT=simple
+FAKE_SSH_ROOT="$tmp/remotes"
+export HOME XDG_CONFIG_HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM PLANWRIGHT_FLEET_STATE_DIR GHLOG PATH \
+  GIT_SSH_COMMAND GIT_SSH_VARIANT FAKE_SSH_ROOT
+mkdir -p "$FAKE_SSH_ROOT/acme"
+cat >"$tmp/bin/fake-ssh" <<'EOF'
+#!/bin/sh
+for last in "$@"; do :; done
+cd "$FAKE_SSH_ROOT" || exit 1
+exec sh -c "$last"
+EOF
+chmod +x "$tmp/bin/fake-ssh"
 
 cat >"$tmp/bin/gh" <<'EOF'
 #!/bin/sh
@@ -69,8 +84,8 @@ g() {
   git -c init.defaultBranch=main -c user.name=t -c user.email=t@example.invalid -c commit.gpgSign=false "$@"
 }
 
-origin="$tmp/origin.git"
-URL=https://github.com/acme/demo.git
+origin="$FAKE_SSH_ROOT/acme/demo.git"
+URL=git@github.com:acme/demo.git
 seed="$tmp/seed"
 g init -q --bare "$origin"
 g init -q "$seed"
@@ -88,7 +103,6 @@ g clone -q "$origin" "$primary"
 g -C "$primary" config user.name t
 g -C "$primary" config user.email t@example.invalid
 g -C "$primary" config commit.gpgSign false
-g -C "$primary" config "url.$origin.insteadOf" "$URL"
 g -C "$primary" remote set-url origin "$URL"
 g -C "$primary" remote set-head origin main
 mkdir -p "$primary/.claude"

@@ -169,11 +169,26 @@ has 'as its base' "the stacked-PR refusal says why"
 STUB_BASES='{' try "an unreadable base answer" "$(push_args "$LEASE")" --force-if-includes
 STUB_GH_FAIL=1 try "a failed host read" "$(push_args "$LEASE")" --force-if-includes
 g -C "$primary" remote set-url origin "$origin"
-g -C "$primary" config --unset "url.$origin.insteadOf"
 try "a push remote naming no GitHub repository" "$(push_args "$LEASE")" --force-if-includes
-g -C "$primary" config "url.$origin.insteadOf" "$URL"
 g -C "$primary" remote set-url origin "$URL"
 pass "F1.8: no PR, a ready, cross-repository or doubled PR, a stacked PR, or an unreadable host answer is refused"
+
+# The PR is read in the repository the push reaches: a URL rewrite that
+# sends the push elsewhere than the URL gh reads is refused.
+g -C "$primary" remote set-url origin git@github.com:acme/decoy.git
+g -C "$primary" config url.git@github.com:acme/demo.git.insteadOf git@github.com:acme/decoy.git
+try "an insteadOf rewrite of the push URL" "$(push_args "$LEASE")" --force-if-includes
+has 'rewrites' "the rewrite refusal says why"
+g -C "$primary" config --unset url.git@github.com:acme/demo.git.insteadOf
+g -C "$primary" remote set-url origin "$URL"
+g -C "$primary" config url.git@github.com:acme/elsewhere.git.pushInsteadOf "$URL"
+try "a pushInsteadOf rewrite of the push URL" "$(push_args "$LEASE")" --force-if-includes
+g -C "$primary" config --unset url.git@github.com:acme/elsewhere.git.pushInsteadOf
+g -C "$primary" config --add remote.origin.pushurl "$URL"
+g -C "$primary" config --add remote.origin.pushurl git@github.com:acme/other.git
+try "two push URLs" "$(push_args "$LEASE")" --force-if-includes
+g -C "$primary" config --unset-all remote.origin.pushurl
+pass "F1.8: the PR is read in the one repository the push reaches, with no URL rewrite"
 
 # --- a moved remote ---------------------------------------------------------------------
 

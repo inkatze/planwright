@@ -437,6 +437,11 @@ case $verb in
 
     url=$(git config --get "remote.$remote.pushurl" 2>/dev/null) || url=$(git config --get "remote.$remote.url" 2>/dev/null) || url=''
     [ -n "$url" ] || refuse "the remote $(safe "$remote") has no URL; refusing"
+    # git push applies insteadOf and pushInsteadOf, so the repository gh reads
+    # is the one the push reaches only when no rewrite applies.
+    eff=$(git remote get-url --push "$remote" 2>/dev/null) || eff=''
+    [ "$eff" = "$url" ] \
+      || refuse "a URL rewrite (insteadOf or pushInsteadOf) or a second push URL rewrites where $(safe "$remote") pushes, so the pull request gh would read is not in the repository the push reaches; refusing"
     repo=$(repo_of_url "$url") || refuse "the push remote's URL ($(safe "$url")) names no repository gh can read; refusing"
 
     # The audit log the session's command guard writes to, checked before the
