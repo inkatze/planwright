@@ -305,6 +305,33 @@ else
     "worker-scoping is enforced only by where"
 fi
 
+# human-gates REQ-G1.14: the draft-branch rewrite's push never opens a
+# profile's force-push deny. Every profile keeps its raw force and + refspec
+# denies, and none allows or exempts the branch-sync helper by name (the worker
+# reaches it through the command guard's installed-root approval alone).
+for prof in worker tower mission-control; do
+  pf="$REPO_ROOT/config/$prof-settings.json"
+  denies=$(jq -r '.permissions.deny[]?' "$pf")
+  for rule in 'Bash(git push --force:*)' 'Bash(git push --force-with-lease:*)' 'Bash(git push -f:*)' \
+    'Bash(git push * --force*)' 'Bash(git push * -f*)'; do
+    if printf '%s\n' "$denies" | grep -qxF -- "$rule"; then
+      ok "$prof profile keeps the force-push deny $rule (REQ-G1.14)"
+    else
+      fail "$prof profile lost the force-push deny $rule (REQ-G1.14)"
+    fi
+  done
+  if printf '%s\n' "$denies" | grep -qxF -e 'Bash(git push * +*)' -e 'Bash(git push *+*)'; then
+    ok "$prof profile keeps the + refspec deny (REQ-G1.14)"
+  else
+    fail "$prof profile lost the + refspec deny (REQ-G1.14)"
+  fi
+  if jq -r '.permissions.allow[]?, .permissions.ask[]?' "$pf" | grep -qF 'worker-branch-sync'; then
+    fail "$prof profile names worker-branch-sync in an allow or ask rule (REQ-G1.14)"
+  else
+    ok "$prof profile opens no rule for worker-branch-sync (REQ-G1.14)"
+  fi
+done
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
