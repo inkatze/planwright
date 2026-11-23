@@ -176,7 +176,8 @@ expect_read_failure() {
   [ -z "$out" ] || fail "registry read, $2: printed records: $out"
   [ "$(wc -l <"$tmp/reg.err" | tr -d ' ')" = 1 ] \
     || fail "registry read, $2: expected one stderr line, got: $(cat "$tmp/reg.err")"
-  grep -q "registry" "$tmp/reg.err" || fail "registry read, $2: the reason does not name the registry: $(cat "$tmp/reg.err")"
+  grep -q "^fleet-state: could not read the registry" "$tmp/reg.err" \
+    || fail "registry read, $2: the reason is not the registry read failure: $(cat "$tmp/reg.err")"
 }
 
 home_absent="$tmp/registry-absent"

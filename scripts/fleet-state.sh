@@ -1062,11 +1062,11 @@ case $cmd in
       exit 0
     fi
     if [ ! -f "$registry" ]; then
-      printf '%s\n' "fleet-state: cannot read the registry: it is not a regular file" >&2
+      printf '%s\n' "fleet-state: could not read the registry: it is not a regular file" >&2
       exit 2
     fi
     cat "$registry" 2>/dev/null || {
-      printf '%s\n' "fleet-state: cannot read the registry" >&2
+      printf '%s\n' "fleet-state: could not read the registry" >&2
       exit 2
     }
     exit 0
