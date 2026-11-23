@@ -231,6 +231,7 @@ assert_allow "F1.6: a committed script with no write beside it" "umask 022 && ba
 # Staging and committing change no worktree file, so a committed script beside
 # them keeps its trust; a git act that rewrites worktree files does not.
 assert_allow "F1.6: a commit, then a committed script" "git add f && git commit -m x && bash tests/ok.sh" Bash "$WT"
+assert_allow "F1.6: a commit with a message file, then a committed script" "git commit -F build/msg.txt && bash tests/ok.sh" Bash "$WT"
 for c in "git checkout -- scripts/ok.sh && sh scripts/ok.sh" "git restore scripts/ok.sh && sh scripts/ok.sh"; do
   assert_defer "F1.6: a worktree-writing git act and a committed script: $c" "$c" Bash "$WT"
 done

@@ -2324,12 +2324,13 @@ git_fetch_ok() {
 # object store and index are not write targets; the worktree
 # files a `rm`, `mv`, `restore`, or `checkout --` writes are.
 ob_git() {
-  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' touch=$OB_TOUCH
+  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' ot=$OB_TOUCH
   ob_git_ready || return 1
-  # Staging and committing write only git's own store, never a worktree file,
-  # so they leave a script HEAD already holds as it was (OB_TOUCH).
+  # Staging, committing and fetching write only git's own store, never a
+  # worktree file, so they leave a script HEAD already holds as it was
+  # (OB_TOUCH); a commit's -F read is a read.
   case $sub in
-    add | commit) OB_TOUCH=$touch ;;
+    add | commit | fetch) OB_TOUCH=$ot ;;
   esac
   case $sub in
     add)
@@ -2391,6 +2392,7 @@ ob_git() {
             ;;
         esac
       done
+      OB_TOUCH=$ot
       [ -z "$expect" ]
       return
       ;;
@@ -3898,7 +3900,8 @@ MDLINT_SETTINGS=(.markdownlint.jsonc .markdownlint.json .markdownlint.yaml .mark
 # options file in the working directory may add globs reaching folders this
 # does not walk, so one there defers. The verdict holds only for the folders as
 # they are before the command runs, so the approval leans on a committed check
-# (COMMITTED_USED) and main refuses it beside an own-branch write.
+# (COMMITTED_USED) and main refuses it beside an own-branch act that can change
+# a worktree file (OB_TOUCH).
 mdlint_configs_ok() {
   local verb=$1 nog=$2 d f seen=$'\n' cwdp
   shift 2
