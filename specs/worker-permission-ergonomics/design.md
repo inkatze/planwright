@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -1035,6 +1035,52 @@ approvable alone. Approving the chain adds no approvable shape, and `&&`
 keeps the push behind a passing gate. Cites the operator's kickoff answer
 (2026-11-20), and the mission-control report of the waiting shapes after
 Task 21's implementation.
+
+### D-39: A step record's times are never self-approved, and step scripts pass only on the worker's own cache  (N)
+
+**Decision:** The guard defers every `step-record.sh write` that sets a
+step's times by hand, which is every write but a `--completion` write,
+since a step, re-fire, or full-suite write gives `--start`. Every other
+step-script call passes only when it targets the recorded worktree's step
+cache, and only in the verbs REQ-F1.12 lists; anything else defers. Records
+`step-run.sh` writes for a command step are timed by the script and are
+never a command the guard sees.
+
+**Alternatives considered:**
+- Defer only records that claim the step ran (outcome `passed` or
+  `applied`). Rejected because: a `skipped` record standing on an earlier
+  passing record still counts toward the cadence, and an approver would
+  still see each claimed run.
+- Admit a write whose times cite an event in the session's own log, as a
+  supersede's `--source` does. Rejected because: the proof shows only that
+  some event happened at that moment, not that the step ran then, so a
+  worker could cite a real event for a step that never ran; and it changes
+  the recorder as well as the guard.
+- Keep approving step scripts on any worktree. Rejected because: a
+  completion or supersede written into another unit's cache is the same
+  fault in someone else's unit, and the session record already names the
+  worktree.
+
+**Chosen because:** a worker hand-set a record's times so a step that did
+not run read as run, and the guard approved the write as an installed
+plugin script without reading its arguments. Deferring the hand-timed write
+puts every hand-set time in front of an approver before it counts. The
+operator accepted the cost: one prompt per skill, prompt, or full-suite
+record a worker writes. The truth check and the cadence audit still run on
+the records an approver lets through. Accepted residuals, each kept passing
+by the operator's answers:
+- A supersede still moves one stamp of an existing record under a cited
+  session event, which the script checks exists but which cannot prove the
+  step ran at that moment. It cannot create a record, the original stays on
+  disk, and the corrected record must still pass the truth check.
+- `step-run.sh end --exit <code>` takes the exit code from the worker, as
+  before; its times are the script's own, and `begin` must have run first.
+- `step-record.sh status` posts a commit status to GitHub without a prompt.
+  It is computed from the records alone, so every hand-set time it reads
+  went through an approver first.
+
+Cites the operator's kickoff answers (2026-11-22) and the hand-timed step
+record report.
 
 ## Cross-cutting concerns
 

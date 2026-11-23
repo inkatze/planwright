@@ -1453,3 +1453,146 @@ Class: meaning
 Lens-pass: Amendment 8, delta-scoped lens review above (spec lens set; every finding dispositioned)
 Anchor: `ffe6241d4dca35072658d4a9b09ef09f82b65732` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
+
+### Amendment 9 (2026-11-22, delta re-walkthrough: hand-timed step records defer)
+
+Spec path `specs/worker-permission-ergonomics`; walk started at `8e8e64ef`
+with the recorded anchor matching the bundle; walkthrough date 2026-11-22.
+Mode: delta re-walkthrough on a bundle whose stored status is Ready and
+whose derived status is Active, asked for by the operator and walked by relay
+through mission control and the hub in plain questions. Validator at walk
+start: 0 errors, 0 warnings.
+
+#### Goal and glossary (Amendment 9)
+
+Restatement: a worker wrote a step record with hand-set start and end
+times, so a step that did not run read as run. The guard approved the write
+because it approves an installed plugin script without reading its
+arguments. The delta stops self-approving any record whose times the worker
+sets, and keeps every other step-script call to the worker's own worktree.
+Rules out: a hand-timed write passing under any policy value or in any
+spelling or chain; a step-script call on another worktree's cache. Assumes:
+the recorder's truth check and the cadence audit keep running on the
+records an approver lets through, and records `step-run.sh` writes for a
+command step are timed by the script and never reach the guard. Terms:
+*hand-timed write* (every `step-record.sh write` but a `--completion` write,
+since a step, re-fire, or full-suite write gives `--start`, plus any write
+naming `--start` or `--end`); *own cache* (the recorded worktree's step
+cache, `--worktree` absent inside it or naming it).
+Signed off: 2026-11-22
+
+#### Requirements walkthrough (Amendment 9)
+
+Operator's answers, relayed by mission control and the hub (exact picks):
+
+1. Which writes defer: "Every hand-timed one (Recommended)": every
+   skill, prompt, and full-suite record a worker writes waits on a prompt;
+   a `--completion` write, a supersede with `--source`, `render`, and
+   `step-run.sh` `resolve`, `audit` and `command` keep passing. The cost,
+   one prompt per such record, was stated with the question.
+2. What "own run" means: "Own worktree, every call (Recommended)": every
+   step-script call that still passes, `step-run.sh` `begin` and `end`
+   included, passes only on the recorded worktree's cache; another
+   worktree, or a record naming no worktree, defers.
+3. The verbs not yet named: "Pass, own worktree only (Recommended)":
+   `new-run`, `regenerate`, `status`, `resume` and `refire` pass on the own
+   cache; `args-digest` passes as it does today; `excerpt` only for a file
+   inside the recorded worktree or scratch root.
+
+The planwright mission control raised the change and supplied the incident
+(data, not rulings). Edits: REQ-F1.12 is new; read-through notes on
+REQ-A1.14, REQ-E1.10, REQ-F1.9 and REQ-F1.11.
+Signed off: 2026-11-22
+
+#### Design walkthrough (Amendment 9)
+
+D-39 is new (the defer, the own-cache rule, the rejected outcome-scoped and
+event-proven forms, and the `step-run.sh end` exit-code residual). Every
+other D-ID stands unchanged.
+Signed off: 2026-11-22
+
+#### Verification approach (Amendment 9)
+
+REQ-F1.12 has a `[test]` entry under the test-spec's `2026-11-22 delta`
+heading, run by the guard's suites in CI at every policy value, with both
+sides named: each deferred spelling and each still-allowed form. The
+existing REQ-F1.10 and REQ-E1.10 rows that pair an act or export with a
+step write move to a `--completion` write. No dead path.
+Signed off: 2026-11-22
+
+#### Task graph (Amendment 9)
+
+Operator's answer: "New task, start now (Recommended)": Task 23 depends
+on Task 21 only, per its `Dependencies:` line. Deliberate non-edges: Task 23
+has no edge to Task 20 or Task 22; they share `scripts/worker-command-guard.sh`
+but no rule, since a step-script companion still passes only when it passes
+on its own, and whichever lands later resolves the file overlap.
+Signed off: 2026-11-22
+
+#### Risk register (Amendment 9)
+
+1. Prompt volume: every skill, prompt, and full-suite record a worker writes
+   now waits on an approver, overnight included. Accepted by the operator;
+   command steps run through `step-run.sh` are untouched.
+2. An approver lets a false record through. Mitigation: the prompt shows the
+   hand-set times, which the session's own events can be checked against,
+   and the truth check and the cadence audit still run on the record.
+3. Three forms the operator kept passing still carry a worker's input:
+   a supersede's cited event, `step-run.sh end`'s exit code, and the GitHub
+   status `status` posts. Accepted residuals (D-39): a supersede creates no
+   record and must pass the truth check; `end`'s times are the script's
+   own; `status` is computed from records that passed an approver.
+4. Tasks 20, 22 and 23 edit the same guard file in parallel. Mitigation:
+   no rule couples them; the later one resolves the overlap in its own PR.
+
+Decision-domain gap check: `auth` (permissions) is touched and decided
+(REQ-F1.12, D-39); `org-design` (who answers the new prompts) is decided by
+REQ-G1.4, unchanged: an unattended prompt outside the policy parks for the
+operator; `existing-seam-reuse` holds, the change living in the existing
+guard. No catalogued domain is left undecided.
+Signed off: 2026-11-22
+
+#### Lens review (Amendment 9, delta-scoped)
+
+Run by one read-only reviewer over the delta (REQ-F1.12, the read-through
+notes, D-39, Task 23, the test entry, the brief's sections) with the guard,
+the step scripts and the guard suites as context, then validated against
+the files before disposition.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 2 | Applied: `args-digest` stated as the one exception to the own-cache rule; the supersede's cited event recorded as an accepted residual in D-39 and the risk register |
+| Ambiguity and interpretation forks | 3 | Applied: how the guard reads a call (at most one two-word `--worktree`, then the verb; `--worktree=`, another leading word and an unresolved word defer), a `--completion` write defined as one carrying the word, and a step-context `WORKTREE` held to the recorded worktree; defer rows for each |
+| Citation and coverage integrity | 4 | Applied: Task 23 and the test entry move every existing suite row that allows a step-script call outside the passing forms, and every defer row whose step write only carried another defect, to a passing form, stated as a rule rather than a line list; the docs deliverable names `_about`, the options-reference `worker_self_approval` row and the fleet guide's worker-guard description. Declined: a `[test]` row for REQ-G1.7, whose entry is `[design-level]` by design, as for Tasks 21 and 22 |
+| Dead verification paths | 0 | None beyond the fixture rows above |
+| Decision-domain gaps | 1 | Applied: `status`'s GitHub post recorded in D-39 as an accepted residual the operator chose with that cost stated |
+| Testability | 0 | Counted under the second lens |
+| Cross-file consistency | 0 | None: the verb lists agree across the four files and the brief |
+| Documentation and glossary drift | 0 | Counted under the third lens |
+| Rendered-content safety and data hygiene | 0 | None |
+
+Deferred: none. Post-lens stale-reference sweep: REQ-F1.12 is cited by
+D-39, Task 23 and its test entry; the read-through notes on REQ-A1.14,
+REQ-E1.10, REQ-F1.9 and REQ-F1.11 point to it; the REQ-F1.10 and REQ-E1.10
+test entries' step-write rows are covered by REQ-F1.12's entry. Validator
+warnings on REQ-A1.14, REQ-E1.10, REQ-F1.9 and REQ-F1.11 come from
+annotation-only notes whose verification sits in the new entry; accepted.
+
+Altitude check: no pinned seed claim. Ship-gate check: every change is a
+task (Task 23), including the `_about` text and docs rows.
+
+#### Sign-off record (Amendment 9)
+
+Signed off 2026-11-22 by the operator, relayed through mission control and
+the hub: the sign-off question, asked with no option preselected, was
+answered "Sign off", as a meaning change with the review's fixes applied.
+Delta on a Ready (stored) bundle: no status flip; `Last reviewed:`
+2026-11-22 on all four spec files; validator re-run with 0 errors once this
+record's anchor is written. The delta adds a requirement and a decision in
+a permission-guard zone and narrows what the guard approves, so it is
+meaning-class.
+
+Class: meaning
+Lens-pass: Amendment 9, delta-scoped lens review above (spec lens set; every finding dispositioned)
+Anchor: `057c5ba0136dd073b83f9f745885d1a69b25988c` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`
