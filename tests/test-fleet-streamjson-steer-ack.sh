@@ -116,6 +116,9 @@ while IFS= read -r line; do
       # replay marker; neither line below is a replay.
       printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"isReplay":true,"uuid":"%s"}}]},"uuid":"%s"}\n' "$id" "$id"
       printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"x"}]},"uuid":"../bad","isReplay":true}\n'
+      # A replay in a shape the supervisor does not expect, then a real one.
+      printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"x"}]},"uuid":"7a7a7a7a-1b1b-4c2c-8d3d-4e4e4e4e4e4e","isReplay":true,"later":1}\n'
+      printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"x"}]},"uuid":"6a6a6a6a-1b1b-4c2c-8d3d-4e4e4e4e4e4e","isReplay":true}\n'
       printf '{"type":"result","subtype":"success","is_error":false,"result":"done","permission_denials":[{"tool_name":"Bash","tool_input":{"isReplay":true,"uuid":"%s"}}]}\n' "$id"
       ;;
   esac
@@ -172,7 +175,7 @@ start_worker() {
   printf 'begin\n' >"$tmp/prompt-$sw_h"
   senv "$sw_home" "$sw_rec" PLANWRIGHT_STREAMJSON_ALARM_TICK=1 PLANWRIGHT_STREAMJSON_STEER_GRACE=1 "$@" -- \
     launch "$sw_h" fleet-lifecycle-closure:9 --prompt-file "$tmp/prompt-$sw_h" --foreground \
-    >/dev/null 2>&1 &
+    >/dev/null 2>"$tmp/sup-$sw_h.err" &
   live_pids="$live_pids $!"
   poll_until --what 'the launch prompt' -- grep -q '"type":"user"' "$sw_rec/stdin" \
     || fail "$sw_h: the worker never received its launch prompt"
@@ -359,6 +362,11 @@ case $(senv "$home" "$rec" -- status sja9) in
 esac
 grep -q "$a9_id" "$wdir/steer-acks" && fail "a9: a marker inside tool input acknowledged the steer: $(cat "$wdir/steer-acks")"
 grep -q 'bad' "$wdir/steer-acks" && fail "a9: an out-of-grammar replay uuid was recorded: $(cat "$wdir/steer-acks")"
+grep -q '6a6a6a6a-1b1b-4c2c-8d3d-4e4e4e4e4e4e' "$wdir/steer-acks" \
+  || fail "a9: the real replay beside the forged lines must still be recorded: $(cat "$wdir/steer-acks")"
+grep -q '7a7a7a7a' "$wdir/steer-acks" && fail "a9: a replay in an unexpected shape was recorded"
+grep -q 'a replay line in an unexpected shape' "$tmp/sup-sja9.err" \
+  || fail "a9: a replay in an unexpected shape must be named: $(cat "$tmp/sup-sja9.err")"
 echo "ok: a9 only a user line is a replay, and an out-of-grammar uuid records nothing"
 
 # ---------------------------------------------------------------------------

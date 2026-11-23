@@ -1482,6 +1482,15 @@ handle_line() {
           || printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
       fi
       ;;
+    '{"type":"user",'*'"isReplay":true'*)
+      # Not taken as a replay, but said once: were the CLI to write the
+      # marker elsewhere, every steer would read as unread with nothing to
+      # say why.
+      if [ -z "${hl_shape_said:-}" ]; then
+        hl_shape_said=1
+        printf '%s\n' "$me: worker $hl_worker wrote a replay line in an unexpected shape; steers it read may be reported unread" >&2
+      fi
+      ;;
     *'"type":"system"'*'"subtype":"init"'*)
       hl_sid=$(json_field "$hl_line" session_id)
       if valid_reqid "$hl_sid"; then
