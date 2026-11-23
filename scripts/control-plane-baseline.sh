@@ -16,6 +16,12 @@ unset CDPATH
 
 prog=control-plane-baseline
 here=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ ! -r "$here/untrusted-git-lib.sh" ]; then
+  printf '%s\n' "$prog: untrusted-git-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/untrusted-git-lib.sh
+. "$here/untrusted-git-lib.sh"
 # Exempt from check-committed: its numbers are made up for the tests.
 fixture_dir=tests/fixtures/control-plane-baseline
 
@@ -42,7 +48,8 @@ record   Reads every transcript under $CLAUDE_CONFIG_DIR/projects (default
            <fleet-home>/control-plane/baseline/<since>--<until>.tsv
          replacing an earlier recording of the same window (the last run to
          finish wins), then prints `recorded<TAB><path>`. The fleet home is
-         scripts/fleet-state.sh root's and must be an absolute path. A
+         scripts/fleet-state.sh root's and must be an absolute path with no
+         . or .. component. A
          location with a .git entry in it or above it, its symbolic links
          resolved, is refused, so a recording never lands where it could be
          committed.
@@ -66,9 +73,9 @@ compute  Prints the baseline of a rows file holding token-spend.sh rows
          with usage, each message id once, counted from the first of its
          lines that has usage in the window; main or sub is the transcript's
          chain. The role is the session's kind read from its prompt line
-         (token-spend-lib.awk's session_kind; where several transcripts carry
-         one, the first in sort order); a session with no prompt line is
-         `unknown`. Asked counts AskUserQuestion uses and
+         on the main chain (token-spend-lib.awk's session_kind; where several
+         transcripts carry one, the first in sort order); a session with no
+         main-chain prompt line is `unknown`. Asked counts AskUserQuestion uses and
          pushed PushNotification uses, each tool-use id once and a use with no
          id on every line. A merge counts once per repository and number, on
          its merged-at day. Dollars use --prices (default
@@ -79,7 +86,9 @@ check-committed
          (default the current directory), in its committed (HEAD) or its
          working-tree copy, holds a recorded figure: the format line above,
          or a turns, spend, interruptions, merges or summary row. Files git
-         treats as binary are read as text. The fixture set under
+         treats as binary are read as text, and the checkout's own
+         configuration cannot run a program (scripts/untrusted-git-lib.sh).
+         The fixture set under
          tests/fixtures/control-plane-baseline/ is exempt.
 
 Exit: 0 done (check-committed: no figure found); 1 a transcript or forge read
@@ -262,6 +271,7 @@ cmd_record() {
   command -v gh >/dev/null 2>&1 || die 2 "gh is required"
   home=$(/bin/sh "$here/fleet-state.sh" root 2>/dev/null) && [ -n "$home" ] || die 2 "the fleet home does not resolve"
   case $home in
+    */. | */./* | */.. | */../*) die 2 "the fleet home has a . or .. component: $(clean "$home")" ;;
     /*) ;;
     *) die 2 "the fleet home is not an absolute path: $(clean "$home")" ;;
   esac
@@ -320,7 +330,11 @@ scan_figures() {
   case $sf in
     0)
       found=1
-      sed 's/^HEAD://' "$scratch/scan" >>"$scratch/hits"
+      if [ $# -gt 1 ]; then
+        sed "s/^$2://" "$scratch/scan" >>"$scratch/hits"
+      else
+        cat "$scratch/scan" >>"$scratch/hits"
+      fi
       ;;
     1) ;;
     *) die 2 "git grep failed with status $sf" ;;
@@ -339,15 +353,20 @@ cmd_check_committed() {
   done
   [ -n "$root" ] || root=.
   command -v git >/dev/null 2>&1 || die 2 "git is required"
-  top=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] \
+  # The checkout may be a worker's, whose configuration could plant a program
+  # (an fsmonitor, a textconv) that any git read would run.
+  top=$(pw_untrusted_git -C "$root" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] \
     || die 2 "not a git work tree: $(clean "$root")"
+  pw_untrusted_git_env "$top" || die 2 "the configuration of $(clean "$top") cannot be read"
   scratch_dir
   found=0
   scan_figures "$top"
-  if git -C "$top" rev-parse -q --verify HEAD >"$scratch/head" 2>"$scratch/head.err"; then
+  if git -C "$top" rev-parse -q --verify 'HEAD^{commit}' >"$scratch/head" 2>"$scratch/head.err"; then
     scan_figures "$top" HEAD
-  elif [ -n "$(git -C "$top" for-each-ref --count=1 2>"$scratch/head.err")" ] || [ -s "$scratch/head.err" ]; then
-    die 2 "HEAD does not resolve: $(clean "$(head -n 3 "$scratch/head.err")")"
+  elif ! branch=$(git -C "$top" symbolic-ref -q HEAD 2>>"$scratch/head.err") \
+    || git -C "$top" rev-parse -q --verify "$branch" >>"$scratch/head" 2>>"$scratch/head.err"; then
+    # Only a branch with no commit yet has nothing committed to read.
+    die 2 "HEAD does not resolve to a commit: $(clean "$(head -n 3 "$scratch/head.err")")"
   fi
   if [ "$found" -eq 0 ]; then
     printf '%s: no recorded figure in a tracked file\n' "$prog"

@@ -201,10 +201,14 @@ PLANWRIGHT_FLEET_STATE_DIR="$inrepo/fleet" "$BASELINE" record --since 2026-11-01
 assert_exit "record refuses a location inside a git work tree" 2 $?
 assert_contains "record names the refused location" "inside a git work tree" "$(cat "$T/out")"
 assert_eq "the refused record writes nothing" "" "$(find "$inrepo" -path "$inrepo/.git" -prune -o -type f -print)"
+PLANWRIGHT_FLEET_STATE_DIR="$T/absent/../work/fleet" "$BASELINE" record --since 2026-11-01 --until 2026-11-02 --repo example/one --prices "$prices" >"$T/out" 2>&1
+assert_exit "record refuses a fleet home with a .. component" 2 $?
+assert_eq "the refused .. record creates nothing" "$inrepo" "$(find "$inrepo" -path "$inrepo/.git" -prune -o -print)"
 mkdir -p "$inrepo/sub"
 ln -s "$inrepo/sub" "$T/linked-fleet"
 PLANWRIGHT_FLEET_STATE_DIR="$T/linked-fleet" "$BASELINE" record --since 2026-11-01 --until 2026-11-02 --repo example/one --prices "$prices" >"$T/out" 2>&1
 assert_exit "record refuses a location a symbolic link puts inside a work tree" 2 $?
+assert_contains "record names the linked location as refused" "inside a git work tree" "$(cat "$T/out")"
 assert_eq "the refused linked record writes nothing" "" "$(find "$inrepo" -path "$inrepo/.git" -prune -o -type f -print)"
 PLANWRIGHT_FLEET_STATE_DIR="relative/fleet" "$BASELINE" record --since 2026-11-01 --until 2026-11-02 --repo example/one --prices "$prices" >"$T/out" 2>&1
 assert_exit "record refuses a relative fleet home" 2 $?
@@ -245,6 +249,26 @@ empty="$T/empty-repo"
 git init -q "$empty"
 "$BASELINE" check-committed --repo-root "$empty" >"$T/cc.out" 2>&1
 assert_exit "check-committed passes in a repository with no commits" 0 $?
+printf 'plain\n' >"$empty/a.txt"
+git -C "$empty" add a.txt && git -C "$empty" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false commit -q -m a
+git -C "$empty" checkout -q --orphan orphan
+"$BASELINE" check-committed --repo-root "$empty" >"$T/cc.out" 2>&1
+assert_exit "check-committed passes on a branch with no commit yet" 0 $?
+printf '#!/bin/sh\ntouch "%s"\n' "$T/fsmonitor-ran" >"$T/fsmonitor.sh"
+chmod +x "$T/fsmonitor.sh"
+git -C "$sk" config core.fsmonitor "$T/fsmonitor.sh"
+"$BASELINE" check-committed --repo-root "$sk" >"$T/cc.out" 2>&1
+assert_exit "check-committed runs under a planted fsmonitor" 0 $?
+if [ -e "$T/fsmonitor-ran" ]; then fail "the checkout's fsmonitor never runs"; else ok "the checkout's fsmonitor never runs"; fi
+git -C "$sk" config --unset core.fsmonitor
+chmod 000 "$sk/docs/notes.md"
+if hermetic_access_denied r "$sk/docs/notes.md"; then
+  "$BASELINE" check-committed --repo-root "$sk" >"$T/cc.out" 2>&1
+  assert_exit "check-committed fails when git cannot read a tracked file" 2 $?
+else
+  ok "check-committed fails when git cannot read a tracked file (skipped: reads are not denied here)"
+fi
+chmod 644 "$sk/docs/notes.md"
 cp "$sk/docs/notes.md" "$T/notes.clean"
 while IFS= read -r row; do
   printf 'The hub ran hot:\n\n%s\n' "$row" >>"$sk/docs/notes.md"

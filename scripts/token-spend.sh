@@ -47,8 +47,9 @@ rows    Prints one tab-separated line per assistant message, at most one s
         An a line, printed only with --asks, is one use of a tool that
         reaches the operator (AskUserQuestion or PushNotification); a use
         written on several lines prints per line, its id `-` when absent. A
-        file whose tool uses cannot be parsed is named on stderr and skipped,
-        and rows then exits 1.
+        file whose tool uses cannot be parsed is named on stderr and its a
+        lines are left out (its m and s lines still print), and rows then
+        exits 1.
         The s line is the file's first user prompt that is not a system or
         local-command message, from its first eight user lines. A message the
         transcript writes on several lines (one per content block) is printed
@@ -72,8 +73,8 @@ report  Reads rows output and prints totals by token class, model, day,
         a model missing from it is priced at zero and named on stderr.
         Control bytes in transcript text are dropped before printing.
 
-Exit: 0 printed; 1 rows skipped a file it could not read or list, or
-      whose tool uses it could not parse (--asks);
+Exit: 0 printed; 1 rows skipped a file it could not read or list, or left
+      out a file's tool uses it could not parse (--asks);
       2 usage, a missing tool or transcript directory, an unreadable rows
       file, or an unreadable or malformed price table.
 EOF
