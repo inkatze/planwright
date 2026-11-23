@@ -2455,3 +2455,21 @@ Class: meaning
 Lens-pass: Amendment 21, delta-scoped lens review above (spec lens set, fanned out one agent per lens; every finding dispositioned)
 Anchor: `a7e4ba9842230193a85bec4e28b16cde30051329` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — the legacy-bundle report names the adopter generically (2026-11-23)
+
+Marked self-re-anchor for an expression-only edit, per the meta-spec's
+expression-only lane (`doctrine/spec-format.md`, *Writers*). After the
+Amendment 21 sign-off, the repository's purged-identifier check flagged
+two lines of the new Sources entry "The legacy-bundle report
+(2026-11-22)" for naming a project this history keeps out. Both now name
+"an adopter" instead; no requirement, decision, task or test changes
+meaning. The operator approved the wording through the hub, in their
+words: "Approve the edit (Recommended)".
+
+**Cites the changelog line:** the 2026-11-23 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `4157f1a25244899ae0f63df8852803677532c5f2` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

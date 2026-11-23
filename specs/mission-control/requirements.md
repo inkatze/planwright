@@ -1750,6 +1750,9 @@ the runner works, never a list that grows and is forgotten.
   148 and 149, notes on REQ-I1.8, REQ-D1.14, D-33, D-36, D-45 and Tasks
   19, 35, 36 and 37 (see the kickoff brief's Amendment 21). Numbering follows
   spec-pipeline's ID ledger of unlanded reservations.
+- 2026-11-23 — Expression-only (data hygiene): the legacy-bundle report's
+  Sources entry names the adopter generically instead of by project name,
+  meaning unchanged (see the kickoff brief's re-anchor after Amendment 21).
 
 ## Sources
 
@@ -2002,8 +2005,9 @@ the runner works, never a list that grows and is forgotten.
   spec branch, so a moved main no longer goes to the operator; PR #1140
   builds it. Framed REQ-I1.11, D-114.
 - **The legacy-bundle report (2026-11-22)** — readiness refused every
-  bundle without a kickoff brief, including tecpan's auth bundle, which
-  predates kickoff, and so held tecpan pull requests that touch it. PR
+  bundle without a kickoff brief, including an adopter's finished auth
+  bundle, which predates kickoff, and so held that adopter's pull requests
+  that touch it. PR
   #1142 shipped the exception on the operator's "Flip now, decide at
   review", reading the base from a local ref. Framed REQ-D1.18.
 - **The Amendment 21 rulings (2026-11-22)** — relayed through the hub,
