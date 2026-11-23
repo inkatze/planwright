@@ -117,6 +117,7 @@ while IFS= read -r line; do
       printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"x"}]},"uuid":"../bad","isReplay":true}\n'
       # A replay in a shape the supervisor does not expect, then a real one.
       printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"x"}]},"uuid":"7a7a7a7a-1b1b-4c2c-8d3d-4e4e4e4e4e4e","isReplay":true,"later":1}\n'
+      printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"y"}]},"uuid":"8a8a8a8a-1b1b-4c2c-8d3d-4e4e4e4e4e4e","isReplay":true,"later":2}\n'
       printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"x"}]},"uuid":"6a6a6a6a-1b1b-4c2c-8d3d-4e4e4e4e4e4e","isReplay":true}\n'
       printf '{"type":"result","subtype":"success","is_error":false,"result":"done","permission_denials":[{"tool_name":"Bash","tool_input":{"isReplay":true,"uuid":"%s"}}]}\n' "$id"
       ;;
@@ -375,8 +376,8 @@ grep -q 'bad' "$wdir/steer-acks" && fail "a9: an out-of-grammar replay uuid was 
 grep -q '6a6a6a6a-1b1b-4c2c-8d3d-4e4e4e4e4e4e' "$wdir/steer-acks" \
   || fail "a9: the real replay beside the forged lines must still be recorded: $(cat "$wdir/steer-acks")"
 grep -q '7a7a7a7a' "$wdir/steer-acks" && fail "a9: a replay in an unexpected shape was recorded"
-grep -q 'a replay line in an unexpected shape' "$tmp/sup-sja9.err" \
-  || fail "a9: a replay in an unexpected shape must be named: $(cat "$tmp/sup-sja9.err")"
+[ "$(grep -c 'a replay line in an unexpected shape' "$tmp/sup-sja9.err")" = 1 ] \
+  || fail "a9: replays in an unexpected shape must be named once per run: $(cat "$tmp/sup-sja9.err")"
 stop_worker "$home" sja9
 echo "ok: a9 only a user line is a replay, and an out-of-grammar uuid records nothing"
 

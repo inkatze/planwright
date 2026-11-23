@@ -35,14 +35,17 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
 done
 echo "ok: u1 uuid_v4 prints a fresh lowercase v4 uuid"
 
+# An od that prints nothing, non-hex, or too few bytes: each is refused.
 mkdir -p "$tmp/bin"
-printf '#!/bin/sh\nexit 0\n' >"$tmp/bin/od"
-chmod +x "$tmp/bin/od"
-u2_out=$(PATH="$tmp/bin:$PATH" uuid_v4)
-u2_rc=$?
-[ "$u2_rc" = 1 ] || fail "u2: no randomness must return 1, got $u2_rc"
-[ -z "$u2_out" ] || fail "u2: no randomness must print nothing, got '$u2_out'"
-echo "ok: u2 no randomness prints nothing and returns 1"
+for u2_body in 'exit 0' "echo ' zz zz zz zz zz zz zz zz zz zz zz zz zz zz zz zz'" "echo ' 0a 0a 0a 0a 0a 0a 0a 0a 0a 0a 0a 0a 0a 0a 0a'"; do
+  printf '#!/bin/sh\n%s\n' "$u2_body" >"$tmp/bin/od"
+  chmod +x "$tmp/bin/od"
+  u2_out=$(PATH="$tmp/bin:$PATH" uuid_v4)
+  u2_rc=$?
+  [ "$u2_rc" = 1 ] || fail "u2: od printing [$u2_body] must return 1, got $u2_rc"
+  [ -z "$u2_out" ] || fail "u2: od printing [$u2_body] must print nothing, got '$u2_out'"
+done
+echo "ok: u2 missing, non-hex, or short randomness prints nothing and returns 1"
 
 for s in fleet-streamjson.sh fleet-messaging.sh; do
   mkdir -p "$tmp/$s"
