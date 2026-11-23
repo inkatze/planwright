@@ -2808,8 +2808,12 @@ cmd_launch() {
 
 # worker_owner <worker> — print the session that launched the worker, read from
 # the registry record the launch wrote, or nothing when no record names one.
+# An unreadable registry names nobody too, as a worker with no recorded owner
+# does: refusing every answer while the store cannot be read would leave each
+# waiting worker stuck on its prompt.
 worker_owner() {
-  wo_tok=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$1" '($2 "") == (w "") { o = $4 } END { print o }') || return 0
+  wo_reg=$(/bin/sh "$FS" registry 2>/dev/null) || return 0
+  wo_tok=$(printf '%s\n' "$wo_reg" | awk -F'\t' -v w="$1" '($2 "") == (w "") { o = $4 } END { print o }') || return 0
   case $wo_tok in
     '' | - | unknown-owner | . | .. | *[!A-Za-z0-9._:-]*) return 0 ;;
   esac
