@@ -1756,6 +1756,11 @@ err=$("$SR" --worktree "$wd/plain" write --completion --run "$rp" --point pre-ci
 rc=$?
 [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head:"
 verdict_of $? "a --worktree inside another repository never defaults to its HEAD" "rc=$rc: $err"
+err=$("$SR" --worktree "$wd/plain" write --completion --run "$rp" --point pre-ci --head "$WD_HEAD" 2>&1 >/dev/null)
+rc=$?
+[ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: --head: cannot be checked" \
+  && [ -z "$(ls -A "$wd/plain/.claude/steps/$rp")" ]
+verdict_of $? "an explicit --head in a --worktree inside another repository is refused unchecked" "rc=$rc: $err"
 rg=$(srd new-run)
 GIT_DIR="$wt/.git" "$SR" --worktree "$wd" write --completion --run "$rg" --point pre-ci \
   >/dev/null 2>"$tmp/wd.err"

@@ -259,7 +259,8 @@
 #   --head         a full commit id: 40 or 64 lowercase hex digits; at write,
 #                  one naming a commit object in the worktree's repository
 #                  (an abbreviated id, or one naming a tree, a blob, a tag, or
-#                  no object, is refused); omitted
+#                  no object, is refused, as is any head when the worktree is
+#                  not the top of a git work tree); omitted
 #                  (write and status), the worktree's HEAD commit when the
 #                  verb runs, refused when it has none. Given, even empty, it
 #                  is never defaulted. A step record holds the head its step
