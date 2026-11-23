@@ -274,11 +274,13 @@
 #       needs no input box, so it does not depend on a paste landing at an
 #       idle prompt, and it leaves a receipt — `<dir>/steers`, one
 #       `<epoch>\t<bytes>\t<file>\t<id>\t<idle|busy>` row per delivery, <id>
-#       the uuid the frame carries and the last field whether a result was on
-#       record when it was sent — where a pane paste leaves nothing. Written is
-#       not read: the CLI reads a frame that lands mid-turn only once the tool
-#       call in flight returns or the turn ends, so steer says on stderr that
-#       the message is queued whenever no result is on record. The session's
+#       the uuid the frame carries and the last field whether the worker was
+#       idle when it was sent (a result on record, or a resumed session whose
+#       capture still ends at its last result) — where a pane paste leaves
+#       nothing. Written is not read: the CLI reads a frame that lands
+#       mid-turn only once the tool call in flight returns or the turn ends,
+#       so steer says on stderr that the message is queued whenever the worker
+#       was not idle. The session's
 #       replay of the frame (the launch passes --replay-user-messages) lands
 #       its uuid in `<dir>/steer-acks`; a steer still unread a grace
 #       (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s) after a turn ended
@@ -3390,7 +3392,7 @@ cmd_steer() {
     journal_unlock "$dir"
     [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
       || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
-    # No result on record means a turn is running: the CLI reads the frame
+    # A worker that was not idle is running a turn: the CLI reads the frame
     # only once the tool call in flight returns or the turn ends.
     [ "$st_turn" = idle ] \
       || printf '%s\n' "$me: worker $worker is mid-turn: the message is queued, and the session reads it when its current tool call returns or its turn ends, so a long-running command delays it" >&2

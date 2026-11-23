@@ -1281,20 +1281,22 @@ not read at once: the session takes it when the tool call in flight returns,
 folding it into that turn, or, when the turn is already writing its answer,
 as the next turn once that turn's `result` lands (the session reading it then
 retires that `result`, so the worker reads `running` again). A long-running
-command or bounded wait therefore delays it, and `steer` says on stderr that
-the message is queued whenever no result is on record. Written is not read, so
-each steer frame carries its own uuid, recorded in its receipt row, and the
-worker runs with `--replay-user-messages`, whose replay of the frame records
-the steer as read. A steer is reported unread, once, by the supervisor's tick
-or `alarm-scan`, as a high-priority queue item and push naming the message
-file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE` seconds (default 60)
-have passed since the `result` or exit record written at or after it, or,
-when none has been written and the worker was idle as it was sent, since it
-was sent. The session reads frames in order, so an unread steer sent before
-one so judged is reported with it. A worker reads as idle when a result is on
-record or, for a resumed session waiting for its first frame, when its capture
-still ends at its last turn's result. A runtime with no replay record (a worker an older planwright
-launched) is never judged, nor is a steer sent before that record.
+command or bounded wait therefore delays it. A worker reads as idle when a
+result is on record or, for a resumed session waiting for its first frame,
+when its capture still ends at its last turn's result; `steer` says on stderr
+that the message is queued whenever the worker was not idle. Written is not
+read, so each steer frame carries its own uuid, recorded in its receipt row,
+and the worker runs with `--replay-user-messages`, whose replay of the frame
+records the steer as read. A steer is reported unread, once, by the
+supervisor's tick or `alarm-scan`, as a high-priority queue item and push
+naming the message file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE`
+seconds (default 60) have passed since the `result` or exit record written at
+or after it, or, when none has been written and the worker was idle as it was
+sent, since it was sent. The session reads frames in order, so an unread steer
+sent before one so judged is reported with it. A runtime with no replay record
+(a worker an older planwright launched) is never judged, nor is a steer sent
+before that record.
+
 Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
