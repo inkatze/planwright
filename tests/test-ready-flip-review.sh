@@ -29,6 +29,9 @@ check() { # <label> <command...>
   if "$@"; then pass "$label"; else fail "$label"; fi
 }
 not() { ! "$@"; }
+# other_head: a commit of the unit's repository that is not its HEAD, reachable
+# from no ref; step-record.sh write refuses a head naming no commit.
+other_head() { gitf commit-tree -m "fixture: another head" "HEAD^{tree}"; }
 
 # shellcheck source=tests/lib/ready-flip-fixture.sh
 . "$REPO_ROOT/tests/lib/ready-flip-fixture.sh"
@@ -79,10 +82,12 @@ check "the limited record does not wait on CI" [ "$(rollups)" = 0 ]
 fixture
 set_policy unit-owner
 run=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
+other=$(other_head)
 /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run" --point post-pr --step cubic \
   --kind skill --target bot-review --hosting in-session --backend in-session \
-  --head 1111111111111111111111111111111111111111 --end-head 1111111111111111111111111111111111111111 \
-  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
+  --head "$other" --end-head "$other" \
+  --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null \
+  || fail "fixture: the limited record on another head was refused"
 run_helper flip --spec specs/demo --task 1
 check "a limited record ending on another head does not block (exit 0)" [ "$CODE" = 0 ]
 
@@ -97,10 +102,11 @@ for ph in head other; do
     --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome limited >/dev/null
   run2=$(/bin/sh "$STEP_RECORD" --worktree "$F/wt" new-run)
   eh=$hd
-  [ "$ph" = head ] || eh=1111111111111111111111111111111111111111
+  [ "$ph" = head ] || eh=$(other_head)
   /bin/sh "$STEP_RECORD" --worktree "$F/wt" write --run "$run2" --point post-pr --step pr-agent-pr \
     --kind skill --target bot-review --hosting in-session --backend in-session --head "$eh" --end-head "$eh" \
-    --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome passed >/dev/null
+    --start 2026-11-01T10:03:17Z --end 2026-11-01T10:09:41Z --outcome passed >/dev/null \
+    || fail "fixture: the pr-agent-pr record on the $ph head was refused"
   run_helper flip --spec specs/demo --task 1
   if [ "$ph" = head ]; then
     check "a pr-agent-pr pass on the head retires the limited cubic-pr (exit 0)" [ "$CODE" = 0 ]
