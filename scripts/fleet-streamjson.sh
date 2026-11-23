@@ -609,12 +609,13 @@ if [ ! -r "$lock_lib" ]; then
 fi
 # shellcheck source=scripts/lock-lib.sh
 . "$lock_lib"
-if [ ! -r "$script_dir/uuid-lib.sh" ]; then
-  printf '%s\n' "$me: required helper uuid-lib.sh missing or not readable" >&2
+uuid_lib="$script_dir/uuid-lib.sh"
+if [ ! -r "$uuid_lib" ]; then
+  printf '%s\n' "$me: required helper $uuid_lib missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/uuid-lib.sh
-. "$script_dir/uuid-lib.sh"
+. "$uuid_lib"
 
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
@@ -3121,8 +3122,10 @@ steer_scan() {
   # The end epoch is the result record's third field, on either row kind.
   ss_end='' ss_kind=''
   if result_snapshot "$ss_dir"; then
-    ss_end=$(printf '%s' "$rs_raw" | awk -F'\t' 'NR == 1 { print $3 }')
     ss_kind=${rs_raw%%"$TAB"*}
+    ss_end=${rs_raw#*"$TAB"*"$TAB"}
+    ss_end=${ss_end%%"$NL"*}
+    ss_end=${ss_end%%"$TAB"*}
     valid_posnum "${ss_end:-}" || ss_end=''
   fi
   ss_lost=$(awk -F'\t' -v acks="$ss_dir/steer-acks" -v since="$ss_since" -v end="$ss_end" \
@@ -3844,7 +3847,7 @@ cmd__tick() {
     tk_i=$((tk_i + 1))
     [ "$tk_i" -ge "$tk_tick" ] || continue
     tk_i=0
-    if tk_now=$(now_epoch); then
+    if [ -f "$tk_dir/steers" ] && tk_now=$(now_epoch); then
       steer_scan "$tk_worker" "$tk_dir" "$tk_now" "$tk_grace" >/dev/null || :
     fi
     [ -f "$tk_dir/journal" ] || continue
