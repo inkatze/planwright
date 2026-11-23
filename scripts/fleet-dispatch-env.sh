@@ -114,8 +114,9 @@
 #                                           PLANWRIGHT_REPO_ROOT,
 #                                           PLANWRIGHT_ORCH_STATE_DIR, and an
 #                                           inherited
-#                                           PLANWRIGHT_WORKER_SPEC_ROOT or
-#                                           PLANWRIGHT_WORKER_SESSION_RECORD) the tmux
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT,
+#                                           PLANWRIGHT_WORKER_SESSION_RECORD or
+#                                           PLANWRIGHT_SESSION_HANDLE) the tmux
 #                                           server's environment may carry from
 #                                           whichever session started it: a
 #                                           worker is not a tower, and resolves
@@ -549,7 +550,7 @@ fi
 if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
-    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD
+    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_HANDLE
 fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle

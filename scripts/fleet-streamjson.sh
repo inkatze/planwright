@@ -80,10 +80,12 @@
 #                    where `relaunch` resumes it
 #   tier_key / tier_unit  the allocation key and unit a launch's --tier-key
 #                    and --tier-unit named, which `relaunch` resolves at
-#   parent           the worker a fresh launch was made from inside (its
-#                    PLANWRIGHT_WORKER_HANDLE), which mission control's
-#                    keeper may route this session's prompts by; absent
-#                    otherwise, and kept by a recover
+#   parent           the session a fresh launch was made from inside (its
+#                    PLANWRIGHT_WORKER_HANDLE, else its
+#                    PLANWRIGHT_SESSION_HANDLE), which mission control's
+#                    keeper may route this session's prompts by and its
+#                    launcher's `adopt` checks; absent otherwise, and kept
+#                    by a recover
 #   spec-branch      the --spec-branch a launch named, which a recover reads
 #                    back; absent otherwise
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
@@ -2537,11 +2539,13 @@ cmd_launch() {
     record_tier_field "$dir" tier_model "$tier_model" || exit 2
     record_tier_field "$dir" tier_effort "$tier_effort" || exit 2
     record_tier_field "$dir" tier_reserved "$tier_reserved" || exit 2
-    # A session launched from inside a worker (an isolated step's, say)
-    # records that worker as its parent, which the keeper routes its prompts
-    # by while the parent's own record names a program. Read before this
-    # launch exports its own identity below.
-    launch_parent=${PLANWRIGHT_WORKER_HANDLE:-}
+    # A session launched from inside another records it as its parent: a
+    # worker's isolated step names the worker, a worker an orchestrator
+    # dispatched names the orchestrator. The keeper routes its prompts by it
+    # while the parent's own record names a program. The worker identity
+    # wins, since only the rung that launched a worker sets it. Read before
+    # this launch exports its own identity below.
+    launch_parent=${PLANWRIGHT_WORKER_HANDLE:-${PLANWRIGHT_SESSION_HANDLE:-}}
     if ! valid_field "$launch_parent" || [ "$launch_parent" = "$worker" ]; then
       launch_parent=''
     fi
@@ -2567,6 +2571,11 @@ cmd_launch() {
   else
     unset PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN
   fi
+  # Every session, whatever its profile, knows its own handle, so what it
+  # launches can record it as the parent: the owner token is dropped below,
+  # and an orchestrator's dispatches have no other way to name who sent them.
+  PLANWRIGHT_SESSION_HANDLE=$worker
+  export PLANWRIGHT_SESSION_HANDLE
   # The mission-control launcher's row token binds that session's decisions
   # to its registry row; no other session may inherit it. A recover is run by
   # whoever calls it, so the token comes from the recovered session's own row
@@ -3206,7 +3215,10 @@ cmd__frame_check() {
 # kept in the worker's directory (same file mode as the row, which carries the
 # launch token); a worker the launcher's dispatch record names but no copy
 # covers is refused, exit 3, since no row can be rebuilt without inventing a
-# token. A worker the launcher never launched has nothing to restore.
+# token. A worker the launcher never launched has nothing to restore, and
+# neither has one a program's session dispatched (it records that session as
+# its parent, which the launcher's own launches never do) whose adoption into
+# the launcher's registry did not land.
 recover_launcher_row() {
   rl_root=$(/bin/sh "$FS" root 2>/dev/null </dev/null) || return 0
   rl_row="$rl_root/mission-control/sessions/$1"
@@ -3215,6 +3227,7 @@ recover_launcher_row() {
   fi
   rl_copy="$2/launcher-row"
   if [ ! -f "$rl_copy" ] || [ -L "$rl_copy" ]; then
+    [ ! -s "$2/parent" ] || return 0
     rl_owner=$(awk -F '\t' 'NR == 1 { print $3 }' "$rl_root/dispatch-markers/$1" 2>/dev/null) || rl_owner=''
     case $rl_owner in
       mission-control:*)

@@ -4,7 +4,8 @@ unset CDPATH
 # Hermetic inside a worker session: the session variables a stream-json worker
 # exports are not this suite's, and one leaking in changes which backend the
 # launcher resolves. Fixtures that want one set it through ml.
-unset PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE
+unset PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE \
+  PLANWRIGHT_SESSION_HANDLE
 # Shared fixture for the mission-control launch tests (sourced at top level by
 # tests/test-mission-control-launch*.sh): the failure counters, the scratch tree
 # and its cleanup, the CLI and tmux shims, the ml runner and its wait helpers.
@@ -80,6 +81,7 @@ pwd -P >"$SHIM_RECORD_DIR/cwd"
 printf '%s\n' "$*" >"$SHIM_RECORD_DIR/argv.tmp" && mv "$SHIM_RECORD_DIR/argv.tmp" "$SHIM_RECORD_DIR/argv"
 printf '%s\n' "${PLANWRIGHT_MC_TOKEN:-}" >"$SHIM_RECORD_DIR/mctoken"
 printf '%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" >"$SHIM_RECORD_DIR/towerid"
+printf '%s\n' "${PLANWRIGHT_SESSION_HANDLE-<unset>}" >"$SHIM_RECORD_DIR/sessionhandle"
 printf '%s\n' "${TMUX-<unset>}" >"$SHIM_RECORD_DIR/tmuxvar"
 printf '%s\n' "${TMUX_PANE-<unset>}" >"$SHIM_RECORD_DIR/tmuxpane"
 printf '%s\n' "${PLANWRIGHT_LOCAL_CONFIG-<unset>}" >"$SHIM_RECORD_DIR/localcfg"
@@ -209,7 +211,7 @@ mkdir -p "$tmp/tmux"
 ml() {
   OUT=$(cd "${ML_CD:-$repo}" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
-    -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_SESSION_HANDLE \
     -u PLANWRIGHT_WORKER_SESSION_RECORD -u PLANWRIGHT_SESSION_BACKEND \
     -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID -u PLANWRIGHT_MC_TOKEN -u CLAUDE_CONFIG_DIR \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="${ML_REPO_ROOT-$repo}" \
@@ -217,6 +219,7 @@ ml() {
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
     TMUX_PANE="${ML_TMUX_PANE:-}" ${ML_TMUX:+TMUX="$ML_TMUX"} ${ML_MC_TOKEN:+PLANWRIGHT_MC_TOKEN="$ML_MC_TOKEN"} \
+    ${ML_SESSION_HANDLE:+PLANWRIGHT_SESSION_HANDLE="$ML_SESSION_HANDLE"} \
     SHIM_RECORD_DIR="${SHIM_RECORD_DIR:-$tmp}" TMUX_STUB="$tmp/tmux" TMUX_KILL_FAIL="${TMUX_KILL_FAIL:-0}" \
     TMUX_LIST_FAIL="${TMUX_LIST_FAIL:-0}" TMUX_LOCK_DIR="${TMUX_LOCK_DIR:-}" TMUX_NO_SERVER="${TMUX_NO_SERVER:-0}" TMUX_BAD_ID="${TMUX_BAD_ID:-0}" \
     /bin/sh "$LAUNCH" "$@" 2>"$tmp/stderr")

@@ -20,7 +20,13 @@
 #      the task branch (the first durable act) and its worktree in the task's
 #      work repository, then stamps the runtime marker in the bundle's home;
 #   4. release the lock;
-#   5. launch the one worker through the rung's own primitive.
+#   5. launch the one worker through the rung's own primitive. On the
+#      stream-json rung, a step run inside a session mission control launched
+#      (its PLANWRIGHT_SESSION_HANDLE names a launcher row) launches the
+#      worker as that program's (mission-control-launch.sh adopt): under the
+#      name and owner the row gives, then recorded in the launcher's
+#      registry. Otherwise, or when that cannot be had (said on stderr), the
+#      worker is registered with no owner, and fleet-register.sh says so.
 #
 # The skill's resource-governance lines and its `orchestrate_dispatch` launch
 # tier stay with the caller; this script runs neither.
@@ -59,7 +65,9 @@
 #     Everything after `--` reaches the rung's launch (the resolved tier).
 #
 # Report: `meta-step<TAB><key><TAB><value>` lines (lock, record, gate, anchor,
-# ref, work, branch, worktree, backend, handle), or on a halt `halt<TAB><stage><TAB>
+# ref, work, branch, worktree, backend, owner on the stream-json rung (the
+# owning program's mission-control token, or none), handle), or on a halt
+# `halt<TAB><stage><TAB>
 # <reason>`, plus `remedy<TAB><text>` on a park.
 #
 # Exit codes:
@@ -526,14 +534,55 @@ case $backend in
     ;;
   stream-json-persistent)
     handle="$spec_name-task-$task_id"
+    owner=""
+    # A step run inside a program's session (an orchestrator mission control
+    # launched) dispatches the worker as that program's: under the name and
+    # owner the launcher's row for this session gives, so the worker's
+    # prompts reach its mission control and the launcher can wait, unwait and
+    # retire it. Anywhere else the worker is registered as before.
+    if [ -n "${PLANWRIGHT_SESSION_HANDLE:-}" ]; then
+      plan_rc=0
+      /bin/sh "$script_dir/mission-control-launch.sh" adopt "$PLANWRIGHT_SESSION_HANDLE" \
+        --scope "$spec_name:task-$task_id" --plan \
+        </dev/null >"$wtmp/adopt.out" 2>"$wtmp/adopt.err" || plan_rc=$?
+      if [ "$plan_rc" -eq 0 ]; then
+        planned=$(field "$wtmp/adopt.out" adopt name)
+        owner=$(field "$wtmp/adopt.out" adopt owner)
+        if [ -n "$planned" ] && [ -n "$owner" ]; then
+          handle=$planned
+        else
+          owner=""
+        fi
+      fi
+      if [ -z "$owner" ]; then
+        relay "$wtmp/adopt.err"
+        printf '%s\n' "$me: no program owns this session's dispatches (mission-control-launch.sh adopt --plan exit $plan_rc); the worker is registered without one" >&2
+      fi
+    fi
+    say owner "${owner:-none}"
     launch_started=1
-    "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
-      --prompt-file "$prompt" --cwd "$worktree" "$@" \
-      </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
+    if [ -n "$owner" ]; then
+      PLANWRIGHT_TOWER_ID=$owner "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
+        --prompt-file "$prompt" --cwd "$worktree" "$@" \
+        </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
+    else
+      "$script_dir/fleet-streamjson.sh" launch "$handle" "$spec_name:task-$task_id" \
+        --prompt-file "$prompt" --cwd "$worktree" "$@" \
+        </dev/null >"$wtmp/launch.out" 2>"$wtmp/launch.err" || launch_rc=$?
+    fi
     if [ "$launch_rc" -eq 2 ] && grep -q 'did not start within' "$wtmp/launch.err" 2>/dev/null; then
       launch_failed 2 "fleet-streamjson exit 2" keep
     fi
     [ "$launch_rc" -eq 0 ] || launch_failed "$launch_rc" "fleet-streamjson exit $launch_rc"
+    if [ -n "$owner" ]; then
+      adopt_rc=0
+      /bin/sh "$script_dir/mission-control-launch.sh" adopt "$PLANWRIGHT_SESSION_HANDLE" \
+        --scope "$spec_name:task-$task_id" </dev/null >"$wtmp/adopt.out" 2>"$wtmp/adopt.err" || adopt_rc=$?
+      if [ "$adopt_rc" -ne 0 ]; then
+        relay "$wtmp/adopt.err"
+        printf '%s\n' "$me: $handle runs and is registered to $owner, but the launcher holds no row for it (adopt exit $adopt_rc): mission control cannot wait or unwait it, and retires it by name" >&2
+      fi
+    fi
     ;;
 esac
 relay "$wtmp/launch.err"

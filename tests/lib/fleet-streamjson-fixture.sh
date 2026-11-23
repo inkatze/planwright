@@ -121,6 +121,7 @@ printf 'inbound=%s\n' "${PLANWRIGHT_MESSAGING_INBOUND-<unset>}" >>"$SHIM_RECORD_
 printf 'backend=%s\n' "${PLANWRIGHT_SESSION_BACKEND-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'launch_token=%s\n' "${PLANWRIGHT_WORKER_LAUNCH_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'mc_token=%s\n' "${PLANWRIGHT_MC_TOKEN-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'session_handle=%s\n' "${PLANWRIGHT_SESSION_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'tower=%s/%s/%s/%s\n' "${PLANWRIGHT_TOWER_ID-<unset>}" "${PLANWRIGHT_TOWER_SESSION_ID-<unset>}" \
   "${PLANWRIGHT_TOWER_PID-<unset>}" "${PLANWRIGHT_TOWER_CHECKOUT-<unset>}" >>"$SHIM_RECORD_DIR/env"
 n=${SHIM_READ_FIRST:-1}
@@ -180,6 +181,7 @@ env_scrub=(
   -u PLANWRIGHT_STREAMJSON_PENDING_AGE -u PLANWRIGHT_STREAMJSON_ALARM_TICK
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_MC_TOKEN
+  -u PLANWRIGHT_SESSION_HANDLE
 )
 
 # senv <home> <record-dir> [SHIM_VAR=val...] -- <args...> — hermetic

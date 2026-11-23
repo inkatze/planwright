@@ -30,7 +30,11 @@
 #     repository, or outside any repository dispatches, gated on that root's
 #     primary view;
 #   - a lock or fetch refusal, or a --repo-root other than the primary
-#     checkout, is refused (exit 2) before anything is placed.
+#     checkout, is refused (exit 2) before anything is placed;
+#   - on the stream-json rung, a step run inside a session mission control
+#     launched dispatches the worker as that program's (registered to its
+#     mission control, recorded in the launcher's registry), and one with no
+#     owning session still registers the worker and says it has no owner.
 #
 # The worker CLI is a recording fake (PLANWRIGHT_HEADLESS_CLAUDE) on the
 # headless-oneshot rung, and the stream-json rung is a recording stub, so no
@@ -234,6 +238,11 @@ exec \"$C/root/scripts/fleet-dispatch-worktree.real.sh\" \"\$@\""
 run_step() {
   RC=0
   OUT=$(cd "$P" && env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    -u PLANWRIGHT_SESSION_HANDLE -u PLANWRIGHT_TOWER_ID -u PLANWRIGHT_TOWER_SESSION_ID -u PLANWRIGHT_TOWER_PID \
+    ${STEP_SESSION_HANDLE:+PLANWRIGHT_SESSION_HANDLE="$STEP_SESSION_HANDLE"} \
+    ${STEP_REAL_RUNG:+PLANWRIGHT_STREAMJSON_CLI="$C/sj-claude"} \
+    ${STEP_REAL_RUNG:+PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off} \
+    ${STEP_REAL_RUNG:+PLANWRIGHT_FLEET_SCRATCH_BASE="$C/scratch-base"} \
     PLANWRIGHT_FLEET_STATE_DIR="$C/fleet" \
     PLANWRIGHT_ORCH_STATE_DIR="$C/markers" \
     PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$C/fstate" \
@@ -743,6 +752,110 @@ m20() {
   pass "m20: the skill routes each rung's dispatch through its own primitive"
 }
 
+# real_rung — the stream-json rung runs for real under a CLI shim that
+# records the session's identity variables and its first message, then ends.
+real_rung() {
+  STEP_REAL_RUNG=1
+  cat >"$C/sj-claude" <<EOF
+#!/bin/sh
+printf '%s\n' "\${PLANWRIGHT_TOWER_ID-<unset>}" >"$C/rec/sj-towerid"
+printf '%s\n' "\${PLANWRIGHT_SESSION_HANDLE-<unset>}" >"$C/rec/sj-session"
+IFS= read -r line || line=''
+printf '%s\n' "\$line" >"$C/rec/sj-stdin"
+exit 0
+EOF
+  chmod +x "$C/sj-claude"
+}
+
+# orchestrator_row <name> — the launcher's row for an orchestrator mission
+# control launched for program alpha.
+orchestrator_row() {
+  mkdir -p "$C/fleet/mission-control/sessions"
+  printf 'format\t1\nname\t%s\nstate\tlaunched\ntoken\tt-orch\nprogram\talpha\nowner\tmission-control:alpha\nkind\torchestrator\nscope\tspec:demo\nbackend\tstream-json\nhandle\t%s\nlaunched\t1\n' \
+    "$1" "$1" >"$C/fleet/mission-control/sessions/$1"
+}
+
+reg_owner() { # reg_owner <handle> — the owner column of its last fleet record
+  PLANWRIGHT_FLEET_STATE_DIR="$C/fleet" /bin/sh "$SCRIPTS/fleet-state.sh" registry 2>/dev/null \
+    | awk -F"$TAB" -v w="$1" '$2 == w { o = $4 } END { print o }'
+}
+
+# --- m21: a step run inside an orchestrator mission control launched -------
+# dispatches the worker as that program's, registered to its mission control
+# and recorded in the launcher's registry like one of its own launches.
+m21() {
+  begin
+  seed m21 || return
+  real_rung
+  orch=mc-alpha-orchestrator-0123456789
+  orchestrator_row "$orch"
+  want=$("$SCRIPTS/mission-control-launch.sh" name --program alpha --kind worker --scope demo:task-1)
+  STEP_SESSION_HANDLE=$orch dispatch stream-json-persistent
+  STEP_REAL_RUNG=''
+  [ "$RC" -eq 0 ] || {
+    fail "m21: the dispatch exited $RC: $ERR"
+    return
+  }
+  [ "$(field handle)" = "$want" ] || fail "m21: the worker is '$(field handle)', not the program's worker name $want"
+  [ "$(field owner)" = mission-control:alpha ] || fail "m21: owner line '$(field owner)'"
+  [ "$(reg_owner "$want")" = mission-control:alpha ] \
+    || fail "m21: the fleet registry records owner '$(reg_owner "$want")' for the worker, not mission-control:alpha"
+  case $ERR in
+    *'no tower identity available'*) fail "m21: the registration found no owner: $ERR" ;;
+  esac
+  [ "$(cat "$C/fleet/streamjson/$want/parent" 2>/dev/null)" = "$orch" ] \
+    || fail "m21: the worker does not record the orchestrator as its parent"
+  row="$C/fleet/mission-control/sessions/$want"
+  for kv in "program${TAB}alpha" "owner${TAB}mission-control:alpha" "kind${TAB}worker" "scope${TAB}demo:task-1" \
+    "backend${TAB}stream-json" "handle${TAB}$want" "state${TAB}launched"; do
+    grep -qx "$kv" "$row" 2>/dev/null || fail "m21: the launcher row lacks '$kv': $(cat "$row" 2>&1)"
+  done
+  listed=$(PLANWRIGHT_FLEET_STATE_DIR="$C/fleet" "$SCRIPTS/mission-control-launch.sh" list 2>&1 | cut -f1-5)
+  case "$listed" in
+    *"$want${TAB}alpha${TAB}worker${TAB}demo:task-1${TAB}stream-json"*) ;;
+    *) fail "m21: the launcher's list does not show the worker as alpha's: $listed" ;;
+  esac
+  poll_until --what 'the worker session' -- test -s "$C/rec/sj-stdin" || fail "m21: the worker session never started"
+  [ "$(cat "$C/rec/sj-towerid" 2>/dev/null)" = '<unset>' ] \
+    || fail "m21: the worker inherited the owner as its own tower identity: $(cat "$C/rec/sj-towerid" 2>&1)"
+  [ "$(cat "$C/rec/sj-session" 2>/dev/null)" = "$want" ] \
+    || fail "m21: the worker does not hold its own handle: $(cat "$C/rec/sj-session" 2>&1)"
+  pass "m21: an orchestrator's dispatch is registered to its program's mission control and recorded by the launcher"
+}
+
+# --- m22: with no owning session the worker still registers, loudly -------
+m22() {
+  begin
+  seed m22 || return
+  real_rung
+  dispatch stream-json-persistent
+  STEP_REAL_RUNG=''
+  [ "$RC" -eq 0 ] || {
+    fail "m22: the dispatch exited $RC: $ERR"
+    return
+  }
+  [ "$(field handle)" = demo-task-1 ] || fail "m22: handle line '$(field handle)'"
+  [ "$(field owner)" = none ] || fail "m22: owner line '$(field owner)'"
+  [ "$(reg_owner demo-task-1)" = - ] || fail "m22: the worker's fleet record has owner '$(reg_owner demo-task-1)', or none was written"
+  case $ERR in
+    *'no tower identity available'*'unknown-owner'*) ;;
+    *) fail "m22: the unowned registration was not said on stderr: $ERR" ;;
+  esac
+  [ ! -e "$C/fleet/mission-control/sessions/demo-task-1" ] || fail "m22: a launcher row was written for an unowned worker"
+  # A session handle no launcher row carries is said too, and changes nothing.
+  seed m22b || return
+  real_rung
+  STEP_SESSION_HANDLE=mc-alpha-orchestrator-9999999999 dispatch stream-json-persistent
+  STEP_REAL_RUNG=''
+  [ "$RC" -eq 0 ] || fail "m22: the dispatch from an unregistered session exited $RC: $ERR"
+  [ "$(field handle)" = demo-task-1 ] || fail "m22: unregistered session: handle line '$(field handle)'"
+  case $ERR in
+    *'no registered session is named mc-alpha-orchestrator-9999999999'*'registered without one'*'no tower identity available'*) ;;
+    *) fail "m22: an unregistered session's dispatch did not say why it has no owner: $ERR" ;;
+  esac
+  pass "m22: a dispatch no program owns still registers, and says so"
+}
+
 m1
 m2
 m3
@@ -763,6 +876,8 @@ m17
 m18
 m19
 m20
+m21
+m22
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

@@ -74,6 +74,7 @@ printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
 printf 'cwd=%s\n' "$(pwd -P)" >>"$SHIM_RECORD_DIR/env"
 printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'session_handle=%s\n' "${PLANWRIGHT_SESSION_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf '{"type":"system","subtype":"init","cwd":"/x","session_id":"%s","tools":[]}\n' "$SHIM_SID"
 (sleep "${SHIM_WATCHDOG:-120}" && kill "$$" 2>/dev/null) &
 while IFS= read -r line; do :; done
@@ -88,6 +89,7 @@ env_scrub=(
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_MC_TOKEN
   -u PLANWRIGHT_WORKER_SESSION_RECORD -u PLANWRIGHT_WORKER_SPEC_ROOT
+  -u PLANWRIGHT_SESSION_HANDLE
 )
 
 # senv -- <args...> — the supervisor under the case-local home and shim, with
@@ -520,6 +522,33 @@ step_env sjr-step launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd 
 [ ! -e "$sdir/parent" ] || fail "r8: a launch naming itself as the launching worker recorded a parent"
 senv -- stop sjr-step --grace 2 >/dev/null 2>&1
 echo "ok: r8 a recover keeps the parent, and a session is never its own parent"
+
+# r8b: every session holds its own handle, so a launch from inside one that is
+# no worker (an orchestrator dispatching) records it as the parent; where the
+# launching session is a worker, its worker handle names the parent.
+session_env() { # session_env <session-handle> <worker-handle or empty> <args...>
+  env "${env_scrub[@]}" PLANWRIGHT_SESSION_HANDLE="$1" ${2:+PLANWRIGHT_WORKER_HANDLE="$2"} \
+    PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" \
+    GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    /bin/sh "$SJ" "${@:3}"
+}
+: >"$rec/env"
+session_env sjr-orch '' launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8b: the launch from inside a session that is no worker exited non-zero"
+[ "$(cat "$sdir/parent" 2>/dev/null)" = sjr-orch ] \
+  || fail "r8b: the launch from inside session sjr-orch recorded parent '$(cat "$sdir/parent" 2>&1)'"
+poll_until --what 'the session handle the step session holds' -- grep -q '^session_handle=' "$rec/env" \
+  || fail "r8b: setup: the step session never started"
+[ "$(grep '^session_handle=' "$rec/env" | tail -n 1)" = session_handle=sjr-step ] \
+  || fail "r8b: the launched session does not hold its own handle: $(grep '^session_handle=' "$rec/env" | tail -n 1)"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+session_env sjr-orch sjr1 launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8b: the launch from inside a worker exited non-zero"
+[ "$(cat "$sdir/parent" 2>/dev/null)" = sjr1 ] \
+  || fail "r8b: a worker's launch recorded parent '$(cat "$sdir/parent" 2>&1)', not its worker handle"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+echo "ok: r8b every session holds its own handle, and a launch from inside one records it as the parent"
 
 # ---------------------------------------------------------------------------
 # r9: a relaunch onto a pull request's worktree records that pull request's

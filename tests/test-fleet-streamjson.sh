@@ -466,6 +466,13 @@ senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w2" -
 [ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover must never spawn the worker"
 grep -q 'no launcher registry row' "$tmp/o8r" || fail "c8r: the refusal must name its reason: $(cat "$tmp/o8r")"
 [ ! -e "$home8r/mission-control/sessions/$w2" ] || fail "c8r: a refused recover must write no row"
+w4='mc-p-worker-5555555555'
+mk8r "$w4" mission-control:p
+printf 'mc-p-orchestrator-0123456789\n' >"$home8r/streamjson/$w4/parent"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w4" --foreground >"$tmp/o8r4" 2>&1 \
+  || fail "c8r: a worker a program's session dispatched, its row never written, must still recover: $(cat "$tmp/o8r4")"
+[ ! -e "$home8r/mission-control/sessions/$w4" ] || fail "c8r: a recover must not invent a row for a dispatched worker"
 w3=sjw8r-plain
 mk8r "$w3" tower-abc
 : >"$rec8r/argv"

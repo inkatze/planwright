@@ -875,7 +875,7 @@ few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
 Each goes to the worker's own program: its launcher row's, else the owner its
-dispatch record keeps, else its parent's row or record (the worker it was
+dispatch record keeps, else its parent's row or record (the session it was
 launched from inside), else the configured program its name carries under the
 launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
 polish pass adding `-<suffix>`). A live worker with a request waiting and no
@@ -2831,8 +2831,20 @@ runs the repository's own code, the trust the guard already gives its
 [the options reference](options-reference.md).
 
 The launcher's `retire <name>` closes what it launched from its registry row.
-A stream-json worker launched without it (by an older planwright, by
-`/orchestrate`, or by hand) has no row, so `retire <worker>` takes it by its
+A worker an orchestrator or tower mission control launched dispatches on the
+stream-json rung has a row too: every stream-json session holds its own
+handle as `PLANWRIGHT_SESSION_HANDLE`, so `/orchestrate`'s meta step finds
+its session's row and runs `adopt <session> --scope <spec>:task-<id>`
+around the launch. `--plan` names the worker as a worker launch of that
+scope would be named and gives the program's mission control as its owner;
+after the launch, the record writes the worker's row, once its runtime
+directory records that session as its parent. The worker's prompts then
+reach that mission control, and `list`, `wait`, `unwait`, `retire` and the
+host-wide bound take it like a launch of the program's own. A session no
+row names still dispatches, and its worker is registered with no owner,
+said on stderr. Any other stream-json worker launched without the launcher
+(by an older planwright, by a `/orchestrate` the operator runs, or by hand)
+has no row, so `retire <worker>` takes it by its
 handle instead: `fleet-streamjson.sh stop <worker> --final`, then its fleet
 record and attention row, printing the same `retire` line over the classes
 `process`, `registry` and `attention`. A name with neither a row nor a
