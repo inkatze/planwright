@@ -256,14 +256,18 @@
 #   --backend      ^[a-z0-9][a-z0-9-]*$, at most 64 bytes (the backend
 #                  identifier charset)
 #   --session      [A-Za-z0-9._:-], 1 to 128 bytes; optional
-#   --head         a full commit id: 40 or 64 lowercase hex digits; omitted
+#   --head         a full commit id: 40 or 64 lowercase hex digits; at write,
+#                  one naming a commit object in the worktree's repository
+#                  (an abbreviated id, or one naming a tree, a blob, a tag, or
+#                  no object, is refused); omitted
 #                  (write and status), the worktree's HEAD commit when the
 #                  verb runs, refused when it has none. Given, even empty, it
 #                  is never defaulted. A step record holds the head its step
 #                  started on, so a step that may commit passes that head;
 #                  the default fits a completion, status, and a step that
 #                  leaves HEAD where it found it.
-#   --end-head     a full commit id, the head at the step's end; omitted, the
+#   --end-head     a full commit id, checked at write as --head is, the head
+#                  at the step's end; omitted, the
 #                  worktree's HEAD commit when the record is written, given
 #                  (even empty) never defaulted, as --head. A step record
 #                  only; a completion's --head is already its end.
@@ -618,15 +622,32 @@ git_wt() {
 # would resolve that repository, so it is refused rather than reading a commit
 # from elsewhere.
 read_worktree_head() {
-  command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
-  _top=$(git_wt rev-parse --show-toplevel 2>/dev/null) \
-    && _top=$(cd -P -- "$_top" 2>/dev/null && pwd -P) && [ "$_top" = "$worktree" ] || return 1
+  worktree_is_top || return 1
   WT_HEAD=$(git_wt rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) && return 0
   # Unborn: HEAD names a branch that does not exist yet. Anything else is a
   # git failure.
   _ref=$(git_wt symbolic-ref -q HEAD 2>/dev/null) && ! git_wt rev-parse --verify --quiet "$_ref" >/dev/null 2>&1 \
     && return 2
   return 3
+}
+
+worktree_is_top() {
+  command -v git >/dev/null 2>&1 || die 1 "git is not on PATH"
+  _top=$(git_wt rev-parse --show-toplevel 2>/dev/null) \
+    && _top=$(cd -P -- "$_top" 2>/dev/null && pwd -P) && [ "$_top" = "$worktree" ]
+}
+
+# check_head_commit <flag> <value>: refuses a value that is not the full id of
+# a commit object in the worktree's own repository. A well-shaped id is not
+# enough: a sha whose tail was filled in from memory looks right and names
+# nothing, and readiness would compare records against a head that never was.
+check_head_commit() {
+  # shellcheck disable=SC2016 # the backticks are literal text in the message
+  _fix='pass the full sha `git rev-parse HEAD` prints in the worktree'
+  is_head "$2" || bad "$1" "not a full commit id; $_fix"
+  worktree_is_top || bad "$1" "cannot be checked: the worktree is not the top of a git work tree"
+  [ "$(git_wt cat-file -t "$2" 2>/dev/null)" = commit ] \
+    || bad "$1" "names no commit in the worktree's repository; $_fix"
 }
 
 # worktree_head <flag>: read_worktree_head, a failure refusing <flag>.
@@ -1176,7 +1197,7 @@ cmd_write() {
   # An explicit --head, even an empty one, is never defaulted: an empty value
   # is more likely a failed substitution than a request for HEAD.
   [ "$head_given" -eq 1 ] || set_head_from_worktree
-  is_head "$head" || bad --head "not a full commit id"
+  check_head_commit --head "$head"
   ! point_done "$run" "$point" || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
@@ -1224,7 +1245,7 @@ cmd_write() {
     worktree_head --end-head
     end_head=$WT_HEAD
   fi
-  is_head "$end_head" || bad --end-head "not a full commit id"
+  check_head_commit --end-head "$end_head"
   is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
   check_end
   case $outcome in

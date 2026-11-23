@@ -85,6 +85,13 @@ printf 'base\n' >"$wt/file.txt"
 git -C "$wt" add file.txt
 git -C "$wt" commit -q -m "chore: base"
 HEAD_SHA=$(git -C "$wt" rev-parse HEAD)
+# write refuses a head that names no commit, so a fixture head is a real commit
+# object: mkhead <label> makes one in $wt, reachable from no ref so HEAD stays
+# put, and share_objects <dir> lets another fixture repository read $wt's.
+mkhead() { git -C "$wt" commit-tree -m "fixture head $1" "$HEAD_SHA^{tree}"; }
+share_objects() { printf '%s\n' "$wt/.git/objects" >"$1/.git/objects/info/alternates"; }
+H_END=$(mkhead end)
+h_end12=$(printf '%s' "$H_END" | cut -c1-12)
 
 sr() { "$SR" --worktree "$wt" "$@"; }
 
@@ -103,7 +110,7 @@ printf 'line one\nline two\n' >"$tmp/out1.txt"
 cp "$tmp/out1.txt" "$wt/.claude/steps/$run1/polish.out"
 rec=$(sr write --run "$run1" --point convergence --step polish --kind skill \
   --target planwright:polish --hosting isolated --backend terminal --session sess-42 \
-  --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T10:00:07Z --end 2026-09-28T10:05:19Z \
+  --head "$HEAD_SHA" --end-head "$H_END" --start 2026-09-28T10:00:07Z --end 2026-09-28T10:05:19Z \
   --outcome applied --excerpt-file "$tmp/out1.txt" \
   --output "$wt/.claude/steps/$run1/polish.out")
 rc=$?
@@ -138,7 +145,7 @@ printf '%s\n' "$table" | grep -Fq "## Steps at \`convergence\` (run \`$run1\`)"
 verdict "render heads the table with the point and run id" "render heading missing"
 row=$(printf '%s\n' "$table" | grep '^| 1 |')
 h12=$(printf '%s' "$HEAD_SHA" | cut -c1-12)
-want="| 1 | polish | skill | planwright:polish | isolated | terminal | sess-42 | $h12 to 222222222222 | 2026-09-28T10:00:07Z | 2026-09-28T10:05:19Z | applied | line one / line two | .claude/steps/$run1/polish.out |"
+want="| 1 | polish | skill | planwright:polish | isolated | terminal | sess-42 | $h12 to $h_end12 | 2026-09-28T10:00:07Z | 2026-09-28T10:05:19Z | applied | line one / line two | .claude/steps/$run1/polish.out |"
 [ "$row" = "$want" ]
 verdict "the rendered row carries every field in column order" "row: $row"
 printf '%s\n' "$table" | grep -Fq "Ended on \`$(printf '%s' "$HEAD_SHA" | cut -c1-12)\`"
@@ -289,6 +296,52 @@ refuse "an abbreviated head" "--head" --run "$run2" --point pre-ci --step s \
   --head "$needle" \
   --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed
 needle=
+
+# A head names a commit of the worktree's repository: an abbreviated id, a
+# well-shaped id naming nothing, another object kind, or another repository's
+# commit is refused on every write form, naming the fix and storing nothing.
+H_MISSING=$(printf '%040d' 0 | tr 0 d)
+H_TREE=$(git -C "$wt" rev-parse "$HEAD_SHA^{tree}")
+H_BLOB=$(git -C "$wt" rev-parse "$HEAD_SHA:file.txt")
+H_TAG=$(printf 'object %s\ntype commit\ntag fixture\ntagger Fixture <fixture@example.invalid> 0 +0000\n\nfixture\n' \
+  "$HEAD_SHA" | git -C "$wt" mktag)
+wo="$tmp/wo"
+mkdir -p "$wo"
+git -C "$wo" init -q -b main
+git -C "$wo" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  commit -q --allow-empty -m "chore: elsewhere"
+H_OTHER=$(git -C "$wo" rev-parse HEAD)
+rh=$(sr new-run)
+hstep="--run $rh --point pre-ci --step s --kind command --target t --hosting isolated --backend runner --start 2026-09-28T11:00:00Z --end 2026-09-28T11:00:00Z --outcome passed"
+# head_refused <label> <flag> <args...>: write exits 2 naming <flag>, says to
+# pass the full sha `git rev-parse HEAD` prints, and stores nothing in $rh.
+head_refused() {
+  _hl=$1 _hf=$2
+  shift 2
+  err=$(sr write "$@" 2>&1 >/dev/null)
+  rc=$?
+  if [ "$rc" -eq 2 ] && printf '%s' "$err" | grep -Fq -- "step-record.sh: $_hf:" \
+    && printf '%s' "$err" | grep -Fq 'git rev-parse HEAD' \
+    && [ -z "$(ls -A "$wt/.claude/steps/$rh")" ]; then
+    ok "write refuses $_hl"
+  else
+    fail "write $_hl: rc=$rc err=$err"
+  fi
+}
+# shellcheck disable=SC2086 # hstep is a fixed word list
+for pair in "abbreviated:$(printf '%s' "$HEAD_SHA" | cut -c1-12)" "missing:$H_MISSING" \
+  "tree:$H_TREE" "blob:$H_BLOB" "tag:$H_TAG" "other-repository:$H_OTHER"; do
+  what=${pair%%:*} val=${pair#*:}
+  head_refused "--head ($what)" --head $hstep --head "$val"
+  head_refused "--end-head ($what)" --end-head $hstep --head "$HEAD_SHA" --end-head "$val"
+  head_refused "a completion's --head ($what)" --head --completion --run "$rh" --point pre-ci --head "$val"
+done
+# shellcheck disable=SC2086
+rec=$(sr write $hstep --head "$HEAD_SHA" --end-head "$H_END")
+grep -Fxq "head${TAB}$HEAD_SHA" "$rec" && grep -Fxq "end-head${TAB}$H_END" "$rec"
+verdict "write keeps heads that name commits, HEAD's or another" "valid heads refused or not stored"
+sr write --completion --run "$rh" --point pre-ci --head "$HEAD_SHA" >/dev/null
+verdict "write --completion keeps a head naming HEAD's commit" "valid completion head refused"
 
 # A secret the cut would drop out of the kept tail is still caught: the whole
 # cleaned output is screened before it is cut.
@@ -498,6 +551,7 @@ fresh() {
   git -C "$1" config user.email fixture@example.invalid
   git -C "$1" config commit.gpgsign false
   git -C "$1" commit -q --allow-empty -m "chore: base"
+  share_objects "$1"
 }
 w2="$tmp/w2"
 fresh "$w2"
@@ -510,11 +564,17 @@ args2="--run $r --kind command --target t --hosting isolated --backend runner --
 sr2 write $args2 --point pre-ci --step edge-a --end "not-a-time" >/dev/null 2>&1
 [ $? -eq 2 ]
 verdict "a malformed end time is refused" "bad --end accepted"
-h64=$(printf '%064d' 0 | tr 0 a)
-sr2 write --run "$r" --point pre-ci --step edge-b --kind command --target t --hosting isolated \
-  --backend runner --head "$h64" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
-  --outcome passed >/dev/null
-verdict "a 64-hex head is accepted" "64-hex head refused"
+w64="$tmp/w64"
+mkdir -p "$w64"
+git -C "$w64" init -q -b main --object-format=sha256
+git -C "$w64" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  commit -q --allow-empty -m "chore: base"
+h64=$(git -C "$w64" rev-parse HEAD)
+r64=$("$SR" --worktree "$w64" new-run)
+"$SR" --worktree "$w64" write --run "$r64" --point pre-ci --step edge-b --kind command --target t \
+  --hosting isolated --backend runner --head "$h64" --start 2026-09-28T14:00:00Z \
+  --end 2026-09-28T14:00:01Z --outcome passed >/dev/null
+verdict "a 64-hex head of a SHA-256 repository's commit is accepted" "64-hex head refused"
 t1024=$(printf 'x%.0s' $(seq 1 1024))
 # shellcheck disable=SC2086
 sr2 write $args2 --point pre-ci --step edge-c --target "$t1024" >/dev/null
@@ -1229,7 +1289,7 @@ verdict "regenerate defaults to the latest run, even an empty one" "regenerate s
 # A bare render shows every run, oldest first, each under its run id.
 bare_all=$(sr render)
 runs_seen=$(printf '%s\n' "$bare_all" | grep '^## ' | grep -o "run \`[0-9]*\`" | tr -d '`' | awk '!s[$0]++' | tr '\n' ' ')
-[ "$runs_seen" = "run $run1 run $run2 run $run3 run $run4 " ]
+[ "$runs_seen" = "run $run1 run $run2 run $rh run $run3 run $run4 " ]
 verdict "a bare render shows every run, oldest first, each under its run id" "runs: $runs_seen"
 one_run=$(sr render --run "$run1")
 ! printf '%s\n' "$one_run" | grep -Fq "(run \`$run4\`)" && printf '%s\n' "$one_run" | grep -Fq "(run \`$run1\`)"
@@ -1381,6 +1441,7 @@ mkdir -p "$wt2"
 git -C "$wt2" init -q -b main
 git -C "$wt2" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
   commit -q --allow-empty -m "chore: base"
+share_objects "$wt2"
 stub="$tmp/ghstub"
 mkdir -p "$stub"
 cat >"$stub/gh" <<'STUB'
@@ -1399,13 +1460,13 @@ GH_STUB_FAIL=0
 export GH_STUB_LOG GH_STUB_FAIL
 
 sr2() { PATH="$stub:$PATH" "$SR" --worktree "$wt2" "$@"; }
-H_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-H_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-H_C=cccccccccccccccccccccccccccccccccccccccc
-H_D=dddddddddddddddddddddddddddddddddddddddd
-H_E=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-H_F=ffffffffffffffffffffffffffffffffffffffff
-H_G=1111111111111111111111111111111111111111
+H_A=$(mkhead a)
+H_B=$(mkhead b)
+H_C=$(mkhead c)
+H_D=$(mkhead d)
+H_E=$(mkhead e)
+H_F=$(mkhead f)
+H_G=$(mkhead g)
 
 # step_rec <run> <point> <outcome> <head>: one step record at the point.
 step_rec() {
@@ -1510,7 +1571,7 @@ verdict "the spec-PR flip point posts the pre-spec-ready-flip context" "rc=$ST_R
 
 # Only the queried point's records count: another point's failure in the same
 # run leaves this point's status green.
-H_X=3333333333333333333333333333333333333333
+H_X=$(mkhead x)
 r=$(sr2 new-run)
 step_rec "$r" pre-ready-flip failed "$H_X"
 done_rec "$r" pre-ready-flip "$H_X"
@@ -1522,8 +1583,9 @@ verdict "another point's failed record does not fail this point's status" "rc=$S
 
 # A head with no completion record is refused, with no post.
 r=$(sr2 new-run)
-step_rec "$r" pre-ready-flip passed 2222222222222222222222222222222222222222
-post_state pre-ready-flip 2222222222222222222222222222222222222222
+H_NONE=$(mkhead none)
+step_rec "$r" pre-ready-flip passed "$H_NONE"
+post_state pre-ready-flip "$H_NONE"
 [ "$ST_RC" -eq 1 ] && [ ! -f "$GH_STUB_LOG" ] && grep -Fq 'no completion record' "$tmp/st.err"
 verdict_of $? "status refuses a head with no completion record, posting nothing" "rc=$ST_RC: $(cat "$tmp/st.err")"
 post_state pre-spec-ready-flip "$H_A"
@@ -1584,6 +1646,7 @@ git -C "$wd" config user.email "fixture@example.invalid"
 git -C "$wd" config commit.gpgsign false
 git -C "$wd" commit -q --allow-empty -m "chore: first"
 git -C "$wd" commit -q --allow-empty -m "chore: second"
+share_objects "$wd"
 WD_HEAD=$(git -C "$wd" rev-parse HEAD)
 srd() { PATH="$stub:$PATH" "$SR" --worktree "$wd" "$@"; }
 rd=$(srd new-run)
@@ -1782,8 +1845,8 @@ legacy_rec() {
   } >"$_lf" || fail "fixture: cannot write $_lf"
 }
 X_HEAD=$(git -C "$wx" rev-parse HEAD)
-HX_A=4444444444444444444444444444444444444444
-HX_B=5555555555555555555555555555555555555555
+HX_A=$(mkhead xa)
+HX_B=$(mkhead xb)
 DIG_ABC=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 FP_1=6666666666666666666666666666666666666666
 FP_2=7777777777777777777777777777777777777777
@@ -1956,7 +2019,7 @@ verdict "a re-fire record is written under post-pr before its completion" "re-fi
 srx write --completion --run "$rx" --point post-pr >/dev/null
 verdict "the post-pr completion follows the re-fire pass" "completion refused after re-fire"
 tbl=$(srx render --run "$rx" --point post-pr)
-printf '%s\n' "$tbl" | grep '^| 1 |' | grep -Fq "| 444444444444 to 555555555555 |"
+printf '%s\n' "$tbl" | grep '^| 1 |' | grep -Fq "| $(printf '%s' "$HX_A" | cut -c1-12) to $(printf '%s' "$HX_B" | cut -c1-12) |"
 verdict_of $? "a step that moved the head renders both heads" "row: $(printf '%s\n' "$tbl" | grep '^| 1 |')"
 printf '%s\n' "$tbl" | grep -Fq -- "- Row 2: fingerprint \`666666666666\`; args digest \`ba7816bf8f01\`; re-fire of \`pre-pr\`"
 verdict_of $? "a re-fire record renders its declaring point" "detail: $(printf '%s\n' "$tbl" | grep -- '- Row 2')"
@@ -2789,7 +2852,7 @@ rund=$(sr new-run)
 sr write --run "$rund" --point convergence --step polish --kind skill \
   --target planwright:polish --hosting in-session --backend in-session \
   --degraded 'no session-grade backend "claude-code" can spawn a fresh session' \
-  --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T12:00:07Z --end 2026-09-28T12:01:19Z \
+  --head "$HEAD_SHA" --end-head "$H_END" --start 2026-09-28T12:00:07Z --end 2026-09-28T12:01:19Z \
   --outcome applied >/dev/null
 verdict "write --degraded records an in-session step with its reason" "write --degraded failed"
 listing=$(sr list --run "$rund")
@@ -2800,7 +2863,7 @@ verdict "render shows the degradation with its reason" "render omits the degrada
 rc=0
 sr write --run "$rund" --point convergence --step polish --kind skill \
   --target planwright:polish --hosting isolated --backend claude-code \
-  --degraded 'reason' --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T12:00:07Z \
+  --degraded 'reason' --head "$HEAD_SHA" --end-head "$H_END" --start 2026-09-28T12:00:07Z \
   --end 2026-09-28T12:01:19Z --outcome applied >/dev/null 2>&1 || rc=$?
 [ "$rc" -ne 0 ]
 verdict "--degraded on an isolated step is refused" "--degraded on isolated was accepted"
@@ -2815,7 +2878,7 @@ for pair in SPEC_ID:SPEC TASK_ID:TASK_IDS TASK:TASK_IDS PR:PR_NUMBER BASE:BASE_B
   bad=${pair%%:*} want=${pair#*:}
   env "PLANWRIGHT_STEP_$bad=1" "$SR" --worktree "$wt" write --run "$runbad" --point convergence --step polish \
     --kind skill --target planwright:polish --hosting isolated --backend terminal \
-    --head "$HEAD_SHA" --end-head 2222222222222222222222222222222222222222 --start 2026-09-28T10:00:07Z --end 2026-09-28T10:05:19Z --outcome applied \
+    --head "$HEAD_SHA" --end-head "$H_END" --start 2026-09-28T10:00:07Z --end 2026-09-28T10:05:19Z --outcome applied \
     >"$tmp/bad.out" 2>"$tmp/bad.err"
   rc=$?
   [ "$rc" -eq 2 ] && grep -q "PLANWRIGHT_STEP_$bad" "$tmp/bad.err" && grep -q "PLANWRIGHT_STEP_$want" "$tmp/bad.err"
