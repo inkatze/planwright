@@ -3316,6 +3316,13 @@ cmd_steer() {
   # overwrite the end record a supervisor exiting meanwhile writes.
   st_prev=''
   st_turn=busy
+  # A resumed session waits for its first frame with no result on record (a
+  # recover clears it) while its capture still ends at its last turn's result.
+  if [ -f "$dir/events.jsonl" ] && [ ! -L "$dir/events.jsonl" ]; then
+    case $(tail -n 1 "$dir/events.jsonl" 2>/dev/null) in
+      *'"type":"result"'*) st_turn=idle ;;
+    esac
+  fi
   if [ -f "$dir/result" ]; then
     st_turn=idle
     st_prev="$dir/.result.steer"

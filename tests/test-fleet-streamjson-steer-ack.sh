@@ -551,6 +551,26 @@ stop_worker "$home" sja14
 echo "ok: a14 a frame read after the result retires it, so the next steer is queued"
 
 # ---------------------------------------------------------------------------
+# a15: a resumed session waits for its first frame with no result on record
+#      (recover clears it) but its capture still ends at the last turn's
+#      result: a steer then is idle, and judged so.
+# ---------------------------------------------------------------------------
+home="$tmp/h15"
+rec="$tmp/r15"
+start_worker "$home" "$rec" sja15 SHIM_STEER_MODE=swallow
+wdir="$home/streamjson/sja15"
+poll_until --what 'the launch turn result' -- test -f "$wdir/result" || fail "a15: the launch turn never ended"
+rm -f "$wdir/result"
+printf 'resume here\n' >"$tmp/steer15"
+senv "$home" "$rec" -- steer sja15 --message-file "$tmp/steer15" >/dev/null 2>"$tmp/a15.err" || fail "a15: steer exited non-zero"
+[ ! -s "$tmp/a15.err" ] || fail "a15: a steer to a session waiting for its first frame is not queued: $(cat "$tmp/a15.err")"
+tail -n 1 "$wdir/steers" | grep -q "${tab}idle\$" || fail "a15: the steer must be recorded idle: $(tail -n 1 "$wdir/steers")"
+poll_until --what 'the unread-steer report' -- reported "$home" sja15 \
+  || fail "a15: a resumed session's untaken steer must be reported: $(cat "$home/attention/state" 2>&1)"
+stop_worker "$home" sja15
+echo "ok: a15 a steer to a resumed session waiting for its first frame is idle"
+
+# ---------------------------------------------------------------------------
 # a12: an empty replay record is rewritten at launch, never kept.
 # ---------------------------------------------------------------------------
 home="$tmp/h12"
