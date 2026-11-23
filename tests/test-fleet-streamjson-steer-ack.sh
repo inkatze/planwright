@@ -106,6 +106,11 @@ while IFS= read -r line; do
       ;;
     hold) emit_replay "$id" ;;
     swallow) ;;
+    next)
+      emit_result
+      sleep 1
+      emit_replay "$id"
+      ;;
     forge)
       # Tool input is raw JSON in the stream, so its keys can spell the
       # replay marker; neither line below is a replay.
@@ -442,6 +447,31 @@ a13_out=$(a13_scan 1260)
 echo "ok: a13 the replay record, the turn's end and the grace bound what is judged"
 
 # ---------------------------------------------------------------------------
+# a14: a frame read after the turn's result starts a new turn, so that result
+#      stops speaking for the worker: it reads running, and the next steer is
+#      queued, not idle.
+# ---------------------------------------------------------------------------
+home="$tmp/h14"
+rec="$tmp/r14"
+start_worker "$home" "$rec" sja14 SHIM_STEER_MODE=next
+wdir="$home/streamjson/sja14"
+poll_until --what 'the launch turn result' -- test -f "$wdir/result" || fail "a14: the launch turn never ended"
+printf 'first\n' >"$tmp/steer14"
+senv "$home" "$rec" -- steer sja14 --message-file "$tmp/steer14" >/dev/null 2>&1 || fail "a14: steer exited non-zero"
+poll_until --what 'the steer on stdin' -- lines_cmp "$rec/stdin" -ge 2 || fail "a14: the steer never reached the worker"
+a14_id=$(sed -n 2p "$rec/stdin" | jq -r '.uuid // empty')
+poll_until --what 'the acknowledgement' -- grep -q "$tab$a14_id\$" "$wdir/steer-acks" || fail "a14: the replay was not recorded"
+case $(senv "$home" "$rec" -- status sja14) in
+  "status sja14 running "*) : ;;
+  *) fail "a14: a turn started by a read frame must read running: $(senv "$home" "$rec" -- status sja14)" ;;
+esac
+printf 'second\n' >"$tmp/steer14b"
+senv "$home" "$rec" -- steer sja14 --message-file "$tmp/steer14b" >/dev/null 2>"$tmp/a14.err" || fail "a14: second steer exited non-zero"
+grep -q 'is mid-turn: the message is queued' "$tmp/a14.err" || fail "a14: the second steer must be queued: $(cat "$tmp/a14.err")"
+tail -n 1 "$wdir/steers" | grep -q "${tab}busy\$" || fail "a14: the second steer must be recorded busy: $(tail -n 1 "$wdir/steers")"
+echo "ok: a14 a frame read after the result retires it, so the next steer is queued"
+
+# ---------------------------------------------------------------------------
 # a12: an empty replay record is rewritten at launch, never kept.
 # ---------------------------------------------------------------------------
 home="$tmp/h12"
@@ -456,7 +486,7 @@ echo "ok: a12 an empty replay record is rewritten at launch"
 # ---------------------------------------------------------------------------
 # a8: nothing outlives the suite.
 # ---------------------------------------------------------------------------
-for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10 sja12; do
+for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10 sja12 sja14; do
   for d in "$tmp"/h*/streamjson/"$h"; do
     [ -d "$d" ] || continue
     senv "${d%/streamjson/*}" "$tmp/r-stop" -- stop "$h" >/dev/null 2>&1 || :
