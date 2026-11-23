@@ -254,6 +254,12 @@ git -C "$empty" add a.txt && git -C "$empty" -c user.email=t@example.invalid -c 
 git -C "$empty" checkout -q --orphan orphan
 "$BASELINE" check-committed --repo-root "$empty" >"$T/cc.out" 2>&1
 assert_exit "check-committed passes on a branch with no commit yet" 0 $?
+bad="$T/bad-head"
+git init -q "$bad"
+printf '0123456789012345678901234567890123456789\n' >"$bad/.git/HEAD"
+"$BASELINE" check-committed --repo-root "$bad" >"$T/cc.out" 2>&1
+assert_exit "check-committed fails on a HEAD that names no commit" 2 $?
+assert_eq "the unresolvable HEAD is named without an empty reason" "control-plane-baseline: HEAD does not resolve to a commit" "$(cat "$T/cc.out")"
 printf '#!/bin/sh\ntouch "%s"\n' "$T/fsmonitor-ran" >"$T/fsmonitor.sh"
 chmod +x "$T/fsmonitor.sh"
 git -C "$sk" config core.fsmonitor "$T/fsmonitor.sh"
