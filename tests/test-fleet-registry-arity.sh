@@ -17,8 +17,7 @@
 #       recorded backend for seven and nine columns, and present for three
 #   a4  fleet-state.sh: a re-register of a nine-column row's fields writes
 #       nothing; retire closes a seven- and a nine-column row alike
-#   a5  fleet-register.sh --retire-marker closes a nine-column row, and keeps
-#       the marker when the registry cannot be read
+#   a5  fleet-register.sh --retire-marker closes a nine-column row
 #   a6  fleet-messaging.sh: notice-read matches the nine-column row by its
 #       name column, finds no name in the shorter rows, and binds the last
 #       record (send --to-worker's inbox column: tests/test-fleet-messaging.sh)
