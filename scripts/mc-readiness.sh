@@ -237,8 +237,8 @@ Usage:
       bundle legacy); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
-      sign-off for each bundle it edits (a rename also touching the bundle
-      it leaves, one it removes aside) and the
+      sign-off for each bundle it edits, a rename's source bundle among
+      them (a bundle absent at the head aside), and the
       spec-drift check (scripts/spec-drift-check.sh, from the base branch's
       remote-tracking ref to the head, the body its statement), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
@@ -771,8 +771,9 @@ drift_scope() {
     return 0
   }
   # A bundle is any directory directly under the root that does not open with
-  # `_`, edited by any file under it; a rename edits the bundle it leaves as
-  # well, as spec_scope reads it.
+  # `_`, edited by any file under it. A rename edits the bundle it leaves as
+  # well; a copy leaves its source unchanged, so it touches only its
+  # destination, as in spec_scope.
   SPEC_REL=$rel awk -F '\t' '
     function touch(p,    n, b) {
       n = length(ENVIRON["SPEC_REL"])
