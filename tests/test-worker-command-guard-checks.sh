@@ -142,14 +142,14 @@ assert_allow "F1.11: a check command before the own push, both arms" \
 if [ "$(tail -n 1 "$STATE/audit.4/ouchk.log" 2>/dev/null | grep -o 'arm=[a-z,-]*')" = arm=own-unit ]; then
   pass "F1.11: a check-command chain is audited as own-unit"
 else
-  fail "F1.11: audit line: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
+  fail "F1.11: audit line, expected arm=own-unit: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
 fi
 assert_allow "F1.11: a check command after a git add partner" \
   "git add test && mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 if [ "$(tail -n 1 "$STATE/audit.4/ouchk.log" 2>/dev/null | grep -o 'arm=[a-z,-]*')" = arm=own-branch,own-unit ]; then
   pass "F1.11: a check-command chain with a git add is audited as own-branch,own-unit"
 else
-  fail "F1.11: audit line: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
+  fail "F1.11: audit line, expected arm=own-branch,own-unit: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
 fi
 assert_allow "F1.11: a check command before a git add partner" \
   "mix test test && git add test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
@@ -159,9 +159,9 @@ assert_defer "F1.11: a check command opened by a pipe" \
   "git status | mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command opened by &" \
   "git status & mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-assert_defer "F1.11: a check command behind ||" \
+assert_defer "F1.11: a check command joined to the own push by ||" \
   "mix test test || git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-assert_defer "F1.11: a check command behind &" \
+assert_defer "F1.11: a check command joined to the own push by &" \
   "mix test test & git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command piped into the own push" \
   "mix test test | git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
@@ -175,7 +175,7 @@ assert_defer "F1.11: a check command in a loop" \
   "for f in a; do mix test test; done && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command in a subshell" \
   "(mix test test) && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-assert_allow "F1.11: the file write alone allows under own-branch" "touch build.txt" Bash "$WT"
+assert_allow "the file write alone allows under own-branch (control)" "touch build.txt" Bash "$WT"
 assert_defer "F1.11: a check command chained with a file write" \
   "mix test test && touch build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command chained with a fetch" \
