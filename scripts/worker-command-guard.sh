@@ -6532,16 +6532,14 @@ check_command_ok() {
   return 1
 }
 
-# check_partner_ok: 0 when the matched check command (`sw` / `swn`) may be a
-# chain partner of an own-unit act: no word of it names a program
-# check_tool_word knows, and it holds no `go run`. Every word is read, a
-# placeholder's included, so a runner prefix or a wrapper cannot carry one
-# past the check; the leading `mise exec` runner prefix is the one exception,
-# its program read like any other word. A repository's own task runner
-# (`mix`, `npm`, `make`) runs the tasks the repository defines, the trust its
-# scripts/ get, so it names none of these and partners as before. The list
-# fails open for a program it does not name.
-check_partner_ok() {
+# check_may_partner: 0 when the matched check command (`sw` / `swn`) may be a
+# chain partner of an own-unit act: no word names a program check_tool_word
+# knows, and none is `go run`. Every word is read, a placeholder's included,
+# so a runner prefix or a wrapper cannot carry one past the check; only a
+# leading `mise exec` is skipped. A repository task runner (`mix`, `npm`,
+# `make`) names none and partners. The list fails open for a program it does
+# not name.
+check_may_partner() {
   local i=0 prev=''
   [ "${sw[0]}" != mise ] || [ "${sw[1]-}" != exec ] || i=2
   for (( ; i < swn; i++)); do
@@ -6969,12 +6967,11 @@ verify_simple() {
     [ -z "${csub[i]-}" ] || return 1
   done
   # A declared check command or command step is a trusted repository task:
-  # a chain partner before an own-unit act. A check command that names a git,
-  # write or wrapper program (check_partner_ok) reached this point only
-  # because the guard's own rules refused it as a read, so it is a write and
-  # keeps every own-unit act in its command from being approved.
+  # a chain partner before an own-unit act. A check command that may write
+  # (check_may_partner) is approved alone but keeps every own-unit act in its
+  # command from being approved.
   if check_command_ok; then
-    check_partner_ok || declared_line_ok || {
+    check_may_partner || declared_line_ok || {
       ARM_ACT=1
       return 0
     }
