@@ -74,6 +74,12 @@
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as
 #                      LEFTHOOK_EXCLUDE (scripts/fleet-dispatch-env.sh)
+#   check_commands     worker_check_commands, last value wins, read at the
+#                      primary checkout like the policy, a malformed overlay
+#                      layer or a failed read dropping it; its `;`-separated
+#                      declarations trimmed, empty ones skipped, and those past
+#                      2048 bytes dropped with a warning. The guard parses each
+#                      declaration and drops a malformed one. Omitted when empty
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -113,6 +119,12 @@ export LC_ALL
 unset CDPATH
 
 me=worker-session-record.sh
+# The check_commands bound, scripts/worker-command-guard.sh's MAX_CHECKS_LEN
+# (they change together).
+MAX_CHECKS_LEN=2048
+# The record size every reader accepts (scripts/worker-command-guard.sh,
+# scripts/policy-guard.sh, scripts/worker-branch-sync.sh; they change together).
+MAX_RECORD_SIZE=4096
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 
 die() {
@@ -273,6 +285,50 @@ if [ -n "$primary" ]; then
   done
 fi
 
+# The check commands, read strictly: a malformed overlay layer drops the whole
+# list rather than letting a lower layer's wider list through.
+check_commands=''
+if [ -n "$primary" ]; then
+  raw=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 \
+    /bin/sh "$script_dir/config-get.sh" worker_check_commands 2>/dev/null </dev/null) || {
+    rc=$?
+    raw=''
+    # Exit 3 is a key no layer sets, which declares nothing.
+    [ "$rc" = 3 ] \
+      || printf '%s: worker_check_commands could not be read (a malformed overlay layer?); the worker gets no check commands\n' "$me" >&2
+  }
+  case $raw in
+    *[[:cntrl:]]*)
+      raw=''
+      printf '%s: worker_check_commands holds a control character; the worker gets no check commands\n' "$me" >&2
+      ;;
+  esac
+  # Past four times the bound the list is dropped whole, which keeps the
+  # split below from running long over a runaway value.
+  if [ "${#raw}" -gt $((MAX_CHECKS_LEN * 4)) ]; then
+    raw=''
+    printf '%s: worker_check_commands is far past %s bytes; the worker gets no check commands\n' "$me" "$MAX_CHECKS_LEN" >&2
+  fi
+  dropped=0
+  while [ -n "$raw" ]; do
+    decl=${raw%%;*}
+    case $raw in
+      *';'*) raw=${raw#*;} ;;
+      *) raw='' ;;
+    esac
+    decl=$(printf '%s' "$decl" | sed 's/^ *//; s/ *$//')
+    [ -n "$decl" ] || continue
+    next=${check_commands:+$check_commands;}$decl
+    if [ "${#next}" -gt "$MAX_CHECKS_LEN" ]; then
+      dropped=1
+      continue
+    fi
+    check_commands=$next
+  done
+  [ "$dropped" = 0 ] \
+    || printf '%s: worker_check_commands is longer than %s bytes; the declarations past it are dropped\n' "$me" "$MAX_CHECKS_LEN" >&2
+fi
+
 unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
 case $unit in
   planwright/flight/task-*) unit='' ;;
@@ -420,8 +476,7 @@ audit_make() {
 audit=$(audit_make "$home/allow-audit") || audit=''
 [ -n "$audit" ] \
   || printf '%s: the audit-log home is unusable; the worker gets no write arm\n' "$me" >&2
-tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
-{
+record_lines() {
   printf 'policy=%s\n' "$policy"
   [ -z "$unit" ] || printf 'unit_branch=%s\n' "$unit"
   printf 'worktree_root=%s\n' "$wt"
@@ -432,16 +487,31 @@ tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
+  [ -z "$check_commands" ] || printf 'check_commands=%s\n' "$check_commands"
   [ "$mise_task_edit" = 0 ] || printf 'mise_task_edit=1\n'
   [ "$lefthook_edit" = 0 ] || printf 'lefthook_edit=1\n'
   [ -z "$spec_branch" ] || printf 'spec_branch=%s\n' "$spec_branch"
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
     stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;
   esac
-} >"$tmp" || {
+}
+tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
+record_lines >"$tmp" || {
   rm -f -- "$tmp"
   die "cannot write the record"
 }
+# Every reader refuses a record past MAX_RECORD_SIZE whole, so the check
+# commands give way rather than the record.
+size=$(wc -c <"$tmp") || size=''
+size=${size##* }
+if [ -n "$check_commands" ] && { [ -z "$size" ] || [ "$size" -gt "$MAX_RECORD_SIZE" ]; }; then
+  check_commands=''
+  printf '%s: the session record would pass %s bytes; the worker gets no check commands\n' "$me" "$MAX_RECORD_SIZE" >&2
+  record_lines >"$tmp" || {
+    rm -f -- "$tmp"
+    die "cannot write the record"
+  }
+fi
 fixed=$dir/$wt_key.record
 if [ "$rec" != "$fixed" ]; then
   # The worktree's own copy lands first: a record the launcher hands the
@@ -455,8 +525,8 @@ if [ "$rec" != "$fixed" ]; then
     die "cannot write the worktree's record"
   fi
 fi
-if ! mv -f -- "$tmp" "$rec"; then
+mv -f -- "$tmp" "$rec" || {
   rm -f -- "$tmp"
   die "cannot write the record"
-fi
+}
 printf '%s\n' "$rec"

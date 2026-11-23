@@ -932,15 +932,31 @@ and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
 
+A worker that parks itself on the operator (`mission-control-launch.sh wait
+<name> --on operator`, then ends its turn) has no request pending, so the
+prompt alarm never sees it. The same watch raises it instead: a stream-json
+worker, reviewer or ad-hoc session of the program whose row records that
+wait, with a pidfile left and its event log still ending at its last turn's
+result, parked longer than `mission_control_worker_completed_grace`, wakes its
+mission control as one `worker-parked-on-operator` event. The event names the
+worker and ends with the first lines of that result, so the reader sees what
+it waits on without opening anything. It is raised once per park: the park
+starts at the later of that result and the moment the wait was set (the
+launcher records it as the row's `waited` field), a message that starts the
+worker's next turn ends it, and a turn that ends parked again is a new park.
+A wait on CI or a ready flip is no park, and a kickoff relay, which waits on
+the operator by design, is left out.
+
 **When the mission control itself does not answer.** The alarm's wake reaches
 the one session that should answer, which helps nothing when that session is
 stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
 a program's mission control leaves unanswered one level up, with no model in
-the path. Two things qualify: a request of one of the program's own live
-workers still pending `mission_control_escalation_window` past the alarm,
-and the mission control's own tmux pane showing an open dialog for that
-long. Auto mode's confirmation after blocked actions is one such dialog, and
-Remote Control does not show it. Either becomes a `mission-control-escalated`
+the path. Three things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm, a
+worker still parked on the operator that long past its park alarm, and the
+mission control's own tmux pane showing an open dialog for that long. Auto
+mode's confirmation after blocked actions is one such dialog, and Remote
+Control does not show it. Each becomes a `mission-control-escalated`
 event in the hub program's store (`mission_control_escalation_hub`, when its
 holder is live), and at twice the window a push to the operator through the
 notification seam. With no live hub, or for the hub's own items, the first
@@ -2783,6 +2799,36 @@ profile that cannot be read refuses the launch, naming the file, rather than
 starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
 nor refuses, so a duplicate shows up only in the session listing.
+
+**A repository's own check commands.** A worker may not edit the mise
+configuration, so a repository whose tests run through their own runner
+(`mix test`, `cargo test`, a `bin/check` script) would otherwise prompt on
+every run. Declare those commands in `worker_check_commands` and the worker's
+command guard approves them by shape. A declaration is literal words plus the
+placeholders `<word>` (a token with no `/`), `<int>` and `<path>` (a path
+inside the worktree, never a hooks, git or tool configuration path, even
+with a `:<line>` suffix), the last
+one optionally suffixed `...` for one or more words; declarations are
+separated by `;`. For a mix-based repository, in its
+`.claude/planwright.yml` or the machine-local overlay:
+
+```yaml
+worker_check_commands: mix test <path>...; mix test --seed <int> <path>; mix format --check-formatted; mise exec -- mix credo --strict
+```
+
+That approves `mix test test/a_test.exs test/b_test.exs:12` and
+`mise exec -- mix credo --strict`, and still prompts on `mix test --trace x`
+(an undeclared flag), `mix test ../other` (a path outside the worktree),
+`mise exec -- mix deps.get` (a runner prefix admits only its own declared
+sequence), a run from inside the hooks or `.claude` directory, and any word
+holding a metacharacter or an expansion. The `deny`
+block is read first, so no declaration lifts it, and a malformed declaration
+is dropped alone. The launcher reads the knob at the primary checkout into the
+session record, so an edit inside the worker's own worktree changes nothing
+and a change reaches a worker only by relaunch. Running a declared command
+runs the repository's own code, the trust the guard already gives its
+`scripts/`. The full rules are in
+[the options reference](options-reference.md).
 
 The launcher's `retire <name>` closes what it launched from its registry row.
 A stream-json worker launched without it (by an older planwright, by

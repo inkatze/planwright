@@ -774,6 +774,7 @@ after=$("$REAL_GIT" -C "$root/tower" rev-parse main)
 [ "$before" != "$after" ] || fail "20: main did not move"
 printf '%s\n' "$out" | grep -q '^sync	fast-forward$' || fail "20: no fast-forward verdict: $out"
 printf '%s\n' "$out" | grep -q '^branch	main$' || fail "20: the default branch was not reported: $out"
+printf '%s\n' "$out" | grep -qx "before	$before" || fail "20: the old head was not reported: $out"
 git_log_has '(^| )merge .*--ff-only' || fail "20: the merge was not --ff-only at the command level"
 rec=$(ff_record "$root/tower")
 [ -f "$rec" ] || fail "20: the act was not recorded at $rec"

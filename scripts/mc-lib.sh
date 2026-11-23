@@ -577,6 +577,70 @@ mc_lookup() {
 # mc_kv <file> <key>: the value of a record's key<TAB>value line, if any.
 mc_kv() { K=$2 awk -F '\t' '$1 == ENVIRON["K"] { print substr($0, length($1) + 2); exit }' "$1"; }
 
+# mc_park_candidates <program> <launcher list>: the sessions a park on the
+# operator is raised for, one name per line: the program's stream-json
+# worker, reviewer and ad-hoc sessions, the kinds the keeper's bounds hold to.
+# A kickoff relay waits on the operator by design, so it is left out.
+mc_park_candidates() {
+  printf '%s\n' "$2" | P=$1 awk -F '\t' '
+    $2 == ENVIRON["P"] && ($3 == "worker" || $3 == "reviewer" || $3 == "ad-hoc") \
+      && $5 == "stream-json" && index($4, "kickoff-") != 1 { print $1 }'
+}
+
+# mc_operator_park <fleet home> <worker>: `parked<TAB><epoch>` while a
+# stream-json worker is parked on the operator, <epoch> when the park began;
+# `unknown` while its row records the wait but its turn's end cannot be read
+# (a steer sets the result record aside while it sends, putting it back when
+# nothing was delivered, and a delivered one leaves none until the next turn
+# ends), so a caller keeps what it raised for the worker; else nothing.
+# Parked: the row records an operator wait, a pidfile is left (with neither
+# it is positively dead and nothing can answer it), and the event log still
+# ends at the clean result of a turn of this launch. An event
+# after that result is a message the worker is reading, so an answer ends the
+# park. The park begins at the later of that result and the wait's own epoch,
+# so a turn that ends parked again is a new park, and a wait set long after a
+# turn ended counts from the wait.
+mc_operator_park() {
+  mop_row="$1/mission-control/sessions/$2"
+  mop_dir="$1/streamjson/$2"
+  [ -f "$mop_row" ] && [ ! -L "$mop_row" ] && [ -d "$mop_dir" ] && [ ! -L "$mop_dir" ] || return 0
+  # One read of the row, its empty fields as `-`: a tab is IFS whitespace,
+  # so read would fold two in a row into one.
+  mop_f=$(awk -F '\t' '
+    $1 == "waiting" && w == "" { w = $2 } $1 == "launched" && l == "" { l = $2 } $1 == "waited" && t == "" { t = $2 }
+    END { print (w == "" ? "-" : w) "\t" (l == "" ? "-" : l) "\t" (t == "" ? "-" : t) }' "$mop_row" 2>/dev/null) || return 0
+  IFS='	' read -r mop_wt mop_l mop_w <<EOF
+$mop_f
+EOF
+  [ "$mop_wt" = operator ] || return 0
+  [ -e "$mop_dir/worker.pid" ] || [ -e "$mop_dir/supervisor.pid" ] || return 0
+  [ ! -L "$mop_dir/result" ] && [ ! -L "$mop_dir/events.jsonl" ] || return 0
+  if [ ! -f "$mop_dir/result" ] || [ ! -f "$mop_dir/events.jsonl" ]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  mop_kind="" mop_at="" mop_err=""
+  IFS='	' read -r mop_kind _ mop_at mop_err _ <"$mop_dir/result" 2>/dev/null || :
+  mop_last=$(tail -n 1 "$mop_dir/events.jsonl" 2>/dev/null) || mop_kind=""
+  # An exit record is a run that ended, never a park; an empty or torn one
+  # is a record being rewritten.
+  case $mop_kind in
+    result) ;;
+    '') printf 'unknown\n' && return 0 ;;
+    *) return 0 ;;
+  esac
+  if ! mc_valid_uint "$mop_at"; then
+    printf 'unknown\n'
+    return 0
+  fi
+  [ "$mop_err" != true ] || return 0
+  if mc_valid_uint "$mop_l" && [ "$mop_at" -lt "$mop_l" ]; then return 0; fi
+  case $mop_last in *'"type":"result"'*) ;; *) return 0 ;; esac
+  mop_since=$mop_at
+  if mc_valid_uint "$mop_w" && [ "$mop_w" -gt "$mop_since" ]; then mop_since=$mop_w; fi
+  printf 'parked\t%s\n' "$mop_since"
+}
+
 # mc_valid_sha <sha>: a full 40-hex commit id.
 mc_valid_sha() {
   case $1 in
