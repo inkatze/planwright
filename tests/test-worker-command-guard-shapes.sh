@@ -645,6 +645,11 @@ jq -n --arg p "$INST_JSON_ROOT" \
 HOOK_ENV=("CLAUDE_DIR=$CDIR" "HOME=$SANDBOX/nohome")
 assert_allow "arm 5 — installed_plugins.json installPath" "$INST_JSON_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "arm 5 — marketplace cache version dir" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+# human-gates REQ-G1.14: the installed branch-sync helper's leased push is
+# reached through this approval, the profiles' force-push deny left whole.
+: >"$INST_CACHE_ROOT/scripts/worker-branch-sync.sh"
+assert_allow "arm 5 — the installed branch-sync helper's leased push" \
+  "$INST_CACHE_ROOT/scripts/worker-branch-sync.sh push --force-with-lease=planwright/flight/demo-0123abcd:0123456789abcdef0123456789abcdef01234567 --force-if-includes" Bash "$PLUGIN_CWD"
 assert_allow "arm 5 — the stalled shape: a loop over a cache-root script" \
   "for d in a b; do printf '%s -> ' \$d; $INST_CACHE_ROOT/scripts/plug.sh \$d; done" Bash "$PLUGIN_CWD"
 assert_defer "arm 5 — a cache plugin that is not planwright" "$INST_CACHE_OTHER/scripts/plug.sh" Bash "$PLUGIN_CWD"

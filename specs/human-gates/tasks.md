@@ -614,7 +614,9 @@ every surface it restates exists.
   upstream the PR base or the branch's own remote branch, a never-pushed
   commit in the range also needing `unpushed_rewrite`, no host call made,
   every other case keeping the `unpushed_rewrite` rule; the guard
-  refusing a worker's deletion of its own unit branch in every spelling;
+  refusing a worker's deletion of its own unit branch on the remote in
+  every spelling (`:<branch>`, `--delete`, `-d`, and the `gh api` REST and
+  GraphQL `deleteRef` forms; a local `git branch -D` is out of scope);
   the branch-sync arm admitting `scripts/worker-branch-sync.sh push
   --force-with-lease=<branch>:<sha> --force-if-includes` in its literal
   grammar, from the installed copy, in the session's own checkout; the
@@ -640,23 +642,28 @@ every surface it restates exists.
   environment, leaves the recorded value `deny`, while one in the adopter
   or machine-local layer records `allow`; the helper pushes in
   a fixture with a draft PR, printing the replaced commits and writing the
-  audit line, and refuses, pushing nothing, for a ready PR, no PR, two PRs,
-  a cross-repository PR, a PR based on the branch, an unreadable host
+  audit line, and refuses, pushing nothing, for a record naming another
+  launcher or none, an unreadable or malformed record, an environment
+  variable naming another record (the helper reads only the record at the
+  path the launcher fixes), a ready PR, no PR, two PRs, a
+  cross-repository PR, a PR based on the branch, an unreadable host
   answer, a `GH_REPO` or config override in the environment, an
   unrecorded or protected branch, a lease on another branch, a short or
   unrecorded lease, a missing reflog, a missing `--force-if-includes`,
   any extra argument, a replaced commit by another author, a branch
   another worktree or session holds, and a dirty tree, and on a moved
-  remote reports the branch shared with no second push; the guard denies
-  `git push origin :<branch>` and `--delete <branch>` for the worker's own
-  unit branch; a raw `git push --force*` and a `+` refspec stay denied for
-  every tier in the cross-copy fixture, and the wiring test pins the
-  force-push deny in every profile and the helper's approval; the doctrine
-  test finds the new rows by fixed string, failing on a fixture copy
-  without them; the CI grep fixture finds the REQ-F1.10 wording in the
-  reporting skill's handoff and the recorded `eval:skill` run shows it
-  [manual]; each new check fails first against main; `check:test-time`,
-  `check-instructions.sh`, and `mise run check` pass.
+  remote reports the branch shared with no second push; a fixture rewrite
+  that re-identifies a legacy checklist item names its old and new id in
+  the helper's handoff; the guard denies `git push origin :<branch>`,
+  `--delete <branch>`, `-d <branch>`, and the `gh api` ref delete for the
+  worker's own unit branch; a raw `git push --force*` and a `+` refspec
+  stay denied for every tier in the cross-copy fixture, and the wiring
+  test pins the force-push deny in every profile and the helper's
+  approval; the doctrine test finds the new rows by fixed string, failing
+  on a fixture copy without them; the CI grep fixture finds the REQ-F1.10
+  wording in the reporting skill's handoff and the recorded `eval:skill`
+  run shows it [manual]; each new check fails first against main;
+  `check:test-time`, `check-instructions.sh`, and `mise run check` pass.
 - **Dependencies:** 14
 - **Citations:** D-16, D-27 · REQ-A1.11, REQ-F1.6, REQ-F1.7, REQ-F1.8,
   REQ-F1.10, REQ-G1.14
@@ -927,7 +934,7 @@ every surface it restates exists.
   mission-control amendment SHALL: deduplicate the REQ-F1.9 operator items
   to one per repository; record the operator's "no" for a repository and
   stop its asks; list, at bring-up and doctor, the repositories where the
-  refusal fired with `draft_rewrite` unset; and admit mission control's
+  refusal fired with `draft_rewrite` unset; admit mission control's
   one write of the REQ-F1.11 command, only for the repository the
   operator's own yes names, that yes quoted in its decisions log, every
   other settings write staying refused; and add a doctor line for each

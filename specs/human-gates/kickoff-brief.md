@@ -1274,3 +1274,43 @@ fan-out over the spec artifact class with the security lens, dispositions
 above)
 Anchor: `01b8e122f0583e2a041805756018137a337249dd` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-22 — Expression-only fixes carried with Task 21
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the Task 21 worker.
+The operator ruled on the Amendment 5 polish pass "Land as signed, carry
+all 12"; the ten that belong to Task 21 land here, items 4 and 5 staying
+with Task 22. None alters an accepted decision or a requirement's
+meaning; each states what the signed text already implied or repairs its
+wording:
+
+- REQ-F1.6: the PR base is the session record's `pr_base`, read with no
+  host call; the record is found at a path the launcher fixes from the
+  worktree, never through an environment variable (the operator's
+  ruling: a record an environment variable names could be a forged one,
+  defeating "never from the environment").
+- REQ-F1.8: the deletion refusal is scoped to the remote ref, its
+  spellings listed (`:<branch>`, `--delete`, `-d`, the `gh api` REST ref
+  delete, GraphQL `deleteRef`); a local `git branch -D` stays outside it.
+- REQ-G1.14: an unreadable or malformed record is named among the
+  helper's refusals.
+- REQ-A1.11 and D-27 gain the supersession markers their bodies already
+  state.
+- Task 21's Done-when and the REQ-F1.6, REQ-F1.8, and REQ-G1.14 test-spec
+  entries gain the matching cases: a record naming another launcher or
+  none, an unreadable or malformed record, an allowing record an
+  environment variable names, the deletion spellings, and a rewrite that
+  re-identifies a legacy checklist item.
+- A requirements line rewrapped, a doubled "and" dropped from the
+  Deferred bullet, and obs:9bed2b4e's wording repaired.
+
+**No lens pass** (expression-only): the contract is unchanged.
+Validator after the edit: 0 errors, one warning (REQ-A1.11 changed by its
+marker alone, which no verification path reads).
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-11-22
+("Expression-only fixes carried from the Amendment 5 polish pass").
+Anchor: `cb3588dd953acf56258b8c518776b768d4f62a31` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

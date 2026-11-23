@@ -89,6 +89,8 @@
 #   mise-task-edit   `1` when the launch was given --mise-task-edit, which a
 #                    recover and a relaunch read back; absent otherwise
 #   lefthook-edit    the same for --lefthook-edit
+#   launcher         `mission-control` when the launch was given --launcher,
+#                    which a recover reads back; absent otherwise
 #   worker-settings.json  the per-launch settings profile of an opted-in
 #                    worker (scripts/worker-settings-generate.sh), rewritten
 #                    by every launch, recover and relaunch of it
@@ -209,7 +211,8 @@
 #       [--profile worker|tower|mission-control] [--mc-token <token>]
 #       [--tier-key <key>] [--tier-unit <unit>]
 #       [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved]
-#       [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--foreground] [-- <extra claude args>...]
+#       [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>]
+#       [--launcher mission-control] [--foreground] [-- <extra claude args>...]
 #       Launch a worker under a supervisor, under the settings fragment of
 #       --profile (default worker). --mise-task-edit (worker profile only,
 #       off by default, recorded for a recover) opts the worker in to editing
@@ -223,7 +226,10 @@
 #       --spec-branch (worker profile only, recorded for a recover) names the
 #       spec PR branch the session record carries as spec_branch for the policy
 #       guard (docs/permission-matcher-model.md, "The spec-branch launch
-#       record"). --tier-key and --tier-unit record the
+#       record"). --launcher mission-control (worker profile only, recorded
+#       for a recover) names mission control as the launcher in the session
+#       record, which the draft-branch rewrite needs.
+#       --tier-key and --tier-unit record the
 #       allocation key and unit the caller resolved the tier in the extra
 #       args at, for `relaunch` to re-resolve it; --tier-model, --tier-effort and
 #       --tier-reserved record a per-launch tier choice and reservation the
@@ -536,7 +542,7 @@ valid_posnum() {
 
 usage() {
   {
-    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--foreground] [-- <extra args>...]"
+    echo "usage: fleet-streamjson.sh launch <worker> <scope> --prompt-file <file> [--profile worker|tower|mission-control] [--mc-token <token>] [--tier-key <key>] [--tier-unit <unit>] [--tier-model <alias>] [--tier-effort <level>] [--tier-reserved] [--cwd <dir>] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--launcher mission-control] [--foreground] [-- <extra args>...]"
     echo "       fleet-streamjson.sh answer <worker> <request-id> (--response-file <file> | --allow | --deny [--message <text>]) [--takeover]"
     echo "       fleet-streamjson.sh steer <worker> --message-file <file> [--retask <reason>]"
     echo "       fleet-streamjson.sh recover <worker> [--cwd <dir>] [--foreground] [-- <extra args>...]"
@@ -2268,6 +2274,7 @@ cmd_launch() {
   mise_edit=0
   lefthook_edit=0
   spec_branch=''
+  launcher=''
   tier_model=''
   tier_effort=''
   tier_reserved=''
@@ -2301,6 +2308,14 @@ cmd_launch() {
         [ "$lefthook_edit" = 0 ] || usage
         lefthook_edit=1
         shift
+        ;;
+      --launcher)
+        # The launcher kind the session record names; mission-control-launch.sh
+        # passes it for the workers it launches. Like --mise-task-edit: a
+        # launch argument and nothing else.
+        [ $# -ge 2 ] && [ -z "$launcher" ] && [ "$2" = mission-control ] || usage
+        launcher=$2
+        shift 2
         ;;
       --tier-model | --tier-effort)
         [ $# -ge 2 ] || usage
@@ -2401,8 +2416,8 @@ cmd_launch() {
   fi
   # A resume reads its opt-ins from the markers its launch recorded; one given
   # here would open the profile with no marker for the next recover to keep.
-  if [ -n "$resume_sid" ] && { [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ]; }; then
-    printf '%s\n' "$me: --resume-session takes no opt-in (--mise-task-edit, --lefthook-edit); a recover keeps the ones its launch recorded" >&2
+  if [ -n "$resume_sid" ] && { [ "$mise_edit" = 1 ] || [ "$lefthook_edit" = 1 ] || [ -n "$launcher" ]; }; then
+    printf '%s\n' "$me: --resume-session takes no opt-in (--mise-task-edit, --lefthook-edit, --launcher); a recover keeps the ones its launch recorded" >&2
     exit 2
   fi
   if [ -z "$resume_sid" ]; then
@@ -2444,9 +2459,14 @@ cmd_launch() {
     [ "$(cat "$pf_dir/mise-task-edit" 2>/dev/null)" != 1 ] || mise_edit=1
     [ "$(cat "$pf_dir/lefthook-edit" 2>/dev/null)" != 1 ] || lefthook_edit=1
     [ -n "$spec_branch" ] || spec_branch=$(cat "$pf_dir/spec-branch" 2>/dev/null) || spec_branch=''
+    [ "$(cat "$pf_dir/launcher" 2>/dev/null)" != mission-control ] || launcher=mission-control
   fi
   if [ -n "$spec_branch" ] && [ "$profile" != worker ]; then
     printf '%s\n' "$me: --spec-branch applies to the worker profile only" >&2
+    exit 2
+  fi
+  if [ -n "$launcher" ] && [ "$profile" != worker ]; then
+    printf '%s\n' "$me: --launcher applies to the worker profile only" >&2
     exit 2
   fi
   launch_settings=$(profile_settings_path "$profile") || exit 7
@@ -2644,6 +2664,11 @@ cmd_launch() {
     else
       rm -f "$dir/spec-branch"
     fi
+    if [ -n "$launcher" ]; then
+      printf '%s\n' "$launcher" >"$dir/launcher.tmp" && mv -f "$dir/launcher.tmp" "$dir/launcher" || exit 2
+    else
+      rm -f "$dir/launcher"
+    fi
   fi
 
   # The pinned launch shape (REQ-A1.3, D-12; fleet-autonomy D-10, D-19): the
@@ -2716,7 +2741,7 @@ cmd_launch() {
   [ "$mise_edit" = 0 ] || mt_flag=--mise-task-edit
   lh_flag=''
   [ "$lefthook_edit" = 0 ] || lh_flag=--lefthook-edit
-  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${lh_flag:+"$lh_flag"} ${spec_branch:+--spec-branch "$spec_branch"} 2>/dev/null </dev/null) || session_record=''
+  session_record=$(/bin/sh "$script_dir/worker-session-record.sh" write "$PWD" --session "$worker" --scratch ${mt_flag:+"$mt_flag"} ${lh_flag:+"$lh_flag"} ${spec_branch:+--spec-branch "$spec_branch"} ${launcher:+--launcher "$launcher"} 2>/dev/null </dev/null) || session_record=''
   if [ -n "$session_record" ]; then
     PLANWRIGHT_WORKER_SESSION_RECORD=$session_record
     export PLANWRIGHT_WORKER_SESSION_RECORD

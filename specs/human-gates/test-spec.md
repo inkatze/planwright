@@ -414,8 +414,10 @@ pushed commit on the own unit branch, and refuses it on main, `master`, a
 spec branch, a `protected_branches` entry, another unit's branch, a record
 naming another launcher, a range holding a commit another remote ref
 contains, a rebase onto a branch other than the PR base or the branch's
-own remote branch, a mixed range under `unpushed_rewrite: deny`, with no
-upstream, and on a failed refresh; a repo-tracked or environment value
+own remote branch (the record's `pr_base`), a mixed range under
+`unpushed_rewrite: deny`, with no upstream, and on a failed refresh; an
+allowing record an environment variable names does not stand in for the
+one at the worktree's own path; a repo-tracked or environment value
 leaves the recorded value `deny`, an adopter or machine-local one records
 `allow`; the stubbed call log shows no host call (Task 21).
 
@@ -432,18 +434,21 @@ A fixture worker whose record carries `draft_rewrite=allow` and mission
 control as launcher, with one open same-repository draft PR, pushes its
 rewritten unit branch through the helper with the pre-rewrite lease and
 `--force-if-includes`, printing the replaced commits and appending the
-audit line. The helper refuses, pushing nothing, under `deny`, for a ready
-PR, no PR, two PRs, a cross-repository PR, a PR based on the branch, a
-failed or unreadable host read, a `GH_REPO` or config override in the
-environment, an unrecorded or protected branch, a lease naming another
-branch, a lease that is not a full commit id or that the branch's reflog
-never recorded, a missing reflog, a missing `--force-if-includes`, any
-remote, refspec, `+` form, or extra option, a replaced commit by another
-author, a branch another worktree or session holds, and a dirty tree; a
-remote moved past the lease yields the shared report and no second push.
-The policy guard admits only the installed copy in its literal grammar,
-and denies the worker's deletion of its own unit branch by `:<branch>`
-and `--delete` (Task 21).
+audit line. The helper refuses, pushing nothing, under `deny`, for a
+record naming another launcher or none, an unreadable or malformed
+record, an environment variable naming another record, a ready PR, no PR,
+two PRs, a cross-repository PR, a PR based on the branch, a failed or
+unreadable host read, a `GH_REPO` or config override in the environment,
+an unrecorded or protected branch, a lease naming another branch, a lease
+that is not a full commit id or that the branch's reflog never recorded,
+a missing reflog, a missing `--force-if-includes`, any remote, refspec,
+`+` form, or extra option, a replaced commit by another author, a branch
+another worktree or session holds, and a dirty tree; a remote moved past
+the lease yields the shared report and no second push. The policy guard
+admits only the installed copy in its literal grammar, and denies the
+worker's deletion of its own unit branch on the remote by `:<branch>`,
+`--delete`, `-d`, and the `gh api` REST and GraphQL `deleteRef` forms
+(Task 21).
 
 ### REQ-F1.9 — The refusal names the setting [test + design-level]
 
@@ -621,7 +626,8 @@ Every REQ-G1.3 case holds unchanged (Task 6, Task 9). The wiring tests
 assert the force-push deny is still present in every profile after Task
 21 and that the worker command guard approves the installed helper; the
 helper's own suite pins its fail-closed re-read of the record's
-`draft_rewrite`; the guard suite pins the deletion deny (Task 21).
+`draft_rewrite` and its refusal of an unreadable or malformed record; the
+guard suite pins the deletion deny (Task 21).
 
 ## REQ-H — Prose surfaces
 

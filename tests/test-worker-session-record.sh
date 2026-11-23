@@ -306,6 +306,143 @@ else
   pass "G1.8: a malformed launch id is refused"
 fi
 
+echo "### REQ-F1.6 — draft_rewrite and the launcher, resolved once into the record"
+set_layer repo-tracked ''
+set_layer machine-local ''
+write "$WT"
+if [ "$RC" = 0 ] && [ "$(field draft_rewrite)" = deny ] && ! grep -q '^launcher=' "$REC"; then
+  pass "F1.6: with no overlay the record carries draft_rewrite=deny and no launcher"
+else
+  fail "F1.6: default record fields: $(tr '\n' ' ' <"$REC")"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session mc-demo --launcher mission-control 2>/dev/null)
+if [ "$(field launcher)" = mission-control ]; then
+  pass "F1.6: --launcher mission-control names mission control as the launcher"
+else
+  fail "F1.6: launcher field '$(field launcher)'"
+fi
+for bad in tower '' mission; do
+  /bin/sh "$WRITER" write "$WT" --launcher "$bad" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" = 2 ] || fail "F1.6: --launcher '$bad' exited $rc, not a usage error"
+done
+pass "F1.6: a launcher other than mission-control is a usage error"
+set_layer repo-tracked 'draft_rewrite: allow'
+write "$WT"
+if [ "$(field draft_rewrite)" = deny ]; then
+  pass "F1.6: a repo-tracked draft_rewrite: allow line leaves the record at deny"
+else
+  fail "F1.6: the repo-tracked line enabled it: '$(field draft_rewrite)'"
+fi
+set_layer repo-tracked ''
+printf 'draft_rewrite: allow\n' >"$T/env-local.yml"
+cp "$REPO_ROOT/config/defaults.yml" "$T/env-defaults.yml"
+printf 'draft_rewrite: allow\n' >>"$T/env-defaults.yml"
+REC=$(PLANWRIGHT_LOCAL_CONFIG="$T/env-local.yml" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+r1=$(field draft_rewrite)
+REC=$(PLANWRIGHT_CONFIG_DEFAULTS="$T/env-defaults.yml" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+r2=$(field draft_rewrite)
+if [ "$r1" = deny ] && [ "$r2" = deny ]; then
+  pass "F1.6: a draft_rewrite: allow line in a file the environment names leaves the record at deny"
+else
+  fail "F1.6: an environment-named file enabled it (local '$r1', defaults '$r2')"
+fi
+printf 'draft_rewrite: allow\n' >"$T/adopter/planwright.yml"
+write "$WT"
+if [ "$(field draft_rewrite)" = allow ]; then
+  pass "F1.6: an adopter-layer draft_rewrite: allow line records allow"
+else
+  fail "F1.6: the adopter line read '$(field draft_rewrite)'"
+fi
+rm -f "$T/adopter/planwright.yml"
+set_layer machine-local 'draft_rewrite: allow'
+write "$WT"
+if [ "$(field draft_rewrite)" = allow ]; then
+  pass "F1.6: the primary checkout's machine-local draft_rewrite: allow line records allow"
+else
+  fail "F1.6: the machine-local line read '$(field draft_rewrite)'"
+fi
+set_layer machine-local 'draft_rewrite: sometimes'
+write "$WT"
+if [ "$(field draft_rewrite)" = deny ]; then
+  pass "F1.6: a malformed machine-local value degrades to deny"
+else
+  fail "F1.6: a malformed value read '$(field draft_rewrite)'"
+fi
+set_layer machine-local ''
+
+git -C "$MAIN" config user.name 'Launch Author'
+git -C "$MAIN" config user.email launch@example.invalid
+write "$WT"
+a1=$(field author)
+git -C "$MAIN" config --unset user.name
+git -C "$MAIN" config --unset user.email
+write "$WT"
+if [ "$a1" = 'Launch Author <launch@example.invalid>' ] && ! grep -q '^author=' "$REC"; then
+  pass "F1.8: the record carries the primary checkout's author identity at launch, and none when it has none"
+else
+  fail "F1.8: author field '$a1', then $(grep '^author=' "$REC")"
+fi
+
+echo "### the worktree's own record, at a path the worktree fixes"
+fixed=$PLANWRIGHT_FLEET_STATE_DIR/session-records/$(printf '%s' "$WT" | git hash-object --stdin).record
+rm -f "$fixed"
+REC=$(/bin/sh "$WRITER" write "$WT" --session mc-fixed --launcher mission-control 2>/dev/null)
+if [ "$REC" != "$fixed" ] && [ -f "$fixed" ] && cmp -s "$REC" "$fixed"; then
+  pass "a session's record is copied to the worktree's own path"
+else
+  fail "the worktree's own record is missing or differs ($REC, $fixed)"
+fi
+rk=$(basename "$REC" .record)
+if [ "$(field record_key)" = "$rk" ] && grep -qx "record_key=$rk" "$fixed"; then
+  pass "both copies name the session's own record as record_key, its audit log's name"
+else
+  fail "record_key '$(field record_key)' is not the session record's name $rk in both copies"
+fi
+# A plain write (no launch id, no session) is the worktree's path itself, and
+# its earlier record is replaced in place, never removed first.
+REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
+# shellcheck disable=SC2012 # the fixture's own hash-named file
+before=$(ls -i "$REC" | awk '{print $1}')
+chmod 500 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+if [ -w "$PLANWRIGHT_FLEET_STATE_DIR/session-records" ]; then
+  chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  printf '%s\n' "skip: a failing plain write (this user writes into a read-only directory, as root does)"
+else
+  /bin/sh "$WRITER" write "$WT" >/dev/null 2>&1
+  rc=$?
+  chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  # shellcheck disable=SC2012 # the fixture's own hash-named file
+  if [ "$rc" != 0 ] && [ -f "$fixed" ] && [ "$(ls -i "$fixed" | awk '{print $1}')" = "$before" ]; then
+    pass "a plain write that fails leaves the live record at the worktree's path in place"
+  else
+    fail "a failing plain write left the worktree's record missing or replaced (rc=$rc)"
+  fi
+fi
+mode=$(stat -c %a "$fixed" 2>/dev/null || stat -f %Lp "$fixed")
+if [ "$mode" = 600 ]; then
+  pass "the worktree's own record is owner-only"
+else
+  fail "the worktree's own record has mode $mode"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" 2>/dev/null)
+if cmp -s "$REC" "$fixed" && ! grep -q '^launcher=' "$fixed"; then
+  pass "the latest launch into the worktree replaces its own record"
+else
+  fail "a later launch left the earlier launch's record at the worktree's path"
+fi
+got=$(PLANWRIGHT_WORKER_SESSION_RECORD="$T/elsewhere.record" /bin/sh "$WRITER" path "$WT/sub" 2>/dev/null)
+if [ "$got" = "$fixed" ]; then
+  pass "path prints the worktree's own record path, whatever the environment names"
+else
+  fail "path printed '$got', not $fixed"
+fi
+if /bin/sh "$WRITER" path "$WT" extra >/dev/null 2>&1; then
+  fail "path took an extra argument"
+else
+  pass "path takes the worktree alone"
+fi
+
 echo "### REQ-G1.2 — the scratch root"
 wt_key=$(printf '%s' "$WT" | git hash-object --stdin)
 FLEET=$(cd "$PLANWRIGHT_FLEET_STATE_DIR" && pwd -P)
