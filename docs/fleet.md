@@ -2859,7 +2859,10 @@ That approves `mix test test/a_test.exs test/b_test.exs:12` and
 sequence), a run from inside the hooks or `.claude` directory, and any word
 holding a metacharacter or an expansion. The `deny`
 block is read first, so no declaration lifts it, and a malformed declaration
-is dropped alone. The launcher reads the knob at the primary checkout into the
+is dropped alone. A declared check command that names git, a file writer, a
+wrapper or an interpreter (`git commit`, `rm`, `env`, `python`) still runs
+alone, but never in the same command as a worker's own push or pull request
+body edit. The launcher reads the knob at the primary checkout into the
 session record, so an edit inside the worker's own worktree changes nothing
 and a change reaches a worker only by relaunch. Running a declared command
 runs the repository's own code, the trust the guard already gives its

@@ -249,6 +249,8 @@ RDECLS='make <word>...; cargo test; go test <path>; go run <path>; pytest <path>
 RDECLS="$RDECLS; mise exec -- <word>...; elixir -e <word>; gsed -i <word> <path>; RM <path>"
 RDECLS="$RDECLS; java <word>; vim <path>; sponge <path>; gzip <path>; sqlite3 <path>; ssh <word>"
 RDECLS="$RDECLS; docker <word>...; flock <path> <word>; perl5.34 <path>"
+RDECLS="$RDECLS; GO run <path>; go -C <path> run <path>; mix lint --cmd=rm; gtouch <path>"
+RDECLS="$RDECLS; tcsh <path>; zstd <path>; tmux <word>; julia <path>; gcc <path>"
 under "$(with_checks scan 1 "$RDECLS")"
 for r in "make check" "cargo test" "go test test" "pytest test" "mise exec -- pytest test"; do
   assert_allow "F1.11: declared $r still partners the own push" \
@@ -257,7 +259,9 @@ done
 for r in "mise exec -- GIT status" "RM build.txt" "make check SHELL=bash" "make check X=rm" \
   "go run test" "elixir -e exit" "gsed -i 1d build.txt" "java Main" "vim build.txt" \
   "sponge build.txt" "gzip build.txt" "sqlite3 build.txt" "ssh host" "docker run img" \
-  "flock build.txt make" "perl5.34 build.txt"; do
+  "flock build.txt make" "perl5.34 build.txt" "GO run test" "go -C test run test" \
+  "mix lint --cmd=rm" "gtouch build.txt" "tcsh build.txt" "zstd build.txt" "tmux new" \
+  "julia build.txt" "gcc build.txt"; do
   assert_allow "F1.11: declared $r, alone as before" "$r" Bash "$WT"
   assert_defer "F1.11: declared $r before the own push" \
     "$r && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
