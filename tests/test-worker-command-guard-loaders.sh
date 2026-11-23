@@ -247,7 +247,8 @@ assert_defer "own-branch: a write beside the lint" \
 assert_defer "own-branch: any admitted write beside the lint, which the guard cannot place" \
   'printf x > notes.txt && markdownlint-cli2 README.md' Bash "$R"
 assert_allow "own-branch: a git add alone" 'git add README.md' Bash "$R"
-assert_defer "own-branch: a git add beside the lint" \
+# Staging writes no worktree file, so the folders the lint reads are as checked.
+assert_allow "own-branch: a git add beside the lint" \
   'git add README.md && markdownlint-cli2 README.md' Bash "$R"
 assert_allow "own-branch: a git restore alone" 'git restore README.md' Bash "$R"
 assert_defer "own-branch: a git restore beside the lint, which can write a config" \
