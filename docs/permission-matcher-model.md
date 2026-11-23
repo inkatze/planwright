@@ -576,9 +576,12 @@ What still runs code a worker wrote without a prompt:
   declaration names in its literal words (`scripts/check.sh <word>`, `bash
   check.sh`) is held to the HEAD of the checkout it lies in, like a declared
   step's location (a file in no checkout keeps the declaration's trust, and a
-  symlink defers), but a declaration whose `<path>` is the script it runs
-  (`bash <path>`) admits any file in the worktree, committed or not, so it is
-  the repository's own choice to make.
+  symlink defers). A bare first word is exempt, since the shell looks it up
+  on PATH. The check cannot tell a script from a runner argument, so a word
+  such as `make test`'s `test` prompts while a file of that name sits
+  uncommitted in the working directory. A declaration whose `<path>` is the
+  script it runs (`bash <path>`) admits any file in the worktree, committed or
+  not, so it is the repository's own choice to make.
 - **What a committed script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
   globs, any of which a worker may have written or edited. That includes
