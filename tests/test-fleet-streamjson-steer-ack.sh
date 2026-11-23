@@ -397,9 +397,21 @@ fi
 echo "ok: a11 a refused report is retried, and an unwritable mark still reports"
 
 # ---------------------------------------------------------------------------
+# a12: an empty replay record is rewritten at launch, never kept.
+# ---------------------------------------------------------------------------
+home="$tmp/h12"
+rec="$tmp/r12"
+mkdir -p "$home/streamjson/sja12"
+: >"$home/streamjson/sja12/replay-since"
+start_worker "$home" "$rec" sja12
+grep -Eq '^[1-9][0-9]*$' "$home/streamjson/sja12/replay-since" \
+  || fail "a12: an empty replay record must be rewritten: '$(cat "$home/streamjson/sja12/replay-since")'"
+echo "ok: a12 an empty replay record is rewritten at launch"
+
+# ---------------------------------------------------------------------------
 # a8: nothing outlives the suite.
 # ---------------------------------------------------------------------------
-for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10; do
+for h in sja2 sja3 sja4 sja5 sja6 sja9 sja10 sja12; do
   for d in "$tmp"/h*/streamjson/"$h"; do
     [ -d "$d" ] || continue
     senv "${d%/streamjson/*}" "$tmp/r-stop" -- stop "$h" >/dev/null 2>&1 || :

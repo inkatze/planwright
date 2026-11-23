@@ -1513,8 +1513,13 @@ supervise() {
   record_start "$sv_dir" supervisor.pid "$$"
   write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
   # Kept from the first launch that replays: a steer written before it, to a
-  # session that never replayed, has no acknowledgement to miss.
-  [ -f "$sv_dir/replay-since" ] || now_epoch >"$sv_dir/replay-since" 2>/dev/null || :
+  # session that never replayed, has no acknowledgement to miss. A record a
+  # failed clock read left empty would switch the scan off for good, so only a
+  # valid one is kept.
+  sv_since=$(head -n 1 "$sv_dir/replay-since" 2>/dev/null) || sv_since=''
+  if ! valid_posnum "$sv_since" && sv_since=$(now_epoch) && valid_posnum "$sv_since"; then
+    printf '%s\n' "$sv_since" >"$sv_dir/replay-since" 2>/dev/null || :
+  fi
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
   record_start "$sv_dir" worker.pid "$sv_pid"
