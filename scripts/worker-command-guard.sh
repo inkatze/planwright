@@ -6974,7 +6974,7 @@ verify_simple() {
   # because the guard's own rules refused it as a read, so it is a write and
   # keeps every own-unit act in its command from being approved.
   if check_command_ok; then
-    check_partner_ok || {
+    check_partner_ok || declared_line_ok || {
       ARM_ACT=1
       return 0
     }
