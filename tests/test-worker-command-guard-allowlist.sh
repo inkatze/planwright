@@ -183,6 +183,9 @@ SREC=$PLUGIN_ROOT/scripts/step-record.sh
 SRUN=$PLUGIN_ROOT/scripts/step-run.sh
 : >"$SREC"
 : >"$SRUN"
+# A step-script call passes only on the recorded worktree (REQ-F1.12).
+write_record "$SANDBOX/install/steps.record" "$(cd "$SR_WT" && pwd -P)"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/install/steps.record")
 assert_allow "step-record heads" "$SREC heads" Bash "$SR_WT"
 assert_allow "step-record render" "$SREC render --run r-1" Bash "$SR_WT"
 assert_allow "step-run audit" "$SRUN audit --through pre-pr" Bash "$SR_WT"

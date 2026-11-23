@@ -1164,6 +1164,17 @@ log home leaves the worker without the `own-branch` and `scratch` arms, so
 those arms never approve a write with no log to trace it in; the options
 reference lists what the line records and when a write goes unlogged.
 
+A step record whose times the worker sets by hand always prompts. The guard
+never approves a `step-record.sh write` other than a `--completion` write, nor
+any write carrying `--start` or `--end`, under any policy value and however
+the call is spelled, so every skill, prompt and full-suite record a worker
+writes waits on an approver, who sees the hand-set times and can check them
+against the session's own events. Unattended, that prompt parks for the
+operator like any other the policy does not cover. Command steps are
+untouched: `step-run.sh` times their records itself. Every other step-script
+call passes only on the worktree the session record names, and only in the
+verbs the profile's `_about` lists.
+
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
 is that a stop cannot reach an operator's own `claude` session by resembling
