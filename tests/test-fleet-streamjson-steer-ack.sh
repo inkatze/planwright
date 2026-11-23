@@ -52,6 +52,8 @@ cleanup() {
     kill "$cl_p" 2>/dev/null || :
   done
   fixture_reap "$tmp/"
+  # A case interrupted inside a read-only window must not strand the scratch.
+  chmod -R u+rwX "$tmp" 2>/dev/null || :
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -64,6 +66,11 @@ trap 'exit 143' TERM
 #   drop  end the turn without replaying it (the frame the session never read)
 #   late  end the turn, then replay it a second later (read as the next turn)
 #   hold  replay it and leave the turn running
+#   swallow  neither replay it nor end the turn (never taken)
+#   next  end the turn, then replay it a second later and leave that turn
+#         running
+#   forge  write lines that must not count as replays, one real replay
+#         among them, then end the turn
 # A replay carries the frame's own top-level uuid, as the CLI's does.
 mkdir -p "$tmp/bin"
 cat >"$tmp/bin/claude" <<'SHIM'
@@ -437,6 +444,8 @@ if [ "$(id -u)" != 0 ]; then
     *"steer-lost sja11 $a11_id2"*) : ;;
     *) fail "a11: a mark that cannot be written must still report: $a11_out" ;;
   esac
+else
+  echo "skip: a11 the unwritable-mark check needs a non-root run"
 fi
 # Retries are pushed once: the store refuses the item (its directory is read
 # only) while pushes still land in the existing toast file.
@@ -479,9 +488,18 @@ if [ "$(id -u)" != 0 ]; then
   chmod 555 "$home/attention"
   env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_CONFIG_DEFAULTS="$tmp/a11-core.yml" PLANWRIGHT_LOCAL_CONFIG="$tmp/a11-pin.yml" \
-    /bin/sh "$SJ" alarm-scan --now 2004 >/dev/null 2>&1
+    /bin/sh "$SJ" alarm-scan --now 2004 >/dev/null 2>"$tmp/a11-link.err"
   chmod 755 "$home/attention"
   [ ! -e "$tmp/a11-target" ] || fail "a11: the push record was written through a planted link"
+  # The control: the scan did reach that steer, read the link as a push
+  # already made, and pushed nothing.
+  [ -L "$wdir/steer-pushed-$a11_id3" ] || fail "a11: the planted link must be left as it was"
+  [ "$(grep -c 'never read' "$home/attention/toasts")" = 1 ] || fail "a11: a link held as a push record must suppress the push"
+  [ ! -e "$wdir/steer-lost-$a11_id3" ] || fail "a11: the refused report must have given its mark back"
+  grep -q "attention failure-item write failed" "$tmp/a11-link.err" \
+    || fail "a11: the scan never reached the planted-link steer: $(cat "$tmp/a11-link.err")"
+else
+  echo "skip: a11 the push-once, landed-retry and planted-link checks need a non-root run"
 fi
 echo "ok: a11 a refused report is retried without another push, and an unwritable mark still reports"
 
