@@ -41,6 +41,8 @@ command -v jq >/dev/null 2>&1 || fail "jq is required: the launch preflight runs
 
 tmp=$(fixture_scratch) || fail "no scratch directory to run in"
 tab=$(printf '\t')
+NLC='
+'
 live_pids=''
 cleanup() {
   trap '' INT TERM
@@ -522,6 +524,22 @@ a13_out=$(a13_scan 1170)
 [ -z "$a13_out" ] || fail "a13: an idle steer with a later turn end is judged from that end: $a13_out"
 a13_out=$(a13_scan 1260)
 [ "$a13_out" = "steer-lost sja13 $a13_edge" ] || fail "a13: the idle steer must be judged once the end is old enough; got: $a13_out"
+# Frames are read in order, so an unread steer before one judged unread is
+# unread too, though nothing of its own would judge it.
+home="$tmp/h13c"
+wdir="$home/streamjson/sja13"
+mkdir -p "$wdir"
+a13_first='9a9a9a9a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
+printf '1000\n' >"$wdir/replay-since"
+{
+  printf '1100\t1\t%s\t%s\tbusy\n' "$tmp/first" "$a13_first"
+  printf '1150\t1\t%s\t%s\tidle\n' "$tmp/second" "$a13_edge"
+} >"$wdir/steers"
+printf 'result\tsuccess\t1050\tfalse\n' >"$wdir/result"
+a13_out=$(a13_scan 1300)
+[ "$a13_out" = "steer-lost sja13 $a13_first${NLC}steer-lost sja13 $a13_edge" ] \
+  || fail "a13: an unread steer ahead of one judged unread must be reported too; got: $a13_out"
+grep "^sja13$tab" "$home/attention/state" >/dev/null || fail "a13: no report reached the store"
 echo "ok: a13 the replay record, the turn's end and the grace bound what is judged"
 
 # ---------------------------------------------------------------------------

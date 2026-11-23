@@ -3132,15 +3132,28 @@ steer_scan() {
     ss_end=${ss_end%%"$TAB"*}
     valid_posnum "${ss_end:-}" || ss_end=''
   fi
+  # One line per unread steer: id, file, how it was judged (the record kind
+  # that ended past it, result or exit; idle, on its own age; or later, when a
+  # steer sent after it was judged unread, since the session reads frames in
+  # order), and the age that judgement counts.
   ss_lost=$(awk -F'\t' -v acks="$ss_dir/steer-acks" -v since="$ss_since" -v end="$ss_end" \
-    -v now="$ss_now" -v grace="$ss_grace" -v how="$ss_kind" '
+    -v now="$ss_now" -v grace="$ss_grace" -v kind="$ss_kind" '
     BEGIN { while ((getline l < acks) > 0) { split(l, f, "\t"); seen[f[2]] = 1 } }
-    # The third field printed is the record kind that ended past the steer
-    # (result or exit), or idle when the steer is judged on its own age.
     NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && !($4 in seen) {
-      ended = end != "" && $1 + 0 <= end + 0
-      if (ended && now - end >= grace + 0) print $4 "\t" $3 "\t" how "\t" now - end
-      else if (!ended && $5 == "idle" && now - $1 >= grace + 0) print $4 "\t" $3 "\tidle\t" now - $1
+      n++; id[n] = $4; file[n] = $3; sent[n] = $1 + 0; turn[n] = $5
+    }
+    END {
+      last = -1
+      for (i = 1; i <= n; i++) {
+        ended = end != "" && sent[i] <= end + 0
+        if (ended && now - end >= grace + 0) { how[i] = kind; age[i] = now - end }
+        else if (!ended && turn[i] == "idle" && now - sent[i] >= grace + 0) { how[i] = "idle"; age[i] = now - sent[i] }
+        if (how[i] != "" && sent[i] > last) last = sent[i]
+      }
+      for (i = 1; i <= n; i++) {
+        if (how[i] == "" && sent[i] < last) { how[i] = "later"; age[i] = now - sent[i] }
+        if (how[i] != "") print id[i] "\t" file[i] "\t" how[i] "\t" age[i]
+      }
     }
   ' "$ss_dir/steers" 2>/dev/null) || ss_lost=''
   while IFS="$TAB" read -r ss_id ss_file ss_how ss_age; do
@@ -3150,7 +3163,9 @@ steer_scan() {
     case $ss_how in
       idle) ss_why="the worker was idle when it was sent ${ss_age}s ago and has not taken it" ;;
       exit) ss_why="the worker exited ${ss_age}s ago without taking it" ;;
-      *) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
+      later) ss_why="it was sent ${ss_age}s ago and a steer sent after it was not taken either" ;;
+      result) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
+      *) ss_why="it was not taken ${ss_age}s after its worker's last record" ;;
     esac
     ss_text="steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"
     # A report the store refused gives its mark back, so the next scan
