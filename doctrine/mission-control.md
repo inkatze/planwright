@@ -231,11 +231,11 @@ a configured step its run did not record passed, applied, or skipped, one
 whose record the step-record truth check refuses (reported unaudited), or a
 record that does not match its branch (`mismatch`), is a gap, whatever
 launched the session and whatever its brief said. On a draft where PR-Agent
-runs, a `post-pr` gap (no completion, or a step unrecorded) is pending the
-flip, which fires the bot review: with nothing else held the walk says
-`flip-for-review <head>` (exit 4; the flip still follows `ready_flip_policy`),
-and once flipped it is `ready` only with the flip's run finished, its findings
-answered and `post-pr` complete. A
+runs, a `post-pr` gap (no completion, one only outside its history, or a
+step unrecorded) is pending the flip, which fires the bot review: with
+nothing else held the walk says `flip-for-review <head>` (exit 4; the flip
+still follows `ready_flip_policy`), and once flipped it is `ready` only with
+the flip's run finished, its findings answered and `post-pr` complete. A
 spec-only pull request (every changed path a Markdown file added, modified or
 deleted under the spec root, the head holding that root) is held for
 each touched bundle's kickoff sign-off instead of the cadence and the gate

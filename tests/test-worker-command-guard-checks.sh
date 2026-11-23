@@ -127,8 +127,12 @@ assert_defer "A1.19: a declared shape the deny block alone matches" "git config 
 assert_defer "A1.19: a declared reserved act" "git reset --hard origin" Bash "$WT"
 assert_defer "A1.19: a declared gh write" "gh pr merge 12" Bash "$WT"
 assert_allow "F1.10: the own push alone still allows" "git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-assert_defer "F1.10: a check command never shares a command with the own push" \
+assert_allow "F1.11: a declared check command is a chain partner before the own push" \
   "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a declared check command after the own push" \
+  "git push origin $CORPUS_UNIT_BRANCH && mix test test" Bash "$WT"
+assert_defer "F1.11: a declared check command joined to the own push by ;" \
+  "mix test test; git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 
 echo "### REQ-A1.18 — a malformed declaration drops alone"
 assert_defer "A1.18: an unknown placeholder" "mix lint x" Bash "$WT"
