@@ -284,13 +284,12 @@
 #       --replay-user-messages) lands its uuid in `<dir>/steer-acks`; a steer
 #       still unread a grace (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s)
 #       after a turn ended past it, or after it was sent to an idle worker,
-#       is reported once by
-#       the tick or `alarm-scan` (steer_scan), a high-priority attention item
-#       and push naming the file to re-send; so is any unread steer sent
-#       before one so judged, the session reading frames in order. It is NOT
-#       an answer: it never composes a control_response and never touches the
-#       receipt journal, so it cannot settle a pending permission request (the
-#       tower may not answer those).
+#       is reported once by the tick or `alarm-scan` (steer_scan), a
+#       high-priority attention item and push naming the file to re-send; so
+#       is any unread steer sent before one so judged, the session reading
+#       frames in order. It is NOT an answer: it never composes a
+#       control_response and never touches the receipt journal, so it cannot
+#       settle a pending permission request (the tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
 #       A delivered steer retires the previous turn's `result`, so the worker
