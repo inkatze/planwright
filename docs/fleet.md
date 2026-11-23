@@ -862,7 +862,9 @@ worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
 receipt pending past `PLANWRIGHT_STREAMJSON_PENDING_AGE` (default 900s)
 becomes a high-priority queue item plus one notify push within a tick of
 crossing the threshold, with nothing else having to run `alarm-scan` (the
-sweep over every worker, which remains). The tick lives in the supervisor, so a
+sweep over every worker, which remains). The same tick and sweep report a
+steer the worker never read (see `steer` below), printed by `alarm-scan` as
+`steer-lost <worker> <id>`. The tick lives in the supervisor, so a
 worker an older planwright launched has none. `alarm-scan` reads every runtime
 directory whatever version wrote it, and mission control's session-keeper
 watcher runs it as `alarm-scan --once` on every pass: an overdue request
@@ -1286,11 +1288,30 @@ a failed resume exit `5`, each naming the `recover` to run.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. A delivered steer opens a new turn, so it retires the
+part of a command. A steer to an idle worker opens a new turn, so it retires the
 previous turn's `result`: the worker reads `running` again until that turn
 records its own. A steer delivered while the worker is still inside a turn is
-the exception: that turn's `result` lands after the steer, so the queued turn
-reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
+not read at once: the session takes it when the tool call in flight returns,
+folding it into that turn, or, when the turn is already writing its answer,
+as the next turn once that turn's `result` lands (the session reading it then
+retires that `result`, so the worker reads `running` again). A long-running
+command or bounded wait therefore delays it. A worker reads as idle when a
+result is on record or, for a resumed session waiting for its first frame,
+when its capture still ends at its last turn's result; `steer` says on stderr
+that the message is queued whenever the worker was not idle. Written is not
+read, so each steer frame carries its own uuid, recorded in its receipt row,
+and the worker runs with `--replay-user-messages`, whose replay of the frame
+records the steer as read. A steer is reported unread, once, by the
+supervisor's tick or `alarm-scan`, as a high-priority queue item and push
+naming the message file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE`
+seconds (default 60) have passed since the `result` or exit record written at
+or after it, or, when none has been written and the worker was idle as it was
+sent, since it was sent. The session reads frames in order, so an unread steer
+sent before one so judged is reported with it. A runtime with no replay record
+(a worker an older planwright launched) is never judged, nor is a steer sent
+before that record.
+
+Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one

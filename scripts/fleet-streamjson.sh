@@ -9,7 +9,8 @@
 #
 # WHAT THIS IS (D-5). A supervisor process owns a stream-json worker's stdio:
 # it launches the worker (`claude -p --input-format stream-json
-# --output-format stream-json --verbose --permission-prompt-tool stdio
+# --output-format stream-json --verbose --replay-user-messages
+# --permission-prompt-tool stdio
 # --settings <config/<profile>-settings.json> --name <worker>`, the profile
 # worker by default, with PLANWRIGHT_MESSAGING_INBOUND=accept,
 # PLANWRIGHT_SESSION_BACKEND=stream-json (the background-job guard's key) and, for a
@@ -106,6 +107,13 @@
 #                    fleet-stop-lib.sh, stop_scratch_root_release)
 #   alarmed-<id>     the mark of a request whose overdue push has been made,
 #                    until the journal no longer reads it pending
+#   steers / steer-acks  the steer receipts, and `<epoch>\t<uuid>` per user
+#                    frame the session replayed as read
+#   replay-since     the epoch of the first supervisor whose session replays;
+#                    older steers are never judged unread
+#   steer-lost-<id>  the mark of a steer reported unread
+#   steer-pushed-<id>  a refused report's push already made, until a retry
+#                    lands the item
 #   unregistered-announced  the session-keeper's claim that its one-time
 #                    event about a worker with no launcher row was raised
 #                    (scripts/mc-keeper.sh announce_once); `.claim.*` its
@@ -273,15 +281,29 @@
 #       (doctrine/inter-orchestrator-coordination.md): a real submit that
 #       needs no input box, so it does not depend on a paste landing at an
 #       idle prompt, and it leaves a receipt — `<dir>/steers`, one
-#       `<epoch>\t<bytes>\t<file>` row per delivery — where a pane paste
-#       leaves nothing. It is NOT an answer: it never composes a
+#       `<epoch>\t<bytes>\t<file>\t<id>\t<idle|busy>` row per delivery, <id>
+#       the uuid the frame carries and the last field whether the worker was
+#       idle when it was sent (a result on record, or a resumed session whose
+#       capture still ends at its last result) — where a pane paste leaves
+#       nothing. Written is not read: the CLI reads a frame that lands
+#       mid-turn only once the tool call in flight returns or the turn ends,
+#       so steer says on stderr that the message is queued whenever the worker
+#       was not idle. The session's replay of the frame (the launch passes
+#       --replay-user-messages) lands its uuid in `<dir>/steer-acks`; a steer
+#       still unread a grace (PLANWRIGHT_STREAMJSON_STEER_GRACE, default 60s)
+#       after a turn ended past it, or after it was sent to an idle worker,
+#       is reported once by the tick or `alarm-scan` (steer_scan), a
+#       high-priority attention item and push naming the file to re-send; so
+#       is any unread steer sent before one so judged, the session reading
+#       frames in order. It is NOT an answer: it never composes a
 #       control_response and never touches the receipt journal, so it cannot
 #       settle a pending permission request (the tower may not answer those).
 #       The file is data (64 KiB cap, refused whole when over, non-empty); a
 #       dead channel is exit 3, never a hang. Prints `steered <worker> <bytes>`.
 #       A delivered steer retires the previous turn's `result`, so the worker
 #       reads running again until the new turn records its own; one delivered
-#       mid-turn cannot, since that turn's `result` lands after it.
+#       mid-turn cannot, since that turn's `result` lands after it, and the
+#       session's replay of a frame read after that `result` retires it then.
 #       Like every frame written to the fifo (see frame_check), the composed
 #       frame is checked before the write; a refused one is exit 2 with
 #       nothing written.
@@ -337,7 +359,9 @@
 #       record, the run's recorded end) is never escalated: nobody can
 #       answer what it left, so its pending receipts are closed
 #       undeliverable, as a stop closes them, its request row is cleared
-#       from the queue, and the scan prints `dead <worker> <settled>`.
+#       from the queue, and the scan prints `dead <worker> <settled>`. Each
+#       runtime directory's unread steers are reported too (see steer),
+#       journal or none, dead or alive: `steer-lost <worker> <id>`.
 #   fleet-streamjson.sh stop <worker> [--grace <secs>] [--observe] [--final]
 #       Close the worker: terminate its process tree and release the locks,
 #       scratch temp, and attention record it holds. Prints one of
@@ -468,7 +492,8 @@
 # seam once, on the tick that crosses the threshold, unless `alarm-scan --once`
 # pushed it first (they share one mark per request). Scan-based over the
 # durable journal, so it holds the same crash-window properties `alarm-scan`
-# has, and still never auto-answers and never kills the worker.
+# has, and still never auto-answers and never kills the worker. The same tick
+# reports a steer the session never read (see steer).
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # mkfifo, mktemp, `date +%s`, a fractional `sleep`, and — for the close —
@@ -596,6 +621,13 @@ if [ ! -r "$lock_lib" ]; then
 fi
 # shellcheck source=scripts/lock-lib.sh
 . "$lock_lib"
+uuid_lib="$script_dir/uuid-lib.sh"
+if [ ! -r "$uuid_lib" ]; then
+  printf '%s\n' "$me: required helper $uuid_lib missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/uuid-lib.sh
+. "$uuid_lib"
 
 FS="$script_dir/fleet-state.sh"
 FA="$script_dir/fleet-attention.sh"
@@ -1165,13 +1197,23 @@ attention_resync() {
 }
 
 # attention_failure <worker> <dir> <text> — a visible failure item
-# (REQ-E1.4, REQ-E1.5: surfaced, never silent). Text is caller-fixed prose
+# (REQ-E1.4, REQ-E1.5: surfaced, never silent) and its push; 1 when the store
+# refused the item, which is pushed all the same. Text is caller-fixed prose
 # plus sanitized fragments.
 attention_failure() {
-  af_scope=$(read_scope "$2")
-  /bin/sh "$FA" decide "$1" "$af_scope" "$3" acknowledge "acknowledge|investigate" high \
-    || printf '%s\n' "$me: attention failure-item write failed for $1" >&2
+  attention_item "$1" "$2" "$3"
+  af_rc=$?
   /bin/sh "$FA" notify "$3" >/dev/null 2>&1 || :
+  return "$af_rc"
+}
+
+# attention_item <worker> <dir> <text> — attention_failure's queue item alone,
+# for a caller retrying one it has already pushed.
+attention_item() {
+  ai_scope=$(read_scope "$2")
+  /bin/sh "$FA" decide "$1" "$ai_scope" "$3" acknowledge "acknowledge|investigate" high && return 0
+  printf '%s\n' "$me: attention failure-item write failed for $1" >&2
+  return 1
 }
 
 # --- the supervisor loop ----------------------------------------------------
@@ -1437,6 +1479,38 @@ handle_line() {
       # its own receipt time, and never stops the capture.
       printf '%s\n' "$hl_line" | /bin/sh "$FRAMES" persist --dir "$hl_dir" >/dev/null 2>&1 || :
       ;;
+    '{"type":"user",'*',"isReplay":true}')
+      # The session read a user frame from stdin: the CLI writes the marker as
+      # a user line's last key. Anchored at both ends because tool input is
+      # raw JSON elsewhere in the stream (an assistant tool_use, a result's
+      # permission_denials), whose keys can spell the marker; message text
+      # cannot, every quote in a string being escaped.
+      hl_uid=$(json_field "$hl_line" uuid)
+      # Never through a link or into anything but a regular file: an append
+      # opened on a fifo would stall this read loop, and the worker with it.
+      if valid_reqid "$hl_uid"; then
+        hl_now=$(now_epoch) || hl_now=0
+        if [ -L "$hl_dir/steer-acks" ] \
+          || { [ -e "$hl_dir/steer-acks" ] && [ ! -f "$hl_dir/steer-acks" ]; } \
+          || ! printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks"; then
+          printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
+        fi
+      fi
+      # A frame read while a result is on record opens the next turn, so that
+      # result no longer speaks for the worker, as when a steer retires it.
+      # After the read is recorded: a scan that saw the old result then finds
+      # the read too.
+      rm -f "$hl_dir/result"
+      ;;
+    '{"type":"user",'*'"isReplay":true'*)
+      # Not taken as a replay, but said once: were the CLI to write the
+      # marker elsewhere, every steer would read as unread with nothing to
+      # say why.
+      if [ -z "${hl_shape_said:-}" ]; then
+        hl_shape_said=1
+        printf '%s\n' "$me: worker $hl_worker wrote a replay line in an unexpected shape; steers it read may be reported unread" >&2
+      fi
+      ;;
     *'"type":"system"'*'"subtype":"init"'*)
       hl_sid=$(json_field "$hl_line" session_id)
       if valid_reqid "$hl_sid"; then
@@ -1486,6 +1560,20 @@ supervise() {
   # never finds, a start that was already there.
   record_start "$sv_dir" supervisor.pid "$$"
   write_pidfile "$sv_dir/supervisor.pid" "$$" || return 2
+  # Kept from the first launch that replays: a steer written before it, to a
+  # session that never replayed, has no acknowledgement to miss. A record a
+  # failed clock read left empty would switch the scan off for good, so only a
+  # valid one is kept.
+  sv_since=''
+  if [ -f "$sv_dir/replay-since" ] && [ ! -L "$sv_dir/replay-since" ]; then
+    sv_since=$(head -n 1 "$sv_dir/replay-since" 2>/dev/null) || sv_since=''
+  fi
+  if ! valid_posnum "$sv_since" && [ ! -L "$sv_dir/replay-since" ] \
+    && { [ ! -e "$sv_dir/replay-since" ] || [ -f "$sv_dir/replay-since" ]; } \
+    && sv_since=$(now_epoch) && valid_posnum "$sv_since"; then
+    printf '%s\n' "$sv_since" >"$sv_dir/replay-since" 2>/dev/null \
+      || printf '%s\n' "$me: could not write $sv_dir/replay-since; worker $sv_worker's unread steers will not be reported" >&2
+  fi
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
   record_start "$sv_dir" worker.pid "$sv_pid"
@@ -2696,8 +2784,11 @@ cmd_launch() {
   # control running in tmux) would read, in its own per-step launches, as an
   # opt-in to tmux windows. Every start, recover and relaunch passes here.
   unset TMUX TMUX_PANE
+  # --replay-user-messages: the CLI writes nothing to stdout for a user frame it
+  # reads unless asked to, so without it a steer the session never read and
+  # one it read look the same in the capture (see steer_scan).
   set -- "$dispatch_env" "$cli" -p --input-format stream-json --output-format stream-json \
-    --verbose --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
+    --verbose --replay-user-messages --permission-prompt-tool stdio --settings "$launch_settings" --name "$worker" "$@"
   if [ -n "$resume_sid" ]; then
     set -- "$@" --resume "$resume_sid"
   fi
@@ -3067,6 +3158,106 @@ cmd_answer() {
   fi
 }
 
+# steer_scan <worker> <dir> <now> <grace> — report each steer the session never
+# read. A frame the session reads comes back as a replay carrying its uuid
+# (steer-acks). The CLI takes a waiting frame as the next turn the moment one
+# ends, so a steer still unread <grace> seconds after a result or exit record
+# written at or after it will not be read; nor will one written to an idle
+# worker (its receipt row's last field), with no such record since, and
+# unread <grace> seconds on, since no turn was running to delay it; nor,
+# frames being read in order, any unread steer sent before one of those.
+# Raised once per steer (its steer-lost-<id> mark) as a high-priority
+# attention item with a push, printing `steer-lost <worker> <id>`. A runtime
+# with no replay-since record predates the replay, and steers older than it
+# are never judged.
+steer_scan() {
+  ss_w=$1 ss_dir=$2 ss_now=$3 ss_grace=$4
+  # Only regular files are read: opening a fifo would block the scan.
+  [ -f "$ss_dir/steers" ] && [ ! -L "$ss_dir/steers" ] || return 0
+  [ -f "$ss_dir/replay-since" ] && [ ! -L "$ss_dir/replay-since" ] || return 0
+  # Readable too: an awk that cannot open it reads every steer as unread.
+  if [ -e "$ss_dir/steer-acks" ] || [ -L "$ss_dir/steer-acks" ]; then
+    [ -f "$ss_dir/steer-acks" ] && [ ! -L "$ss_dir/steer-acks" ] && [ -r "$ss_dir/steer-acks" ] || return 0
+  fi
+  ss_since=$(head -n 1 "$ss_dir/replay-since" 2>/dev/null) || return 0
+  valid_posnum "${ss_since:-}" || return 0
+  # The end epoch is the result record's third field, on either row kind.
+  ss_end='' ss_kind=''
+  if result_snapshot "$ss_dir"; then
+    ss_kind=${rs_raw%%"$TAB"*}
+    ss_end=${rs_raw#*"$TAB"*"$TAB"}
+    ss_end=${ss_end%%"$NL"*}
+    ss_end=${ss_end%%"$TAB"*}
+    valid_posnum "${ss_end:-}" || ss_end=''
+  fi
+  # One line per unread steer: id, file, how it was judged (the record kind
+  # that ended past it, result or exit; idle, on its own age; or later, when a
+  # steer sent after it was judged unread, since the session reads frames in
+  # order), and the age that judgement counts.
+  ss_lost=$(awk -F'\t' -v acks="$ss_dir/steer-acks" -v since="$ss_since" -v end="$ss_end" \
+    -v now="$ss_now" -v grace="$ss_grace" -v kind="$ss_kind" '
+    BEGIN { while ((getline l < acks) > 0) { split(l, f, "\t"); seen[f[2]] = 1 } }
+    NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && !($4 in seen) {
+      n++; id[n] = $4; file[n] = $3; sent[n] = $1 + 0; turn[n] = $5
+    }
+    # Ordered by send epoch, ties by row order (each row written under the
+    # journal lock, one per send).
+    END {
+      last = -1; lastn = 0
+      for (i = 1; i <= n; i++) {
+        ended = end != "" && sent[i] <= end + 0
+        if (ended && now - end >= grace + 0) { how[i] = kind; age[i] = now - end }
+        else if (!ended && turn[i] == "idle" && now - sent[i] >= grace + 0) { how[i] = "idle"; age[i] = now - sent[i] }
+        if (how[i] != "" && (sent[i] > last || (sent[i] == last && i > lastn))) { last = sent[i]; lastn = i }
+      }
+      for (i = 1; i <= n; i++) {
+        if (how[i] == "" && (sent[i] < last || (sent[i] == last && i < lastn))) { how[i] = "later"; age[i] = now - sent[i] }
+        if (how[i] != "") print id[i] "\t" file[i] "\t" how[i] "\t" age[i]
+      }
+    }
+  ' "$ss_dir/steers" 2>/dev/null) || ss_lost=''
+  while IFS="$TAB" read -r ss_id ss_file ss_how ss_age; do
+    valid_reqid "${ss_id:-}" || continue
+    mark_claim "$ss_dir/steer-lost-$ss_id" || continue
+    # Cut from the front when long, marked, so the file name itself survives.
+    ss_name=$(sanitize_printable "$ss_file" unnamed | awk '{ if (length($0) > 200) print "..." substr($0, length($0) - 196); else print }')
+    case $ss_how in
+      idle) ss_why="the worker was idle when it was sent ${ss_age}s ago and has not taken it" ;;
+      exit) ss_why="the worker exited ${ss_age}s ago without taking it" ;;
+      later) ss_why="it was sent ${ss_age}s ago and a steer sent after it was not taken either" ;;
+      result) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
+      *) ss_why="it was not taken ${ss_age}s after its worker's last record" ;;
+    esac
+    ss_text="steer $(printf '%s' "$ss_id" | cut -c1-8) to worker $ss_w was never read: $ss_why - re-send $ss_name with fleet-streamjson.sh steer"
+    # A report the store refused gives its mark back, so the next scan
+    # retries; it was pushed once already, so the retry only writes the item.
+    if [ -e "$ss_dir/steer-pushed-$ss_id" ] || [ -L "$ss_dir/steer-pushed-$ss_id" ]; then
+      attention_item "$ss_w" "$ss_dir" "$ss_text"
+    else
+      attention_failure "$ss_w" "$ss_dir" "$ss_text"
+    fi || {
+      mark_claim "$ss_dir/steer-pushed-$ss_id" || :
+      rm -f "$ss_dir/steer-lost-$ss_id" 2>/dev/null || :
+      continue
+    }
+    rm -f "$ss_dir/steer-pushed-$ss_id" 2>/dev/null || :
+    printf 'steer-lost %s %s\n' "$ss_w" "$ss_id"
+  done <<SSLOST
+$ss_lost
+SSLOST
+}
+
+# steer_grace — the PLANWRIGHT_STREAMJSON_STEER_GRACE seconds steer_scan waits
+# after a result or exit record, or after an idle steer is sent (default 60).
+steer_grace() {
+  sg_v=${PLANWRIGHT_STREAMJSON_STEER_GRACE:-60}
+  valid_posnum "$sg_v" || {
+    printf '%s\n' "$me: invalid PLANWRIGHT_STREAMJSON_STEER_GRACE '$(sanitize_printable "$sg_v" '?' | cut -c1-32)'; using 60" >&2
+    sg_v=60
+  }
+  printf '%s\n' "$sg_v"
+}
+
 # steer <worker> --message-file <file> — see the header. Delivered through
 # frame_send under the journal lock, as `answer` is, but the frame is a USER
 # turn, and the only state it writes is its own receipt row.
@@ -3117,9 +3308,15 @@ cmd_steer() {
     printf '%s\n' "$me: unknown worker $worker" >&2
     exit 2
   }
-  # The receipt row carries the path as given; a tab or newline in it would
-  # split the row, so such a path is refused rather than recorded mangled.
+  # The receipt row carries the path, made absolute because an unread-steer
+  # report names it to a reader in another directory; a tab or newline in it
+  # would split the row, so such a path is refused rather than recorded
+  # mangled.
   case $st_file in
+    /*) st_row_file=$st_file ;;
+    *) st_row_file="$PWD/$st_file" ;;
+  esac
+  case $st_row_file in
     *"$TAB"* | *"$NL"*)
       printf '%s\n' "$me: --message-file path may not contain a tab or newline" >&2
       exit 2
@@ -3168,14 +3365,21 @@ cmd_steer() {
     journal_unlock "$dir"
     exit 2
   }
+  # A v4 uuid is the shape the CLI takes for a user frame's own uuid.
+  st_id=$(uuid_v4) || {
+    journal_unlock "$dir"
+    printf '%s\n' "$me: steer refused, nothing written to worker $worker: no steer id could be drawn" >&2
+    exit 2
+  }
   st_frame=$(mktemp "$dir/.frame.XXXXXX") || {
     journal_unlock "$dir"
     exit 2
   }
   # The header is the buffer-paste relay's (scripts/orchestrate-relay.sh), so a
-  # worker reads a tower message the same way on every rung.
-  if ! printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
-    "$worker" "$st_body" >"$st_frame"; then
+  # worker reads a tower message the same way on every rung. The uuid is the
+  # one the session's replay carries back when it reads the frame.
+  if ! printf '{"type":"user","uuid":"%s","message":{"role":"user","content":[{"type":"text","text":"[planwright tower relay -> %s]\\n%s"}]}}\n' \
+    "$st_id" "$worker" "$st_body" >"$st_frame"; then
     rm -f "$st_frame"
     journal_unlock "$dir"
     exit 2
@@ -3187,7 +3391,16 @@ cmd_steer() {
   # put back with `ln` on a send that delivered nothing: it fails rather than
   # overwrite the end record a supervisor exiting meanwhile writes.
   st_prev=''
+  st_turn=busy
+  # A resumed session waits for its first frame with no result on record (a
+  # recover clears it) while its capture still ends at its last turn's result.
+  if [ -f "$dir/events.jsonl" ] && [ ! -L "$dir/events.jsonl" ]; then
+    case $(tail -n 1 "$dir/events.jsonl" 2>/dev/null) in
+      *'"type":"result"'*) st_turn=idle ;;
+    esac
+  fi
   if [ -f "$dir/result" ]; then
+    st_turn=idle
     st_prev="$dir/.result.steer"
     mv -f "$dir/result" "$st_prev" 2>/dev/null || st_prev=''
   fi
@@ -3212,10 +3425,15 @@ cmd_steer() {
       ;;
   esac
   if [ "$st_sent" = 0 ]; then
-    printf '%s\t%s\t%s\n' "$now" "$st_bytes" "$st_file" >>"$dir/steers" || :
+    printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$st_bytes" "$st_row_file" "$st_id" "$st_turn" >>"$dir/steers" \
+      || printf '%s\n' "$me: the steer was delivered, but its receipt could not be written, so it will not be reported if it goes unread" >&2
     journal_unlock "$dir"
     [ "$st_override" = 0 ] || /bin/sh "$script_dir/retask-guard.sh" log --via steer --to "$worker" --reason "$st_retask" \
       || printf '%s\n' "$me: the steer was delivered, but its re-task override could not be logged" >&2
+    # A worker that was not idle is running a turn: the CLI reads the frame
+    # only once the tool call in flight returns or the turn ends.
+    [ "$st_turn" = idle ] \
+      || printf '%s\n' "$me: worker $worker is mid-turn: the message is queued, and the session reads it when its current tool call returns or its turn ends, so a long-running command delays it" >&2
     printf 'steered %s %s\n' "$worker" "$st_bytes"
   else
     journal_unlock "$dir"
@@ -3681,9 +3899,9 @@ cmd_stop() {
 # cmd__tick <worker> <dir> <supervisor-pid> <worker-pid> — the escalation
 # tick's own process (internal; spawned by supervise). Sleeps in one-second
 # steps, leaving the instant either pid is gone so a closed worker never keeps
-# a ticker behind, and runs this worker's pending-age scan every
-# PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default 60) against
-# PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900).
+# a ticker behind, and every PLANWRIGHT_STREAMJSON_ALARM_TICK seconds (default
+# 60) runs this worker's unread-steer scan (steer_scan), journal or none, then
+# its pending-age scan against PLANWRIGHT_STREAMJSON_PENDING_AGE (default 900).
 cmd__tick() {
   [ $# -eq 4 ] || usage
   tk_worker=$1
@@ -3717,6 +3935,7 @@ cmd__tick() {
     printf '%s\n' "$me: tick: invalid PLANWRIGHT_STREAMJSON_PENDING_AGE '$tk_thr'; using 900" >&2
     tk_thr=900
   }
+  tk_grace=$(steer_grace)
   tk_i=0
   while :; do
     sleep 1
@@ -3729,6 +3948,9 @@ cmd__tick() {
     tk_i=$((tk_i + 1))
     [ "$tk_i" -ge "$tk_tick" ] || continue
     tk_i=0
+    if [ -f "$tk_dir/steers" ] && tk_now=$(now_epoch); then
+      steer_scan "$tk_worker" "$tk_dir" "$tk_now" "$tk_grace" >/dev/null || :
+    fi
     [ -f "$tk_dir/journal" ] || continue
     alarm_scan_worker "$tk_worker" "$tk_dir" '' "$tk_thr" "$tk_tick" >/dev/null || :
   done
@@ -3772,6 +3994,7 @@ cmd_alarm_scan() {
   }
   as_root=$(/bin/sh "$FS" root) || exit 2
   [ -d "$as_root/streamjson" ] || return 0
+  as_grace=$(steer_grace)
   pw_lock_trap_install
   # An intentional glob, like cmd_pending's: enumerate worker dirs (pathname
   # expansion is otherwise disabled by set -f).
@@ -3779,11 +4002,14 @@ cmd_alarm_scan() {
   for as_dir in "$as_root/streamjson"/*; do
     # This verb rewrites journals and deletes marks inside what it is handed.
     [ -d "$as_dir" ] && [ ! -L "$as_dir" ] || continue
+    as_worker=${as_dir##*/}
+    valid_field "$as_worker" || continue
+    # Before the journal check: a worker that died after a steer it never
+    # read has no tick left to report it, and may have no journal at all.
+    steer_scan "$as_worker" "$as_dir" "$now" "$as_grace"
     # Readable, not merely present: an awk that cannot read it reads as
     # nothing pending, which would prune every mark.
     [ -f "$as_dir/journal" ] && [ -r "$as_dir/journal" ] || continue
-    as_worker=${as_dir##*/}
-    valid_field "$as_worker" || continue
     # The scan reads every runtime directory, whatever planwright version
     # launched it. Most hold only settled rows, so one read decides whether
     # there is anything to scan at all.
@@ -3988,15 +4214,20 @@ alarm_marks_prune() {
 
 # alarm_claim <dir> <id> — 0 when this call is the first to push the
 # request's overdue alarm: the tick and `alarm-scan --once` share one mark per
-# request, so a worker both watch is pushed once. Anything already at the
-# mark's path, a link included, claims nothing: noclobber refuses only an
-# existing regular file and would open a link to a fifo or a device. The
-# create is exclusive, so two callers never both claim. A mark that cannot be
-# written at all still claims: a second push beats none.
+# request, so a worker both watch is pushed once.
 alarm_claim() {
-  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ] || return 1
-  (set -C && : >"$1/alarmed-$2") 2>/dev/null && return 0
-  [ ! -e "$1/alarmed-$2" ] && [ ! -L "$1/alarmed-$2" ]
+  mark_claim "$1/alarmed-$2"
+}
+
+# mark_claim <path> — 0 when this call is the first to claim the once-only
+# mark at <path>. Anything already there, a link included, claims nothing:
+# noclobber refuses only an existing regular file and would open a link to a
+# fifo or a device. The create is exclusive, so two callers never both claim.
+# A mark that cannot be written at all still claims: a second push beats none.
+mark_claim() {
+  [ ! -e "$1" ] && [ ! -L "$1" ] || return 1
+  (set -C && : >"$1") 2>/dev/null && return 0
+  [ ! -e "$1" ] && [ ! -L "$1" ]
 }
 
 # result_snapshot <dir> — one read of the result record into rs_raw; 0 when
