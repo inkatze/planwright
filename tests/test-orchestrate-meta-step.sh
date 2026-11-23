@@ -850,7 +850,7 @@ m22() {
   [ "$RC" -eq 0 ] || fail "m22: the dispatch from an unregistered session exited $RC: $ERR"
   [ "$(field handle)" = demo-task-1 ] || fail "m22: unregistered session: handle line '$(field handle)'"
   for frag in 'no registered session is named mc-alpha-orchestrator-9999999999' \
-    'this dispatch is registered with no owner' 'no tower identity available'; do
+    'this dispatch is registered with no owner (mission-control-launch.sh adopt --plan exit 3' 'no tower identity available'; do
     case $ERR in
       *"$frag"*) ;;
       *) fail "m22: an unregistered session's dispatch did not say '$frag': $ERR" ;;
@@ -872,7 +872,8 @@ exit 0
 EOF
   chmod +x "$C/root/scripts/fleet-streamjson.sh"
   # shellcheck disable=SC2016 # the stub body expands in the stub, not here
-  stub mission-control-launch.sh 'for a in "$@"; do [ "$a" = --plan ] && plan=1; done
+  stub mission-control-launch.sh 'printf "%s\n" "$*" >>"$(dirname "$0")/../../rec/adopt-calls"
+for a in "$@"; do [ "$a" = --plan ] && plan=1; done
 if [ "${plan:-}" = 1 ]; then
   printf "adopt\tname\tmc-alpha-worker-0123456789\nadopt\tprogram\talpha\nadopt\towner\tmission-control:alpha\n"
   exit 0
@@ -886,6 +887,9 @@ exit 4'
   [ "$(cat "$C/rec/sj-handle" 2>/dev/null)" = mc-alpha-worker-0123456789 ] \
     || fail "m23: the rung did not launch under the planned name: $(cat "$C/rec/sj-handle" 2>&1)"
   [ "$(field handle)" = mc-alpha-worker-0123456789 ] || fail "m23: handle line '$(field handle)'"
+  printf 'adopt mc-alpha-orchestrator-0123456789 --scope demo:task-1 --plan\nadopt mc-alpha-orchestrator-0123456789 --scope demo:task-1\n' >"$C/rec/adopt-want"
+  cmp -s "$C/rec/adopt-want" "$C/rec/adopt-calls" \
+    || fail "m23: the launcher was not asked to plan, then record, this session's worker: $(cat "$C/rec/adopt-calls" 2>&1)"
   for frag in 'refusing to adopt (stub)' 'the launcher recorded no row for it (adopt exit 4)'; do
     case $ERR in
       *"$frag"*) ;;

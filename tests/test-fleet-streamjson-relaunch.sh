@@ -552,9 +552,6 @@ session_env sjr-step '' launch sjr-step flight-step --prompt-file "$tmp/prompt" 
   || fail "r8b: the launch naming itself as the launching session exited non-zero"
 [ ! -e "$sdir/parent" ] || fail "r8b: a launch naming itself as the launching session recorded a parent"
 senv -- stop sjr-step --grace 2 >/dev/null 2>&1
-session_env sjr-orch sjr1 launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
-  || fail "r8b: setup: the relaunch from inside worker sjr1 exited non-zero"
-senv -- stop sjr-step --grace 2 >/dev/null 2>&1
 echo "ok: r8b every session holds its own handle, and a launch from inside one records it as the parent"
 
 # ---------------------------------------------------------------------------

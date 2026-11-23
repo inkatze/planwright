@@ -479,8 +479,9 @@ mk8r "$w5" mission-control:p
 printf 'mc-p-orchestrator-0123456789\n' >"$home8r/streamjson/$w5/parent"
 printf 'mission-control:%s\n' "$w5" >"$home8r/streamjson/$w5/tier_unit"
 : >"$rec8r/argv"
-senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w5" --foreground >/dev/null 2>&1
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w5" --foreground >"$tmp/o8r5" 2>&1
 [ $? -eq 3 ] || fail "c8r: a launcher's own worker with no row and no copy must be refused even when it records a parent"
+grep -q 'no launcher registry row' "$tmp/o8r5" || fail "c8r: the refusal of a launcher's own worker must name its reason: $(cat "$tmp/o8r5")"
 [ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover of a launcher's own worker spawned it"
 w3=sjw8r-plain
 mk8r "$w3" tower-abc

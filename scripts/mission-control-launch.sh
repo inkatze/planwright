@@ -258,8 +258,9 @@ server, or another name: nothing is done to tmux then, and stderr says so in
 one line); one recorded without its server is never closed by its id, only
 the windows carrying the session's name are. A session with no row
 (one an older planwright, a /orchestrate outside a program's session or a
-hand launch started, named by its worker handle) is retired through its stream-json runtime directory: the rung's
-final close, then its fleet record and attention row, over the classes
+hand launch started, named by its worker handle) is retired through its
+stream-json runtime directory: the rung's final close, then its fleet
+record and attention row, over the classes
 process, registry and attention, refused while the rung's own launch,
 recover or relaunch of it is in flight; with no such directory either, the
 refusal names the headless and tmux stops.
@@ -1644,8 +1645,9 @@ EOF
 }
 
 # retire_unregistered <name> — retire a session this launcher holds no row
-# for: one an older planwright, /orchestrate or a hand launch started straight
-# on the stream-json rung. Its runtime directory is all there is to go on, so
+# for: one an older planwright, a /orchestrate outside a program's session (or
+# one whose adoption did not land) or a hand launch started straight on the
+# stream-json rung. Its runtime directory is all there is to go on, so
 # the rung's own final close takes it, then the fleet registry marker under
 # the same handle and the attention row, as for a launched one. Without that
 # directory the refusal names the stop that applies.
