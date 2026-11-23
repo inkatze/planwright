@@ -76,6 +76,7 @@ expect_out "a rename into a gated path takes that path's gate" "$gate_fail"
 dr_pr "$dr_base" "## Summary" main 'tools/copy.sh|COPIED|scripts/tool.sh'
 expect_out "a copy out of a gated path keeps that path's gate" "$gate_fail"
 dr_pr "$dr_base" "## Summary" main 'docs/new.md|RENAMED|docs/old.md'
+has "the unrelated rename's source is collected" "path${tab}docs/new.md${tab}RENAMED${tab}docs/old.md"
 expect_no_out "a rename within an unrelated directory takes no path gate" "$gate_fail"
 hasnt "nor a sign-off" "signoff${tab}"
 cp "$tmp/gates.keep" "$mchome/gates.tsv"
@@ -88,6 +89,7 @@ has "a rename out of a bundle is held for that bundle's sign-off" "signoff${tab}
 expect_out "and the walk refuses it" "fail${tab}signoff${tab}demo: "
 git -C "$repo" reset -q --hard "$dr_base"
 dr_pr "$dr_base" "## Summary" main 'docs/design.md|COPIED|specs/demo/design.md'
+has "the copy's source is collected" "path${tab}docs/design.md${tab}COPIED${tab}specs/demo/design.md"
 hasnt "a copy out of a bundle holds nothing of the bundle it leaves unchanged" "signoff${tab}demo${tab}"
 
 sed -i.bak "s|^program_alpha_spec_root: .*|program_alpha_spec_root: $repo|" "$tracked"
