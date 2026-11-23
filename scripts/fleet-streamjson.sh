@@ -1460,7 +1460,8 @@ handle_line() {
       hl_uid=$(json_field "$hl_line" uuid)
       if valid_reqid "$hl_uid"; then
         hl_now=$(now_epoch) || hl_now=0
-        printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks" || :
+        printf '%s\t%s\n' "$hl_now" "$hl_uid" >>"$hl_dir/steer-acks" \
+          || printf '%s\n' "$me: could not record that worker $hl_worker read frame $hl_uid; a steer-lost report for it would be false" >&2
       fi
       ;;
     *'"type":"system"'*'"subtype":"init"'*)
