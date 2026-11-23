@@ -86,6 +86,7 @@ record "$wt" "$B" $ALLOW
 chmod 000 "$(rec_path "$wt")"
 if [ -r "$(rec_path "$wt")" ]; then
   chmod 600 "$(rec_path "$wt")"
+  printf '%s\n' "skip: an unreadable record (this user reads every file, as root does)"
 else
   try "an unreadable record" "$(push_args "$LEASE")" --force-if-includes
   chmod 600 "$(rec_path "$wt")"
@@ -247,17 +248,29 @@ pass "F1.8: no PR, a ready, cross-repository or doubled PR, a stacked PR, or an 
 g -C "$primary" remote set-url origin git@github.com:acme/decoy.git
 g -C "$primary" config url.git@github.com:acme/demo.git.insteadOf git@github.com:acme/decoy.git
 try "an insteadOf rewrite of the push URL" "$(push_args "$LEASE")" --force-if-includes
-has 'rewrites' "the rewrite refusal says why"
+has 'sends the push to github.com/acme/demo, not github.com/acme/decoy' "the rewrite refusal names both repositories"
 g -C "$primary" config --unset url.git@github.com:acme/demo.git.insteadOf
 g -C "$primary" remote set-url origin "$URL"
 g -C "$primary" config url.git@github.com:acme/elsewhere.git.pushInsteadOf "$URL"
 try "a pushInsteadOf rewrite of the push URL" "$(push_args "$LEASE")" --force-if-includes
+has 'rewrite' "the pushInsteadOf refusal says why"
 g -C "$primary" config --unset url.git@github.com:acme/elsewhere.git.pushInsteadOf
 g -C "$primary" config --add remote.origin.pushurl "$URL"
 g -C "$primary" config --add remote.origin.pushurl git@github.com:acme/other.git
 try "two push URLs" "$(push_args "$LEASE")" --force-if-includes
+has 'single push URL' "the two-URL refusal says why"
 g -C "$primary" config --unset-all remote.origin.pushurl
-pass "F1.8: the PR is read in the one repository the push reaches, with no URL rewrite"
+pass "F1.8: the PR is read in the one repository the push reaches"
+# A rewrite that keeps the repository (an https remote pushed over ssh) is fine.
+g -C "$primary" remote set-url origin https://github.com/acme/demo.git
+g -C "$primary" config url.git@github.com:.insteadOf https://github.com/
+run "$wt" push "$(push_args "$LEASE")" --force-if-includes
+g -C "$primary" config --unset url.git@github.com:.insteadOf
+g -C "$primary" remote set-url origin "$URL"
+[ "$RC" = 0 ] || fail "a same-repository https-to-ssh rewrite refused the push: $OUT"
+[ "$(remote_tip "$B")" = "$NEW" ] || fail "the same-repository rewrite did not land the push"
+grep -q -- '--repo github.com/acme/demo' "$GHLOG" || fail "the same-repository push read another repository: $(cat "$GHLOG")"
+pass "F1.8: an https-to-ssh rewrite of the same repository still pushes"
 
 # --- a moved remote ---------------------------------------------------------------------
 

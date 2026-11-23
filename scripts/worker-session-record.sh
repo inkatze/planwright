@@ -515,9 +515,11 @@ record_lines() {
   printf 'record_key=%s\n' "$key"
 }
 # An earlier launch's copy at the worktree's own path goes first, so a write
-# that fails part way leaves no stale authority behind.
+# that fails part way leaves no stale authority behind. Where the record is
+# that path itself, the atomic move below replaces it instead: a live
+# session's record is never left missing.
 fixed=$dir/$wt_key.record
-rm -f -- "$fixed"
+[ "$rec" = "$fixed" ] || rm -f -- "$fixed"
 tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
 record_lines >"$tmp" || {
   rm -f -- "$tmp"
@@ -536,7 +538,7 @@ if [ -n "$check_commands" ] && { [ -z "$size" ] || [ "$size" -gt "$MAX_RECORD_SI
   }
 fi
 mv -f -- "$tmp" "$rec" || {
-  rm -f -- "$tmp" "$fixed"
+  rm -f -- "$tmp"
   die "cannot write the record"
 }
 # The worktree's own copy lands last, so it never names a launch whose own

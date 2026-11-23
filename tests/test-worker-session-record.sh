@@ -393,6 +393,30 @@ if [ "$REC" != "$fixed" ] && [ -f "$fixed" ] && cmp -s "$REC" "$fixed"; then
 else
   fail "the worktree's own record is missing or differs ($REC, $fixed)"
 fi
+rk=$(basename "$REC" .record)
+if [ "$(field record_key)" = "$rk" ] && grep -qx "record_key=$rk" "$fixed"; then
+  pass "both copies name the session's own record as record_key, its audit log's name"
+else
+  fail "record_key '$(field record_key)' is not the session record's name $rk in both copies"
+fi
+# A plain write (no launch id, no session) is the worktree's path itself, and
+# its earlier record is replaced in place, never removed first.
+REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
+before=$(ls -i "$REC" | awk '{print $1}')
+chmod 500 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+if [ -w "$PLANWRIGHT_FLEET_STATE_DIR/session-records" ]; then
+  chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  printf '%s\n' "skip: a failing plain write (this user writes into a read-only directory, as root does)"
+else
+  /bin/sh "$WRITER" write "$WT" >/dev/null 2>&1
+  rc=$?
+  chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  if [ "$rc" != 0 ] && [ -f "$fixed" ] && [ "$(ls -i "$fixed" | awk '{print $1}')" = "$before" ]; then
+    pass "a plain write that fails leaves the live record at the worktree's path in place"
+  else
+    fail "a failing plain write left the worktree's record missing or replaced (rc=$rc)"
+  fi
+fi
 mode=$(stat -c %a "$fixed" 2>/dev/null || stat -f %Lp "$fixed")
 [ "$mode" = 600 ] && pass "the worktree's own record is owner-only" || fail "the worktree's own record has mode $mode"
 REC=$(/bin/sh "$WRITER" write "$WT" "$id" 2>/dev/null)

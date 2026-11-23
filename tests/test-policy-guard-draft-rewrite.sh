@@ -150,6 +150,7 @@ for br in main master planwright/demo/spec; do
   chmod 600 "$f"
   pg worker 'git rebase origin/main' "$d" "$d"
   expect deny "[worker] allow: a rebase on $br denies"
+  reason_has 'unit branch|protected' "[worker] the $br refusal is the unit-branch or protected-set rule's"
   pg worker 'git commit --amend --no-edit' "$d" "$d"
   expect deny "[worker] allow: an amend on $br denies"
 done

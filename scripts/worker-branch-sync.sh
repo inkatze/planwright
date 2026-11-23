@@ -436,12 +436,17 @@ case $verb in
 
     url=$(git config --get "remote.$remote.pushurl" 2>/dev/null) || url=$(git config --get "remote.$remote.url" 2>/dev/null) || url=''
     [ -n "$url" ] || refuse "the remote $(safe "$remote") has no URL; refusing"
-    # git push applies insteadOf and pushInsteadOf, so the repository gh reads
-    # is the one the push reaches only when no rewrite applies.
-    eff=$(git remote get-url --push "$remote" 2>/dev/null) || eff=''
-    [ "$eff" = "$url" ] \
-      || refuse "a URL rewrite (insteadOf or pushInsteadOf) or a second push URL rewrites where $(safe "$remote") pushes, so the pull request gh would read is not in the repository the push reaches; refusing"
     repo=$(repo_of_url "$url") || refuse "the push remote's URL ($(safe "$url")) names no repository gh can read; refusing"
+    # git push applies insteadOf and pushInsteadOf, so gh reads the repository
+    # the push reaches only when the one effective push URL names the same one
+    # (an https-to-ssh rewrite of the same repository is fine).
+    eff=$(git remote get-url --push --all "$remote" 2>/dev/null) || eff=''
+    case $eff in
+      '' | *"$NL"*) refuse "$(safe "$remote") has no single push URL git would use (none, or a second one), so the repository the push reaches is unknown; refusing" ;;
+    esac
+    eff_repo=$(repo_of_url "$eff") || eff_repo=''
+    [ "$eff_repo" = "$repo" ] \
+      || refuse "a URL rewrite (insteadOf or pushInsteadOf) sends the push to $(safe "${eff_repo:-$eff}"), not $(safe "$repo"), where gh would read the pull request; refusing"
 
     # The audit log the session's command guard writes to, checked before the
     # push so a published rewrite always leaves its line.
@@ -504,7 +509,9 @@ case $verb in
     rm -f -- "$errf"
     if [ "$prc" != 0 ]; then
       printf '%s\n' "$out" | tr -d '\000-\010\013-\037\177' >&2
-      if printf '%s\n' "$out" | grep -q "^!${TAB}[^${TAB}]*:refs/heads/$branch${TAB}\\[rejected\\]"; then
+      if printf '%s\n' "$out" | TO=":refs/heads/$branch" awk -F "$TAB" '
+        $1 == "!" && substr($2, length($2) - length(ENVIRON["TO"]) + 1) == ENVIRON["TO"] && index($3, "[rejected]") == 1 { f = 1 }
+        END { exit !f }'; then
         refuse "$(safe "$remote")/$(safe "$branch") moved past the lease $lease, so someone else pushed to it: treat the branch as shared from now on, and never retry with another lease or a broader force"
       fi
       broken "git push failed (exit $prc)"
