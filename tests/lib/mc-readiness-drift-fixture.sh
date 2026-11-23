@@ -48,7 +48,8 @@ dr_base=$(dr_commit "base with code and a signed spec")
 git -C "$repo" update-ref refs/remotes/origin/main "$dr_base"
 # dr_pr <head> <body> <base branch> <path[|change type[|source]]>...: collect
 # and check over the forge's view. The source, a rename's or copy's, is known
-# only to the REST file list, as spec_pr writes it.
+# only to the REST file list, as spec_pr writes it; DR_REST=fail makes that
+# read fail.
 dr_pr() {
   dr_h=$1 dr_body=$2 dr_bb=$3
   shift 3
@@ -59,6 +60,7 @@ dr_pr() {
   jq -n --args '$ARGS.positional | map(split("|")
     | if (.[2] // "") != "" then {filename: .[0], status: "renamed", previous_filename: .[2]}
       else {filename: .[0], status: "modified"} end)' "$@" >"$tmp/files.json"
+  [ "${DR_REST:-}" != fail ] || rm -f "$tmp/files.json"
   printf '%s\n' "$dr_h" >"$tmp/headnow"
   rm -f "$tmp/collected"
   PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --out "$tmp/collected"

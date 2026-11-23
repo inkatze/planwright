@@ -75,6 +75,9 @@ dr_pr "$dr_base" "## Summary" main 'scripts/tool.sh|RENAMED|tools/tool.sh'
 expect_out "a rename into a gated path takes that path's gate" "$gate_fail"
 dr_pr "$dr_base" "## Summary" main 'tools/copy.sh|COPIED|scripts/tool.sh'
 expect_out "a copy out of a gated path keeps that path's gate" "$gate_fail"
+DR_REST=fail dr_pr "$dr_base" "## Summary" main 'tools/tool.sh|RENAMED|scripts/tool.sh'
+hasnt "a rename whose source could not be read carries none" "RENAMED${tab}scripts/"
+expect_out "and the walk refuses it rather than judge its destination alone" "fail${tab}path${tab}tools/tool.sh is renamed from a path the file list of the forge did not name"
 dr_pr "$dr_base" "## Summary" main 'docs/new.md|RENAMED|docs/old.md'
 has "the unrelated rename's source is collected" "path${tab}docs/new.md${tab}RENAMED${tab}docs/old.md"
 expect_no_out "a rename within an unrelated directory takes no path gate" "$gate_fail"

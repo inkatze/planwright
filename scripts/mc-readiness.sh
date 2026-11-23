@@ -167,7 +167,8 @@ THE WALK refuses, each failure one line:
     not SUCCESS, named with the ci-macos label that starts it, so the flip
     never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
-    read;
+    read, a renamed or copied path whose source the forge's file list did
+    not name;
   - any screenshot whose judgment is not ok, or recorded at another head;
   - each required step (ready steps) with no passed or applied record
     ending on the head;
@@ -521,6 +522,7 @@ $1 == "thread" && $3 != "resolved" { fail("thread", $2 " is open") }
 $1 == "finding" && $4 != "answered" { fail("finding", $2 " " $3 " is unanswered") }
 $1 == "guard" && $3 != "pass" { fail("guard", $2 ": " $4) }
 $1 == "truncated" { fail("truncated", "the " $2 " read hit its cap; what lies past it is unread") }
+$1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") && $4 == "" { fail("path", $2 " is " tolower($3) " from a path the file list of the forge did not name, so the gates and sign-off its source brings cannot be read; collect again") }
 $1 == "step" { steps[++ns] = $2 "\t" $3 "\t" $4 }
 $1 == "cadence" && $2 == "audited" { audited = $3 }
 $1 == "cadence" && $2 == "gap" {
@@ -1111,7 +1113,7 @@ collect() {
   mc_valid_sha "$cl_head" || mc_fail "the pull request read returned no head"
   # The GraphQL file list names no source for a rename or copy; the REST one
   # does. Advisory: a failed read leaves the path with no source,
-  # which no spec-only scope accepts.
+  # which no spec-only scope accepts and the walk refuses.
   if awk -F '\t' '$1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") { f = 1 } END { exit !f }' "$cl_tmp/pr" \
     && gh api --paginate "repos/$2/pulls/$3/files?per_page=100" --jq '.[] | select((.previous_filename // "") != "")
       | "from\t" + (.filename | tostring | gsub("[\t\r\n]"; " ")) + "\t" + (.previous_filename | tostring | gsub("[\t\r\n]"; " "))' \
