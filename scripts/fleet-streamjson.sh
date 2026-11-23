@@ -3102,16 +3102,17 @@ steer_scan() {
   ss_since=$(head -n 1 "$ss_dir/replay-since" 2>/dev/null) || return 0
   valid_posnum "${ss_since:-}" || return 0
   # The end epoch is the result record's third field, on either row kind.
-  ss_end=''
+  ss_end='' ss_kind=''
   if result_snapshot "$ss_dir"; then
     ss_end=$(printf '%s' "$rs_raw" | awk -F'\t' 'NR == 1 { print $3 }')
+    ss_kind=${rs_raw%%"$TAB"*}
     valid_posnum "${ss_end:-}" || ss_end=''
   fi
   ss_lost=$(awk -F'\t' -v acks="$ss_dir/steer-acks" -v since="$ss_since" -v end="$ss_end" \
-    -v now="$ss_now" -v grace="$ss_grace" '
+    -v now="$ss_now" -v grace="$ss_grace" -v how="$ss_kind" '
     BEGIN { while ((getline l < acks) > 0) { split(l, f, "\t"); seen[f[2]] = 1 } }
     NF >= 4 && $1 ~ /^[0-9]+$/ && $1 + 0 >= since + 0 && !($4 in seen) {
-      if (end != "" && $1 + 0 <= end + 0 && now - end >= grace + 0) print $4 "\t" $3 "\tended\t" now - end
+      if (end != "" && $1 + 0 <= end + 0 && now - end >= grace + 0) print $4 "\t" $3 "\t" how "\t" now - end
       else if ($5 == "idle" && now - $1 >= grace + 0) print $4 "\t" $3 "\tidle\t" now - $1
     }
   ' "$ss_dir/steers" 2>/dev/null) || ss_lost=''
@@ -3121,6 +3122,7 @@ steer_scan() {
     ss_name=$(sanitize_printable "$ss_file" unnamed | cut -c1-200)
     case $ss_how in
       idle) ss_why="the worker was idle when it was sent ${ss_age}s ago and has not taken it" ;;
+      exit) ss_why="the worker exited ${ss_age}s ago without taking it" ;;
       *) ss_why="its turn ended ${ss_age}s ago and the session did not take the message" ;;
     esac
     # A report the store refused gives its mark back, so the next scan retries.

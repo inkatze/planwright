@@ -311,6 +311,8 @@ case $a7_out in
   *) fail "a7: alarm-scan must report the dead worker's unread steer; got: $a7_out" ;;
 esac
 reported "$home" sja7 || fail "a7: the unread steer must reach the attention store: $(cat "$home/attention/state" 2>&1)"
+grep "^sja7$tab" "$home/attention/state" | grep -q 'the worker exited 800s ago' \
+  || fail "a7: a worker that exited must not be reported as ending a turn: $(cat "$home/attention/state")"
 a7_again=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2001)
 case $a7_again in
   *steer-lost*) fail "a7: a second scan must not report it again: $a7_again" ;;
