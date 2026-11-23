@@ -144,6 +144,13 @@ if [ "$(tail -n 1 "$STATE/audit.4/ouchk.log" 2>/dev/null | grep -o 'arm=[a-z,-]*
 else
   fail "F1.11: audit line: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
 fi
+assert_allow "F1.11: a check command after a git add partner" \
+  "git add test && mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+if [ "$(tail -n 1 "$STATE/audit.4/ouchk.log" 2>/dev/null | grep -o 'arm=[a-z,-]*')" = arm=own-branch,own-unit ]; then
+  pass "F1.11: a check-command chain with a git add is audited as own-branch,own-unit"
+else
+  fail "F1.11: audit line: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
+fi
 assert_defer "F1.11: a check command behind ||" \
   "mix test test || git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command behind &" \
