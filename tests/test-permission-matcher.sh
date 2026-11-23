@@ -530,8 +530,8 @@ allow|legit|git add -A && git commit -m "wip"|compound where every subcommand is
 allow|legit|gh pr create --draft --title t --body b|draft PR creation
 allow|legit|gh pr ready 123|the /spec-kickoff spec-PR exception stays allowed
 allow|legit|git status|read-only status
-allow|legit|git log --oneline -5|read-only log
-allow|legit|mise run check|the full CI gate
+prompt|residual|git log --oneline -5|no static rule names git log, which writes to any path with --output; the worker guard approves the read form (MB-5)
+prompt|residual|mise run check|no static rule names mise run, whose --shell, --cd, --env and --tool change what the task runs; the worker guard approves the plain form (MB-5)
 allow|residual|git push origin "main"|quoted destination; the glob layer is literal so it misses this — githooks/pre-push rejects the refspec
 allow|residual|git push origin "master"|quoted master destination; the glob layer misses it the same way, and githooks/pre-push refuses only main, so no layer backs this one up
 allow|residual|git push origin 'planwright/human-gates/spec'|quoted spec-branch destination; missed like the quoted master push, with no githooks backstop either
@@ -598,14 +598,22 @@ deny|load-bearing|if false; then true; elif git push origin main; then true; fi|
 allow|legit|for f in a b; do git add $f; done|a for loop whose body every allow rule covers is allowed (M9)
 allow|legit|git rev-parse --abbrev-ref HEAD|read-only rev-parse
 allow|legit|git branch --show-current|read-only branch listing
-allow|legit|git diff --stat origin/main|diff stat
-allow|legit|git show --stat HEAD|show stat
+prompt|residual|git diff --stat origin/main|no static rule names git diff; the worker guard approves the read form (MB-5)
+prompt|residual|git show --stat HEAD|no static rule names git show; the worker guard approves the read form (MB-5)
+prompt|residual|git show --output=/tmp/x HEAD:f|git show writes its output to the named path, one the file tools refuse included, so no static rule may admit it (REQ-G1.1)
+prompt|residual|git log --output /tmp/x|git log takes --output as a separate word too (REQ-G1.1)
+prompt|residual|git diff --output=/tmp/x|git diff writes its patch to the named path (REQ-G1.1)
+prompt|residual|mise run --shell 'sh x' t|--shell runs the task through any command (REQ-G1.1)
+prompt|residual|mise run -s 'sh x' t|the short --shell form (REQ-G1.1)
+prompt|residual|mise run --shell='sh x' t|the attached --shell form (REQ-G1.1)
+prompt|residual|mise run --cd /tmp/x t|--cd runs a task another directory's config defines (REQ-G1.1)
+prompt|residual|mise tasks run --shell 'sh x' t|mise tasks run is mise run (REQ-G1.1)
 allow|legit|git checkout planwright/guard-coverage/task-1|checkout of a task branch
 allow|legit|git switch planwright/guard-coverage/task-1|switch to a task branch
 allow|legit|git add scripts/x.sh|staging a file
 allow|legit|gh pr view 123 --json state|PR inspection
 allow|legit|gh pr list --head planwright/guard-coverage/task-1|PR listing
-allow|legit|mise tasks|task listing
+prompt|residual|mise tasks|no static rule names mise tasks, whose run leaf is mise run and edit leaf opens an editor; the worker guard approves the listing (MB-5)
 prompt|residual|wc --files0-from=/proc/1234/environ README.md|no static rule names wc: --files0-from echoes a file's content in its error output (REQ-G1.1, REQ-E1.6)
 allow|legit|ls -la scripts|static read-only set: ls (REQ-G1.1)
 allow|legit|stat README.md|static read-only set: stat (REQ-G1.1)
@@ -748,7 +756,7 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=208
+ROW_FLOOR=216
 DENY_ROW_FLOOR=124
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
@@ -945,8 +953,9 @@ fi
 # ---------------------------------------------------------------------------
 FORBIDDEN_VERBS='awk find xargs sed sort uniq cat grep head tail cut diff jq wc'
 # Verbs that run their argument as the command, so a rule naming one admits
-# whatever follows it.
-WRAPPER_VERBS='command builtin env sudo time timeout nice nohup stdbuf noglob exec eval sh bash zsh fish'
+# whatever follows it. mise runs one through `exec`, and through `run` with
+# --shell, or a task another directory's config defines with --cd.
+WRAPPER_VERBS='command builtin env sudo time timeout nice nohup stdbuf noglob exec eval sh bash zsh fish mise'
 # The diff family takes --output, rev-list and the log family write the same
 # way, grep takes -O, cat-file takes --textconv.
 FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlog reflog format-patch range-diff rev-list stash grep cat-file'
@@ -955,7 +964,7 @@ FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlo
 REVIEWED_GIT='status rev-parse checkout switch add commit push ls-files ls-tree merge-base show-ref for-each-ref'
 # Rules that predate the no-write-forms rule and keep their write forms: kept,
 # never widened, and no new rule may join them.
-GRANDFATHERED='Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git branch:*)'
+GRANDFATHERED='Bash(git branch:*)'
 
 # forbidden_allow_rules <rule-lines> — print each Bash allow rule that names a
 # forbidden or wrapper verb, a verb that is not a plain word (a glob, a path,
@@ -1025,9 +1034,13 @@ Bash(/bin/cat:*)
 Bash(LC_ALL=C sort:*)
 Bash(command cat:*)
 Bash(git diff:*)
+Bash(git show:*)
+Bash(git log:*)
+Bash(mise run:*)
+Bash(mise tasks:*)
 Bash(git ls-files:*)
 Bash(stat:*)'
-expected_probe='Bash(cat:*) Bash(sed -n:*) Bash(wc:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) Bash(git archive:*) Bash(git --no-pager grep:*) Bash(git*) Bash(*) Bash(/bin/cat:*) Bash(LC_ALL=C sort:*) Bash(command cat:*) '
+expected_probe='Bash(cat:*) Bash(sed -n:*) Bash(wc:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) Bash(git archive:*) Bash(git --no-pager grep:*) Bash(git*) Bash(*) Bash(/bin/cat:*) Bash(LC_ALL=C sort:*) Bash(command cat:*) Bash(git diff:*) Bash(git show:*) Bash(git log:*) Bash(mise run:*) Bash(mise tasks:*) '
 if [ "$(forbidden_allow_rules "$probe" | tr '\n' ' ')" = "$expected_probe" ]; then
   ok "pass G flags each excluded, unreviewed, or disguised spelling and passes the reviewed ones"
 else

@@ -79,10 +79,20 @@ verb, target, session and kind is logged in <runtime>/wake-misroutes
 wake-misroute event.
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
-and mark it submitted for the target (compose's one mark), since the
-script that emitted it already acted and nothing in it is for the
-operator; it stays listable. With the table unreadable every event wakes,
-said on stderr.
+and mark it submitted for the target, since the script that emitted it
+already acted and nothing in it is for the operator; it stays listable.
+With the table unreadable every event wakes, said on stderr.
+AN EVENT WHOSE SUBJECT IS GONE never wakes either: relay, tick and compose
+mark it submitted unsent (mc-event.sh prune --gone, run by hand, clears the
+same ones from the store). Gone is a pending-prompt-overdue for a session
+scripts/mc-session-names.sh does not name, a handover-requested or
+mission-control-announce naming a session that is not the program's holder,
+and a merged or closed pull request (merge-ready, readiness-due,
+ready-to-merge, ready-offer), judged before the merge-ready check below. A
+pending-prompt is never judged gone, since one carries several workers'
+requests under the first one's name. A read that fails or comes back empty,
+or a subject that cannot be resolved, keeps the event: it is not dropped as
+gone.
 A merge-ready event is checked against the forge before it wakes
 (scripts/mc-merge-ready.sh fresh): one whose pull request merged, closed
 or moved to another head is marked submitted unsent; one whose bot round is
@@ -140,9 +150,9 @@ Usage:
       the wake a session with the mod submits itself: `idle`, or
       `wake<TAB><n><TAB><id> <id>...` then the wake's text, over the
       target's events not yet submitted (the tick's selection); or
-      `paused` (`blocked`) as the relay. Sends nothing and marks only
-      routine events: the mod marks the ids submitted once its prompt is
-      in.
+      `paused` (`blocked`) as the relay. Sends nothing and marks only the
+      events it leaves out (routine, gone-subject and stale merge-ready
+      ones): the mod marks the ids submitted once its prompt is in.
 
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
@@ -328,22 +338,36 @@ EOF
 }
 
 # select_events <target> unmarked|unsubmitted: the target's events for one
-# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all but the routine
-# ones), SEL_N and SEL_IDS (space separated).
+# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (every event the wake
+# may carry, before the LISTED_MAX cut), SEL_N and SEL_IDS (space separated).
 select_events() {
   SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
-  # A routine event is marked submitted unsent, so it leaves the pending
-  # set (the panel's count, the next listing) instead of piling up there.
-  # Marked in batches, so a large routine backlog never outgrows the
-  # argument list and holds back the events that do wake.
-  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '
-    { printf "%s%s", (n % 200 ? " " : (n ? "\n" : "")), $1; n++ } END { if (n) print "" }')
-  if [ -n "$sel_routine" ]; then
-    printf '%s\n' "$sel_routine" | while IFS= read -r sel_batch; do
-      # shellcheck disable=SC2086 # one event id per word
-      mc_event mark --program "$program" --target "$1" submitted $sel_batch
-      case $? in 0 | 3) ;; *) exit 1 ;; esac
-    done || return 1
+  # A routine event, and one whose subject is gone (a retired session, a
+  # merged pull request, a past holder), is marked submitted unsent, so it
+  # leaves the pending set (the next listing) instead of piling up there.
+  # Marked in batches, so a large backlog never outgrows the argument list
+  # and holds back the events that do wake.
+  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '{ print $1 }')
+  sel_gone=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes | mc_event_gone "$program")
+  sel_ids=$(printf '%s\n%s\n' "$sel_routine" "$sel_gone" | awk 'NF && !seen[$0]++')
+  if [ -n "$sel_ids" ]; then
+    printf '%s\n' "$sel_ids" | awk '{ printf "%s%s", (NR % 200 != 1 ? " " : (NR > 1 ? "\n" : "")), $0 } END { print "" }' \
+      | while IFS= read -r sel_batch; do
+        # shellcheck disable=SC2086 # one event id per word
+        mc_event mark --program "$program" --target "$1" submitted $sel_batch
+        case $? in 0 | 3) ;; *) exit 1 ;; esac
+      done || return 1
+    # The dropped ids go to awk as a file, never an argument or environment
+    # string, which a large backlog would outgrow.
+    sel_file=$(mktemp "$runtime/.sel.XXXXXX") || return 1
+    printf '%s\n' "$sel_ids" >"$sel_file" || {
+      rm -f "$sel_file"
+      return 1
+    }
+    SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' 'FILENAME == ARGV[1] { d[$1] = 1; next } NF && !($1 in d)' "$sel_file" -)
+    sel_rc=$?
+    rm -f "$sel_file"
+    [ "$sel_rc" -eq 0 ] || return 1
   fi
   SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes)
   drop_stale_merge_ready "$1" || return 1
