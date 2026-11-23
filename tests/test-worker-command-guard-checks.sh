@@ -134,6 +134,39 @@ assert_defer "F1.11: a declared check command after the own push" \
 assert_defer "F1.11: a declared check command joined to the own push by ;" \
   "mix test test; git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 
+echo "### REQ-F1.11 — a check command partners an own-unit act only by &&"
+REC_OU=$(with_checks ouchk 4 'mix test <path>...')
+under "$REC_OU"
+assert_allow "F1.11: a check command before the own push, both arms" \
+  "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+if [ "$(tail -n 1 "$STATE/audit.4/ouchk.log" 2>/dev/null | grep -o 'arm=[a-z,-]*')" = arm=own-unit ]; then
+  pass "F1.11: a check-command chain is audited as own-unit"
+else
+  fail "F1.11: audit line: $(tail -n 1 "$STATE/audit.4/ouchk.log" 2>&1)"
+fi
+assert_defer "F1.11: a check command behind ||" \
+  "mix test test || git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command behind &" \
+  "mix test test & git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command piped into the own push" \
+  "mix test test | git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command before a line break" \
+  "mix test test
+git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command, && and a line break" \
+  "mix test test &&
+git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command in a loop" \
+  "for f in a; do mix test test; done && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command in a subshell" \
+  "(mix test test) && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_allow "F1.11: the file write alone allows under own-branch" "touch build.txt" Bash "$WT"
+assert_defer "F1.11: a check command chained with a file write" \
+  "mix test test && touch build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.11: a check command chained with a fetch" \
+  "mix test test && git fetch origin && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+under "$REC"
+
 echo "### REQ-A1.18 — a malformed declaration drops alone"
 assert_defer "A1.18: an unknown placeholder" "mix lint x" Bash "$WT"
 assert_defer "A1.18: a metacharacter in a declaration" "mix y 'a|b'" Bash "$WT"
