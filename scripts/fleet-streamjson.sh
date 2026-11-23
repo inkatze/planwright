@@ -1546,7 +1546,8 @@ supervise() {
   # valid one is kept.
   sv_since=$(head -n 1 "$sv_dir/replay-since" 2>/dev/null) || sv_since=''
   if ! valid_posnum "$sv_since" && sv_since=$(now_epoch) && valid_posnum "$sv_since"; then
-    printf '%s\n' "$sv_since" >"$sv_dir/replay-since" 2>/dev/null || :
+    printf '%s\n' "$sv_since" >"$sv_dir/replay-since" 2>/dev/null \
+      || printf '%s\n' "$me: could not write $sv_dir/replay-since; worker $sv_worker's unread steers will not be reported" >&2
   fi
   "$@" <"$sv_dir/in.fifo" >"$sv_dir/out.fifo" 2>>"$sv_dir/stderr.log" &
   sv_pid=$!
