@@ -6176,8 +6176,9 @@ classify_verb() {
 # declaration holding anything else is malformed and dropped alone. The
 # declarations come from the session record, read by the launcher at the
 # primary checkout, never from a file the worker can write; the floor is read
-# before them (verify_simple). Running one runs repository code, the same
-# trust the guard gives the repository's scripts/.
+# before them (verify_simple). Running one runs repository code: a script its
+# literal words name is held to HEAD as the repository's scripts/ are
+# (check_literals_committed), and whatever a `<path>` names runs as declared.
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6379,9 +6380,36 @@ check_command_ok() {
   [ "$CHECK_STATE" = 1 ] || check_decls_load
   for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
     [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
-    check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" && return 0
+    check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" \
+      && check_literals_committed "${CHECK_DECLS[k]}" "$CHECK_CWD" && return 0
   done
   return 1
+}
+
+# check_literals_committed <declaration> <canonical-cwd>: every literal word
+# of the declaration that names an existing file (a word holding a `/`) is
+# held to what HEAD commits, as a declared step's location is
+# (declared_location_ok): the declaration names the file, not its content, and
+# the worker can Write it. A `<path>` placeholder is the declarer's choice of
+# what the runner is given, and stays as declared.
+check_literals_committed() {
+  local -a dw=()
+  local w full
+  IFS=' ' read -r -a dw <<<"$1"
+  for w in "${dw[@]}"; do
+    case $w in
+      '<'*) continue ;;
+      /*) full=$w ;;
+      */*) full=$2/$w ;;
+      *) continue ;;
+    esac
+    [ -e "$full" ] || [ -L "$full" ] || continue
+    if [ -d "$full" ] && [ ! -L "$full" ]; then
+      continue
+    fi
+    declared_location_ok "$full" || return 1
+  done
+  return 0
 }
 
 # --------------------------------------------------------------------------

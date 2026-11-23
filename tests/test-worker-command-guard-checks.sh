@@ -171,4 +171,24 @@ else
 fi
 HOOK_ENV=()
 
+echo "### a script a declaration names is held to what HEAD commits"
+# scripts/ok.sh is committed in the corpus base; tests/run.sh is not.
+printf '#!/bin/sh\n' >"$WT/tests/run.sh"
+LIT='scripts/ok.sh <word>; bash tests/run.sh; bash tests/ok.sh'
+under "$(with_checks literal 1 "$LIT")"
+assert_allow "a committed script a declaration names" "scripts/ok.sh lint" Bash "$WT"
+assert_defer "an untracked script a declaration names" "bash tests/run.sh" Bash "$WT"
+cp "$WT/scripts/ok.sh" "$STATE/ok.orig"
+printf 'printf pwned\n' >>"$WT/scripts/ok.sh"
+assert_defer "a named script edited since HEAD" "scripts/ok.sh lint" Bash "$WT"
+cp "$STATE/ok.orig" "$WT/scripts/ok.sh"
+assert_allow "the named script put back" "scripts/ok.sh lint" Bash "$WT"
+# The check reads the file before the command runs, so a write beside the run
+# turns the trust off for the whole command.
+under "$(with_checks literal.ob 2 "$LIT")"
+assert_defer "a write beside a committed script a declaration names" "cp f scripts/ok.sh && scripts/ok.sh lint" Bash "$WT"
+assert_allow "the same run with no write beside it" "scripts/ok.sh lint" Bash "$WT"
+rm -f "$WT/tests/run.sh"
+HOOK_ENV=()
+
 finish_suite worker-command-guard-checks
