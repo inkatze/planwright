@@ -158,6 +158,57 @@ printf '%s\n' "$out" | grep -q "orchestration-fleet" || fail "registry: scope no
 echo "ok: the registry round-trips a worker/scope record"
 
 # ---------------------------------------------------------------------------
+# 6b. A registry that cannot be read is not an empty one: the read exits 2
+#     with a one-line reason, so a caller cannot mistake it for "no sessions".
+#     Only an absent registry, a home nothing has registered in yet, reads as
+#     empty and exits 0.
+# ---------------------------------------------------------------------------
+renv() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$1" /bin/sh "$FS" registry 2>"$tmp/reg.err"
+}
+# expect_read_failure <home> <case> — the read exits 2, prints no record and
+# names its reason on exactly one stderr line.
+expect_read_failure() {
+  rc=0
+  out=$(renv "$1") || rc=$?
+  [ "$rc" = 2 ] || fail "registry read, $2: expected exit 2, got $rc"
+  [ -z "$out" ] || fail "registry read, $2: printed records: $out"
+  [ "$(wc -l <"$tmp/reg.err" | tr -d ' ')" = 1 ] \
+    || fail "registry read, $2: expected one stderr line, got: $(cat "$tmp/reg.err")"
+  grep -q "^fleet-state: could not read the registry" "$tmp/reg.err" \
+    || fail "registry read, $2: the reason is not the registry read failure: $(cat "$tmp/reg.err")"
+}
+
+home_absent="$tmp/registry-absent"
+rc=0
+out=$(renv "$home_absent") || rc=$?
+[ "$rc" = 0 ] || fail "registry read, absent: a home with no registry yet must exit 0, got $rc"
+[ -z "$out" ] || fail "registry read, absent: printed records: $out"
+[ ! -s "$tmp/reg.err" ] || fail "registry read, absent: wrote to stderr: $(cat "$tmp/reg.err")"
+echo "ok: an absent registry reads as empty and exits 0"
+
+home_dir="$tmp/registry-dir"
+mkdir -p "$home_dir/registry"
+expect_read_failure "$home_dir" "a directory at the registry path"
+home_dangle="$tmp/registry-dangling"
+mkdir -p "$home_dangle"
+ln -s "$home_dangle/nowhere" "$home_dangle/registry"
+expect_read_failure "$home_dangle" "a dangling registry link"
+echo "ok: a registry path that is not a file fails the read with a reason"
+
+home_unread="$tmp/registry-unreadable"
+mkdir -p "$home_unread"
+printf '1\tworker=beta\tscope\n' >"$home_unread/registry"
+chmod 000 "$home_unread/registry"
+if hermetic_access_denied r "$home_unread/registry"; then
+  expect_read_failure "$home_unread" "an unreadable registry"
+  echo "ok: an unreadable registry fails the read with a reason"
+else
+  echo "skip: unreadable registry case: the running user still reads a mode-000 file"
+fi
+
+# ---------------------------------------------------------------------------
 # 7. No fleet path writes into the sibling's spec-local .orchestrate/ dir, and
 #    the fleet home is not itself under a specs/ tree.
 # ---------------------------------------------------------------------------

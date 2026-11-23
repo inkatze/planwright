@@ -697,7 +697,7 @@ ok "self-name prints the record's name and exits non-zero when the record or its
 # the script reaches its siblings by its own directory, never by PATH.
 srbin="$tmp/srbin"
 mkdir -p "$srbin"
-cp "$FM" "$root/scripts/echo-safety.sh" "$srbin/"
+cp "$FM" "$root/scripts/echo-safety.sh" "$root/scripts/uuid-lib.sh" "$srbin/"
 amendlog="$tmp/amend.log"
 printf '#!/bin/sh\nprintf "%%s|" "$@" >>"%s"\nprintf "\\n" >>"%s"\n' "$amendlog" "$amendlog" >"$srbin/fleet-register.sh"
 chmod +x "$srbin/fleet-register.sh" "$srbin/fleet-messaging.sh"

@@ -41,8 +41,17 @@ sync "$H --help push"
 expect deny "[worker] the usage flag beside a verb denies"
 no_gh_calls
 
-echo "# push, in every spelling: the helper publishes nothing"
-for args in "push --force-with-lease=$B:$SHA --force-if-includes" "push --force-if-includes --force-with-lease=$B:$SHA" \
+echo "# push: the literal grammar alone (REQ-F1.8)"
+sync "$PUSH"
+expect defer "[worker] the leased push in its literal grammar defers to the helper"
+reads protected_branches "[worker] the admitted push reads only the protected set"
+sync "cd \"$UNIT\" && $PUSH" "$SANDBOX" "$UNIT"
+expect defer "[worker] the leased push after a plain cd into the own worktree defers"
+SHA256=$(printf '%064d' 0 | tr 0 a)
+sync "$H push --force-with-lease=$B:$SHA256 --force-if-includes"
+expect defer "[worker] a 64-digit lease (a SHA-256 repository) defers to the helper"
+no_gh_calls
+for args in "push --force-if-includes --force-with-lease=$B:$SHA" \
   "push --force" "push -f" "push --force-if-includes" \
   "push --force-with-lease --force-if-includes" \
   "push --force-with-lease=$B --force-if-includes" \
@@ -61,9 +70,8 @@ for args in "push --force-with-lease=$B:$SHA --force-if-includes" "push --force-
   sync "$H $args"
   expect deny "[worker] $args denies"
 done
-sync "$PUSH"
-reason_has 'publishes nothing' "[worker] the push refusal says the helper publishes nothing"
-reason_has 'worker-branch-sync[.]sh reset origin/<branch> or ff' "[worker] the push refusal names the accepted forms"
+sync "$H push --force-with-lease=$B:$SHA --force-if-includes origin $B"
+reason_has 'no remote, refspec, [+] form, or other option' "[worker] the push refusal names what the grammar takes"
 sync "$S/worker-branch-\\
 sync.sh ff $SHA"
 expect defer "[worker] the helper's path split by a line continuation is the same run, and defers"

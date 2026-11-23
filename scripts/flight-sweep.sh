@@ -329,11 +329,6 @@ read_registry() {
       registry=''
       registry_state=unavailable
     }
-    # The store's own read exits 0 on a file it cannot read.
-    if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
-      registry=''
-      registry_state=unavailable
-    fi
   fi
 }
 

@@ -834,6 +834,8 @@ do_run_worker() {
   PLANWRIGHT_WORKER_SCOPE=$r_scope
   PLANWRIGHT_MESSAGING_INBOUND=accept
   export PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND
+  # Its dispatcher's handle is not its own; only the stream-json rung sets one.
+  unset PLANWRIGHT_SESSION_HANDLE
 
   # Trap-forward supervision (C2): run the worker as a background child and wait
   # on it, so the runner (the recorded pid) can FORWARD a graceful kill into the

@@ -862,7 +862,9 @@ worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
 receipt pending past `PLANWRIGHT_STREAMJSON_PENDING_AGE` (default 900s)
 becomes a high-priority queue item plus one notify push within a tick of
 crossing the threshold, with nothing else having to run `alarm-scan` (the
-sweep over every worker, which remains). The tick lives in the supervisor, so a
+sweep over every worker, which remains). The same tick and sweep report a
+steer the worker never read (see `steer` below), printed by `alarm-scan` as
+`steer-lost <worker> <id>`. The tick lives in the supervisor, so a
 worker an older planwright launched has none. `alarm-scan` reads every runtime
 directory whatever version wrote it, and mission control's session-keeper
 watcher runs it as `alarm-scan --once` on every pass: an overdue request
@@ -875,7 +877,7 @@ few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
 Each goes to the worker's own program: its launcher row's, else the owner its
-dispatch record keeps, else its parent's row or record (the worker it was
+dispatch record keeps, else its parent's row or record (the session it was
 launched from inside), else the configured program its name carries under the
 launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
 polish pass adding `-<suffix>`). A live worker with a request waiting and no
@@ -1024,9 +1026,9 @@ own open pull request, and an `export` of its step context. An act may close
 an `&&` chain of partners that each pass the guard on their own: a
 `git add` or `git commit` the `own-branch` arm approves, and a gate task
 (`mise run`, `lefthook run`, `bats`, a repository `tests/` or `scripts/`
-script, a declared command step), so `git commit -m <msg> && git push origin
+script, a declared check command or command step), so `git commit -m <msg> && git push origin
 <unit branch>` and `mise run check && git push origin <unit branch>` run
-unprompted. A partner joined by `;`, a line break, `||` or `&`, a partner after
+unprompted. A partner joined by `;`, a line break, `||`, `|` or `&`, a partner after
 the act, and any file write, other git act or non-step plugin script in the
 command keep it prompting. `docs/options-reference.md`
 (`worker_self_approval`) has the full conditions.
@@ -1178,6 +1180,17 @@ log home leaves the worker without the `own-branch` and `scratch` arms, so
 those arms never approve a write with no log to trace it in; the options
 reference lists what the line records and when a write goes unlogged.
 
+A step record whose times the worker sets by hand always prompts. The guard
+never approves a `step-record.sh write` other than a `--completion` write, nor
+any write carrying `--start` or `--end`, under any policy value and however
+the call is spelled, so every skill, prompt and full-suite record a worker
+writes waits on an approver, who sees the hand-set times and can check them
+against the session's own events. Unattended, that prompt parks for the
+operator like any other the policy does not cover. Command steps are
+untouched: `step-run.sh` times their records itself. Every other step-script
+call passes only on the worktree the session record names, and only in the
+verbs the profile's `_about` lists.
+
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
 is that a stop cannot reach an operator's own `claude` session by resembling
@@ -1286,11 +1299,30 @@ a failed resume exit `5`, each naming the `recover` to run.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. A delivered steer opens a new turn, so it retires the
+part of a command. A steer to an idle worker opens a new turn, so it retires the
 previous turn's `result`: the worker reads `running` again until that turn
 records its own. A steer delivered while the worker is still inside a turn is
-the exception: that turn's `result` lands after the steer, so the queued turn
-reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
+not read at once: the session takes it when the tool call in flight returns,
+folding it into that turn, or, when the turn is already writing its answer,
+as the next turn once that turn's `result` lands (the session reading it then
+retires that `result`, so the worker reads `running` again). A long-running
+command or bounded wait therefore delays it. A worker reads as idle when a
+result is on record or, for a resumed session waiting for its first frame,
+when its capture still ends at its last turn's result; `steer` says on stderr
+that the message is queued whenever the worker was not idle. Written is not
+read, so each steer frame carries its own uuid, recorded in its receipt row,
+and the worker runs with `--replay-user-messages`, whose replay of the frame
+records the steer as read. A steer is reported unread, once, by the
+supervisor's tick or `alarm-scan`, as a high-priority queue item and push
+naming the message file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE`
+seconds (default 60) have passed since the `result` or exit record written at
+or after it, or, when none has been written and the worker was idle as it was
+sent, since it was sent. The session reads frames in order, so an unread steer
+sent before one so judged is reported with it. A runtime with no replay record
+(a worker an older planwright launched) is never judged, nor is a steer sent
+before that record.
+
+Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
@@ -2846,8 +2878,20 @@ the config-loader screen the undeclared command does. The full rules are in
 [the options reference](options-reference.md).
 
 The launcher's `retire <name>` closes what it launched from its registry row.
-A stream-json worker launched without it (by an older planwright, by
-`/orchestrate`, or by hand) has no row, so `retire <worker>` takes it by its
+A worker an orchestrator or tower mission control launched dispatches on the
+stream-json rung has a row too: every stream-json session holds its own
+handle as `PLANWRIGHT_SESSION_HANDLE`, so `/orchestrate`'s meta step finds
+its session's row and runs `adopt <session> --scope <spec>:task-<id>`
+around the launch. `--plan` names the worker as a worker launch of that
+scope would be named and gives the program's mission control as its owner;
+after the launch, the record writes the worker's row, once its runtime
+directory records that session as its parent. The worker's prompts then
+reach that mission control, and `list`, `wait`, `unwait`, `retire` and the
+host-wide bound take it like a launch of the program's own. A session no
+row names still dispatches, and its worker is registered with no owner,
+said on stderr. Any other stream-json worker launched without the launcher
+(by an older planwright, by a `/orchestrate` the operator runs, or by hand)
+has no row, so `retire <worker>` takes it by its
 handle instead: `fleet-streamjson.sh stop <worker> --final`, then its fleet
 record and attention row, printing the same `retire` line over the classes
 `process`, `registry` and `attention`. A name with neither a row nor a
