@@ -1156,8 +1156,8 @@ collect() {
   # author, for the walk to judge, and the attempt behind each of the
   # workflow's markers at the head is read for its start and conclusion.
   # Advisory like the run read: a failed read leaves no row, which the walk
-  # never counts as a review. A draft is never judged by it.
-  : >"$cl_tmp/marks"
+  # never counts as a review. A draft is never judged by it. The marker line is
+  # the one .github/workflows/pr-agent.yml writes; change the two together.
   # shellcheck disable=SC2016 # a jq program
   if ! grep -qx "state$(printf '\t')draft" "$cl_tmp/pr" && gh api --paginate "repos/$2/issues/$3/comments?per_page=100" --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
@@ -1176,6 +1176,7 @@ collect() {
 $(awk -F '\t' -v H="$cl_head" '$1 == "botmark" && $2 == "github-actions[bot]" && $4 == H && $3 ~ /^[0-9]+\.[0-9]+$/ && !seen[$3]++ { print $3 }' "$cl_tmp/marks")
 EOF
   else
+    # A draft, or a failed read whose partial output must not stand.
     : >"$cl_tmp/marks"
   fi
   : >"$cl_tmp/steps"
