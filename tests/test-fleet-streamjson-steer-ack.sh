@@ -441,6 +441,7 @@ if [ "$(id -u)" != 0 ]; then
   a11_id2='2a2a2a2a-1b1b-4c2c-8d3d-4e4e4e4e4e4e'
   printf '1150\t12\t%s\t%s\tbusy\n' "$tmp/steer11b" "$a11_id2" >>"$wdir/steers"
   chmod 555 "$wdir"
+  [ ! -w "$wdir" ] || fail "a11: a read-only mode did not take write access away from $wdir"
   a11_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2002 2>/dev/null)
   chmod 755 "$wdir"
   case $a11_out in
@@ -458,6 +459,7 @@ if [ "$(id -u)" != 0 ]; then
   mkdir -p "$wdir" "$home/attention"
   : >"$home/attention/toasts"
   chmod 555 "$home/attention"
+  [ ! -w "$home/attention" ] || fail "a11: a read-only mode did not take write access away from the store"
   printf '1000\n' >"$wdir/replay-since"
   printf '1100\t12\t%s\t%s\tbusy\n' "$tmp/steer11" "$a11_id" >"$wdir/steers"
   printf 'exit\t0\t1200\n' >"$wdir/result"
@@ -489,6 +491,7 @@ if [ "$(id -u)" != 0 ]; then
   printf '1160\t12\t%s\t%s\tbusy\n' "$tmp/steer11c" "$a11_id3" >>"$wdir/steers"
   ln -s "$tmp/a11-target" "$wdir/steer-pushed-$a11_id3"
   chmod 555 "$home/attention"
+  [ ! -w "$home/attention" ] || fail "a11: a read-only mode did not take write access away from the store"
   env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_REPO_ROOT=none \
     PLANWRIGHT_CONFIG_DEFAULTS="$tmp/a11-core.yml" PLANWRIGHT_LOCAL_CONFIG="$tmp/a11-pin.yml" \
     /bin/sh "$SJ" alarm-scan --now 2004 >/dev/null 2>"$tmp/a11-link.err"
@@ -662,6 +665,7 @@ if [ "$(id -u)" != 0 ]; then
   printf '1101\t%s\n' "$a16_id" >"$wdir/steer-acks"
   printf 'exit\t0\t1200\n' >"$wdir/result"
   chmod 000 "$wdir/steer-acks"
+  [ ! -r "$wdir/steer-acks" ] || fail "a16: a mode of 000 did not take read access away from the acknowledgements"
   a16_out=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ" alarm-scan --now 2000 2>&1)
   chmod 644 "$wdir/steer-acks"
   case $a16_out in *steer-lost*) fail "a16: unreadable acknowledgements read every steer as unread: $a16_out" ;; esac
