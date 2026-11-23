@@ -968,6 +968,155 @@ is_trusted_script() {
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
 }
 
+# --------------------------------------------------------------------------
+# The step scripts (REQ-F1.12). A record whose times a worker sets by hand
+# can make a step that never ran read as run, so the guard approves only the
+# calls that leave the times to the scripts, on the session's own step cache.
+# A call is read as the script path, at most one two-word `--worktree <dir>`,
+# then the verb; every word must be the literal the script will see.
+
+# step_script_kind <path>: 0 when the trusted script <path> is a step script,
+# its kind left in STEP_KIND (`record` or `run`): by name under any casing a
+# case-insensitive filesystem runs, or as a link of a trusted root's copy.
+step_script_kind() {
+  local p=$1 root
+  lower "${p##*/}"
+  case $LOWER in
+    step-record.sh)
+      STEP_KIND=record
+      return 0
+      ;;
+    step-run.sh)
+      STEP_KIND=run
+      return 0
+      ;;
+  esac
+  case $p in
+    /*) ;;
+    *) p=$HOOK_CWD/$p ;;
+  esac
+  cache_roots
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    if [ "$p" -ef "$root/scripts/step-record.sh" ]; then
+      STEP_KIND=record
+      return 0
+    fi
+    if [ "$p" -ef "$root/scripts/step-run.sh" ]; then
+      STEP_KIND=run
+      return 0
+    fi
+  done <<EOF
+$PW_ROOTS
+EOF
+  return 1
+}
+
+# step_call_ok <index>: the step-script call whose script path is word
+# <index> of the current simple command, STEP_KIND set, is one REQ-F1.12
+# passes.
+step_call_ok() {
+  local i=$1 j wt='' given=0 verb
+  for ((j = i; j < cwn; j++)); do
+    [ -z "${csub[j]-}" ] || return 1
+    word_unresolved "${cw[j]}" "${cdyn[j]}" "${cglob[j]}" "${cx[j]}" && return 1
+  done
+  j=$((i + 1))
+  if [ "${cw[j]-}" = --worktree ]; then
+    [ $((j + 1)) -lt "$cwn" ] || return 1
+    wt=${cw[j + 1]}
+    given=1
+    j=$((j + 2))
+  fi
+  [ "$j" -lt "$cwn" ] || return 1
+  verb=${cw[j]}
+  # It reads no worktree or file, so no cache to keep it to.
+  [ "$STEP_KIND:$verb" != record:args-digest ] || return 0
+  step_own_cache_ok "$given" "$wt" || return 1
+  case $STEP_KIND:$verb in
+    record:write) step_write_ok $((j + 1)) ;;
+    # The script checks the source against the session's own events.
+    record:supersede) step_has_word $((j + 1)) --source ;;
+    record:render | record:list | record:lookup | record:heads | record:untrue | record:fingerprint) ;;
+    record:new-run | record:regenerate | record:status) ;;
+    record:excerpt) [ $((j + 2)) -eq "$cwn" ] && step_excerpt_ok "${cw[j + 1]}" ;;
+    # Their records are timed by the script itself.
+    run:resolve | run:audit | run:command | run:begin | run:end | run:resume | run:refire) ;;
+    *) return 1 ;;
+  esac
+}
+
+# step_own_cache_ok <given> <dir>: the call works on the recorded worktree's
+# cache: a given `--worktree` is a plain absolute path canonically that
+# worktree; an absent one leaves the script to find the git top level from
+# the session's directory, which must then lie in the worktree's own
+# repository. A step-context WORKTREE is held to the same worktree where
+# step_context_value_ok reads it.
+step_own_cache_ok() {
+  local here
+  [ -n "$REC_WT" ] || return 1
+  if [ "$1" = 1 ]; then
+    bare_abs_path_ok "$2" || return 1
+    case $2/ in
+      */./* | */../* | *//*/*) return 1 ;;
+    esac
+    [ "$(cd -- "$2" 2>/dev/null && pwd -P)" = "$REC_WT" ]
+    return
+  fi
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  own_unit_same_repo "$here"
+}
+
+# step_write_ok <index>: the write from word <index> on is a --completion
+# write setting no time: a step, re-fire or full-suite write gives --start.
+step_write_ok() {
+  local j c=0
+  for ((j = $1; j < cwn; j++)); do
+    case ${cw[j]} in
+      --completion) c=1 ;;
+      --start | --end | --start=* | --end=*) return 1 ;;
+    esac
+  done
+  [ "$c" = 1 ]
+}
+
+# step_has_word <index> <word>: <word> is one of the words from <index> on.
+step_has_word() {
+  local j
+  for ((j = $1; j < cwn; j++)); do
+    [ "${cw[j]}" != "$2" ] || return 0
+  done
+  return 1
+}
+
+# step_excerpt_ok <file>: <file> canonicalizes inside the recorded worktree
+# or scratch root, never through a symlinked leaf.
+step_excerpt_ok() {
+  local f=$1 d b full root
+  case $f in
+    /*) ;;
+    *) f=$HOOK_CWD/$f ;;
+  esac
+  b=${f##*/}
+  case $b in
+    '' | . | ..) return 1 ;;
+  esac
+  d=$(cd "${f%/*}/" 2>/dev/null && pwd -P) || return 1
+  full=${d%/}/$b
+  [ ! -L "$full" ] || return 1
+  for root in "$REC_WT" "$REC_SCRATCH"; do
+    [ -n "$root" ] || continue
+    case $full in
+      "$root"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
 # (used for `bats <file>`, which need not sit under scripts/ or tests/, and which
 # stays REPO-scoped — an install ships no test files to run).
@@ -3928,7 +4077,10 @@ guard_bashsh() {
   case ${cw[1]} in
     -*) return 1 ;;
   esac
-  is_trusted_script "${cw[1]}" "$HOOK_CWD"
+  is_trusted_script "${cw[1]}" "$HOOK_CWD" || return 1
+  step_script_kind "${cw[1]}" || return 0
+  STEP_CALL=1
+  step_call_ok 1
 }
 
 guard_fish() {
@@ -6962,14 +7114,15 @@ verify_simple() {
   # The floor comes before every arm and the declared steps. An own-unit act
   # it reserves is weighed exactly by verify_known_simple, and nothing else
   # may approve it.
-  local own_cand=0
+  local own_cand=0 STEP_CALL=0
   [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
   if [ "$cwn" -gt 0 ] && floor_act_words "${sw[@]}"; then
     own_unit_candidate || return 1
     own_cand=1
   fi
   verify_known_simple && return 0
-  [ "$own_cand" = 0 ] || return 1
+  # A step-script call step_call_ok refused is never a declared line's.
+  [ "$own_cand" = 0 ] && [ "$STEP_CALL" = 0 ] || return 1
   # A declared check command or step is an operator's line, never one around
   # a substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
@@ -7821,6 +7974,10 @@ verify_known_simple() {
   case $verb in
     */*)
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
+      if step_script_kind "$verb"; then
+        STEP_CALL=1
+        step_call_ok 0 || return 1
+      fi
       ou_script_kind "$verb"
       return 0
       ;;

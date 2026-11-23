@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.82.0](https://github.com/inkatze/planwright/compare/v0.81.0...v0.82.0) (2026-11-23)
+
+
+### Features
+
+* add a --lefthook-edit launch opt-in for a worker's own worktree ([#1137](https://github.com/inkatze/planwright/issues/1137)) ([b8ff36b](https://github.com/inkatze/planwright/commit/b8ff36b8076550c70da067e24d2bdc0af75e1ef9))
+* **control-plane:** record the measurement baseline and its method ([#1159](https://github.com/inkatze/planwright/issues/1159)) ([456818c](https://github.com/inkatze/planwright/commit/456818ccf8b3a63a74d50a35913ebe7c9d8d48ae))
+* **human-gates:** add the class test and the automatic merge rows to the doctrine ([#1050](https://github.com/inkatze/planwright/issues/1050)) ([2b43a92](https://github.com/inkatze/planwright/commit/2b43a9270f9308719ac0278affecf38c20a20308))
+* let /orchestrate fast-forward a clean, lagging primary checkout (opt-in) ([#1147](https://github.com/inkatze/planwright/issues/1147)) ([839486e](https://github.com/inkatze/planwright/commit/839486e9a6075aef794c09fad196c057abbd401d))
+* let a launched worker publish a leased rewrite of its own draft branch ([#1158](https://github.com/inkatze/planwright/issues/1158)) ([c0abac7](https://github.com/inkatze/planwright/commit/c0abac77669634fa38d9f703b9dee607cc54bb96))
+* let a worker's own push, PR edit or export follow a commit or a gate task ([#1145](https://github.com/inkatze/planwright/issues/1145)) ([eef8c33](https://github.com/inkatze/planwright/commit/eef8c33f74d7bddb80592b97ff18781f56635c9b))
+* **worker-guard:** approve a repository's declared check commands ([#1148](https://github.com/inkatze/planwright/issues/1148)) ([a0ee8d8](https://github.com/inkatze/planwright/commit/a0ee8d8ae765622ed7fc83fe4febd01fd18838ab))
+
+
+### Bug Fixes
+
+* an unreadable fleet registry fails the read instead of reading as empty ([#1161](https://github.com/inkatze/planwright/issues/1161)) ([57bcafe](https://github.com/inkatze/planwright/commit/57bcafe56c4c4e33405a563900cce00c6683353e))
+* close four ways a worker could write or run what the guard should stop ([#1143](https://github.com/inkatze/planwright/issues/1143)) ([47fa6de](https://github.com/inkatze/planwright/commit/47fa6de7cd27dbe27d8eec15b016f766813da3c4))
+* defer git help requests and close fish -c bypasses in the command guards ([#1146](https://github.com/inkatze/planwright/issues/1146)) ([4c1665a](https://github.com/inkatze/planwright/commit/4c1665ab629ca09294523a02f4051bf07ce385cb))
+* hub hears every unanswerable worker prompt; workers' own push, PR edit and export pre-approved ([#1126](https://github.com/inkatze/planwright/issues/1126)) ([9614742](https://github.com/inkatze/planwright/commit/96147421c14b2fa2f95f3bf0845206908978babc))
+* keep a program's mission-control wakes out of worker sessions ([#1151](https://github.com/inkatze/planwright/issues/1151)) ([8e8e64e](https://github.com/inkatze/planwright/commit/8e8e64ef92541c708d10afa9a598ea988ba38ec4))
+* **launch:** exempt kinds that run no local work from the host-wide bound ([#965](https://github.com/inkatze/planwright/issues/965)) ([9688bbf](https://github.com/inkatze/planwright/commit/9688bbfaebc93624745825d3aeff230edcacd12d))
+* merge-ready raises nothing for a merged, closed or bot-unreviewed pull request ([#1004](https://github.com/inkatze/planwright/issues/1004)) ([d235d7b](https://github.com/inkatze/planwright/commit/d235d7bf1dddce583c4f10ab35e46c0d9b023195))
+* prompt on hand-timed step records and keep step scripts on the worker's own worktree ([#1166](https://github.com/inkatze/planwright/issues/1166)) ([9e75d1a](https://github.com/inkatze/planwright/commit/9e75d1a99051c821a3892e6b14b018a09fff9581))
+* raise an alarm when a worker parks waiting on the operator ([#1150](https://github.com/inkatze/planwright/issues/1150)) ([2fdc8b4](https://github.com/inkatze/planwright/commit/2fdc8b4936b7ac37594cf54ba1e0ebe132734428))
+* raise prompts of a live stream-json worker the launcher has no row for ([#1136](https://github.com/inkatze/planwright/issues/1136)) ([1ae44c5](https://github.com/inkatze/planwright/commit/1ae44c52943d9edb9a1add5aa826a661d93c6721))
+* readiness accepts a finished spec bundle that predates kickoff and has no kickoff brief ([#1142](https://github.com/inkatze/planwright/issues/1142)) ([db598a0](https://github.com/inkatze/planwright/commit/db598a0e9409ad3106e14ec1ac51409ec8f07d03))
+* readiness accepts a PR-Agent re-run and an archived observation ([#1163](https://github.com/inkatze/planwright/issues/1163)) ([8f9b430](https://github.com/inkatze/planwright/commit/8f9b430ca6a8c9c6b983c19986f5c9cfbefebb8f))
+* readiness offers the flip when a draft's only post-pr completion is another unit's ([#1157](https://github.com/inkatze/planwright/issues/1157)) ([4b2d740](https://github.com/inkatze/planwright/commit/4b2d7403ab69bd9e01b4d9ac9dcf41f87816c95e))
+* register an orchestrator's dispatched workers under its program ([#1162](https://github.com/inkatze/planwright/issues/1162)) ([5633e1e](https://github.com/inkatze/planwright/commit/5633e1e4e92ed315fe8eafda94d2d386539042c9))
+* report a steer the worker never read instead of losing it silently ([#1165](https://github.com/inkatze/planwright/issues/1165)) ([514f12b](https://github.com/inkatze/planwright/commit/514f12b465c24615c79d1bec526aab41825ac19a))
+* stop relaying events whose subject is gone, and prune them on request ([#1034](https://github.com/inkatze/planwright/issues/1034)) ([6243350](https://github.com/inkatze/planwright/commit/6243350b400b50f369f766c93d9d4fb1f30493b0))
+* stop the command guards auto-allowing abbreviated or hidden git config writes ([#1139](https://github.com/inkatze/planwright/issues/1139)) ([429e464](https://github.com/inkatze/planwright/commit/429e46470647fd17862d3c316ae5317e0c5eb415))
+* stop the freshness gate refusing a sign-off entry whose prose opens with Class: ([#1141](https://github.com/inkatze/planwright/issues/1141)) ([ef33930](https://github.com/inkatze/planwright/commit/ef339309a71316c5954349f80a11b7d890e8230a))
+
 ## [0.81.0](https://github.com/inkatze/planwright/compare/v0.80.0...v0.81.0) (2026-11-20)
 
 
