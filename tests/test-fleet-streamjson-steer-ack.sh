@@ -315,6 +315,10 @@ a7_again=$(env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" /bin/sh "$SJ
 case $a7_again in
   *steer-lost*) fail "a7: a second scan must not report it again: $a7_again" ;;
 esac
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_STEER_GRACE=soon \
+  /bin/sh "$SJ" alarm-scan --now 2002 >/dev/null 2>"$tmp/a7.err"
+grep -q "invalid PLANWRIGHT_STREAMJSON_STEER_GRACE 'soon'; using 60" "$tmp/a7.err" \
+  || fail "a7: a malformed grace must be named, not silently replaced: $(cat "$tmp/a7.err")"
 echo "ok: a7 alarm-scan reports, once, the unread steer of a worker that has died"
 
 # ---------------------------------------------------------------------------

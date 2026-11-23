@@ -3138,7 +3138,10 @@ SSLOST
 # after a turn ends (default 60).
 steer_grace() {
   sg_v=${PLANWRIGHT_STREAMJSON_STEER_GRACE:-60}
-  valid_posnum "$sg_v" || sg_v=60
+  valid_posnum "$sg_v" || {
+    printf '%s\n' "$me: invalid PLANWRIGHT_STREAMJSON_STEER_GRACE '$(sanitize_printable "$sg_v" '?' | cut -c1-32)'; using 60" >&2
+    sg_v=60
+  }
   printf '%s\n' "$sg_v"
 }
 
