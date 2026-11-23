@@ -6531,8 +6531,11 @@ check_command_ok() {
 # folders a worker can Write, so a declared loader is approved only where the
 # undeclared command would be: markdownlint by guard_mdlint, and mise before an
 # option, `run`, `tasks` or their aliases by guard_mise, which knows no alias
-# and so defers one. The name is matched case-insensitively, since a
-# case-insensitive filesystem runs a recased one.
+# and so defers one. Any other markdownlint name (the `-fix` and `-config`
+# binaries older releases ship) defers, as the undeclared one does. The
+# subcommand list must stay a superset of what guard_mise screens, or a new
+# spelling passes on the declaration alone. The name is matched
+# case-insensitively, since a case-insensitive filesystem runs a recased one.
 check_loader_ok() {
   local k
   for ((k = 0; k < swn; k++)); do
@@ -6540,9 +6543,10 @@ check_loader_ok() {
     lower "${sw[k]##*/}"
     case $LOWER in
       markdownlint | markdownlint-cli2) check_loader_screen "$k" guard_mdlint "$LOWER" || return 1 ;;
+      markdownlint*) return 1 ;;
       mise)
         case ${sw[k + 1]-} in
-          -* | run | r | tasks | t) check_loader_screen "$k" guard_mise || return 1 ;;
+          -* | run | r | tasks | task | t) check_loader_screen "$k" guard_mise || return 1 ;;
         esac
         ;;
     esac
@@ -6551,15 +6555,13 @@ check_loader_ok() {
 }
 
 # check_loader_screen <from> <screen> [<arg>]: run <screen> on the words from
-# index <from> on, given as the arms read a command's words (`cw` / `cwn`).
+# index <from> on, as `cw` / `cwn`. The parallel per-word arrays are not
+# sliced, so a screen run here must read only those two.
 check_loader_screen() {
-  local from=$1 i
+  local from=$1
   shift
-  local -a cw=()
-  local cwn=$((swn - from))
-  for ((i = from; i < swn; i++)); do
-    cw[i - from]=${sw[i]}
-  done
+  local -a cw=("${sw[@]:from}")
+  local cwn=${#cw[@]}
   "$@"
 }
 

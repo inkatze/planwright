@@ -5,7 +5,9 @@
 # --output; mise run takes the task's shell, directory, config environment or
 # tools from its options; markdownlint-cli2 loads a JavaScript config, or a
 # JSON one naming custom rules, from the directories it lints in and their
-# parents. Each such form defers, and the plain forms keep their approval.
+# parents. Each such form defers, and the plain forms keep their approval. A
+# declared check command running markdownlint or mise run is held to the same
+# screen.
 # tests/test-worker-command-guard.sh holds the suite's overview; every file
 # sources tests/lib/worker-command-guard-harness.sh.
 # shellcheck disable=SC2034 # HOOK_ENV is read by the sourced harness
@@ -236,11 +238,14 @@ DECLS='markdownlint-cli2 <path>...; markdownlint <path>...; mise exec -- markdow
 DECLS="$DECLS; ./node_modules/.bin/markdownlint-cli2 <path>...; mise run <word>; mise r <word>"
 DECLS="$DECLS; mise run --cd <path> <word>; mise run --env <word> <word>; mise tasks run --tool <word> <word>"
 DECLS="$DECLS; mise exec -- mix credo <word>; bin/check <word>; MarkdownLint-CLI2 <path>..."
+DECLS="$DECLS; markdownlint-cli2 --fix <path>...; markdownlint-cli2-fix <path>...; mise -C <path> run <word>"
+DECLS="$DECLS; mise t <word>; mise task run --cd <path> <word>; mise exec -- mise run <word>; mise exec -- mise r <word>"
 write_record "$BOX/cc.record" "$R" '' || exit 1
 printf 'check_commands=%s\n' "$DECLS" >>"$BOX/cc.record"
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$BOX/cc.record")
 for c in 'markdownlint-cli2 README.md' 'markdownlint README.md' 'mise exec -- markdownlint-cli2 README.md' \
-  './node_modules/.bin/markdownlint-cli2 docs/a.md' 'mise run check' 'mise exec -- mix credo strict' 'bin/check lint'; do
+  './node_modules/.bin/markdownlint-cli2 docs/a.md' 'mise run check' 'mise exec -- mix credo strict' 'bin/check lint' \
+  'MarkdownLint-CLI2 README.md' 'mise exec -- mise run check'; do
   assert_allow "declared, committed config only: $c" "$c" Bash "$R"
 done
 for n in .markdownlint-cli2.cjs .markdownlint.mjs; do
@@ -256,10 +261,13 @@ with_file "$R/docs/.markdownlint.yaml" 'extends: ../x.json' \
   'mise exec -- markdownlint-cli2 docs/a.md'
 with_file "$R/package.json" '{ "markdownlint-cli2": { "customRules": ["./rule.js"] } }' \
   "declared, a worker-written package.json in the working directory" 'markdownlint-cli2 README.md'
-assert_defer "declared, a folder operand the walk cannot follow" 'markdownlint-cli2 docs' Bash "$R"
+assert_defer "declared, a folder operand, not a file" 'markdownlint-cli2 docs' Bash "$R"
+assert_defer "declared, an option the screen refuses" 'markdownlint-cli2 --fix README.md' Bash "$R"
+assert_defer "declared, another markdownlint binary" 'markdownlint-cli2-fix README.md' Bash "$R"
 mkdir -p "$R/sub"
 printf '[tasks.t]\nrun = "touch /tmp/pwned"\n' >"$R/sub/mise.toml"
-for c in 'mise run --cd sub t' 'mise run --env evil t' 'mise tasks run --tool node@20 t' 'mise r check'; do
+for c in 'mise run --cd sub t' 'mise run --env evil t' 'mise tasks run --tool node@20 t' 'mise r check' \
+  'mise -C sub run t' 'mise t check' 'mise task run --cd sub t' 'mise exec -- mise r check'; do
   assert_defer "declared mise, another config or an unscreened spelling: $c" "$c" Bash "$R"
 done
 rm -rf "$R/sub"

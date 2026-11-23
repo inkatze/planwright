@@ -594,13 +594,16 @@ word after a runner prefix's `--` (`mise exec -- markdownlint-cli2 <path>`),
 matched by the word's last path component and case-insensitively: a declared
 `markdownlint-cli2` or `markdownlint` is approved only where the undeclared
 command would be, and so is a declared `mise` whose next word is an option,
-`run`, `tasks`, or the `r` and `t` aliases, which the undeclared screen does
-not know and so defers. The declaration vouches for the words it spells, not
+`run`, `tasks`, or the `r`, `task` and `t` spellings, which the undeclared
+screen does not know and so defers. Any other `markdownlint` name, such as the
+`markdownlint-cli2-fix` binary older releases ship, defers as the undeclared
+one does. The declaration vouches for the words it spells, not
 for the config those folders hold, so a declared lint beside a worker-written
 or uncommitted config defers, and so does a declared `--cd`, `--env` or
 `--tool` on `mise run`. Other ways a declaration reaches the same config
-still pass on the declaration alone: a runner with no `--` before the
-linter (`npx markdownlint-cli2`), a package script that runs one, and
+still pass on the declaration alone: a runner or wrapper with no `--` before
+the linter (`npx markdownlint-cli2`, `env` or `timeout` before it, `node`
+running its bin script), a package script that runs one, and
 `mise exec`, `mise watch` or a task named straight after `mise`, which load
 the mise config the file-tool rules protect. A declared command step's line
 is matched exactly and run by `scripts/step-run.sh`, outside the guard, so it
