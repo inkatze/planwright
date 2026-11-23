@@ -103,6 +103,15 @@ has "an attempt still running reads its status" "botattempt${tab}4476.1${tab}PR-
 hasnt "a person's marker never leads to an attempt read" "botattempt${tab}9.1"
 if grep -q 'actions/runs/9/attempts' "$tmp/gh.calls"; then fail "a person's marker led to an attempt read"; else ok "and no such read is made"; fi
 hasnt "a marker at another head leads to no attempt read" "botattempt${tab}5.1"
+if grep -q 'pulls/7/files' "$tmp/gh.calls"; then fail "a pull request with no rename had its REST file list read"; else ok "the REST file list is read only for a rename or copy"; fi
+# The collector parses the marker line the PR-Agent workflow writes, which the
+# fixture comments above copy; a change to the workflow's line must reach both.
+# shellcheck disable=SC2016 # the workflow's literal shell text
+if grep -qF 'marker="<!-- pr-agent-run: id=$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT head=$HEAD_SHA status=$STATUS -->"' "$repo_root/.github/workflows/pr-agent.yml"; then
+  ok "the PR-Agent workflow writes the marker line the collector parses"
+else
+  fail "the PR-Agent workflow's marker line changed: update collect's marker read and this fixture"
+fi
 if grep -q 'pr ready' "$tmp/gh.calls" 2>/dev/null; then fail "a flip was attempted"; else ok "nothing flips a pull request"; fi
 hasnt "a worktree whose CI has no macOS jobs states no macOS requirement" "require${tab}macos"
 mkdir -p "$repo/.github/workflows"
@@ -129,6 +138,14 @@ hasnt "a failed comment read leaves no marker" "botmark${tab}"
 mc_run mc-readiness.sh walk --evidence "$tmp/collected-nomark" --conditions "$tmp/no-cond"
 expect_out "and the walk refuses the bot review" "fail${tab}bot-review${tab}no PR-Agent run at"
 mv "$tmp/comments.json.keep" "$tmp/comments.json"
+mv "$tmp/attempt-4475-3.json" "$tmp/attempt-4475-3.json.keep"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-noatt"
+expect_rc "collect when one run attempt cannot be read" 0
+c=$(cat "$tmp/collected-noatt" 2>/dev/null)
+hasnt "a failed attempt read leaves no attempt row" "botattempt${tab}4475.3"
+has "and the other attempts are still read" "botattempt${tab}4476.1${tab}PR-Agent"
+has "and its marker is still collected" "botmark${tab}github-actions[bot]${tab}4475.3${tab}"
+mv "$tmp/attempt-4475-3.json.keep" "$tmp/attempt-4475-3.json"
 printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
 c=$(cat "$tmp/collected-pa" 2>/dev/null)
