@@ -604,7 +604,8 @@ cmd_dispatch() {
     # The wrapper keeps an identity the tmux server's environment carries,
     # so a session that is no worker has it dropped here.
     [ "$D_PROFILE" = worker ] \
-      || set -- "$@" env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_WORKER_LAUNCH_TOKEN
+      || set -- "$@" env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_WORKER_LAUNCH_TOKEN \
+        -u PLANWRIGHT_SESSION_HANDLE
     set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
     # Only a worker carries the worker identity its hooks key on.
     [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"

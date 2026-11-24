@@ -267,7 +267,9 @@ Launch, message, answer, retire; never hand the operator a per-session step.
 - **Launch** every session through
   `scripts/mission-control-launch.sh`'s `launch`, which delivers the brief
   (a repository-changing one with the verification cadence),
-  the rules in scope, the profile, the model tier and a deterministic name; **retire** through its `retire`.
+  the rules in scope, the profile, the model tier and a deterministic name
+  (work on an open PR takes `--pr <n>`, reusing the worktree holding its
+  branch); **retire** through its `retire`.
 - **Report** a PR as done, or its unit as finished, only once
   `scripts/mc-readiness.sh`'s `check` passes on its head; until then report
   what it names (a cadence gap or an unaudited cadence among them), never done.
@@ -388,7 +390,8 @@ On every path (`doctrine/human-gates.md`):
 - **Policy:** flip a PR ready only inside the configured
   `ready_flip_policy`, and in a repository the operator does not own only on
   their request (REQ-I1.2), with the readiness check walked first
-  (`scripts/mc-readiness.sh`'s `check`).
+  (`scripts/mc-readiness.sh`'s `check`; `flip-for-review` is its go-ahead
+  when only the bot review is left).
 - **Never** send to a person without the yes on the exact text and
   recipient; standing exceptions exist only as named configuration
   (REQ-I1.3).

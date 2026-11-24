@@ -1,7 +1,7 @@
 # Human gates — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-05
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -59,6 +59,10 @@ list above puts it.
 - Reshaping never-pushed commits on an owned branch; an operator-requested
   force-push through the tower; the commit-message repair path; the secret
   purge staying human.
+- A launched worker reshaping and publishing a rewrite of its own unit
+  branch while that branch's PR is a draft, behind a `draft_rewrite` knob
+  that is off by default, and the refusal that tells the operator how to
+  turn it on.
 - Enforcement derived from the resolved policy: profiles as the floor, guards
   reading the policy, and one shared fixture list of reserved-control
   spellings every guard copy must refuse, with the `gh api` control lines
@@ -104,6 +108,14 @@ list above puts it.
   named in the handoff.
 - A merge executed by an agent outside a configured policy, at any tier,
   under any value: there is no such value.
+- A worker rewriting a branch another person works from, and a worker
+  merging another person's branch that is not its PR base: neither has a
+  path under any value (the tower's same-turn path of REQ-F1.7 is the
+  operator's own request, bounded by the operator's instructions); another
+  person's work reaches a unit through the base branch, or as the base of a
+  stacked PR.
+- A worker route for rewriting a branch whose PR is ready: that stays the
+  REQ-F1.7 tower path.
 - The kickoff launch kind, its settings profile, its launch record, and the
   policy-guard code that admits its push: mission-control D-36 and its
   Task 19 ship and test them against REQ-G1.9.
@@ -140,6 +152,8 @@ list above puts it.
   a core default. The push of an owned branch SHALL be a composition
   contract between skills, never a trust rule.
   *(Cites: D-2, D-4, D-6, D-7, D-8; issue planwright#385.)*
+  **Superseded-by: REQ-A1.11** (2026-11-20) — scoped to its policy list: a
+  fourth policy, the draft-branch rewrite, is added beside the three.
 - **REQ-A1.3** The gate list and the rule kinds SHALL be stated once, in one
   doctrine document; every skill, profile, guard, and doc SHALL restate that
   list by citation, and a divergent copy SHALL be a defect.
@@ -204,6 +218,16 @@ list above puts it.
   session SHALL start a publish whose release no such authorization
   covers.
   *(Cites: D-26; the operator's release-session request (Sources).)*
+- **REQ-A1.11** (supersedes REQ-A1.2 in part) Publishing a rewrite of the
+  owned unit branch while its PR is a draft, by a worker mission control
+  launched, SHALL NOT be a human gate; it SHALL be a policy,
+  `draft_rewrite`, whose core default is
+  `deny`, carried in the human-gate list as a Policy row naming the
+  REQ-F1.8 helper as the one route, with the force-push row naming it as
+  its one exception and the floor sentence naming it beside the force-push
+  and secret-purge rows. Force-pushing any other branch outside the
+  protected set SHALL stay the human gate REQ-F1.7 describes.
+  *(Cites: D-2, D-27; kickoff amendment 2026-11-20 lens pass.)*
 
 ## REQ-B — Sign-off at the approval act
 
@@ -550,16 +574,22 @@ list above puts it.
   or no upstream is configured; a commit any remote ref contains SHALL stay
   append-only.
   *(Cites: D-8; kickoff sign-off lens pass (2026-09-22).)*
+  **Superseded-by: REQ-F1.6** (2026-11-20) — a pushed commit on the owned
+  unit branch may be reshaped under `draft_rewrite`, for the REQ-F1.8 push.
 - **REQ-F1.2** A force-push SHALL be performed only by the tower, only on an
   explicit operator request in the same turn, after a warning naming the
   remote commits the push will drop, and never to main or a protected
   branch. A standing decision SHALL NOT authorize it, and no session SHALL
   initiate it.
   *(Cites: D-8.)*
+  **Superseded-by: REQ-F1.7** (2026-11-20) — a worker's own draft branch
+  has the REQ-F1.8 path besides the tower's.
 - **REQ-F1.3** A commit-range lint failure on a pushed branch SHALL be the
   named reason for a reword through the REQ-F1.2 path, and the handoff of the
   skill whose gate reports that failure SHALL name the path.
   *(Cites: D-8; the CI commit-range lint (Sources).)*
+  **Superseded-by: REQ-F1.10** (2026-11-20) — the draft-branch path names
+  first when it applies.
 - **REQ-F1.4** A history purge for a leaked secret SHALL remain a human-run
   rewrite; the tower MAY prepare the command and a rotation checklist and
   SHALL NOT run it.
@@ -577,6 +607,136 @@ list above puts it.
   alone.
   *(Cites: D-2, D-8, D-9; kickoff §3 REQ-F (2026-09-22); kickoff sign-off
   lens pass (2026-09-22).)*
+- **REQ-F1.6** (supersedes REQ-F1.1) On the unit branch a worker session
+  owns, a commit no remote ref contains SHALL be permitted to be amended,
+  squashed, fixed up, or rebased (`git pull --rebase` included) under an
+  `unpushed_rewrite` knob (`allow` by default, `deny`). For a worker that
+  mission control launched, whose launch-written session record names
+  mission control as its launcher, the same acts on a commit a remote ref
+  contains SHALL be permitted only under a `draft_rewrite` knob (`deny` by
+  default, `allow`), and only so that the REQ-F1.8 push publishes them.
+  The rewritten range SHALL hold only commits the branch's own
+  remote-tracking ref or no remote ref contains, its rebase upstream SHALL
+  be the PR base (the session record's `pr_base`) or the branch's own
+  remote branch, and a range holding a
+  never-pushed commit SHALL need `unpushed_rewrite` to allow it as well.
+  Every other pushed commit, and every pushed commit of any other session,
+  SHALL stay append-only; `git reset` and `git cherry-pick` are unchanged
+  by this requirement. A spec branch is no session's unit branch
+  (REQ-F1.5). Before allowing any of these acts the guard SHALL refresh
+  the branch's upstream tracking ref and decide which knob governs from
+  whether a remote-tracking ref contains a commit in the range (any pushed
+  commit puts the act under `draft_rewrite`), refusing when the refresh
+  fails or no upstream is configured. `draft_rewrite` SHALL be resolved
+  once, by the launcher, into the session record the launcher writes
+  outside the worktree, from the core, adopter, and machine-local layers
+  only (a repo-tracked value ignored, so a committed line never enables
+  it; an adopter line enables every repository on the machine, the
+  machine-local line one repository), and the guard and
+  the helper SHALL read it from that record, found at a path the launcher
+  fixes from the worktree and never through an environment variable, never
+  from live config or the environment, so a change reaches a worker only
+  by relaunch. The guard SHALL decide from local state alone and make no
+  host call, the PR base included; whether the PR is a draft is the
+  REQ-F1.8 push's check. The tower's rewrite for
+  the REQ-F1.7 path is outside this requirement.
+  *(Cites: D-8, D-27; kickoff amendment 2026-11-20 (the operator's Q1, Q5,
+  and Q6 answers, and the lens pass).)*
+- **REQ-F1.7** (supersedes REQ-F1.2) A force-push SHALL be performed only
+  by the tower, or by a worker through the REQ-F1.8 helper. The tower SHALL
+  perform one only on an explicit operator request in the same turn, after
+  a warning naming the remote commits the push will drop, and never to
+  main or a protected branch; a standing decision SHALL NOT authorize it,
+  and the tower SHALL NOT initiate it. The tower path covers a branch whose
+  PR is ready, which no worker path reaches. No worker path SHALL reach a
+  branch another person works from. The operator's own agent instructions
+  MAY narrow either path further (for example, forbidding a rewrite of a
+  ready PR in a repository the operator does not own); this bundle SHALL
+  NOT widen them, and where they forbid an act this bundle allows, they
+  govern.
+  *(Cites: D-8, D-27; kickoff amendment 2026-11-20 (the operator's Q2 and
+  Q3 answers).)*
+- **REQ-F1.8** A worker that mission control launched SHALL publish a
+  rewrite of its own unit branch only through `scripts/worker-branch-sync.sh
+  push --force-with-lease=<branch>:<sha> --force-if-includes`, run from
+  the installed copy; the helper's command line SHALL name no remote,
+  refspec, `+` form, or other option. The helper SHALL clear every
+  environment override of planwright's config resolution and of `gh`'s
+  repository and host before it reads anything, and SHALL refuse, pushing
+  nothing, unless all of these hold at the moment of the push:
+  - the session record names mission control as the launcher and
+    `draft_rewrite=allow` (REQ-F1.6);
+  - the checked-out branch is the session's recorded unit branch, outside
+    the REQ-F1.5 protected set, in a clean tree, and no other worktree
+    holds it and no process outside the helper's own ancestry works in
+    its worktree;
+  - the lease names that branch and the full commit id of the tip the
+    rewrite started from, a tip that branch's own reflog records (a missing
+    reflog refusing), never one read from a remote-tracking ref at push
+    time, and `--force-if-includes` is given beside it;
+  - every commit the push replaces, reachable from the lease and not from
+    the PR base, carries the repository's configured author identity;
+  - in the repository the push remote's URL names, read with that
+    repository passed explicitly, the branch heads exactly one open pull
+    request from that same repository, the host reports it a draft, and
+    no open pull request takes the branch as its base, read just before
+    the push, a failed or unreadable read refusing.
+
+  The helper SHALL print the commit ids the push replaced and append one
+  line naming the branch, the lease, the new head, and the time to the
+  session's audit log. A push the remote rejects for a moved branch SHALL
+  be reported as the branch being shared and SHALL never be retried with
+  another lease or a broader force. No other spelling SHALL publish the
+  rewrite: the worker tier SHALL be refused a deletion of its own unit
+  branch on the remote in every spelling (`git push` with `:<branch>`,
+  `--delete`, or `-d`, and the `gh api` REST ref delete and GraphQL
+  `deleteRef`), as it is refused every force form; a local `git branch -D`
+  is outside this requirement. A pull
+  request that is ready SHALL take new commits, or the REQ-F1.7 tower path.
+  The window between the draft read and the push is an accepted residual:
+  a flip landing inside it is not caught.
+  *(Cites: D-27; kickoff amendment 2026-11-20 (the operator's Q1 answer,
+  and the lens pass); PR #1119 (Sources).)*
+- **REQ-F1.9** When a worker is refused a REQ-F1.6 or REQ-F1.8 act only
+  because `draft_rewrite` is not `allow`, the refusal SHALL name the act,
+  the repository, the `draft_rewrite: allow` line, and the REQ-F1.11
+  command that writes it, and that it takes effect at the worker's next
+  launch; the worker SHALL report that refusal to its mission control as
+  an operator item carrying them, then continue with new commits or park
+  as it would have. Deduplicating those items per repository, recording
+  the operator's "no", and listing them at bring-up and doctor are mission
+  control's (a routed amendment).
+  *(Cites: D-27; kickoff amendment 2026-11-20 (the operator's Q7
+  answer).)*
+- **REQ-F1.10** (supersedes REQ-F1.3) A commit-range lint failure on a
+  pushed branch SHALL be the named reason for a reword: through the
+  REQ-F1.8 path while the branch's PR is a draft and the session record
+  allows it, otherwise through the REQ-F1.7 tower path. The handoff of the
+  skill whose gate reports that failure SHALL name the path that applies,
+  and a REQ-F1.8 rewrite SHALL name, as the tower path's handoff does, any
+  legacy checklist item whose id the rewrite changed.
+  *(Cites: D-8, D-16, D-27; the CI commit-range lint (Sources).)*
+- **REQ-F1.11** `scripts/draft-rewrite-enable.sh <repo>` SHALL write
+  `draft_rewrite: allow` into that one repository's machine-local
+  `.claude/planwright.local.yml` and nothing else: every other line kept,
+  an existing `draft_rewrite` line replaced, an absent file created, the
+  write atomic with the file's mode kept, and one audit line appended
+  naming the repository and the time. It SHALL refuse, writing nothing, a
+  file it cannot parse, a path that is not a git repository's primary
+  checkout, a symlink anywhere in the target path, a file the user does
+  not own, and a target git does not ignore. The policy guard SHALL deny
+  the command, and every Bash write of a `draft_rewrite` line it can read,
+  to the worker, tower, and kickoff tiers, beside the profiles' existing
+  file-tool denies on the overlay files, and the worker command guard SHALL
+  NOT auto-approve it. The operator MAY run it in their own shell; mission
+  control MAY run it only on the operator's own yes for that exact
+  repository, quoted in its decisions log, once a routed mission-control
+  amendment admits that one write. Until then the operator item hands the
+  operator the command. No command writes the adopter layer: a
+  machine-wide line is the operator's own edit, and where it already
+  allows, no REQ-F1.9 refusal fires, so no ask is raised.
+  *(Cites: D-27; kickoff amendment 2026-11-20 (the operator's Q7 and Q8
+  answers, and the lens pass).)*
 
 ## REQ-G — Guards and profiles
 
@@ -620,6 +780,8 @@ list above puts it.
   policy-guard suite pins them.
   *(Cites: D-9; worker-permission-ergonomics D-1 (Sources); kickoff sign-off
   lens pass (2026-09-22).)* *(Amended at kickoff amendment 2026-10-01: the `gh api` spellings.)*
+  **Superseded-by: REQ-G1.14** (2026-11-20) — the guard-only rewrite entry
+  reads REQ-F1.7 and REQ-F1.8.
 - **REQ-G1.4** Every guard that reads a policy SHALL do so deterministically,
   within a wall-clock bound, with no model in the decision path, and SHALL
   fail closed when the read fails. It SHALL classify the intercepted command
@@ -791,6 +953,26 @@ list above puts it.
   requests outside those acts, each expecting `prompt` from every profile.
   *(Cites: D-9, D-18, D-25, D-26; kickoff amendment lens pass
   (2026-11-05).)*
+- **REQ-G1.14** (supersedes REQ-G1.3) Acts no policy value can permit SHALL
+  stay in the deny profiles as the floor, effective whatever a guard emits,
+  where a profile can express them: a merge or rewrite of main, `master`, a
+  protected or spec branch on every spelling, the direct PR-merge
+  spellings, force-push, and the MCP names. The floor entries a profile
+  cannot express (an agent PR merge outside a policy class, a rewrite of a
+  pushed commit outside REQ-F1.6, REQ-F1.7, and REQ-F1.8, a worker's
+  deletion of its own unit branch) SHALL be guard-only, and the
+  sanctioned helpers behind them, `scripts/worker-branch-sync.sh` among
+  them, SHALL re-read the policy (for that helper, the session record,
+  refusing an unreadable or malformed record) and fail closed internally,
+  as their own last line. The REQ-F1.8 push SHALL
+  NOT open the profiles' force-push deny: a raw `git push --force*`, a `+`
+  refspec, and every other spelling stay denied for every tier, and the
+  helper runs its push itself, reached through the worker command guard's
+  installed-root approval, which the wiring tests pin. The
+  `gh api` spellings of the floor acts (REQ-G1.7) are guard-only too, since
+  a profile glob sees text and cannot read the request; the policy-guard
+  suite pins them.
+  *(Cites: D-9, D-27; kickoff amendment 2026-11-20.)*
 
 ## REQ-H — Prose surfaces
 
@@ -1095,6 +1277,41 @@ list above puts it.
   drafting-kind, release-kind, and Renovate Deferred bullets and the
   first-release-session `[manual]` act; the details are in
   `kickoff-brief.md`'s amendment log.
+- 2026-11-20 — Amendment from the operator's ruling on PR #1119 (a
+  launched worker's leased rewrite of its own draft branch): REQ-F1.6
+  supersedes REQ-F1.1 (pushed commits on the owned branch reshaped under
+  a `draft_rewrite` knob, off by default, recorded at launch), REQ-F1.7
+  supersedes REQ-F1.2 (the worker path beside the tower's, the operator's
+  own instructions able to narrow both), REQ-F1.8 minted for the helper's
+  leased push, REQ-F1.9 for the refusal that names the setting and its
+  operator item, REQ-F1.10 supersedes REQ-F1.3 (the repair path that
+  applies), REQ-F1.11 minted for the one-repository enable command,
+  REQ-A1.11 for the draft-rewrite policy row, with a scoped pointer on
+  REQ-A1.2's policy list, and REQ-G1.14 supersedes REQ-G1.3 (the
+  guard-only rewrite entry, the deletion deny, the force-push deny whole);
+  D-27 supersedes D-8 in part and scopes D-9; Tasks 21 and 22 added, with a
+  Deferred bullet routing mission control's half of the opt-in
+  (obs:9bed2b4e); the pending supersede pointers into guard-coverage,
+  concurrent-orchestrator-coordination, tower-placement,
+  tower-front-door, fleet-lifecycle-closure, and tower-comms repointed
+  from REQ-F1.1 and REQ-F1.2 to REQ-F1.6 and REQ-F1.7; the in-scope,
+  out-of-scope, and Sources entries extended; the details are in
+  `kickoff-brief.md`'s amendment log.
+- 2026-11-22 — Expression-only fixes carried from the Amendment 5 polish
+  pass (the operator's "Land as signed, carry all 12"), landed with
+  Task 21: REQ-F1.6 reads the PR base as the session record's `pr_base`,
+  names no host call for it, and finds the record at a path the launcher
+  fixes, never through an environment variable (the operator's ruling);
+  REQ-F1.8 scopes the deletion refusal to the remote ref and lists its
+  spellings; REQ-G1.14 names an unreadable or malformed record among the
+  helper's refusals; REQ-A1.11 gains its "(supersedes REQ-A1.2 in part)"
+  marker and D-27 its "supersedes D-8 in part, scopes D-9" marker; Task
+  21's Done-when and the REQ-F1.8 test-spec entry gain the launcher,
+  malformed-record, environment-record, and deletion-spelling cases and
+  the legacy-item handoff, and the REQ-F1.6 and REQ-G1.14 entries the
+  environment-record and malformed-record cases; a line rewrapped, a
+  doubled "and" dropped in
+  the Deferred bullet, and obs:9bed2b4e's wording repaired.
 
 ## Sources
 
@@ -1276,3 +1493,8 @@ list above puts it.
 - **research: Claude Code in Actions containment** —
   <https://readysolutions.ai/blog/2026-05-27-claude-code-github-actions-ci-agents/>:
   a merge gate the agent does not own.
+- **PR #1119** — the worker branch-sync helper (`reset` and `ff`), merged
+  without the leased push it first carried; the operator split the push
+  out to wait on this bundle's 2026-11-20 amendment. Its push verb, guard
+  grammar, and tests are the starting point for Task 21; the kickoff
+  brief's amendment entry records where they are kept.

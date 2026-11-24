@@ -1,0 +1,1 @@
+- 2026-11-23 [planwright] Guard comments in scripts/worker-command-guard.sh near the check-command partner logic say "write" where any own-branch act applies.

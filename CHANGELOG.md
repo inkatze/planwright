@@ -1,5 +1,128 @@
 # Changelog
 
+## [0.82.0](https://github.com/inkatze/planwright/compare/v0.81.0...v0.82.0) (2026-11-23)
+
+
+### Features
+
+* add a --lefthook-edit launch opt-in for a worker's own worktree ([#1137](https://github.com/inkatze/planwright/issues/1137)) ([b8ff36b](https://github.com/inkatze/planwright/commit/b8ff36b8076550c70da067e24d2bdc0af75e1ef9))
+* **control-plane:** record the measurement baseline and its method ([#1159](https://github.com/inkatze/planwright/issues/1159)) ([456818c](https://github.com/inkatze/planwright/commit/456818ccf8b3a63a74d50a35913ebe7c9d8d48ae))
+* **human-gates:** add the class test and the automatic merge rows to the doctrine ([#1050](https://github.com/inkatze/planwright/issues/1050)) ([2b43a92](https://github.com/inkatze/planwright/commit/2b43a9270f9308719ac0278affecf38c20a20308))
+* let /orchestrate fast-forward a clean, lagging primary checkout (opt-in) ([#1147](https://github.com/inkatze/planwright/issues/1147)) ([839486e](https://github.com/inkatze/planwright/commit/839486e9a6075aef794c09fad196c057abbd401d))
+* let a launched worker publish a leased rewrite of its own draft branch ([#1158](https://github.com/inkatze/planwright/issues/1158)) ([c0abac7](https://github.com/inkatze/planwright/commit/c0abac77669634fa38d9f703b9dee607cc54bb96))
+* let a worker's own push, PR edit or export follow a commit or a gate task ([#1145](https://github.com/inkatze/planwright/issues/1145)) ([eef8c33](https://github.com/inkatze/planwright/commit/eef8c33f74d7bddb80592b97ff18781f56635c9b))
+* **worker-guard:** approve a repository's declared check commands ([#1148](https://github.com/inkatze/planwright/issues/1148)) ([a0ee8d8](https://github.com/inkatze/planwright/commit/a0ee8d8ae765622ed7fc83fe4febd01fd18838ab))
+
+
+### Bug Fixes
+
+* an unreadable fleet registry fails the read instead of reading as empty ([#1161](https://github.com/inkatze/planwright/issues/1161)) ([57bcafe](https://github.com/inkatze/planwright/commit/57bcafe56c4c4e33405a563900cce00c6683353e))
+* close four ways a worker could write or run what the guard should stop ([#1143](https://github.com/inkatze/planwright/issues/1143)) ([47fa6de](https://github.com/inkatze/planwright/commit/47fa6de7cd27dbe27d8eec15b016f766813da3c4))
+* defer git help requests and close fish -c bypasses in the command guards ([#1146](https://github.com/inkatze/planwright/issues/1146)) ([4c1665a](https://github.com/inkatze/planwright/commit/4c1665ab629ca09294523a02f4051bf07ce385cb))
+* hub hears every unanswerable worker prompt; workers' own push, PR edit and export pre-approved ([#1126](https://github.com/inkatze/planwright/issues/1126)) ([9614742](https://github.com/inkatze/planwright/commit/96147421c14b2fa2f95f3bf0845206908978babc))
+* keep a program's mission-control wakes out of worker sessions ([#1151](https://github.com/inkatze/planwright/issues/1151)) ([8e8e64e](https://github.com/inkatze/planwright/commit/8e8e64ef92541c708d10afa9a598ea988ba38ec4))
+* **launch:** exempt kinds that run no local work from the host-wide bound ([#965](https://github.com/inkatze/planwright/issues/965)) ([9688bbf](https://github.com/inkatze/planwright/commit/9688bbfaebc93624745825d3aeff230edcacd12d))
+* merge-ready raises nothing for a merged, closed or bot-unreviewed pull request ([#1004](https://github.com/inkatze/planwright/issues/1004)) ([d235d7b](https://github.com/inkatze/planwright/commit/d235d7bf1dddce583c4f10ab35e46c0d9b023195))
+* prompt on hand-timed step records and keep step scripts on the worker's own worktree ([#1166](https://github.com/inkatze/planwright/issues/1166)) ([9e75d1a](https://github.com/inkatze/planwright/commit/9e75d1a99051c821a3892e6b14b018a09fff9581))
+* raise an alarm when a worker parks waiting on the operator ([#1150](https://github.com/inkatze/planwright/issues/1150)) ([2fdc8b4](https://github.com/inkatze/planwright/commit/2fdc8b4936b7ac37594cf54ba1e0ebe132734428))
+* raise prompts of a live stream-json worker the launcher has no row for ([#1136](https://github.com/inkatze/planwright/issues/1136)) ([1ae44c5](https://github.com/inkatze/planwright/commit/1ae44c52943d9edb9a1add5aa826a661d93c6721))
+* readiness accepts a finished spec bundle that predates kickoff and has no kickoff brief ([#1142](https://github.com/inkatze/planwright/issues/1142)) ([db598a0](https://github.com/inkatze/planwright/commit/db598a0e9409ad3106e14ec1ac51409ec8f07d03))
+* readiness accepts a PR-Agent re-run and an archived observation ([#1163](https://github.com/inkatze/planwright/issues/1163)) ([8f9b430](https://github.com/inkatze/planwright/commit/8f9b430ca6a8c9c6b983c19986f5c9cfbefebb8f))
+* readiness offers the flip when a draft's only post-pr completion is another unit's ([#1157](https://github.com/inkatze/planwright/issues/1157)) ([4b2d740](https://github.com/inkatze/planwright/commit/4b2d7403ab69bd9e01b4d9ac9dcf41f87816c95e))
+* register an orchestrator's dispatched workers under its program ([#1162](https://github.com/inkatze/planwright/issues/1162)) ([5633e1e](https://github.com/inkatze/planwright/commit/5633e1e4e92ed315fe8eafda94d2d386539042c9))
+* report a steer the worker never read instead of losing it silently ([#1165](https://github.com/inkatze/planwright/issues/1165)) ([514f12b](https://github.com/inkatze/planwright/commit/514f12b465c24615c79d1bec526aab41825ac19a))
+* stop relaying events whose subject is gone, and prune them on request ([#1034](https://github.com/inkatze/planwright/issues/1034)) ([6243350](https://github.com/inkatze/planwright/commit/6243350b400b50f369f766c93d9d4fb1f30493b0))
+* stop the command guards auto-allowing abbreviated or hidden git config writes ([#1139](https://github.com/inkatze/planwright/issues/1139)) ([429e464](https://github.com/inkatze/planwright/commit/429e46470647fd17862d3c316ae5317e0c5eb415))
+* stop the freshness gate refusing a sign-off entry whose prose opens with Class: ([#1141](https://github.com/inkatze/planwright/issues/1141)) ([ef33930](https://github.com/inkatze/planwright/commit/ef339309a71316c5954349f80a11b7d890e8230a))
+
+## [0.81.0](https://github.com/inkatze/planwright/compare/v0.80.0...v0.81.0) (2026-11-20)
+
+
+### Features
+
+* let workers reset and fast-forward their own branch's worktree through one guarded helper ([#1119](https://github.com/inkatze/planwright/issues/1119)) ([8943054](https://github.com/inkatze/planwright/commit/89430540362e48c1b6bd4079376d54606c03d6a2))
+
+
+### Bug Fixes
+
+* attribute a step run to the worktree it is recorded in, not the session's launch directory ([#1110](https://github.com/inkatze/planwright/issues/1110)) ([d50f8e1](https://github.com/inkatze/planwright/commit/d50f8e1b0e6612cb885a1c821e1473aff8df60f0))
+* let a spec PR's own session merge main and fast-forward to its PR head ([#1118](https://github.com/inkatze/planwright/issues/1118)) ([35c827e](https://github.com/inkatze/planwright/commit/35c827e88f81ae1ba0f2a454289ab29cbb2487ef))
+* name each way readiness cannot read a bundle's status, and read it the same from any directory ([#1115](https://github.com/inkatze/planwright/issues/1115)) ([64720e4](https://github.com/inkatze/planwright/commit/64720e44c51e20064b4cdaa9ce37dd9eb8cb435a))
+* predict conflicts only between branches with an open pull request ([#1120](https://github.com/inkatze/planwright/issues/1120)) ([bba0c4c](https://github.com/inkatze/planwright/commit/bba0c4c544c6164685321dbbf4fb7b96053ef78d))
+* read the fixture process table past a malformed ps line ([#1125](https://github.com/inkatze/planwright/issues/1125)) ([67aab29](https://github.com/inkatze/planwright/commit/67aab2952081e5af8c8af21555102daa012353a4))
+* refuse a review request that GitHub accepts but never adds ([#1130](https://github.com/inkatze/planwright/issues/1130)) ([48134db](https://github.com/inkatze/planwright/commit/48134dbea114567743f76d37be163d8357707aed))
+* stop approving a command that trusts an assignment a later & backgrounds ([#1123](https://github.com/inkatze/planwright/issues/1123)) ([b4b2da4](https://github.com/inkatze/planwright/commit/b4b2da4fe660894b42bd3913466b666f848b59d2))
+* stop git reads of a worker's checkout from running what the worker planted ([#1112](https://github.com/inkatze/planwright/issues/1112)) ([d9a1b77](https://github.com/inkatze/planwright/commit/d9a1b772e5b08cc00b1461f8ba488622051de1f5))
+* **tests:** give every test file a deadline on macOS, where timeout(1) is missing ([#1122](https://github.com/inkatze/planwright/issues/1122)) ([c96bbcc](https://github.com/inkatze/planwright/commit/c96bbccceeb399eafff1973406de5111ff16683f))
+* wait for a stopped worker to actually stop before the close re-reads the tree (flaky c25) ([#1113](https://github.com/inkatze/planwright/issues/1113)) ([6b9bd00](https://github.com/inkatze/planwright/commit/6b9bd004df4fb93bdee54b0cf6926efdb085a378))
+* wait for the last launch to leave the worktree before a reuse launch in tests ([#1128](https://github.com/inkatze/planwright/issues/1128)) ([cf9f873](https://github.com/inkatze/planwright/commit/cf9f87337840715df57998ac54e60e1ccfe7b816))
+
+## [0.80.0](https://github.com/inkatze/planwright/compare/v0.79.0...v0.80.0) (2026-11-19)
+
+
+### Features
+
+* a PR-Agent pass retires a limited cubic-pr on the same head ([#1009](https://github.com/inkatze/planwright/issues/1009)) ([eaef767](https://github.com/inkatze/planwright/commit/eaef7671a0ab4bc017f384df5a9a279c4f3e71ed))
+* approve more routine worker commands without a prompt ([#1105](https://github.com/inkatze/planwright/issues/1105)) ([175d55f](https://github.com/inkatze/planwright/commit/175d55fb4eb37795e66cd2bffe93953a0730c1f3))
+* let a misdated step record be corrected by an append-only supersede ([#1098](https://github.com/inkatze/planwright/issues/1098)) ([1971ed8](https://github.com/inkatze/planwright/commit/1971ed8ea6727adb61b719958c3422d0eb650d80))
+
+
+### Bug Fixes
+
+* cut the process starts in mission control's panel digest ([#1107](https://github.com/inkatze/planwright/issues/1107)) ([c5d080a](https://github.com/inkatze/planwright/commit/c5d080a0bf7d8715af0b5f9efcb4e811aa27e938))
+* let readiness flip a draft whose only gap is the bot review its flip fires ([#1108](https://github.com/inkatze/planwright/issues/1108)) ([0c8b7bd](https://github.com/inkatze/planwright/commit/0c8b7bd6468572809fbaf6718383e14376615857))
+* **lock-lib:** finish a release a second signal interrupted, so the pool test leaves no stray lock ([#1106](https://github.com/inkatze/planwright/issues/1106)) ([d998a14](https://github.com/inkatze/planwright/commit/d998a148a109da83d7d19c5536939308ae4666c1))
+* **policy-guard:** stop mission-control writes reaching settings through links and redirects ([#1091](https://github.com/inkatze/planwright/issues/1091)) ([eb0c3fe](https://github.com/inkatze/planwright/commit/eb0c3fe36163a61c8fed842890dcc20fe113137e))
+* refuse git commands that run a filter program on the kickoff push script ([#1092](https://github.com/inkatze/planwright/issues/1092)) ([f0ffd7d](https://github.com/inkatze/planwright/commit/f0ffd7d0ad94bf95fb11fbc37052173a7d0998c5))
+* refuse tail -f /dev/null and sleep infinity holders, and report adopted ones ([#1111](https://github.com/inkatze/planwright/issues/1111)) ([c487d72](https://github.com/inkatze/planwright/commit/c487d7282ebbab5b874650a891a6e4330d30f60e))
+* run PR-Agent once per pull request, on the run the ready flip fires ([#1104](https://github.com/inkatze/planwright/issues/1104)) ([d6eddf3](https://github.com/inkatze/planwright/commit/d6eddf3a431de80af0ab9e4434ec7d33d8a6b9ab))
+* stop test suites leaking stream-json sessions, and report orphaned ones ([#1095](https://github.com/inkatze/planwright/issues/1095)) ([e75fd2f](https://github.com/inkatze/planwright/commit/e75fd2f24372be57f21883054e105e5e03191e66))
+* stop workers editing user-level and system git config through the file tools ([#1099](https://github.com/inkatze/planwright/issues/1099)) ([510d234](https://github.com/inkatze/planwright/commit/510d234e49dc9f80cc833d38c2056c6051a3cc43))
+
+## [0.79.0](https://github.com/inkatze/planwright/compare/v0.78.0...v0.79.0) (2026-11-18)
+
+
+### Features
+
+* refuse a step record that overstates what happened (step-record truth check) ([#1037](https://github.com/inkatze/planwright/issues/1037)) ([0726af6](https://github.com/inkatze/planwright/commit/0726af6316c07f090e11c8d7a1e796c3ca407f69))
+* **spec:** control-plane kickoff sign-off ([#1087](https://github.com/inkatze/planwright/issues/1087)) ([d535036](https://github.com/inkatze/planwright/commit/d535036b774a1058d9066129721a0dbffcd35a29))
+
+
+### Bug Fixes
+
+* a deny answer always carries a non-empty message ([#1022](https://github.com/inkatze/planwright/issues/1022)) ([d05f743](https://github.com/inkatze/planwright/commit/d05f7432f7b8a3e3cc7725046abd923f33f367a3))
+* **ci:** give PR-Agent a full review on a push that brings in a merge ([#1085](https://github.com/inkatze/planwright/issues/1085)) ([5e867a3](https://github.com/inkatze/planwright/commit/5e867a3769cd06c285af37b588a32d8dd19a54f9))
+* close two kickoff-push detection gaps in the policy guard ([#991](https://github.com/inkatze/planwright/issues/991)) ([40347ed](https://github.com/inkatze/planwright/commit/40347ed631b8f90bfb710ee940a8628b36e1ef9f))
+* let mission control write and read its own program-home stores ([#1024](https://github.com/inkatze/planwright/issues/1024)) ([d16165a](https://github.com/inkatze/planwright/commit/d16165a8f345832de887a46bb7769cd6551cd1ad))
+* **steps:** refuse a step record that does not match its branch ([#1052](https://github.com/inkatze/planwright/issues/1052)) ([35346cb](https://github.com/inkatze/planwright/commit/35346cb65d2d0c3690957a37a98a6da6f2b3dcfb))
+* stop the command guards auto-allowing near-spellings of git exec options ([#1093](https://github.com/inkatze/planwright/issues/1093)) ([58a7782](https://github.com/inkatze/planwright/commit/58a7782fe00f3bfc149ebe3d55674a272c15e16d))
+* stop the tower guard approving gh reads that print the token or environment or open a browser ([#1090](https://github.com/inkatze/planwright/issues/1090)) ([bde8f32](https://github.com/inkatze/planwright/commit/bde8f32e3fa60f0fae5f8b44253a130073ec966b))
+* stop the worker guard approving gh reads that print the environment or open a browser ([#1089](https://github.com/inkatze/planwright/issues/1089)) ([de51428](https://github.com/inkatze/planwright/commit/de514288757d9c97ddd268d4169bb34187ab2cb7))
+
+## [0.78.0](https://github.com/inkatze/planwright/compare/v0.77.0...v0.78.0) (2026-11-16)
+
+
+### Features
+
+* **mission-control:** refuse spec drift at readiness ([#1042](https://github.com/inkatze/planwright/issues/1042)) ([0a0344b](https://github.com/inkatze/planwright/commit/0a0344b8766a3f1affe93b9145d7892879ffea2c))
+
+
+### Bug Fixes
+
+* a waiting prompt request is always named in a new event ([#1003](https://github.com/inkatze/planwright/issues/1003)) ([03e1c37](https://github.com/inkatze/planwright/commit/03e1c3716a8faa0fb83e5f766c554302f29c597c))
+* **fleet:** stop a worker's close from leaking processes forked while it runs ([#1077](https://github.com/inkatze/planwright/issues/1077)) ([acf159a](https://github.com/inkatze/planwright/commit/acf159a660d92703c3ed81b9caea586a6675c177))
+* flight slot counting and brief retirement skip the primary checkout ([#1053](https://github.com/inkatze/planwright/issues/1053)) ([5f01949](https://github.com/inkatze/planwright/commit/5f01949e49ea2171c32477c6b7d97c1038a33baa))
+* **guard:** close two sed -i false allows, one an outside-worktree write ([#1080](https://github.com/inkatze/planwright/issues/1080)) ([01abec2](https://github.com/inkatze/planwright/commit/01abec288493972d9c8448da05b6fc0f1fa58b45))
+* **guard:** read a space-separated sed --expression value as the script ([#1076](https://github.com/inkatze/planwright/issues/1076)) ([50b7a4f](https://github.com/inkatze/planwright/commit/50b7a4f68a09e67fb3bab20ec8288e19608ce61d))
+* **mission-control:** a handover stops replaying the old event backlog ([#1083](https://github.com/inkatze/planwright/issues/1083)) ([90261a0](https://github.com/inkatze/planwright/commit/90261a08916480b346bce09db99269056b9d85af))
+* **mission-control:** a successor keeps its config overlays and starts in the program repo ([#1082](https://github.com/inkatze/planwright/issues/1082)) ([2ef8506](https://github.com/inkatze/planwright/commit/2ef85067dfba3b352ac4206432cba7494388f897))
+* never retire a parked session, and report it as parked ([#1055](https://github.com/inkatze/planwright/issues/1055)) ([6459d14](https://github.com/inkatze/planwright/commit/6459d1492ab30f8370f148a757dfe68ff36f846c))
+* read a Task &lt;id&gt; Dependencies item as its id in the state engine ([#1047](https://github.com/inkatze/planwright/issues/1047)) ([d3c0e02](https://github.com/inkatze/planwright/commit/d3c0e02ee62e8fde4b0b96b7ae9b0bd28a4a4e47))
+* report a crashed tmux server as one event instead of a death per window ([#1078](https://github.com/inkatze/planwright/issues/1078)) ([7839619](https://github.com/inkatze/planwright/commit/7839619edbf9b78d971482d3e7d6c191fe981cf1))
+* **self-review:** give lens sub-agents the command shape so polish stops waiting on prompts ([#1084](https://github.com/inkatze/planwright/issues/1084)) ([ba6e037](https://github.com/inkatze/planwright/commit/ba6e0370a27ae6e324f332c8264da2814336f3b0))
+* **steps:** audit step records against the session's own events ([#963](https://github.com/inkatze/planwright/issues/963)) ([d6e9415](https://github.com/inkatze/planwright/commit/d6e94150c8f3b7de0fd2ccccc148d7050af3c820))
+* **tests:** run-tests.sh workers die with it when the job is cancelled ([#1023](https://github.com/inkatze/planwright/issues/1023)) ([08d0ba5](https://github.com/inkatze/planwright/commit/08d0ba59962edc8b60b48665d14748246ed5b2c8))
+
 ## [0.77.0](https://github.com/inkatze/planwright/compare/v0.76.1...v0.77.0) (2026-11-16)
 
 

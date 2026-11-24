@@ -45,6 +45,15 @@ Usage:
       file instead of capturing the session's tmux window.
   mc-stall.sh scan --program <p> [--now <epoch>]
       classify every launched session the program's registry rows name.
+  mc-stall.sh liveness --program <p> <name>
+      print, tab separated, `<name> <dead|alive|unknown> <reason>` for
+      one launched session, by the liveness evidence below alone: no pane
+      is read, no sample is kept and no event is emitted.
+  mc-stall.sh orphans
+      list every stream-json process of this user's that nothing can
+      reach any more, and every tail -f /dev/null or sleep infinity holder
+      init has adopted, whatever fleet home or program started it. Read-only:
+      it never signals one, and stopping one is the operator's call.
 
 Liveness is positive evidence from the session's rung, through
 scripts/fleet-death-evidence.sh, never pane text or elapsed time:
@@ -117,9 +126,35 @@ with no recorded server, is classified as always.
 Output, one line per session, tab separated:
   <name> <kind> <state> <reason> <event id or ->
 
-Exit codes: 0 classified; 1 the registry, a sample or a lock could not be
-read or written, an event could not be emitted, the stall-window knob or the
-fleet home does not resolve; a scan classifies every other session first;
+An orphan is a fleet-streamjson.sh supervisor (its `_supervise <worker>
+<dir>` argv) whose state directory is gone, whose state directory records
+another supervisor, or whose working directory is gone; or a stream-json
+`claude -p` naming its worker (`--name`) whose parent is no fleet-streamjson.sh
+launch, recover, relaunch or supervisor. Such a worker's row also says whether
+the fleet home holds a record of it and whether its working directory is gone.
+A supervised worker is named in its supervisor's row instead, and a process
+with the supervisor's argv whose parent is that supervisor is one of its own
+forks, never listed. A directory that records no supervisor yet
+belongs to one starting or exiting, so that alone lists nothing. A holder is
+a `tail -f /dev/null` or `sleep infinity` (spelled so, the row prefilter
+matching nothing else) that init has adopted: its parent is pid 1, or, where
+there is a procfs, a process named systemd, init or launchd. The command or
+test that started it is usually gone and nothing will end it, but a service
+manager that runs one on purpose is listed too, so the listing says what it
+read and leaves the call to the operator. Its worker column reads `-`, and it
+is listed by its parent alone, never by its working directory. One whose
+parent still runs is its parent's, never listed. orphans prints, tab
+separated:
+  orphan <pid> <start> <supervisor|claude|holder> <worker> <reason>
+where <start>, which tells the process from a later one given the same pid,
+is its procfs start tick as t<ticks> (field 22 of /proc/<pid>/stat) where
+there is a procfs, else ps's lstart with its spaces turned to dashes. Where
+there is a procfs the listing reads it, not ps.
+
+Exit codes: 0 classified, the liveness printed, or the orphans listed; 1 the registry, a sample or
+a lock could not be read or written, an event could not be emitted, the
+stall-window knob or the fleet home does not resolve, the process table
+cannot be read; a scan classifies every other session first;
 2 usage, a malformed name or a registry row of an unknown format; 3 the
 program is not configured, or no launched row names the session (none, a
 launch still in flight, or a row naming another session).
@@ -127,7 +162,7 @@ HELP
 }
 
 usage() {
-  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>]"
+  mc_usage_fail "usage: mc-stall.sh classify --program <p> [--now <epoch>] [--pane <file>] <name> | scan --program <p> [--now <epoch>] | liveness --program <p> <name> | orphans"
 }
 
 valid_name() {
@@ -613,6 +648,209 @@ row_ok() {
   [ "$R_program" = "$PROGRAM" ] || return 3
 }
 
+# The procfs the listing reads, or nothing where there is none (macOS), when
+# ps answers instead. PLANWRIGHT_MC_PROC_ROOT moves it, so a test can stand
+# in a host with a table of its own, an empty one included.
+resolve_proc_root() {
+  if [ -n "${PLANWRIGHT_MC_PROC_ROOT:-}" ]; then
+    case $PLANWRIGHT_MC_PROC_ROOT in
+      /*) ;;
+      *) mc_fail "PLANWRIGHT_MC_PROC_ROOT must be an absolute path" ;;
+    esac
+    printf '%s\n' "$PLANWRIGHT_MC_PROC_ROOT"
+  elif [ -r /proc/self/stat ]; then
+    printf '%s\n' /proc
+  fi
+}
+
+# proc_cwd <pid>: the process's working directory as here:<path>, or
+# gone:<path> once it was removed; nothing when it cannot be read.
+proc_cwd() {
+  if [ -n "${PROC_ROOT:-}" ]; then
+    pc_dir=$(readlink "$PROC_ROOT/$1/cwd" 2>/dev/null) || return 0
+  elif command -v lsof >/dev/null 2>&1; then
+    pc_dir=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+  else
+    return 0
+  fi
+  [ -n "$pc_dir" ] || return 0
+  if [ -d "$pc_dir" ]; then
+    printf 'here:%s\n' "$pc_dir"
+  else
+    printf 'gone:%s\n' "${pc_dir% (deleted)}"
+  fi
+}
+
+# proc_rows: this user's process rows that name the launcher, the
+# stream-json shape, /dev/null or infinity (the holder candidates), as
+# `<pid> <ppid> <start> <argv...>` with <start> one
+# token: from procfs where there is one, since busybox's ps cuts argv short
+# and has no start time, each row read with builtins alone, as a busy host
+# has many; elsewhere from ps, its lstart joined by dashes. A procfs start is
+# the kernel's start tick, written t<ticks>.
+proc_rows() {
+  if [ -n "${PROC_ROOT:-}" ]; then
+    set +f
+    pr_hits=$(grep -l -e fleet-streamjson.sh -e stream-json -e /dev/null -e infinity "$PROC_ROOT"/[0-9]*/cmdline 2>/dev/null)
+    set -f
+    while IFS= read -r pr_f; do
+      [ -n "$pr_f" ] || continue
+      pr_d=${pr_f%/cmdline}
+      [ -O "$pr_d" ] || continue
+      IFS= read -r pr_stat 2>/dev/null <"$pr_d/stat" || continue
+      # The fields after the command name; the start tick is the 20th.
+      # shellcheck disable=SC2086
+      set -- ${pr_stat##*") "}
+      [ "$#" -ge 20 ] || continue
+      pr_ppid=$2
+      shift 19
+      # One line per row: a control character inside an element would
+      # otherwise start a row of its own.
+      pr_args=''
+      while IFS= read -r -d '' pr_a || [ -n "$pr_a" ]; do
+        pr_args="$pr_args ${pr_a//[[:cntrl:]]/ }"
+      done 2>/dev/null <"$pr_f"
+      [ -n "$pr_args" ] || continue
+      printf '%s %s t%s%s\n' "${pr_d##*/}" "$pr_ppid" "$1" "$pr_args"
+    done <<EOF
+$pr_hits
+EOF
+    return 0
+  fi
+  pr_table=$(ps -U "$(id -u)" -ww -o pid= -o ppid= -o lstart= -o args=) || return 1
+  printf '%s\n' "$pr_table" | awk 'NF >= 8 {
+    s = $3; for (k = 4; k <= 7; k++) s = s "-" $k
+    printf "%s %s %s", $1, $2, s; for (k = 8; k <= NF; k++) printf " %s", $k; print ""
+  }'
+}
+
+# stream_json_procs: this user's candidates from the process table, one per
+# line, tab separated: `S <pid> <start> <worker> <dir> <worker pids>` for a
+# supervisor, `C <pid> <start> <worker> <ppid>` for a stream-json worker no
+# fleet-streamjson.sh launch, recover, relaunch or supervisor parents, and
+# `H <pid> <start> - <ppid>` for a holder (tail -f /dev/null, sleep
+# infinity), whatever its parent. A
+# supervisor's own forks keep its `_supervise` argv for a moment (a
+# subshell, the worker before its exec), so a candidate whose parent is a
+# supervisor is that supervisor's, never its own row; and `launch
+# --foreground` supervises from the launch process.
+# The argv arrives joined with spaces, so a state directory whose path holds
+# one is read short and reads as gone.
+stream_json_procs() {
+  sjp_table=$(proc_rows) || return 1
+  printf '%s\n' "$sjp_table" | awk '
+    function base(s) { sub(/.*\//, "", s); return s }
+    NF >= 4 {
+      pid = $1; ppid = $2; start = $3
+      parent[pid] = ppid
+      # A holder: tail -f /dev/null or sleep infinity, run directly or as a
+      # script by a shell (a stand-in names its own). hold_cmd in
+      # noop-padding-guard.sh refuses the same two commands; keep them in
+      # step, bar the spellings of infinity the row prefilter cannot match.
+      hi = (base($4) ~ /^(sh|bash|dash|zsh)$/) ? 5 : 4
+      if (hi <= NF && base($hi) == "tail") {
+        hf = 0; hz = 0; hp = 0
+        for (i = hi + 1; i <= NF; i++) {
+          if ($i ~ /^--pid(=|$)/) hp = 1
+          else if ($i == "--follow" || $i ~ /^--follow=/) hf = 1
+          else if ($i !~ /^--/ && $i ~ /^-[A-Za-z]*[fF]/) hf = 1
+          if ($i == "/dev/null") hz = 1
+        }
+        if (hf && hz && !hp) { hold[pid] = start "\t-\t" ppid; horder[++h] = pid }
+      } else if (hi <= NF && base($hi) == "sleep" && $(hi + 1) == "infinity" && hi + 1 == NF) {
+        hold[pid] = start "\t-\t" ppid; horder[++h] = pid
+      }
+      for (i = 4; i < NF; i++) if (base($i) == "fleet-streamjson.sh" && $(i + 1) ~ /^(launch|recover|relaunch|_supervise)$/) { fsj[pid] = 1; break }
+      for (i = 4; i < NF; i++) {
+        if (base($i) == "fleet-streamjson.sh" && $(i + 1) == "_supervise" && i + 3 <= NF) {
+          sup[pid] = start "\t" $(i + 2) "\t" $(i + 3); order[++n] = pid
+          next
+        }
+      }
+      shape = 0; name = ""
+      for (i = 4; i < NF; i++) {
+        if (base($i) == "claude" && $(i + 1) == "-p") shape = 1
+        if (shape && $i == "--input-format" && $(i + 1) == "stream-json") shape = 2
+        if ($i == "--name") name = $(i + 1)
+      }
+      if (shape == 2 && name != "") { cl[pid] = start "\t" name "\t" ppid; corder[++m] = pid }
+    }
+    END {
+      for (k = 1; k <= m; k++) {
+        p = corder[k]; q = parent[p]
+        # A shell that forks before it runs a backgrounded command (bash 3.2)
+        # leaves a fork of the supervisor between it and its worker.
+        for (hop = 0; hop < 8 && (q in sup) && (parent[q] in sup); hop++) q = parent[q]
+        if (q in sup) kids[q] = kids[q] (kids[q] == "" ? "" : ",") p
+      }
+      for (k = 1; k <= n; k++) { p = order[k]; if (!(parent[p] in sup)) print "S\t" p "\t" sup[p] "\t" (kids[p] == "" ? "-" : kids[p]) }
+      for (k = 1; k <= m; k++) { p = corder[k]; if (!(parent[p] in fsj)) print "C\t" p "\t" cl[p] }
+      for (k = 1; k <= h; k++) { p = horder[k]; print "H\t" p "\t" hold[p] }
+    }'
+}
+
+# list_orphans: the orphans verb's rows.
+list_orphans() {
+  lo_procs=$(stream_json_procs) || mc_fail "cannot read the process table (procfs, else ps -U <uid> -ww -o pid= -o ppid= -o lstart= -o args=)"
+  while IFS="	" read -r lo_kind lo_pid lo_start lo_worker lo_a lo_b; do
+    lo_why=''
+    case $lo_kind in
+      S)
+        lo_rec=''
+        if [ ! -d "$lo_a" ]; then
+          lo_why="its state directory $lo_a is gone"
+        elif [ -f "$lo_a/supervisor.pid" ] && [ ! -L "$lo_a/supervisor.pid" ]; then
+          IFS= read -r lo_rec <"$lo_a/supervisor.pid" 2>/dev/null || :
+          if mc_valid_uint "$lo_rec" && [ "$lo_rec" != "$lo_pid" ]; then
+            lo_why="its state directory $lo_a records supervisor $lo_rec"
+          fi
+        fi
+        ;;
+      C)
+        lo_why="no supervisor (its parent is pid $lo_a)"
+        if ! mc_valid_handle "$lo_worker" || [ ! -d "$FLEET_HOME/streamjson/$lo_worker" ]; then
+          lo_why="$lo_why; no fleet record names it under $FLEET_HOME"
+        fi
+        ;;
+      H)
+        # Held open by nothing: its command or test is gone and init, or a
+        # subreaper acting as it, adopted it. One whose parent still runs
+        # belongs to that parent.
+        lo_adopter=''
+        if [ "$lo_a" = 1 ]; then
+          lo_adopter=init
+        elif [ -n "${PROC_ROOT:-}" ] && mc_valid_uint "$lo_a" && [ "$lo_a" -gt 1 ]; then
+          # The redirect sits inside the group so a parent that is gone says
+          # nothing; the row is then skipped until a later pass.
+          { IFS= read -r lo_comm <"$PROC_ROOT/$lo_a/comm"; } 2>/dev/null || lo_comm=''
+          case $lo_comm in
+            systemd | init | launchd) lo_adopter=$lo_comm ;;
+          esac
+        fi
+        [ -n "$lo_adopter" ] || continue
+        lo_why="a tail -f /dev/null or sleep infinity holder that nothing owns (adopted by $lo_adopter, pid $lo_a)"
+        ;;
+      *) continue ;;
+    esac
+    lo_cwd=''
+    [ "$lo_kind" = H ] || lo_cwd=$(proc_cwd "$lo_pid")
+    case $lo_cwd in
+      gone:*) lo_why="${lo_why:+$lo_why; }its working directory ${lo_cwd#gone:} is gone" ;;
+    esac
+    [ -n "$lo_why" ] || continue
+    [ "$lo_kind" != S ] || [ "$lo_b" = - ] || lo_why="$lo_why; worker pid $(printf '%s' "$lo_b" | sed 's/,/, /g')"
+    case $lo_kind in
+      S) lo_role=supervisor ;;
+      H) lo_role=holder ;;
+      *) lo_role=claude ;;
+    esac
+    printf 'orphan\t%s\t%s\t%s\t%s\t%s\n' "$lo_pid" "$lo_start" "$lo_role" \
+      "$(sanitize_printable "$lo_worker")" "$(sanitize_printable "$lo_why")" || return 1
+  done <<EOF
+$lo_procs
+EOF
+}
+
 PROGRAM='' NOW_RAW='' PANE_FILE='' NAME='' LOST_NAMES='' LOST_NEW='' LOST_NOW='' LOST_EVENT=-
 [ $# -ge 1 ] || usage
 verb=$1
@@ -622,7 +860,14 @@ case $verb in
     help_text
     exit 0
     ;;
-  classify | scan) ;;
+  classify | scan | liveness) ;;
+  orphans)
+    [ $# -eq 0 ] || usage
+    FLEET_HOME=$(mc_fleet_home) || mc_fail "cannot resolve the fleet home"
+    PROC_ROOT=$(resolve_proc_root) || exit 1
+    list_orphans
+    exit
+    ;;
   *) usage ;;
 esac
 while [ $# -gt 0 ]; do
@@ -641,7 +886,7 @@ while [ $# -gt 0 ]; do
       ;;
     -*) usage ;;
     *)
-      [ "$verb" = classify ] && [ -z "$NAME" ] || usage
+      [ "$verb" != scan ] && [ -z "$NAME" ] || usage
       NAME=$1
       shift
       ;;
@@ -663,23 +908,35 @@ STALL_DIR="$RUNTIME/stall"
 mkdir -p "$STALL_DIR" 2>/dev/null || mc_fail "cannot create $(sanitize_printable "$STALL_DIR")"
 pw_lock_trap_install
 
-case $verb in
-  classify)
-    row="$REG/$NAME"
-    row_ok "$row"
-    case $? in
-      0) ;;
-      2) mc_usage_fail "refusing the registry row $NAME: its format field is $(sanitize_printable "${R_format:-missing}"), not $ROW_FORMAT" ;;
-      4) mc_fail "cannot read the registry row $NAME" ;;
-      *)
-        printf '%s\n' "$prog: no session of program $PROGRAM is registered as $NAME" >&2
-        exit 3
-        ;;
-    esac
-    if [ "$R_state" != launched ]; then
-      printf '%s\n' "$prog: $NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))" >&2
+# launched_row: read the named session's row, or exit as classify and
+# liveness do when it is not a launched row of this program.
+launched_row() {
+  row="$REG/$NAME"
+  row_ok "$row"
+  case $? in
+    0) ;;
+    2) mc_usage_fail "refusing the registry row $NAME: its format field is $(sanitize_printable "${R_format:-missing}"), not $ROW_FORMAT" ;;
+    4) mc_fail "cannot read the registry row $NAME" ;;
+    *)
+      printf '%s\n' "$prog: no session of program $PROGRAM is registered as $NAME" >&2
       exit 3
-    fi
+      ;;
+  esac
+  if [ "$R_state" != launched ]; then
+    printf '%s\n' "$prog: $NAME is not launched (its row reads $(sanitize_printable "${R_state:-no state}"))" >&2
+    exit 3
+  fi
+}
+
+case $verb in
+  liveness)
+    launched_row
+    liveness "$NAME" "$R_backend" "$R_handle" "$R_server"
+    printf '%s\t%s\t%s\n' "$NAME" "$L_STATE" "$(sanitize_printable "$L_REASON")"
+    exit 0
+    ;;
+  classify)
+    launched_row
     lost_rc=0
     if [ "$R_backend" = tmux ] && tmux_valid_server "$R_server"; then
       server_lost "$R_server" || lost_rc=1

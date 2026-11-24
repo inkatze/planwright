@@ -174,7 +174,7 @@ EOF
   rm -rf "$sr"
   mkdir -p "$sr"
   cp "$cs" "$sr/fleet-messaging.sh"
-  cp "$root/scripts/echo-safety.sh" "$sr/"
+  cp "$root/scripts/echo-safety.sh" "$root/scripts/uuid-lib.sh" "$sr/"
   printf '#!/bin/sh\nprintf "%%s " "$@"\n' >"$sr/fleet-register.sh"
   chmod +x "$sr/fleet-register.sh"
   got=$(env -u CLAUDE_CONFIG_DIR HOME="$home" CLAUDE_PID=777 PLANWRIGHT_WORKER_HANDLE=w1 \
@@ -204,7 +204,7 @@ expect_violation() {
   shift 2
   cp "$FIXTURE" "$tmp/f.tsv"
   cp "$FM" "$tmp/s.sh"
-  cp "$root/scripts/echo-safety.sh" "$tmp/"
+  cp "$root/scripts/echo-safety.sh" "$root/scripts/uuid-lib.sh" "$tmp/"
   "$@"
   out=$(check_contract "$tmp/f.tsv" "$tmp/s.sh")
   case $out in

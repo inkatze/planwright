@@ -50,7 +50,13 @@ the ready flip (`pre-ready-flip`, `scripts/ready-flip.sh`) needs every check
 green. A channel post or notice needs only that no check is red, and a red
 check goes straight to log diagnosis rather than to a wait. A step's record
 never reads as covering CI: a cadence that is done names its points and steps,
-not the checks.
+not the checks. The repo's own bot review (PR-Agent) is the flip's run, never
+a step's: it fires on the flip, so no step before the flip requests or waits
+for one, so a draft whose only gap is `post-pr` reads `flip-for-review` to the
+readiness check, a go-ahead to flip. After the flip, wait for the runs it
+started, settle the findings, complete a `post-pr` that was held for that run,
+and request one more run (`scripts/request-reviewer.sh`) only after a fix that
+changed code.
 
 **Wired in `/spec-kickoff`:** `pre-spec-ready-flip`, after its push and PR
 step and before the terminal CI gate, on the head that flip lands on, once per
@@ -113,7 +119,9 @@ backend gives a fresh session. Every step runs in the unit's worktree.
 **Point lists (REQ-B1.3).** One flat key per point, `steps_<point>` with
 hyphens as underscores (the unwired points included), holds an inline flow
 list of step ids. `[]` resolves to no steps and is not malformed. Core ships
-`steps_convergence: [polish]` and every other key empty. Steps run serially
+`steps_convergence: [polish]` and every other key empty; its catalog seeds
+`polish`, `self-review` and `pr-agent-pr` (`/bot-review --reviewer pr-agent
+--nested`, the bot review that stands in for a refused `cubic-pr`). Steps run serially
 in list order (D-18); a list naming an id twice is malformed, as is
 `hosting: continue` at the first position or immediately after a command
 step hosted `isolated` (a runner subprocess records no session to attach to)
@@ -145,7 +153,7 @@ pooled full suite gets it too (*Expensive checks*). Any other
 `PLANWRIGHT_STEP_*` name in the runner's environment is a misspelling that
 would be dropped unread: `resolve-steps.sh --check-env` names it and its
 right spelling. `step-run.sh` refuses it for every verb but `resolve`, and
-`step-record.sh` for `new-run`, `write`, `regenerate`, and `status`; the
+`step-record.sh` for `new-run`, `write`, `supersede`, `regenerate`, and `status`; the
 other verbs of either warn.
 
 Two channels deliver the context. A **command step** gets the twelve
@@ -173,6 +181,11 @@ values to a command step.
 
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
+A location in a git checkout is run, or its line printed, only as that
+checkout's HEAD commits it, and the step is recorded `failed` otherwise or
+when git cannot answer for the checkout: the declaration names a file, not
+its content, and a worker can write the file. A location with no `.git`
+entry above it, an installed tool, keeps the declaration's trust.
 
 An `isolated` session takes the unit's own launch backend. A headless unit
 (`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or
@@ -193,11 +206,12 @@ never degraded, when the backend cannot resume the session it would attach to,
 that session's record holds no session id (an `in-session` predecessor
 excepted), or the predecessor was skipped for any other reason. An `isolated`
 skill or prompt step on a backend that cannot spawn a fresh session degrades
-to `in-session` and records it; a `timeout` on a skill or prompt step that
-becomes `in-session` at run time is unapplied and recorded. Model and effort
-come from the per-step allocation knobs keyed on the step id (hyphens as
-underscores), one-directional per model-allocation; an `in-session` step
-inherits the session's tier, recorded and not applied (REQ-C1.7).
+to `in-session` and records it (`--backend in-session`, the backend that could
+not spawn named in `--degraded`; `step-record.sh write` refuses any other); a
+`timeout` on a skill or prompt step that becomes `in-session` at run time is
+unapplied and recorded. Model and effort come from the per-step allocation
+knobs keyed on the step id (hyphens as underscores), one-directional per
+model-allocation; an `in-session` step inherits the session's tier, recorded and not applied (REQ-C1.7).
 
 ## Outcomes, posture, and timeout
 
@@ -451,8 +465,9 @@ cache the repository's ignore list names (adopters add the line), keyed by a
 run id the helper issues, read by planwright only through the helper, its
 form unstable to a step reading the record `PREV_RECORD` names. Fields: the
 head SHA at start and at end, the run id, point, step id, kind, target,
-hosting, backend, session id where one exists, start and end times,
-outcome, a bounded excerpt (a session step's classification excerpt or a
+hosting, backend, session id where one exists, start and end times, the
+start source where one was given (the commit, comment, review, or check the
+start was read from), outcome, a bounded excerpt (a session step's classification excerpt or a
 command step's output tail, stored screened through the repository's secret
 screen and stripped of non-printable bytes), the full captured output's
 cache path where one exists (unscreened), and a skipped step's reason and
@@ -488,8 +503,38 @@ step ran (a model session cannot finish in zero seconds): the audit prints
 `gap<TAB><point><TAB>unrun<TAB><step>`. A `command` record is exempt, since
 a fast command may finish within a second; a record without an end head is
 judged by its times alone. A round that did not run is recorded `skipped`
-with reason `missing` in a fresh run; written records are never edited. The
-script's usage header states the freshness rule and the output.
+with reason `missing` in a fresh run; written records are never edited. A
+record that does not match the branch it
+claims is refused as a `mismatch` gap, never counted: a stored run or point
+that differs from its path, a step whose start and end heads are not commits
+of the completion's branch in order, or an outcome its own fields contradict
+(a skip with no code or, short of a resume, a moved head, a code on a step
+that did not skip). A skill or prompt record that overstates what happened
+(the step-record truth check, whose rules `scripts/step-record.sh`'s usage
+header states: `write` refuses such a record, and `untrue` names a stored
+one) leaves its step an `unaudited` gap, never done, unless it is already an
+`unrun` one. The script's usage
+header states the freshness rule and the output.
+
+**Correcting a misdated record.** A record is never edited, and a point that
+completed takes no second record for it, so a start or end stamped wrong (a
+skill step started a few seconds off its Skill call is the usual case) is
+corrected by appending a **supersede record**, `scripts/step-record.sh
+supersede --record <run>:<point>:<seq> --start <ts> --source <source>`. It
+names the record it replaces, carries one corrected stamp (a record with both
+wrong takes two supersedes), and cites the session event that proves it
+(`event:<timestamp>` or `event-line:<n>` of the session's event log, checked
+against a top-level event timestamp), so the original stays on disk beside
+it. It corrects **timing only**: a changed outcome, step, kind, head, or end
+head, a missing or unverifiable source, a record that is not a step record,
+and a correction the step-record truth check would refuse (a skill window
+under its floor) are all refused, so it cannot be used to overstate what
+happened. Of several supersedes of one record the latest stands. The
+cadence audit, the readiness check, and the rendered tables read that
+supersede's times in place of the record's own (`step-record.sh list
+--effective` is the audit's view; plain `list` shows both records), and the
+audit's advice for a misdated start names the verb. The script's usage header
+states the grammar.
 
 ## The flip points and their evidence (REQ-E1.3, REQ-E1.6, REQ-J1.2, D-20, D-32)
 
@@ -499,7 +544,11 @@ a `halted` or `failed` step. Either flip point also refuses on an
 **unretired `limited` record** ending on that head, from any run in the
 flipping worktree's cache, earlier flip attempts included; it retires once a
 later run holds a `passed`, `applied`, or `resume`-skipped record of the
-same step id ending there. **The flip targets the head the list ends on**,
+same step id ending there. One substitution holds: a `pr-agent-pr` record
+of those outcomes in a later run, ending on that head, also retires a
+`cubic-pr` `limited` record, since PR-Agent's review is the bot review when
+cubic refuses; a record ending on another head retires nothing. **The flip
+targets the head the list ends on**,
 and the flip's own checks (the ready-guard's currency check for a unit PR,
 the CI gate for the spec PR) check that head. This doctrine authorizes no
 flip.

@@ -143,6 +143,12 @@ run --host mac stop w1 --final
 assert_eq "stop refuses an option it does not offer" 2 "$CODE"
 run --host mac stop w1 --grace 5 extra
 assert_eq "stop refuses trailing arguments" 2 "$CODE"
+run --host mac retire mc-x-1 --force
+assert_eq "retire refuses an option it does not offer" 2 "$CODE"
+run --host mac retire mc-x-1 --force-parked extra
+assert_eq "retire refuses trailing arguments" 2 "$CODE"
+run --host mac retire --force-parked
+assert_eq "retire needs a name before --force-parked" 2 "$CODE"
 run --host -x version
 assert_eq "version with a leading-dash alias is refused" 2 "$CODE"
 run --host 'a\b' capacity
@@ -207,6 +213,8 @@ for sh in /bin/sh bash zsh fish; do
 
   run --host mac retire mc-x-1
   assert_eq "[$sh] retire goes to the launcher" "$(printf 'mission-control-launch\n[retire]\n[mc-x-1]')" "$OUT"
+  run --host mac retire mc-x-1 --force-parked
+  assert_eq "[$sh] retire forwards --force-parked" "$(printf 'mission-control-launch\n[retire]\n[mc-x-1]\n[--force-parked]')" "$OUT"
 
   run --host mac stop w1
   assert_eq "[$sh] stop forwards to the supervisor" "$(printf 'fleet-streamjson\n[stop]\n[w1]')" "$OUT"

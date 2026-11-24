@@ -89,6 +89,9 @@
 #                     ready_flip_ci_wait, the planwright/pre-ready-flip and
 #                     planwright/pre-spec-ready-flip statuses excluded; a host
 #                     read that fails is retried within the same bound
+#                     (The bot review is not among these: the repo's PR-Agent
+#                     workflow runs on the flip itself, so the flip never waits
+#                     for one; see docs/CONTRIBUTING.md, *The bot review*.)
 #   ready-guard       scripts/ready-guard.sh defers `gh pr ready <n>`: the
 #                     shipped currency and mergeability floor, called directly
 #                     because the flip runs below any hook

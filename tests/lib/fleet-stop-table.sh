@@ -467,7 +467,7 @@ w_partial_released() {
 w_decoy_args() {
   case $rung in
     sj) printf '%s\n' -p --input-format stream-json --output-format stream-json \
-      --verbose --permission-prompt-tool stdio ;;
+      --verbose --replay-user-messages --permission-prompt-tool stdio ;;
     hl) printf '%s\n' --print --output-format json ;;
   esac
 }
