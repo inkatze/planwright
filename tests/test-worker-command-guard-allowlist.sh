@@ -126,12 +126,12 @@ under
 echo "### the router's kind-flag form"
 SR_WT="$SANDBOX/install/worktree"
 mkdir -p "$SR_WT/scripts" "$SR_WT/tests"
-: >"$SR_WT/.git"
 : >"$SR_WT/tests/ok.sh"
 : >"$SR_WT/tests/test-ok.sh"
 mkdir -p "$SR_WT/tests/test-a"
 : >"$SR_WT/tests/test-a/b.sh"
 : >"$SR_WT/scripts/compute-route.sh"
+fixture_commit "$SR_WT" scripts tests || exit 1
 : >"$PLUGIN_ROOT/scripts/compute-route.sh"
 CR=$PLUGIN_ROOT/scripts/compute-route.sh
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")

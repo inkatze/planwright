@@ -560,7 +560,7 @@ repo_root_of() {
 # (an already-canonical root); returns non-zero (DEFER) otherwise — including
 # when <base> is empty, the path's directory cannot be resolved, or the final
 # component is a symlink (which could point OUT of <base>). Mirrors the worker
-# guard's canon_contained, generalized to an arbitrary containment root.
+# guard's canon_under.
 canon_under() {
   local p=$1 cwd=$2 base=$3 d b cd full
   [ -n "$base" ] || return 1
@@ -606,7 +606,10 @@ is_force_push_file() {
 # marketplace/writer install). The chain's other arms are not trusted: that is
 # the tower's own, tighter policy. `tests/` is deliberately NOT
 # a trusted script directory for the tower (that is a worker-only shape), so the
-# tower set stays distinct from and tighter than the worker set (REQ-C1.2).
+# tower set stays distinct from and tighter than the worker set (REQ-C1.2),
+# with one exception: the worker guard also requires HEAD to commit a checkout
+# script unchanged, which this guard does not, since a tower session carries no
+# file-tool denies for such a script to get around.
 # Under the mission-control profile (`tower-command-guard.sh mission-control`)
 # only the script verbs config/mission-control-verbs.txt lists are approved,
 # read from this guard's own root and never from an overlay; every other

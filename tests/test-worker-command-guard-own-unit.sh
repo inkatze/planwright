@@ -351,6 +351,8 @@ mkdir -p "$WT/scripts" "$WT/tests"
 : >"$WT/scripts/check.sh"
 : >"$WT/tests/x.sh"
 : >"$WT/f"
+# Repository code is trusted only as HEAD commits it.
+fixture_git -C "$WT" add scripts/check.sh tests/x.sh && fixture_git -C "$WT" commit -q -m fixture || exit 1
 assert_allow "a mise task alone (control)" "mise run check" Bash "$WT"
 assert_allow "a repo test alone (control)" "bash tests/x.sh" Bash "$WT"
 assert_allow "a repo script alone (control)" "scripts/check.sh" Bash "$WT"
@@ -370,6 +372,7 @@ assert_defer "a gate after ||" "git status || mise run check && git push origin 
 assert_defer "a gate chain over a line break" "mise run check &&
 git push origin $B" Bash "$WT"
 : >"$WT/tests/x.bats"
+fixture_git -C "$WT" add tests/x.bats && fixture_git -C "$WT" commit -q -m fixture || exit 1
 assert_allow "a push after lefthook run" "lefthook run pre-commit && git push origin $B" Bash "$WT"
 assert_allow "a push after bats" "bats tests/x.bats && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo test run by sh" "sh tests/x.sh && git push origin $B" Bash "$WT"
@@ -384,6 +387,7 @@ assert_defer "a plugin script after the push" "git push origin $B && $PLUGIN_ROO
 CR=$PLUGIN_ROOT/scripts/compute-route.sh
 # The router routes only a tests/test-*.sh suite.
 : >"$WT/tests/test-x.sh"
+fixture_git -C "$WT" add tests/test-x.sh && fixture_git -C "$WT" commit -q -m fixture || exit 1
 assert_allow "a routed gate alone (control)" "$CR --check -- mise run check" Bash "$WT"
 assert_allow "a routed test gate alone (control)" "$CR --test tests/test-x.sh -- bash tests/test-x.sh" Bash "$WT"
 assert_defer "a push after a routed check gate" "$CR --check -- mise run check && git push origin $B" Bash "$WT"
@@ -411,6 +415,7 @@ HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$ARMS
 assert_allow "git add and commit alone (control)" "git add -A && git commit -m x" Bash "$WT"
 assert_allow "a push after add and commit" "git add -A && git commit -m x && git push origin $B" Bash "$WT"
 assert_allow "a push after a commit and a gate" "git commit -m x && mise run check && git push origin $B" Bash "$WT"
+assert_allow "a push after a commit and a committed repo test" "git commit -m x && bash tests/x.sh && git push origin $B" Bash "$WT"
 assert_allow "a push after a mise task under the arm" "mise run check && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo test run by bash under the arm" "bash tests/x.sh && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo script under the arm" "scripts/check.sh && git push origin $B" Bash "$WT"
@@ -439,8 +444,8 @@ if grep -q ' arm=own-branch,own-unit ' "$ARMS_LOG" 2>/dev/null; then
 else
   fail "a commit chain's audit line: $(cat "$ARMS_LOG" 2>&1)"
 fi
-# Off the unit branch the arm approves no commit, so no chain either. The
-# fixture repository has no commits, so HEAD is moved by symbolic-ref.
+# Off the unit branch the arm approves no commit, so no chain either. HEAD is
+# moved by symbolic-ref, to a branch that need not exist.
 env -u GIT_DIR -u GIT_WORK_TREE HOME="$CS/no-home" XDG_CONFIG_HOME="$CS/no-home" \
   GIT_CONFIG_GLOBAL="$CS/no-home/gitconfig" GIT_CONFIG_NOSYSTEM=1 git -C "$WT" symbolic-ref HEAD refs/heads/off-unit || exit 1
 assert_defer "a commit chain off the unit branch" "git commit -m x && git push origin $B" Bash "$WT"

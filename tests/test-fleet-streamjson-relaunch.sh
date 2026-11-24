@@ -246,10 +246,18 @@ esac
 echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
 
 # A worker launched with both opt-ins keeps them across a relaunch: the
-# per-launch profile is regenerated from the recorded markers and the session
+# per-launch profile is regenerated from the recorded opt-ins and the session
 # record carries both fields again.
-printf '1\n' >"$wdir/lefthook-edit"
-printf '1\n' >"$wdir/mise-task-edit"
+# plant_opt_in <lines>: the launch opt-in record a launch writes for <lines>,
+# under its own blob id, in place of any earlier one.
+plant_opt_in() {
+  find "$wdir" -maxdepth 1 -name 'planwright-opt-in.*' -exec rm -f {} +
+  printf '%s\n' "$1" >"$wdir/opt-in.new"
+  po_id=$(cd "$wdir" && git hash-object --no-filters -- opt-in.new) || return 1
+  mv "$wdir/opt-in.new" "$wdir/planwright-opt-in.$po_id"
+}
+plant_opt_in "mise_task_edit=1
+lefthook_edit=1"
 out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r2: the opted-in relaunch exited non-zero: $(cat "$tmp/err")"
 alive "$npid" && fail "r2: the pre-opt-in worker is still running"
 npid=$(pid_of worker.pid)
@@ -265,7 +273,16 @@ jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-gu
   || fail "r2: the regenerated profile's hook must judge both name sets"
 { grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record"; } \
   || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
-rm -f "$wdir/mise-task-edit"
+# A marker of the layout the record replaced, which a worker could write, is
+# never read: the relaunch refuses (exit 7) with the worker left running.
+printf '1\n' >"$wdir/lefthook-edit"
+n=$(argv_lines)
+rx_err=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>&1 >"$tmp/out-legacy")
+rx_rc=$?
+{ [ "$rx_rc" -eq 7 ] && alive "$npid" && [ "$(argv_lines)" = "$n" ]; } \
+  || fail "r2: a legacy lefthook-edit marker must refuse the relaunch (exit 7) with the worker running, got $rx_rc: $rx_err"
+rm -f "$wdir/lefthook-edit"
+plant_opt_in lefthook_edit=1
 # A relaunch whose hook root's file-tool hook ignores the lefthook argument is
 # refused before it regenerates the profile the running worker reads.
 mkdir -p "$tmp/oldeh"
@@ -326,11 +343,11 @@ esac
 [ -z "$(ls -A "$tmp/rxtmp")" ] || fail "r2: the relaunch left its scratch behind: $(ls -A "$tmp/rxtmp")"
 for f in "$wdir"/*; do
   case ${f##*/} in
-    worker-settings.json | lefthook-edit) ;;
+    worker-settings.json | planwright-opt-in.*) ;;
     *.json) fail "r2: the relaunch wrote a profile into the worker's state folder: $f" ;;
   esac
 done
-rm -f "$wdir/lefthook-edit"
+find "$wdir" -maxdepth 1 -name 'planwright-opt-in.*' -exec rm -f {} +
 echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record, and refuses one a stale file-tool hook would leave open"
 
 # ---------------------------------------------------------------------------

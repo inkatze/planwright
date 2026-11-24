@@ -113,10 +113,14 @@
 #           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
 #           completion in any run, then `...missing<TAB><step>` or
 #           `...failed<TAB><step>:<outcome>` over all runs, or
-#           `...unaudited<TAB><step>` for a record the step-record truth
-#           check (step-record.sh untrue) would refuse; a record's start and
-#           end are those of its standing supersede (step-record.sh supersede)
-#           when it has one;
+#           `...unrun<TAB><step>` for a skill or prompt record passed or
+#           applied with start equal to end and no head move (judged by its
+#           times alone without an end head; a command is exempt), the
+#           message telling the worker to record it skipped, reason
+#           missing, in a fresh run, or else `...unaudited<TAB><step>` for
+#           a record the step-record truth check (step-record.sh untrue)
+#           would refuse; a record's start and end are those of its
+#           standing supersede (step-record.sh supersede) when it has one;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
 #           ahead of those, `...mismatch<TAB>run` for a record of the judged
@@ -1003,7 +1007,7 @@ audit_fresh() {
 }
 
 cmd_audit() {
-  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line
+  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line unrun=0
   while [ $# -gt 0 ]; do
     case $1 in
       --through | --head | --base) [ $# -ge 2 ] || usage ;;
@@ -1049,6 +1053,8 @@ cmd_audit() {
     function flush(   ok) {
       if (!inrec) return
       inrec = 0
+      nk = split("run point type step kind start end head end-head outcome refire-of skip-code", KEYS, " ")
+      for (ki = 1; ki <= nk; ki++) if (!(KEYS[ki] in F)) F[KEYS[ki]] = ""
       if (bad) return
       if (F["run"] != R || F["point"] != K) { if (!((R, K) in runbad)) { runbad[R, K] = 1; print "run\t" R "\t" K >SIDE }; return }
       if (T == "done" && F["type"] == "completion") {
@@ -1063,6 +1069,12 @@ cmd_audit() {
       if (!(key in S)) ord[++no] = key
       S[key] = "step\t" R "\t" K "\t" F["step"] "\t" (hex(F["head"]) ? F["head"] : "-") "\t" (hex(F["end-head"]) ? F["end-head"] : "-") "\t" o "\t" (F["skip-code"] == "" ? "-" : F["skip-code"])
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
+      # A model-session step cannot run in zero seconds without moving the head.
+      if ((o == "passed" || o == "applied") && (F["kind"] == "skill" || F["kind"] == "prompt") \
+          && length(F["start"]) > 0 && F["start"] == F["end"] && (length(F["end-head"]) == 0 || F["end-head"] == F["head"])) {
+        ok = 0; o = "0unrun"
+      }
+      if (!ok && o == "ok") o = "malformed"
       # A record the step-record truth check would refuse covers nothing: the
       # step is reported unaudited, not done.
       if (ok && ((R ":" K ":" substr(b, 1, 3), F["step"]) in untrue)) { ok = 0; o = "unaudited" }
@@ -1078,7 +1090,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "0unrun" ? "unrun:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
       }
       return out == "" ? "-" : out
     }
@@ -1120,6 +1132,10 @@ cmd_audit() {
       case $w in
         missing:*) printf 'gap\t%s\tmissing\t%s\n' "$1" "${w#missing:}" ;;
         failed:*) printf 'gap\t%s\tfailed\t%s\n' "$1" "${w#failed:}" ;;
+        unrun:*)
+          printf 'gap\t%s\tunrun\t%s\n' "$1" "${w#unrun:}"
+          unrun=1
+          ;;
         unaudited:*) printf 'gap\t%s\tunaudited\t%s\n' "$1" "${w#unaudited:}" ;;
       esac
     done
@@ -1208,6 +1224,7 @@ cmd_audit() {
   fi
   line="audit${TAB}complete${TAB}$head"
   [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
+  [ "$unrun" -eq 0 ] || echo "step-run: an unrun gap is a skill or prompt record that started and ended in the same second with no head move, so it is no evidence the step ran; record the step skipped with reason missing in a fresh run (never edit a written record)" >&2
   printf '%s\n' "$line"
   [ "$any" -eq 0 ]
 }

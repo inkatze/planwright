@@ -274,14 +274,17 @@ echo "### REQ-F1.12 — a declaration naming a step script is never a check comm
 T=2026-11-22T10:00:00Z
 SREC=$REPO_ROOT/scripts/step-record.sh
 SRUN=$REPO_ROOT/scripts/step-run.sh
-# bin/sr and bin/sn are the installed step scripts under other names, which
-# only the link reading catches; bin/ok links a non-step installed script, so
-# the link reading must not over-match it. The worktree's own (empty)
+# bin/sr and bin/sn are the installed step scripts under other names; as a
+# declaration's literal words they also fail the committed-file rule. Given
+# as a `<word>`, which that rule leaves to the declarer, `rec` reaches only the
+# link reading, and `ok`, a link of a non-step installed script, shows the
+# link reading does not over-match. The worktree's own (empty)
 # scripts/step-record.sh lets the <path> rows below name an existing file.
 mkdir -p "$WT/bin"
 ln -s "$SREC" "$WT/bin/sr"
 ln -s "$SRUN" "$WT/bin/sn"
-ln -s "$REPO_ROOT/scripts/resolve-steps.sh" "$WT/bin/ok"
+ln -s "$SREC" "$WT/rec"
+ln -s "$REPO_ROOT/scripts/resolve-steps.sh" "$WT/ok"
 : >"$WT/scripts/step-record.sh"
 # Every STEPPED and CONTROLS row below needs its declaration here: an
 # undeclared row would defer for want of one and prove nothing.
@@ -294,7 +297,7 @@ SDECLS="$SDECLS; bin/sr $SARGS; make check SCRIPT=scripts/step-record.sh"
 SDECLS="$SDECLS; mise exec -- scripts/step-run.sh <word>...; mise exec -- $SRUN <word>..."
 SDECLS="$SDECLS; make check SCRIPT=scripts/step-run.sh; make check A=B=scripts/step-record.sh"
 SDECLS="$SDECLS; bin/sn <word>...; bin/lint <path>...; make check SCRIPT=scripts/ok.sh"
-SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>; bin/ok <word>..."
+SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>; bin/lint <word>..."
 SDECLS="$SDECLS; make check SHELL=bash SCRIPT=scripts/step-record.sh"
 # No word of these write arguments is one the partner scan refuses, so only
 # the step-script reading keeps the rows below from the own push.
@@ -318,6 +321,7 @@ STEPPED=(
   "bin/sn frobnicate"
   # Every word is read, so a step script given only as an argument defers too.
   "bin/lint scripts/step-record.sh"
+  "bin/lint rec"
   # A word the partner scan refuses leaves a match that is approved only
   # alone; naming a step script, it must still defer.
   "make check SHELL=bash SCRIPT=scripts/step-record.sh"
@@ -329,7 +333,7 @@ CONTROLS=(
   "mise exec -- mix credo strict"
   "make check SCRIPT=scripts/ok.sh"
   "bin/lint scripts/ok.sh"
-  "bin/ok lint"
+  "bin/lint ok"
 )
 for col in 1 4; do
   under "$(with_checks "stepped.$col" "$col" "$SDECLS")"
@@ -385,6 +389,37 @@ if [ "$(tail -n 1 "$STATE/audit.1/audited.log" 2>/dev/null | grep -o 'arm=[a-z,-
 else
   fail "H1.4: audit line: $(tail -n 1 "$STATE/audit.1/audited.log" 2>&1)"
 fi
+HOOK_ENV=()
+
+echo "### a script a declaration names is held to what HEAD commits"
+# scripts/ok.sh is committed in the corpus base; tests/run.sh is not.
+printf '#!/bin/sh\n' >"$WT/tests/run.sh"
+mkdir -p "$WT/tools"
+printf '#!/bin/sh\n' >"$WT/tools/run"
+printf '#!/bin/sh\n' >"$WT/check.sh"
+printf '#!/bin/sh\n' >"$WT/mix"
+ln -s scripts/ok.sh "$WT/linked.sh"
+LIT='scripts/ok.sh <word>; bash tests/run.sh; bash tests/ok.sh; tools/run; bash check.sh; mix test tests'
+LIT="$LIT; mix format; bash linked.sh"
+under "$(with_checks literal 1 "$LIT")"
+assert_allow "a committed script a declaration names" "scripts/ok.sh lint" Bash "$WT"
+assert_defer "an untracked script a declaration names" "bash tests/run.sh" Bash "$WT"
+assert_defer "an untracked runner outside scripts/ a declaration names" "tools/run" Bash "$WT"
+assert_defer "an untracked script a declaration names by a bare word" "bash check.sh" Bash "$WT"
+assert_allow "a directory a declaration names stays as declared" "mix test tests" Bash "$WT"
+assert_allow "a bare first word stays a PATH lookup, a file of its name aside" "mix format" Bash "$WT"
+assert_defer "a symlink a declaration names by a bare word" "bash linked.sh" Bash "$WT"
+cp "$WT/scripts/ok.sh" "$STATE/ok.orig"
+printf 'printf pwned\n' >>"$WT/scripts/ok.sh"
+assert_defer "a named script edited since HEAD" "scripts/ok.sh lint" Bash "$WT"
+cp "$STATE/ok.orig" "$WT/scripts/ok.sh"
+assert_allow "the named script put back" "scripts/ok.sh lint" Bash "$WT"
+# The check reads the file before the command runs, so a write beside the run
+# turns the trust off for the whole command.
+under "$(with_checks literal.ob 2 "$LIT")"
+assert_defer "a write beside a committed script a declaration names" "cp f scripts/ok.sh && scripts/ok.sh lint" Bash "$WT"
+assert_allow "the same run with no write beside it" "scripts/ok.sh lint" Bash "$WT"
+rm -rf "$WT/tests/run.sh" "$WT/tools" "$WT/check.sh" "$WT/mix" "$WT/linked.sh"
 HOOK_ENV=()
 
 finish_suite worker-command-guard-checks

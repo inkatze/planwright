@@ -82,9 +82,11 @@
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
+# path canonicalizes INSIDE the repository and HEAD commits the file unchanged
+# (committed_blob; a `bats` directory defers), and an INSTALLED planwright root's
 # `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
-# for itself (REQ-A1.10; see is_planwright_script — the reason this needs no
+# for itself, held to that root's HEAD the same way when the root is a git
+# checkout (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
 # A segment none of these shapes approve is still approved when it matches a
@@ -163,6 +165,10 @@ emit_allow() {
 AUDIT_OB=0
 AUDIT_SC=0
 AUDIT_OU=0
+# 1 once the own-branch arm approved an act that can change a worktree file
+# (a file write, or a git act other than add and commit); main reads it beside
+# COMMITTED_USED.
+OB_TOUCH=0
 OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
@@ -709,7 +715,7 @@ classify_redirect() {
 # --------------------------------------------------------------------------
 # Repo-root discovery and path containment (REQ-A1.10). repo_root walks up from
 # the payload cwd looking for a `.git` entry (a dir in a normal checkout, a file
-# in a worktree). canon_contained canonicalizes a script/bats path (resolving
+# in a worktree). canon_under canonicalizes a script/bats path (resolving
 # `..` and symlinks on its directory) and checks it resolves INSIDE the repo.
 repo_root_of() {
   local d=$1
@@ -757,15 +763,6 @@ canon_under() {
   esac
 }
 
-# canon_contained <path> <cwd>: canon_under against the repo root — prints the
-# canonical path and returns 0 only when it resolves inside the repository;
-# non-zero (DEFER) otherwise, including when the repo root cannot be resolved.
-canon_contained() {
-  local root
-  root=$(repo_root_of "$2") || return 1
-  canon_under "$1" "$2" "$root"
-}
-
 # committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
 # <rel> under the work tree <root>) is a regular file whose bytes are exactly
 # the blob HEAD records for <rel>, as a plain or executable file. Where a file
@@ -777,8 +774,9 @@ canon_contained() {
 #
 # COMMITTED_USED records that the approval leans on such a check, which holds
 # only for the file as it is before the command runs: main refuses a command
-# that also makes a write the own-branch arm admits, since that write could
-# land on the file before the shell reaches it.
+# that also makes an own-branch act that can change a worktree file
+# (OB_TOUCH), since that act could land on the file before the shell reaches
+# it. Staging and committing change no worktree file, so they do not count.
 COMMITTED_OK=''
 COMMITTED_USED=0
 committed_blob() {
@@ -835,7 +833,8 @@ committed_in_checkout() {
 }
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
-# tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10).
+# tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10)
+# and matches what HEAD commits there (committed_blob).
 is_repo_script() {
   local p=$1 cwd=$2 full rel root
   case $p in
@@ -848,9 +847,10 @@ is_repo_script() {
   [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
   rel=${full#"$root"/}
   case $rel in
-    scripts/* | tests/* | */scripts/* | */tests/*) return 0 ;;
+    scripts/* | tests/* | */scripts/* | */tests/*) ;;
     *) return 1 ;;
   esac
+  committed_blob "$root" "$rel" "$full"
 }
 
 # planwright_roots: print, one per line and canonicalized, every planwright
@@ -944,7 +944,16 @@ is_planwright_script() {
     [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
     rel=${full#"$root"/}
     case $rel in
-      scripts/*) return 0 ;;
+      scripts/*)
+        # A root that is a git checkout (a tower or mission control run from
+        # one) lies outside the worktree, where the file tools still write,
+        # so it is held to what its HEAD commits, as the repository is. A
+        # root that is no checkout of its own is an install copy.
+        [ -e "$root/.git" ] || return 0
+        [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+        committed_blob "$root" "$rel" "$full"
+        return
+        ;;
     esac
   done <<EOF
 $PW_ROOTS
@@ -1118,10 +1127,15 @@ step_excerpt_ok() {
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# (used for `bats <file>`, which need not sit under scripts/ or tests/, and which
-# stays REPO-scoped — an install ships no test files to run).
+# and is a file HEAD commits there unchanged (used for `bats <file>`, which need
+# not sit under scripts/ or tests/, and which stays REPO-scoped — an install
+# ships no test files to run). A directory operand fails, since bats would run
+# whatever files it holds.
 is_contained_file() {
-  canon_contained "$1" "$2" >/dev/null
+  local root full
+  root=$(repo_root_of "$2") || return 1
+  full=$(canon_under "$1" "$2" "$root") || return 1
+  committed_blob "$root" "${full#"$root"/}" "$full"
 }
 
 # --------------------------------------------------------------------------
@@ -2134,7 +2148,7 @@ ob_path() {
   fi
   OB_PATH=$acc
   case $OB_ZONE in
-    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1; } ;;
+    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1 && OB_TOUCH=1; } ;;
     sc) AUDIT_SC=1 ARM_ACT=1 ;;
   esac
 }
@@ -2396,6 +2410,7 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
+  OB_TOUCH=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -2458,8 +2473,14 @@ git_fetch_ok() {
 # object store and index are not write targets; the worktree
 # files a `rm`, `mv`, `restore`, or `checkout --` writes are.
 ob_git() {
-  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src=''
+  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' ot=$OB_TOUCH
   ob_git_ready || return 1
+  # Staging, committing and fetching write only git's own store, never a
+  # worktree file, so they leave a script HEAD already holds as it was
+  # (OB_TOUCH); a commit's -F read is a read.
+  case $sub in
+    add | commit | fetch) OB_TOUCH=$ot ;;
+  esac
   case $sub in
     add)
       for (( ; i < cwn; i++)); do
@@ -2520,6 +2541,7 @@ ob_git() {
             ;;
         esac
       done
+      OB_TOUCH=$ot
       [ -z "$expect" ]
       return
       ;;
@@ -4027,7 +4049,8 @@ MDLINT_SETTINGS=(.markdownlint.jsonc .markdownlint.json .markdownlint.yaml .mark
 # options file in the working directory may add globs reaching folders this
 # does not walk, so one there defers. The verdict holds only for the folders as
 # they are before the command runs, so the approval leans on a committed check
-# (COMMITTED_USED) and main refuses it beside an own-branch write.
+# (COMMITTED_USED) and main refuses it beside an own-branch act that can change
+# a worktree file (OB_TOUCH).
 mdlint_configs_ok() {
   local verb=$1 nog=$2 d f seen=$'\n' cwdp
   shift 2
@@ -4071,7 +4094,8 @@ mdlint_configs_ok() {
 
 guard_bashsh() {
   # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code or an installed planwright root's scripts/; any option (notably -c /
+  # code HEAD commits unchanged or an installed planwright root's scripts/
+  # (is_trusted_script); any option (notably -c /
   # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
@@ -4104,7 +4128,8 @@ guard_fish() {
 
 guard_bats() {
   # `bats [safe-flags] <file...>`: each file operand must resolve inside the
-  # repo (REQ-A1.10), and ONLY no-value display/selection flags are allowed.
+  # repo (REQ-A1.10) to a file HEAD commits unchanged (a directory defers), and
+  # ONLY no-value display/selection flags are allowed.
   # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
   # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
   # carry a path bats would execute or write OUTSIDE the containment check, so
@@ -4270,7 +4295,7 @@ gh_release_ok() {
 # path is read through ob_path, whose audit marks a write arm: a read is no
 # arm's act, so the marks are put back.
 guard_gitleaks() {
-  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC
+  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC ot=$OB_TOUCH
   [ "${cw[1]-}" = detect ] || return 1
   for ((i = 2; i < cwn; i++)); do
     a=${cw[i]}
@@ -4296,6 +4321,7 @@ guard_gitleaks() {
   ob_path "$src" exists read || return 1
   AUDIT_OB=$ao
   AUDIT_SC=$as
+  OB_TOUCH=$ot
   return 0
 }
 
@@ -6476,11 +6502,13 @@ classify_verb() {
 # declaration holding anything else is malformed and dropped alone. The
 # declarations come from the session record, read by the launcher at the
 # primary checkout, never from a file the worker can write; the floor is read
-# before them (verify_simple). Running one runs repository code, the same
-# trust the guard gives the repository's scripts/. That trust stops at a
-# config loader: a declared markdownlint or mise run still passes the screen
-# the undeclared command does (check_loader_ok). Nor does it reach a step
-# script, whose hand-timed records stay at the prompt (names_step_script).
+# before them (verify_simple). Running one runs repository code: a script its
+# literal words name is held to HEAD as the repository's scripts/ are
+# (check_literals_committed), and whatever a `<path>` names runs as declared.
+# That trust stops at a config loader: a declared markdownlint or mise run
+# still passes the screen the undeclared command does (check_loader_ok). Nor
+# does it reach a step script, whose hand-timed records stay at the prompt
+# (names_step_script).
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6684,6 +6712,7 @@ check_command_ok() {
   for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
     [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
     check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
+    check_literals_committed "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
     # The loader verdict reads only the words, so no other declaration
     # could turn it.
     check_loader_ok
@@ -6708,6 +6737,35 @@ names_step_script() {
     esac
   done
   return 1
+}
+
+# check_literals_committed <declaration> <canonical-cwd>: every literal word
+# of the declaration that names an existing file, from the working directory
+# or by its absolute path, is held to what HEAD commits, as a declared step's
+# location is (declared_location_ok): the declaration names the file, not its
+# content, and the worker can Write it. A bare first word is looked up on PATH,
+# never in the working directory, and a `<path>` placeholder is the declarer's
+# choice of what the runner is given; both stay as declared.
+check_literals_committed() {
+  local -a dw=()
+  local w full j=0
+  IFS=' ' read -r -a dw <<<"$1"
+  for w in "${dw[@]}"; do
+    j=$((j + 1))
+    case $w in
+      '<'*) continue ;;
+      /*) full=$w ;;
+      */*) full=$2/$w ;;
+      *)
+        [ "$j" -gt 1 ] || continue
+        full=$2/$w
+        ;;
+    esac
+    [ -e "$full" ] || [ -L "$full" ] || continue
+    [ -d "$full" ] && [ ! -L "$full" ] && continue
+    declared_location_ok "$full" || return 1
+  done
+  return 0
 }
 
 # check_may_partner: 0 when the matched check command (`sw` / `swn`) may be a
@@ -6826,7 +6884,8 @@ check_loader_screen() {
 # after any leading context assignments in the runner's form. The declaration
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
-# scripts/), so the match is exact: a segment sharing only the first word, a
+# scripts/, which holds a location inside the repository to what HEAD commits
+# there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
@@ -7147,14 +7206,34 @@ declared_line_ok() {
   # line can never claim a pool hold its step was not given.
   if [ -n "$mark_pool" ]; then
     case $NL$DECL_LINES in
-      *"$NL$key$TAB$mark_pool$NL"*) return 0 ;;
+      *"$NL$key$TAB$mark_pool$NL"*) declared_location_ok "${sw[i0]}" && return 0 ;;
     esac
     return 1
   fi
   case $NL$DECL_LINES in
-    *"$NL$key$TAB"*) return 0 ;;
+    *"$NL$key$TAB"*) declared_location_ok "${sw[i0]}" && return 0 ;;
   esac
   return 1
+}
+
+# declared_location_ok <abs-path>: a declared step's location in a git checkout
+# (the session's repository, or another such as the primary) is held to what
+# that checkout's HEAD commits, as a script run by its path is: the declaration
+# names the file, not its content, and the worker can Write the file. A
+# location spelled inside the session's repository counts as in it even when a
+# symlinked folder resolves it elsewhere, and so defers. A location in no
+# checkout keeps the declaration's trust.
+declared_location_ok() {
+  local root d full
+  d=$(cd -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
+  if root=$(repo_root_of "$HOOK_PAYLOAD_CWD"); then
+    case $1 in
+      "$root"/*) d=$root ;;
+    esac
+  fi
+  root=$(repo_root_of "$d") || return 0
+  full=$(canon_under "$1" / "$root") || return 1
+  committed_blob "$root" "${full#"$root"/}" "$full"
 }
 
 # verify_simple: verify one simple command — known-safe by the rules below, or
@@ -8653,6 +8732,7 @@ main() {
   AUDIT_OB=0
   AUDIT_SC=0
   COMMITTED_USED=0
+  OB_TOUCH=0
   AUDIT_OU=0
   OU_EXPORTED=0
   OU_EXP_NAMES=''
@@ -8660,7 +8740,7 @@ main() {
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
-  [ "$COMMITTED_USED" = 0 ] || [ "$AUDIT_OB" = 0 ] || return 0
+  [ "$COMMITTED_USED" = 0 ] || [ "$OB_TOUCH" = 0 ] || return 0
   # An own-unit act shares its command only with a cd into the worktree,
   # read-only segments, a step-context export, an installed step script, and
   # the partners verify_tokens places before it (git add or commit, a gate

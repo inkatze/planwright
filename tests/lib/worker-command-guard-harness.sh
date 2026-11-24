@@ -47,8 +47,9 @@ if [ ! -f "$HOOK" ]; then
   exit 1
 fi
 
-# Default cwd for containment: a scratch repo with a .git marker and a
-# scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
+# Default cwd for containment: a scratch git repository whose HEAD commits a
+# scripts/ + tests/ dir, so in-repo script/bats paths resolve inside it and
+# match what HEAD holds.
 # The base is a fixed system directory and TMPDIR is pinned to it, never the
 # caller's: run from inside a worker session, that TMPDIR is the scratch root
 # the guard's scratch arm trusts, and fixtures under it would be approved by
@@ -59,8 +60,10 @@ export TMPDIR
 unset PLANWRIGHT_WORKER_SESSION_RECORD
 SANDBOX="$(mktemp -d /tmp/worker-command-guard-harness.XXXXXX)" || exit 1
 trap 'rm -rf "$SANDBOX"' EXIT
+# shellcheck source=tests/lib/committed-fixture.sh
+. "$REPO_ROOT/tests/lib/committed-fixture.sh"
+
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
-: >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
 : >"$SANDBOX/scripts/tower-force-push.sh"
 ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fph.sh"
@@ -69,6 +72,7 @@ ln -f "$SANDBOX/scripts/tower-force-push.sh" "$SANDBOX/scripts/fph.sh"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
 ln -sf /etc/hosts "$SANDBOX/tests/evillink.bats"
+fixture_commit "$SANDBOX" scripts tests || exit 1
 
 # A simulated INSTALLED planwright root (is_planwright_script's allowance) plus
 # the two decoys its containment check must reject: a sibling directory that
