@@ -164,6 +164,13 @@ expect defer "[mission-control] a here-string is read as a command only on a she
 pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"
 expect deny "[mission-control] a group's closing here-string reaches the shell the group holds"
 reason_has 'edits no repository' "[mission-control] the group here-string refusal names the repository rule"
+for c in "( bash${NL}) <<< 'vi $UNIT/README.md'" "while true; do${NL}bash${NL}done <<< 'vi $UNIT/README.md'" \
+  "if true; then bash${NL}fi <<< 'vi $UNIT/README.md'" "{ bash${NL}echo; } <<< 'vi $UNIT/README.md'"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a compound's closing here-string reaches the shell it holds: ${c%%"$NL"*}"
+done
+pg mission-control "{ echo a${NL}} <<< vi" "$SCRATCH"
+expect defer "[mission-control] a compound's closing here-string with no shell or runner in the command is data"
 pg mission-control "bash -c \"perl -e 1 notes.md${NL}grep -i x notes.md\"" "$SCRATCH"
 expect defer "[mission-control] perl's switch span ends at its line: a later line's -i is another command's"
 pg mission-control "bash -c \"awk 1 notes.md${NL}echo -i inplace\"" "$SCRATCH"

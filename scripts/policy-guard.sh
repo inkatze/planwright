@@ -7616,25 +7616,24 @@ mc_settings_screen() {
     *'<<'*)
       while IFS= read -r w; do
         case $w in *'<<'*) ;; *) continue ;; esac
-        if ! [[ $w =~ $RE_MC_INTERPRETER || $w =~ $RE_MC_RUNNER_CMD ]]; then
-          # A group's or subshell's closing line hands its here-string to a
-          # shell or runner the group holds on an earlier line.
-          re='^[[:space:]]*[})]'
-          if [[ $w == *'<<<'* && $w =~ $re ]] && [[ $t =~ $RE_MC_INTERPRETER || $t =~ $RE_MC_RUNNER_CMD ]]; then
-            ! mc_inplace_text "${w//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
-          fi
+        # A compound command's closer (}, ), done, fi, esac) hands the
+        # here-string on its line to a shell or runner the compound holds on
+        # an earlier line.
+        re='(^|[;&|[:space:]])([})]|done|fi|esac)([[:space:]][^;&|]*)?<<<'
+        if [[ $w =~ $RE_MC_INTERPRETER || $w =~ $RE_MC_RUNNER_CMD ]]; then
+          shopt -s nocasematch
+          k=1
+          [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
+          shopt -u nocasematch
+          [ "$k" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
+          ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        elif ! [[ $w =~ $re ]] || ! [[ $t =~ $RE_MC_INTERPRETER || $t =~ $RE_MC_RUNNER_CMD ]]; then
           continue
         fi
-        shopt -s nocasematch
-        k=1
-        [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
-        shopt -u nocasematch
-        [ "$k" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
-        ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
-        # A here-string on this shell's or runner's line is read as a command
-        # too, whatever reads it: telling a reader that runs it from one that
-        # only reads it as data (a script operand, a wrapper, a valued option)
-        # needs a parse this text screen does not make.
+        # A here-string on such a line is read as a command too, whatever
+        # reads it: telling a reader that runs it from one that only reads it
+        # as data (a script operand, a wrapper, a valued option) needs a parse
+        # this text screen does not make.
         ! mc_inplace_text "${w//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
       done <<XEOF_RUN
 $t
