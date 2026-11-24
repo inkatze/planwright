@@ -36,6 +36,14 @@ for t in declared.sh other.sh undeclared.sh pooled.sh; do
 done
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
+# A declared command step naming a step script, by a link of the guard's own
+# installed copy outside scripts/ or by name in another case, with a
+# hand-timed write as its args (custom-steps REQ-G1.3 against REQ-F1.12).
+ln -s "$REPO_ROOT/scripts/step-record.sh" "$FX/repo/tools/sr"
+ln -s "$REPO_ROOT/scripts/step-run.sh" "$FX/repo/tools/sn"
+printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/STEP-RECORD.SH"
+chmod +x "$FX/repo/tools/STEP-RECORD.SH"
+STEP_WRITE='write --run 000001 --point pre-pr --step lint --start 2026-11-22T10:00:00Z --outcome passed'
 DECLARED="$FX/repo/tools/declared.sh"
 OTHER="$FX/repo/tools/other.sh"
 POOLED="$FX/repo/tools/pooled.sh"
@@ -72,8 +80,20 @@ steps:
     kind: command
     target: $DECLARED
     args: --with git
+  - id: stepped-link
+    kind: command
+    target: $FX/repo/tools/sr
+    args: $STEP_WRITE
+  - id: stepped-name
+    kind: command
+    target: $FX/repo/tools/STEP-RECORD.SH
+    args: $STEP_WRITE
+  - id: stepped-run
+    kind: command
+    target: $FX/repo/tools/sn
+    args: frobnicate
 YAML
-printf 'steps_pre_ci: [declared, bare, rel, pooled, tooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+printf 'steps_pre_ci: [declared, bare, rel, pooled, tooled, stepped-link, stepped-name, stepped-run]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
 steps:
   - id: traversal
@@ -187,6 +207,22 @@ assert_defer "a context prefix with a non-hex head deferred" \
   "$(ctx_prefix task 7 12 post-pr "$(printf 'g%.0s' $(seq 1 40))" '') $DECLARED --mode strict" Bash "$FXC"
 assert_defer "the ten-field prefix without the head fields deferred" \
   "$(ctx_prefix task 7 12 pre-ci | sed "s/ PLANWRIGHT_STEP_PREV_HEAD='' PLANWRIGHT_STEP_NEW_HEAD=''//") $DECLARED --mode strict" Bash "$FXC"
+# A declared step line naming a step script falls to the step-script rules, so
+# its hand-timed write prompts however the declaration spells it.
+assert_defer "F1.12: a declared step through a link of the installed step-record.sh" \
+  "$FX/repo/tools/sr $STEP_WRITE" Bash "$FXC"
+assert_defer "F1.12: the same step behind the full context prefix" \
+  "$(ctx_prefix task 7 12 pre-ci) $FX/repo/tools/sr $STEP_WRITE" Bash "$FXC"
+assert_defer "F1.12: a declared step naming step-record.sh in upper case" \
+  "$FX/repo/tools/STEP-RECORD.SH $STEP_WRITE" Bash "$FXC"
+assert_defer "F1.12: a declared step through a link of the installed step-run.sh" \
+  "$FX/repo/tools/sn frobnicate" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_defer "F1.12: a declared step through the link before an own-unit push" \
+  "$FX/repo/tools/sr $STEP_WRITE && git push origin $OU_B" Bash "$FXC"
+assert_allow "F1.12: a declared line naming no step script still partners (control)" \
+  "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The hold mark: one optional trailing assignment after the twelve, as the
 # resolver renders it for a pooled step, and only for the pool that step
 # declares.

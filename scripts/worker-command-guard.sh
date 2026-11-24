@@ -6684,9 +6684,8 @@ check_command_ok() {
   for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
     [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
     check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
-    # The step-script and loader verdicts read only the words, so no other
-    # declaration could turn them.
-    ! check_names_step || return 1
+    # The loader verdict reads only the words, so no other declaration
+    # could turn it.
     check_loader_ok
     return
   done
@@ -7187,8 +7186,10 @@ verify_simple() {
     own_cand=1
   fi
   verify_known_simple && return 0
-  # A step-script call step_call_ok refused is never a declared line's.
+  # A step-script call step_call_ok refused is never a declared line's, and
+  # nor is one in a spelling verify_known_simple does not read as a call.
   [ "$own_cand" = 0 ] && [ "$STEP_CALL" = 0 ] || return 1
+  ! check_names_step || return 1
   # A declared check command or step is an operator's line, never one around
   # a substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
