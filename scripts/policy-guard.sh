@@ -5792,11 +5792,11 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*'$RE_MC_INPLACE_SPAN'-[0-9acnpsStTuUvwWXhl]*i'
 RE_MC_INPLACE_AWK_TOOL='g?awk'$RE_MC_INPLACE_SPAN'(-i[[:space:]]*|--i[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk)?([[:space:];&|)]|$)'
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([[:space:];&|)`}]|$)'
+RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|nvim|[gre]{0,2}vi(m|ew)?(diff)?(x|[.][a-z0-9]+)?)([[:space:];&|)`}]|$)'
 # The same tools named anywhere, as a word: the screen's opening test, which
 # only decides whether a command is parsed at all (a shell's command string
 # runs a tool its own words never put in command position).
-RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|g?awk|g?sed|r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([^[:alnum:]_-]|$)'
+RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|g?awk|g?sed|r?ed|ex|nvim|[gre]{0,2}vi(m|ew)?(diff)?(x|[.][a-z0-9]+)?)([^[:alnum:]_-]|$)'
 # Runners that run their later words as a command, past options and values the
 # guard does not read (mc_unwrap reads RE_MC_WRAPPER's); the shells, the
 # interpreters, find, xargs and eval are read their own ways. Every name here
@@ -6225,6 +6225,103 @@ mc_reaches_repo() {
     mc_repo_path "${b%/}/$w" && return 0
   done
   return 1
+}
+
+# mc_runnable_text <text> — the text with what the shell only hands on as data
+# blanked, in MC_RT: a single-quoted span, and a double-quoted span bar the
+# command substitutions inside it, which run. For text no shell or runner is
+# handed (mc_inplace_unparsed), so quoted prose is no command.
+mc_runnable_text() {
+  local s=$1 out='' c i=0 n=${#1} q='' depth=0 seg
+  while [ "$i" -lt "$n" ]; do
+    c=${s:$i:1}
+    i=$((i + 1))
+    if [ "$depth" -gt 0 ]; then
+      out+=$c
+      case $c in
+        '(') depth=$((depth + 1)) ;;
+        ')') depth=$((depth - 1)) ;;
+      esac
+      continue
+    fi
+    if [ "$q" = "'" ]; then
+      [ "$c" != "'" ] || q=''
+      out+=' '
+      continue
+    fi
+    if [ "$q" = '"' ]; then
+      case $c in
+        '"') q='' ;;
+        \\) i=$((i + 1)) ;;
+        '$')
+          if [ "${s:$i:1}" = '(' ]; then
+            # shellcheck disable=SC2016 # the literal $( is the text kept
+            out+='$('
+            i=$((i + 1))
+            depth=1
+            continue
+          fi
+          ;;
+        '`')
+          # A backquoted substitution runs too, up to its closing backquote.
+          seg=${s:$i}
+          seg=${seg%%\`*}
+          out+="\`$seg\`"
+          i=$((i + ${#seg} + 1))
+          continue
+          ;;
+      esac
+      out+=' '
+      continue
+    fi
+    case $c in
+      "'" | '"')
+        q=$c
+        out+=' '
+        ;;
+      \\)
+        out+=$c${s:$i:1}
+        i=$((i + 1))
+        ;;
+      *) out+=$c ;;
+    esac
+  done
+  MC_RT=$out
+}
+
+# mc_quote_scan <text> — carry MC_QS, the quote open at the end of the text
+# read so far (', " or empty), across the text.
+mc_quote_scan() {
+  local s=$1 c i=0 n=${#1}
+  while [ "$i" -lt "$n" ]; do
+    c=${s:$i:1}
+    i=$((i + 1))
+    if [ "$MC_QS" = "'" ]; then
+      [ "$c" != "'" ] || MC_QS=''
+    elif [ "$MC_QS" = '"' ]; then
+      case $c in
+        \\) i=$((i + 1)) ;;
+        '"') MC_QS='' ;;
+      esac
+    else
+      case $c in
+        \\) i=$((i + 1)) ;;
+        "'" | '"') MC_QS=$c ;;
+      esac
+    fi
+  done
+}
+
+# mc_inplace_unparsed <text> — mc_inplace_text for a whole command text: read
+# whole, quotes dropped, where a shell or runner could run quoted text, else
+# only the text the shell itself runs (mc_runnable_text).
+mc_inplace_unparsed() {
+  if [[ $1 =~ $RE_MC_INTERPRETER || $1 =~ $RE_MC_RUNNER_CMD ]]; then
+    mc_inplace_text "$1"
+    return
+  fi
+  mc_runnable_text "$1"
+  mc_inplace_text "$MC_RT"
 }
 
 # mc_inplace_text <text> [word] — 0 when the text, its quotes and escapes
@@ -7101,9 +7198,11 @@ mc_long_is() {
   return 1
 }
 
-# mc_ipt_add <word> — append a file operand to MC_IPT; - (standard input) is no file.
+# mc_ipt_add <word> — append a file operand to MC_IPT; - (standard input) and
+# an empty word (BSD sed's -i '', no backup suffix) are no file.
 mc_ipt_add() {
-  [ "$1" = - ] || MC_IPT[${#MC_IPT[@]}]=$1
+  case $1 in '' | -) return 0 ;; esac
+  MC_IPT[${#MC_IPT[@]}]=$1
 }
 
 # mc_ipt_files <script given> <positional words...> — MC_IPT from a tool's
@@ -7402,17 +7501,19 @@ mc_ipt_ed() {
 }
 
 # mc_ipt_vi <first> — ex, vi and vim under each of their names, which can
-# write every file they edit: every operand is one, and so is the script file
-# -w or -W writes; +cmd runs a command, and -c, -S, -u, -U, -i, -T, -t and -q
-# (and the long options that take one) take a value. val is what the next word
-# is: skip (an option's value) or written (a file the option writes).
+# write every file they edit: every operand is one, and so is each file an
+# option writes (-w and -W's script, -i's viminfo unless NONE, -V's log after
+# its level, --startuptime's and --log's); +cmd runs a command, and -c, -S, -u,
+# -U, -T, -t and -q (and the long options that take one) take a value. val is
+# what the next word is: skip (an option's value) or written (a file the option
+# writes).
 mc_ipt_vi() {
   local k=$1 n=${#SW[@]} w c ch j val='' ends=0
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     k=$((k + 1))
     if [ -n "$val" ]; then
-      [ "$val" != written ] || mc_ipt_add "$w"
+      [ "$val" != written ] || [ "$w" = NONE ] || mc_ipt_add "$w"
       val=''
       continue
     fi
@@ -7422,7 +7523,11 @@ mc_ipt_vi() {
           ends=1
           continue
           ;;
-        --cmd | --startuptime | --servername | --remote-expr | --remote-send | --listen | --log)
+        --startuptime | --log)
+          val=written
+          continue
+          ;;
+        --cmd | --servername | --remote-expr | --remote-send | --listen)
           val=skip
           continue
           ;;
@@ -7435,14 +7540,21 @@ mc_ipt_vi() {
             case $ch in
               c | S | u | U | i | T | t | q | w | W)
                 if [ "$j" -lt "${#c}" ]; then
-                  case $ch in w | W) mc_ipt_add "${c:$j}" ;; esac
+                  case $ch in w | W | i) [ "${c:$j}" = NONE ] || mc_ipt_add "${c:$j}" ;; esac
                 else
                   val=skip
-                  case $ch in w | W) val=written ;; esac
+                  case $ch in w | W | i) val=written ;; esac
                 fi
                 break
                 ;;
-              V) break ;;
+              V)
+                # -V[level][file]: what follows the level digits is a log file.
+                while [ "$j" -lt "${#c}" ]; do
+                  case ${c:$j:1} in [0-9]) j=$((j + 1)) ;; *) break ;; esac
+                done
+                [ "$j" -ge "${#c}" ] || mc_ipt_add "${c:$j}"
+                break
+                ;;
             esac
           done
           continue
@@ -7464,7 +7576,11 @@ mc_inplace_targets() {
     ruby | ruby[0-9]*) mc_ipt_perl "$2" ruby ;;
     awk | gawk) mc_ipt_awk "$2" ;;
     ed | red) mc_ipt_ed "$2" ;;
-    ex | vi | vim | gvim | nvim | view | rview | rvim | vimdiff) mc_ipt_vi "$2" ;;
+    # vim under each of its names: the g, r and e prefixes, the diff and x
+    # suffixes, and a distribution's vim.<build>.
+    ex | nvim | vi | vim | view | vimdiff | vimx | vim.* | gvim | gvim.* | gview | gvimdiff | gvimx | rvim | rview | rgvim | rgview | evim | eview)
+      mc_ipt_vi "$2"
+      ;;
     *) return 1 ;;
   esac
 }
@@ -7525,7 +7641,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rsh b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -7644,24 +7760,37 @@ XEOF_RUN
   # read as one shell word (quotes and escapes kept); a target in a subshell
   # carries the group's closing parenthesis, so the word without it is vetted
   # too.
+  # A redirect sign inside quotes runs as one only where a shell or a runner
+  # of command text is handed the quoted text; elsewhere (awk '$1 > 5',
+  # python3 -c 'print(1 > 2)') it is program text, and the repository screen
+  # leaves it to the posture screen.
+  rsh=0
+  re='(^|[^[:alnum:]_.-])(bash|sh|zsh|dash|ksh|mksh|fish|eval|source|su|runuser|ssh|script|watch|tmux|screen)([^[:alnum:]_-]|$)|split-string|(^|[[:space:]])-[A-Za-z]*S'
+  [[ ${t//[\"\'\\]/} =~ $re ]] && rsh=1
+  MC_QS=''
   re='>+([|&]?)[[:space:]]*(([^[:space:];|&<>"'\''\\]|\\.|"[^"]*"|'\''[^'\'']*'\'')+)'
   while [[ $r =~ $re ]]; do
     m=${BASH_REMATCH[0]}
     w=${BASH_REMATCH[2]}
+    c=${BASH_REMATCH[1]}
+    mc_quote_scan "${r%%"$m"*}"
+    rr=''
+    [ -z "$MC_QS" ] || [ "$rsh" = 1 ] || rr=0
+    mc_quote_scan "$m"
     r=${r#*"$m"}
     wg=$w
     while [ "${wg%[)]}" != "$wg" ]; do wg=${wg%[)]}; done
     # >&2, >&- and >&2- duplicate or close a descriptor and open no file.
-    if [ "${BASH_REMATCH[1]}" = '&' ] && [[ $wg =~ ^[0-9]*-?$ ]]; then
+    if [ "$c" = '&' ] && [[ $wg =~ ^[0-9]*-?$ ]]; then
       continue
     fi
     # Both readings pass the posture screen before either the repository one,
     # so a settings write keeps its own reason.
     ! mc_write_word_refused "$w" 1 0 || emit_deny "$MC_REFUSAL"
     if [ -n "$wg" ] && [ "$wg" != "$w" ]; then
-      ! mc_write_word_refused "$wg" 1 || emit_deny "$MC_REFUSAL"
+      ! mc_write_word_refused "$wg" 1 "$rr" || emit_deny "$MC_REFUSAL"
     fi
-    ! mc_write_word_refused "$w" 1 only || emit_deny "$MC_REFUSAL"
+    [ "$rr" = 0 ] || ! mc_write_word_refused "$w" 1 only || emit_deny "$MC_REFUSAL"
   done
   if ! tokenize "$t"; then
     # Unparsed text (a command substitution, say) fails closed where it could
@@ -7682,7 +7811,7 @@ XEOF_RUN
         ;;
     esac
     [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
-    ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
+    ! mc_inplace_unparsed "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
     # link(1) makes a hard link, to a link too; prose says "link", so only a
     # statement it opens counts.
     local re_link='(^|[;&|(){}'$'\n''])[[:space:]]*link[[:space:]]'
