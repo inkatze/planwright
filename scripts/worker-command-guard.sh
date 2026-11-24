@@ -82,13 +82,13 @@
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository and the commit it is held to holds
-# the file unchanged (committed_blob: the PR base inside the recorded
+# path canonicalizes INSIDE the repository and its trusted commit holds the
+# file unchanged (committed_blob, trusted_rev: the base in the recorded
 # worktree, where the worker commits, HEAD elsewhere; a `bats` directory
-# defers), and an INSTALLED planwright root's
-# `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
-# for itself, held to that root's HEAD the same way when the root is a git
-# checkout (REQ-A1.10; see is_planwright_script — the reason this needs no
+# defers), and an INSTALLED planwright root's `scripts/*.sh` is trusted after
+# canonicalizing inside a root the hook resolves for itself, held to its
+# trusted commit the same way when the root is a git checkout
+# (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
 # A segment none of these shapes approve is still approved when it matches a
@@ -765,6 +765,53 @@ canon_under() {
   esac
 }
 
+# trusted_rev <root>: set TRUSTED_REV_OUT to the commit a file under the work
+# tree <root> is held to, or return 1 when that tree trusts nothing. Outside
+# the recorded worktree it is HEAD. The recorded worktree itself is held to the
+# merge base of HEAD and the record's pr_base remote-tracking ref, since the
+# own-branch arm and the profile's static allows let the worker commit there
+# and the guard never sees what a script runs. The ref is read by show-ref
+# --verify, which takes the full name literally: git's ordinary lookup falls
+# through to a local branch named refs/remotes/<base> once the real ref is
+# deleted, and the profile statically allows both acts. A repository nested in
+# the worktree, which the worker can give any refs, trusts nothing, and so
+# does a session whose record is set but names no usable worktree, since the
+# worker there can still commit through the static allows. Called outside a
+# command substitution, so the per-root cache survives the hook call.
+TRUSTED_REV_ROOT=''
+TRUSTED_REV=''
+TRUSTED_REV_OUT=''
+trusted_rev() {
+  local oid rev
+  TRUSTED_REV_OUT=''
+  if [ -z "$REC_WT" ]; then
+    [ -z "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ] || return 1
+    TRUSTED_REV_OUT=HEAD
+    return 0
+  fi
+  if [ "$1" != "$REC_WT" ]; then
+    case $1/ in
+      "$REC_WT"/*) return 1 ;;
+    esac
+    TRUSTED_REV_OUT=HEAD
+    return 0
+  fi
+  if [ "$TRUSTED_REV_ROOT" != "$1" ]; then
+    [ -n "$REC_BASE" ] || return 1
+    oid=$(git_plain -C "$1" show-ref --verify --hash "refs/remotes/$REC_BASE" 2>/dev/null) || return 1
+    case $oid in
+      '' | *[!0-9a-f]*) return 1 ;;
+    esac
+    rev=$(git_plain -C "$1" merge-base HEAD "$oid" 2>/dev/null) || return 1
+    case $rev in
+      '' | *[!0-9a-f]*) return 1 ;;
+    esac
+    TRUSTED_REV_ROOT=$1
+    TRUSTED_REV=$rev
+  fi
+  TRUSTED_REV_OUT=$TRUSTED_REV
+}
+
 # committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
 # <rel> under the work tree <root>) is a regular file whose bytes are exactly
 # the blob the trusted commit (trusted_rev) records for <rel>, as a plain or
@@ -792,7 +839,8 @@ committed_blob() {
       ;;
   esac
   [ -f "$full" ] && [ ! -L "$full" ] || return 1
-  rev=$(trusted_rev "$root") || return 1
+  trusted_rev "$root" || return 1
+  rev=$TRUSTED_REV_OUT
   line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree "$rev" -- "$rel" 2>/dev/null) || return 1
   case $line in
     *$'\n'*) return 1 ;;
@@ -809,41 +857,6 @@ committed_blob() {
   COMMITTED_OK=$COMMITTED_OK$key
   committed_used "$full"
   return 0
-}
-
-# trusted_rev <root>: print the commit a file under the work tree <root> is
-# held to. HEAD, except at or under the recorded worktree: the own-branch arm
-# and the profile's static allows let the worker commit there, so HEAD may hold
-# a script it wrote, and the guard never sees what that script runs. There it
-# is the merge base of HEAD and the record's pr_base as a remote-tracking ref,
-# spelled in full so a local branch of the same short name cannot stand in;
-# no base, or none in common, trusts nothing. A repository nested in the
-# worktree carries no such ref, so it trusts nothing either.
-TRUSTED_REV_ROOT=''
-TRUSTED_REV=''
-trusted_rev() {
-  local rev
-  if [ -z "$REC_WT" ]; then
-    printf HEAD
-    return 0
-  fi
-  case $1/ in
-    "$REC_WT"/*) ;;
-    *)
-      printf HEAD
-      return 0
-      ;;
-  esac
-  if [ "$TRUSTED_REV_ROOT" != "$1" ]; then
-    [ -n "$REC_BASE" ] || return 1
-    rev=$(git_plain -C "$1" merge-base HEAD "refs/remotes/$REC_BASE" 2>/dev/null) || return 1
-    case $rev in
-      '' | *[!0-9a-f]*) return 1 ;;
-    esac
-    TRUSTED_REV_ROOT=$1
-    TRUSTED_REV=$rev
-  fi
-  printf '%s' "$TRUSTED_REV"
 }
 
 # committed_used <full>: note a committed check the approval leans on, when the
@@ -985,9 +998,10 @@ is_planwright_script() {
     case $rel in
       scripts/*)
         # A root that is a git checkout (a tower or mission control run from
-        # one) lies outside the worktree, where the file tools still write,
-        # so it is held to what its HEAD commits, as the repository is. A
-        # root that is no checkout of its own is an install copy.
+        # one) is one the file tools still write, so it is held to its
+        # trusted commit as the repository is: HEAD outside the recorded
+        # worktree, the base when it is that worktree. A root that is no
+        # checkout of its own is an install copy.
         [ -e "$root/.git" ] || return 0
         [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
         committed_blob "$root" "$rel" "$full"
@@ -1166,8 +1180,8 @@ step_excerpt_ok() {
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# and is a file its trusted commit holds unchanged (used for `bats <file>`, which need
-# not sit under scripts/ or tests/, and which stays REPO-scoped — an install
+# and is a file its trusted commit holds unchanged (used for `bats <file>`,
+# which need not sit under scripts/ or tests/, and which stays REPO-scoped — an install
 # ships no test files to run). A directory operand fails, since bats would run
 # whatever files it holds.
 is_contained_file() {
@@ -2515,7 +2529,7 @@ ob_git() {
   local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' ot=$OB_TOUCH
   ob_git_ready || return 1
   # Staging, committing and fetching write only git's own store, never a
-  # worktree file, so they leave a script HEAD already holds as it was
+  # worktree file, so they leave a script its trusted commit holds as it was
   # (OB_TOUCH); a commit's -F read is a read.
   case $sub in
     add | commit | fetch) OB_TOUCH=$ot ;;
@@ -4133,8 +4147,8 @@ mdlint_configs_ok() {
 
 guard_bashsh() {
   # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code its trusted commit holds unchanged or an installed planwright root's scripts/
-  # (is_trusted_script); any option (notably -c /
+  # code its trusted commit holds unchanged or an installed planwright root's
+  # scripts/ (is_trusted_script); any option (notably -c /
   # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
@@ -4167,8 +4181,8 @@ guard_fish() {
 
 guard_bats() {
   # `bats [safe-flags] <file...>`: each file operand must resolve inside the
-  # repo (REQ-A1.10) to a file its trusted commit holds unchanged (a directory defers), and
-  # ONLY no-value display/selection flags are allowed.
+  # repo (REQ-A1.10) to a file its trusted commit holds unchanged (a directory
+  # defers), and ONLY no-value display/selection flags are allowed.
   # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
   # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
   # carry a path bats would execute or write OUTSIDE the containment check, so
@@ -6760,8 +6774,8 @@ check_command_ok() {
 
 # check_literals_committed <declaration> <canonical-cwd>: every literal word
 # of the declaration that names an existing file, from the working directory
-# or by its absolute path, is held to what its trusted commit holds, as a declared step's
-# location is (declared_location_ok): the declaration names the file, not its
+# or by its absolute path, is held to what its trusted commit holds, as a
+# declared step's location is (declared_location_ok): the declaration names the file, not its
 # content, and the worker can Write it. A bare first word is looked up on PATH,
 # never in the working directory, and a `<path>` placeholder is the declarer's
 # choice of what the runner is given; both stay as declared.
@@ -6903,8 +6917,8 @@ check_loader_screen() {
 # after any leading context assignments in the runner's form. The declaration
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
-# scripts/, which holds a location inside the repository to what its trusted commit holds
-# there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
+# scripts/, which holds a location inside the repository to what its trusted
+# commit holds there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
@@ -7237,8 +7251,8 @@ declared_line_ok() {
 
 # declared_location_ok <abs-path>: a declared step's location in a git checkout
 # (the session's repository, or another such as the primary) is held to what
-# that checkout's trusted commit holds (trusted_rev), as a script run by its path is: the declaration
-# names the file, not its content, and the worker can Write the file. A
+# that checkout's trusted commit holds (trusted_rev), as a script run by its
+# path is: the declaration names the file, not its content, and the worker can Write the file. A
 # location spelled inside the session's repository counts as in it even when a
 # symlinked folder resolves it elsewhere, and so defers. A location in no
 # checkout keeps the declaration's trust.
