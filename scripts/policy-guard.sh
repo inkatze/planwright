@@ -7622,11 +7622,12 @@ mc_settings_screen() {
         [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
         shopt -u nocasematch
         [ "$k" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
-        # A here-string beside a shell or runner is read as a command too,
-        # whatever reads it: telling a reader that runs it from one that only
-        # reads it as data (a script operand, a wrapper, a valued option)
+        ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        # A here-string on this shell's or runner's line is read as a command
+        # too, whatever reads it: telling a reader that runs it from one that
+        # only reads it as data (a script operand, a wrapper, a valued option)
         # needs a parse this text screen does not make.
-        ! mc_inplace_text "${t//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        ! mc_inplace_text "${w//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
       done <<XEOF_RUN
 $t
 XEOF_RUN
