@@ -1841,7 +1841,9 @@ own_gh_read() {
 
 # The two GraphQL texts a thread resolve is held to, verbatim: the resolve
 # itself and the read of the thread it names.
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
 THREAD_RESOLVE_Q='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
 THREAD_READ_Q='query($id:ID!){node(id:$id){...on PullRequestReviewThread{comments(first:100){totalCount nodes{databaseId pullRequest{number repository{nameWithOwner}}}}}}}'
 
 # own_thread_ok <canonical cwd>: the current `gh api` call is exactly one of
@@ -2040,27 +2042,27 @@ mix_paths_inert() {
 # differs from the trusted PR base.
 mix_tree_clean() {
   local base=$REC_BASE sha mb st
-  local -a g=(git_plain -c core.fsmonitor=false --no-optional-locks -C "$REC_WT")
+  local -a gitc=(git_plain -c core.fsmonitor=false --no-optional-locks -C "$REC_WT")
   [[ $base =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+$ ]] || return 1
   case $base in
     *..* | */ | *//* | */. | */./* | *.lock) return 1 ;;
   esac
-  sha=$("${g[@]}" show-ref --verify -s "refs/remotes/$base" 2>/dev/null) || return 1
+  sha=$("${gitc[@]}" show-ref --verify -s "refs/remotes/$base" 2>/dev/null) || return 1
   [[ $sha =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
-  mb=$("${g[@]}" merge-base "$sha" HEAD 2>/dev/null) || return 1
+  mb=$("${gitc[@]}" merge-base "$sha" HEAD 2>/dev/null) || return 1
   [[ $mb =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
   # A tracked file flagged assume-unchanged or skip-worktree (a tag other
   # than H) is one the diff below cannot see change.
-  "${g[@]}" ls-files -v -z 2>/dev/null | grep -qz '^[^H]'
+  "${gitc[@]}" ls-files -v -z 2>/dev/null | grep -qz '^[^H]'
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 1 ] || return 1
-  "${g[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv "$mb" -- 2>/dev/null | mix_paths_inert
+  "${gitc[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv "$mb" -- 2>/dev/null | mix_paths_inert
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
-  "${g[@]}" ls-files -o --exclude-standard -z 2>/dev/null | mix_paths_inert
+  "${gitc[@]}" ls-files -o --exclude-standard -z 2>/dev/null | mix_paths_inert
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
-  "${g[@]}" ls-files -o -i --exclude-standard --directory -z 2>/dev/null | mix_paths_inert
+  "${gitc[@]}" ls-files -o -i --exclude-standard --directory -z 2>/dev/null | mix_paths_inert
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ]
 }

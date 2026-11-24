@@ -3,6 +3,7 @@
 # a deliberately broken copy of the guard that approves an unsafe case, and the
 # routine suite, run against it, must fail. A suite that stays green on a
 # mutant does not guard what it claims to.
+# shellcheck disable=SC2016 # the sed expressions carry literal dollars
 set -u
 unset CDPATH
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

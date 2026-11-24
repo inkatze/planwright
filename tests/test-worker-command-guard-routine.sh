@@ -115,6 +115,7 @@ assert_defer "an end-of-options word" "$RS lock status -- --repo o/r --pr 1" Bas
 assert_defer "a substitution in a value" "$RS lock status --repo \$(id) --pr 1" Bash "$WT"
 assert_defer "an unresolved variable" "$RS lock status --repo \$R --pr 1" Bash "$WT"
 assert_defer "an environment prefix" "REVIEW_STATE_ROOT=$WT $RS sessions" Bash "$WT"
+# shellcheck disable=SC2088 # the unexpanded tilde is the case under test
 assert_defer "a tilde path" "~/.claude/scripts/review-state.sh sessions" Bash "$WT"
 assert_defer "a bare name a worker could shadow" "review-state.sh sessions" Bash "$WT"
 assert_defer "a copy inside the worktree" "$WT/review-state.sh sessions" Bash "$WT"
@@ -144,7 +145,7 @@ REPLY="gh api -X POST repos/o/r/pulls/21/comments/1001/replies -f body='Fixed in
 assert_allow "a reply to a bot-only thread" "$REPLY" Bash "$WT"
 assert_allow "a reply with --method POST" "gh api --method POST repos/o/r/pulls/21/comments/1001/replies -f body=ok" Bash "$WT"
 assert_allow "a reply to the bot's own reply in the thread" "gh api -X POST repos/o/r/pulls/21/comments/1002/replies -f body=ok" Bash "$WT"
-RQ='query($id:ID!){node(id:$id){...on PullRequestReviewThread{comments(first:100){totalCount nodes{databaseId pullRequest{number repository{nameWithOwner}}}}}}}'
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
 RES='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
 assert_allow "a resolve of a bot-only thread" "gh api graphql -f query='$RES' -f id=PRRT_bot" Bash "$WT"
 assert_defer "a reply where a human has replied" "gh api -X POST repos/o/r/pulls/22/comments/1101/replies -f body=ok" Bash "$WT"
