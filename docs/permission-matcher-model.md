@@ -590,11 +590,12 @@ What still runs code a worker wrote without a prompt:
   record the guard cannot tell the worktree or its base, so it holds a
   repository script to HEAD, which the profile's static `git commit` allow
   lets the worker move. A launcher whose record write fails launches the
-  worker this way. Where a record is set but names no usable worktree (a
-  repeated or non-canonical `worktree_root`, a record inside the worktree),
-  the repository the session sits in, which its static commit allow reaches,
-  trusts nothing instead, and a checkout elsewhere keeps HEAD, so an
-  installed planwright root that is a checkout still runs its scripts.
+  worker this way. A record that is set but names no usable worktree (a
+  missing or relative record path, a repeated or non-canonical
+  `worktree_root`, a record inside the worktree) trusts nothing instead,
+  wherever the file lies: the static allows still let the worker commit, and
+  the guard cannot place where. The one exception is the guard's own
+  planwright root, held to HEAD, since it holds the guard itself.
 - **A write that lands while a trusted script runs.** The guard checks a
   script's bytes before the command runs, and a shell reads a script as it
   goes, so a write running in the background (an own-branch write the worker
@@ -615,7 +616,7 @@ What still runs code a worker wrote without a prompt:
   the base. A declaration whose `<path>` is the
   script it runs (`bash <path>`) admits any file in the worktree, committed or
   not, so it is the repository's own choice to make.
-- **What a committed script reaches.** The guard checks the script it runs,
+- **What a trusted script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
   globs, any of which a worker may have written or edited. A declared step
   run through `scripts/step-run.sh` is held by the runner itself to the same
@@ -653,9 +654,9 @@ plain forms:
   `--no-globs` (and markdownlint's `-q`). Every folder those files sit in,
   the working directory, and every folder above them must hold no module
   config, committed or not, since a committed one may import a file the
-  worker wrote, and only options and settings files the commit their
-  checkout is held to holds unchanged (the `committed_blob` check, the base
-  inside the recorded worktree), no options file naming a module
+  worker wrote, and only options and settings files that their checkout's
+  trusted commit holds unchanged (the `committed_blob` check: the base inside
+  the recorded worktree), no options file naming a module
   key or holding a backslash, through which an escape could spell one. An
   explicit `--config` naming a committed file would not do instead: each
   folder's own config still loads beside it. A glob or folder operand defers,
@@ -669,11 +670,13 @@ plain forms:
   parse error prints part of, so one naming another readable file shows that
   file's start.
 - **A declared command step** run through `scripts/step-run.sh` runs its
-  location, and a session-hosted step's line is printed, only as the git
-  checkout holding it commits it, held to the command guard's commit (the
-  base in the worktree a worker session record names, HEAD elsewhere,
-  `trusted_commit`); otherwise, or when git cannot answer for
-  that checkout, the step is recorded `failed`. A location with no `.git`
+  location, and a session-hosted step's line is printed, only as the command
+  guard's trusted commit for that checkout holds it (`trusted_commit`: the
+  base in the worktree a worker session record names, nothing in a repository
+  nested in it or under a record naming no usable worktree, HEAD elsewhere);
+  otherwise, or when git cannot answer for that checkout, the step is
+  recorded `failed`, so in a session with no base a declared step located in
+  its worktree always fails. A location with no `.git`
   entry above it, an installed tool, keeps the declaration's trust. The
   guard's own approval of a declared line typed in the session is a separate
   check.

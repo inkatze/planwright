@@ -448,8 +448,10 @@ pipeline-entry: execute-task orchestrate drain spec-draft spec-kickoff offload t
 human-owned layers: core and adopter sit outside the worktree and a
 dispatched worker's write set; repo-tracked and machine-local sit inside it,
 inheriting the guard's trusted-repository-code posture for `scripts/`, which
-trusts a file in a git checkout, a declared location included, only as its
-base commits it inside the worker's worktree, HEAD elsewhere; the
+trusts a file in a git checkout, a declared location included, only as the
+merge base with the session record's base holds it inside the worker's
+worktree (nothing when the record names no usable worktree or base), and as
+HEAD holds it in a checkout outside that worktree; the
 worker profile is unchanged (REQ-G1.2). The worker command guard
 auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a
