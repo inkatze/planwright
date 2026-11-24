@@ -113,7 +113,9 @@ ml launch --program alpha --kind ad-hoc --scope mise-yes --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the stream-json launch with --mise-task-edit exited $RC: $ERR"
 mise_yes=$(field name)
 wait_done "$mise_yes"
-[ "$(find "$fleet/streamjson/$mise_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = mise_task_edit=1 ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
+# Every mission-control launch also records its launcher in the same record.
+[ "$(find "$fleet/streamjson/$mise_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = "mise_task_edit=1
+launcher=mission-control" ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
   || fail "the opt-in did not reach the stream-json launcher for $mise_yes"
 # The lefthook config opt-in has the same shape: worker profile, stream-json
 # rung, off by default.
@@ -134,14 +136,15 @@ ml launch --program alpha --kind ad-hoc --scope lh-yes --brief "$tmp/brief.md" -
 [ "$RC" = 0 ] || fail "the stream-json launch with --lefthook-edit exited $RC: $ERR"
 lh_yes=$(field name)
 wait_done "$lh_yes"
-[ "$(find "$fleet/streamjson/$lh_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = lefthook_edit=1 ] \
+[ "$(find "$fleet/streamjson/$lh_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = "lefthook_edit=1
+launcher=mission-control" ] \
   && ok "an accepted --lefthook-edit launch reaches the stream-json launcher, which records the lefthook opt-in alone" \
   || fail "the lefthook opt-in did not reach the stream-json launcher for $lh_yes"
 ml launch --program alpha --kind ad-hoc --scope lh-none --brief "$tmp/brief.md" --backend stream-json
 [ "$RC" = 0 ] || fail "the stream-json launch without --lefthook-edit exited $RC: $ERR"
 lh_none=$(field name)
 wait_done "$lh_none"
-[ -z "$(find "$fleet/streamjson/$lh_none" -maxdepth 1 -name 'planwright-opt-in.*' -type f)" ] && ok "a launch without --lefthook-edit records no lefthook opt-in" \
+[ "$(find "$fleet/streamjson/$lh_none" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = launcher=mission-control ] && ok "a launch without --lefthook-edit records no lefthook opt-in" \
   || fail "a launch without --lefthook-edit recorded the opt-in for $lh_none"
 ml launch --program alpha --kind mission-control --scope rc-hostile --brief "$tmp/brief.md" --backend tmux --remote-control 'mc;rm'
 [ "$RC" = 2 ] && ! grep -q 'rc-hostile' "$tmp/tmux/calls" && ok "a --remote-control name outside the session-name grammar is refused before a window opens" \
