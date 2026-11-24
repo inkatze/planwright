@@ -6480,7 +6480,7 @@ classify_verb() {
 # trust the guard gives the repository's scripts/. That trust stops at a
 # config loader: a declared markdownlint or mise run still passes the screen
 # the undeclared command does (check_loader_ok). Nor does it reach a step
-# script, whose hand-timed records stay at the prompt (check_names_step).
+# script, whose hand-timed records stay at the prompt (names_step_script).
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6692,13 +6692,13 @@ check_command_ok() {
   return 1
 }
 
-# check_names_step: 0 when a word of the current simple command (`sw` /
+# names_step_script: 0 when a word of the current simple command (`sw` /
 # `swn`), whole or after its last `=`, is a step script as step_script_kind
 # reads one. Every word is read, not just the first: a runner prefix, a path
 # spelling verify_known_simple never reads as a step-script call, or a `VAR=`
 # word would otherwise carry a hand-timed record past its prompt on a
 # declaration alone.
-check_names_step() {
+names_step_script() {
   local i w
   for ((i = 0; i < swn; i++)); do
     w=${sw[i]}
@@ -7187,10 +7187,8 @@ verify_simple() {
     own_cand=1
   fi
   verify_known_simple && return 0
-  # A step-script call step_call_ok refused is never a declared line's, and
-  # nor is one in a spelling verify_known_simple does not read as a call.
+  # A step-script call step_call_ok refused is never a declared line's.
   [ "$own_cand" = 0 ] && [ "$STEP_CALL" = 0 ] || return 1
-  ! check_names_step || return 1
   # A declared check command or step is an operator's line, never one around
   # a substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
@@ -7202,14 +7200,21 @@ verify_simple() {
   # a chain partner before an own-unit act. A check command check_may_partner
   # refuses, unless a step declares the same line, is approved alone but keeps
   # every own-unit act in its command from being approved.
+  local partner=1
   if check_command_ok; then
-    check_may_partner || declared_line_ok || {
-      ARM_ACT=1
-      return 0
-    }
+    check_may_partner || declared_line_ok || partner=0
   else
     declared_line_ok || return 1
   fi
+  # Nor is a matched line one naming a step script in a spelling
+  # verify_known_simple does not read as a call: it defers, as undeclared.
+  # Read only after a match, so a command no declaration names never pays
+  # for the root lookup.
+  ! names_step_script || return 1
+  [ "$partner" = 1 ] || {
+    ARM_ACT=1
+    return 0
+  }
   OU_PARTNER=1
 }
 
