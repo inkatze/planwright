@@ -380,4 +380,67 @@ rc=0
 [ "$rc" -ne 0 ] || fail "d5: a note carrying a tilde path must be refused"
 pass "d: malformed frames, token handling, result rows, file mode, compare and report shape"
 
+# ---- e1: non-string frame fields and malformed result rows ------------------
+
+mk_run "$tmp/n" today
+printf '%s\n' '{"type":"assistant","message":{"id":"mn","content":[{"type":"tool_use","id":"tn","name":"Skill","input":{"skill":5}}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tn","is_error":true,"content":[{"type":"text","text":{"a":1}}]}]}}' >>"$tmp/n/events.jsonl"
+rec "$tmp/n" "$tmp/n.json" 2>"$tmp/n.err" || fail "e1: a numeric skill name or an object text block must not abort the record"
+[ "$(jq -r .polish_rounds "$tmp/n.json")" = 1 ] || fail "e1: a numeric skill name is not a polish round"
+for row in 'result' 'exit' 'result\tsuccess'; do
+  mk_run "$tmp/n" today
+  printf '%b\n' "$row" >"$tmp/n/result"
+  rc=0
+  rec "$tmp/n" "$tmp/n.json" 2>"$tmp/n.err" || rc=$?
+  [ "$rc" -eq 3 ] || fail "e1: the result row '$row' must be refused as unrecognised, got $rc"
+done
+o_case 'exit\t1\t1700000000' crashed
+o_case 'exit\t0\t1700000000' completed
+o_case 'result\terror\t1700000000\ttrue' crashed
+pass "e1: non-string frame fields are tolerated; short result rows are refused"
+
+# ---- e2: counting rules ----------------------------------------------------
+
+mk_run "$tmp/u" today
+printf '%s\n' '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"has been denied"}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"The user doesn'"'"'t want to proceed"}]}}' >>"$tmp/u/events.jsonl"
+rec "$tmp/u" "$tmp/u.json" || fail "e2: record must be written"
+[ "$(jq -r .tool_calls "$tmp/u.json")" = 7 ] || fail "e2: a repeated tool_use id must count once"
+[ "$(jq -r .denials "$tmp/u.json")" = 2 ] || fail "e2: only error results count as denials, in every denial wording"
+ls "$tmp" >"$tmp/ls.out"
+if grep -q '^u\.json\.' "$tmp/ls.out"; then fail "e2: a temporary record file was left behind"; fi
+pass "e2: distinct ids, error-only denials, no leftover temp file"
+
+# ---- e3: token shapes, refusal codes and the report table -------------------
+
+mk_run "$tmp/s" today
+GHTOK='ghp_FIXTUREfixture0123456789abcdefABCDEF'
+sed "s|^changed_knobs=none|changed_knobs=$GHTOK|" "$tmp/s/identity" >"$tmp/s/identity.new"
+mv "$tmp/s/identity.new" "$tmp/s/identity"
+rec "$tmp/s" "$tmp/s.json" || fail "e3: record with a GitHub token shape must be written"
+if grep -qF "$GHTOK" "$tmp/s.json"; then fail "e3: a GitHub token shape reached the record"; fi
+for bad in "$GHTOK" 'AKIAFIXTUREFIXTURE12' 'C:\Users\someone\.ssh'; do
+  rc=0
+  "$RR" report --title T --note "x $bad" "$tmp/ca.json" >"$tmp/rep10.md" 2>"$tmp/rep10.err" || rc=$?
+  [ "$rc" -eq 1 ] || fail "e3: a note carrying '$bad' must be refused with exit 1, got $rc"
+done
+rc=0
+"$RR" report --title "see /home/someone" "$tmp/ca.json" >"$tmp/rep11.md" 2>"$tmp/rep11.err" || rc=$?
+[ "$rc" -eq 1 ] || fail "e3: a title carrying a home path must be refused, got $rc"
+[ ! -s "$tmp/rep11.md" ] || fail "e3: nothing may be written for a refused title"
+rc=0
+FIXTURE_PLAIN=plainsecretvalue "$RR" report --title T --note "has plainsecretvalue" --token-env FIXTURE_PLAIN \
+  "$tmp/ca.json" >"$tmp/rep12.md" 2>"$tmp/rep12.err" || rc=$?
+[ "$rc" -eq 1 ] || fail "e3: a note carrying the --token-env value must be refused, got $rc"
+rc=0
+"$RR" compare "$tmp/ca.json" "$tmp/cc.json" --variable permission_arm 2>"$tmp/c.err" || rc=$?
+[ "$rc" -eq 1 ] || fail "e3: a mixed-variable compare is a refusal (exit 1), got $rc"
+"$RR" compare "$tmp/ca.json" "$tmp/cb.json" --variable permission_arm >"$tmp/c.out"
+grep -qx 'compare ok: records differ only in permission_arm' "$tmp/c.out" || fail "e3: compare must name the variable it accepted"
+"$RR" report --title T "$tmp/r1.json" >"$tmp/rep13.md" || fail "e3: a report of one record must be written"
+grep -qxF '| 1 | today | completed | 7 | 1 | 1 | 249 | 90 | 1 | 2 | pass |' "$tmp/rep13.md" \
+  || fail "e3: the report row must carry the record's counts"
+pass "e3: token shapes are scrubbed and refused; refusals exit 1; the report row is exact"
+
 echo "all tests passed"

@@ -9,7 +9,8 @@
 #                        --identity-file <file> [--out <file>]
 #                        [--token-env <VAR>]
 #   run-record.sh compare <record-a> <record-b> --variable <field>
-#   run-record.sh report --title <text> [--note <text>]... <record>...
+#   run-record.sh report --title <text> [--note <text>]... [--token-env <VAR>]
+#                        <record>...
 
 # record reads only what the fleet writes, never a worker's account of itself:
 #   --events    the stream-json event capture (streamjson/<worker>/events.jsonl)
@@ -22,9 +23,11 @@
 #                    permission_arm, known_bad_set_hash, candidate_diff_hash,
 #                    changed_knobs. Values are plain tokens (letters, digits
 #                    and . _ : = , @ + -), so a command or path never rides in.
+
 # A source that is absent, unreadable or an empty event log is named on stderr and nothing is
 # written (exit 3), never zeros. --out defaults to stdout. The OAuth token's
-# value (named by --token-env) and any token-shaped value are scrubbed.
+# value (named by --token-env) and the known token shapes (Anthropic, GitHub,
+# Slack, AWS key ids) are scrubbed.
 
 # Counting rules: tool calls are the distinct tool_use ids, subagents included;
 # tokens sum the usage of every assistant message once by message id, so a
@@ -32,15 +35,17 @@
 # session total; prompts are can_use_tool control_requests other than
 # AskUserQuestion; denials are error tool results reporting a denial; polish
 # rounds are self-review Skill calls; lens agents are Agent or Task calls whose
-# description or type names a lens.
+# description or type names a lens; wall time is the last result frame's
+# duration; audited approvals are the audit lines carrying a cmd_sha256.
 
 # compare refuses a pair that differs in more than --variable, and any pair
 # whose known_bad_set_hash differs (never a comparable variable). --variable is
 # a harness field, or `candidate` for the diff hash and the knobs together.
 
 # report writes markdown of counts and harness identities, never a recorded
-# command, absolute home path or token; text that would carry one is refused
-# and nothing is written.
+# command, absolute home path or token. Text carrying a home path, a known
+# token shape, the --token-env value, shell expansion, backticks or a spaced
+# pipeline or and-list is refused and nothing is written.
 
 # Exit: 0 ok, 1 refused (compare, report), 2 usage, 3 missing source.
 set -u
@@ -72,7 +77,8 @@ plain() {
 # shape, the named token's value, or command syntax.
 unsafe_text() {
   case $1 in
-    */home | */home/* | */Users | */Users/* | */root | */root/* | *~/* | *\$HOME* | *\$\{* | *sk-ant-* | *\$\(* | *\`*) return 0 ;;
+    */home | */home/* | */Users | */Users/* | *[A-Za-z]:\\Users* | */root | */root/* | *~/* | *\$HOME* | *\$\{* | *\$\(* | *\`*) return 0 ;;
+    *sk-ant-* | *gh[pousr]_* | *github_pat_* | *xox[abpr]-* | *AKIA[0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z]*) return 0 ;;
   esac
   if [ -n "${RR_TOKEN_VALUE:-}" ]; then
     case $1 in *"$RR_TOKEN_VALUE"*) return 0 ;; esac
@@ -145,6 +151,13 @@ cmd_record() {
   # A row without its newline is a write in flight, never a completion.
   [ -z "$(tail -c 1 <"$result")" ] || die "missing source: result (unterminated row)" 3
   row=$(sed -n '1p' <"$result")
+  # cut passes a line without its delimiter through whole, so a bare word
+  # would read as its own fields.
+  tab=$(printf '\t')
+  case $row in
+    *"$tab"*"$tab"*) ;;
+    *) die "missing source: result (unrecognised result row)" 3 ;;
+  esac
   kind=$(printf '%s' "$row" | cut -f1)
   second=$(printf '%s' "$row" | cut -f2)
   iserr=$(printf '%s' "$row" | cut -f4)
@@ -181,7 +194,7 @@ cmd_record() {
 
   rec=$(jq -nR -c --argjson ident "$ident" --arg outcome "$outcome" \
     --argjson gexit "$gate_exit" --argjson approvals "$approvals" '
-    def text: if type == "array" then map(.text? // "") | join(" ") else (. // "" | tostring) end;
+    def text: if type == "array" then map(.text? // "" | tostring) | join(" ") else (. // "" | tostring) end;
     [inputs | fromjson? | select(type == "object")] as $ev
     | if ($ev | length) == 0 then error("no frames") else . end
     | [$ev[] | select(.type == "assistant") | .message | select(type == "object")] as $msgs
@@ -211,7 +224,7 @@ cmd_record() {
       wall_time_seconds: ([$ev[] | select(.type == "result") | .duration_ms | numbers] | last
           | if . == null then null else ((. / 1000) | floor) end),
       polish_rounds: ([$uses[] | select(.name == "Skill"
-          and ((.input.skill // "") | test("self-review")))] | unique_by(.id) | length),
+          and ((.input.skill // "" | tostring) | test("self-review")))] | unique_by(.id) | length),
       lens_agents: ([$uses[] | select((.name == "Agent" or .name == "Task")
           and (((.input.description // "" | tostring) + " " + (.input.subagent_type // "" | tostring)) | test("(^|[^a-z])lens"; "i")))]
           | unique_by(.id) | length),
@@ -226,14 +239,19 @@ cmd_record() {
     ($ENV.RR_TOK // "") as $t
     | walk(if type == "string"
         then ((if $t != "" then split($t) | join("scrubbed") else . end)
-              | gsub("sk-ant-[^[:space:]\"]+"; "scrubbed"))
+              | gsub("(sk-ant-|gh[pousr]_|github_pat_|xox[abpr]-)[^[:space:]\"]+|AKIA[0-9A-Z]{16}"; "scrubbed"))
         else . end)') || die "scrub failed" 2
 
   if [ -n "$out" ]; then
     [ ! -d "$out" ] || die "--out names a directory" 2
     # Written to a new owner-only file and renamed over the target, so an
-    # existing file's mode and a planted symlink at the target are replaced.
-    (umask 077 && printf '%s\n' "$rec" >"$out.tmp.$$" && mv -f "$out.tmp.$$" "$out") || die "cannot write the record" 2
+    # existing file's mode and a planted symlink at the target are replaced;
+    # mktemp's exclusive create keeps a planted temp name from being followed.
+    tmpf=$(umask 077 && mktemp "$out.XXXXXX") || die "cannot write the record" 2
+    if ! { printf '%s\n' "$rec" >"$tmpf" && mv -f "$tmpf" "$out"; }; then
+      rm -f "$tmpf"
+      die "cannot write the record" 2
+    fi
   else
     printf '%s\n' "$rec"
   fi
