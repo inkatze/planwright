@@ -2878,7 +2878,7 @@ is dropped alone. A declared check command that names git, a file writer, a
 wrapper or an interpreter (`git commit`, `rm`, `env`, `python`) still runs
 alone, but never in the same command as a worker's own push or pull request
 body edit. A command naming a planwright step script (`step-record.sh`,
-`step-run.sh`) never matches a declaration at all: the step-script rules
+`step-run.sh`) is never approved by a declaration at all: the step-script rules
 judge it as if undeclared, so a hand-timed step record still prompts. The
 launcher reads the knob at the primary checkout into the session record, so
 an edit inside the worker's own worktree changes nothing and a change reaches
