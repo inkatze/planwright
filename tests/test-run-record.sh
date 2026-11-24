@@ -387,7 +387,7 @@ printf '%s\n' '{"type":"assistant","message":{"id":"mn","content":[{"type":"tool
   '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tn","is_error":true,"content":[{"type":"text","text":{"a":1}}]}]}}' >>"$tmp/n/events.jsonl"
 rec "$tmp/n" "$tmp/n.json" 2>"$tmp/n.err" || fail "e1: a numeric skill name or an object text block must not abort the record"
 [ "$(jq -r .polish_rounds "$tmp/n.json")" = 1 ] || fail "e1: a numeric skill name is not a polish round"
-for row in 'result' 'exit' 'result\tsuccess'; do
+for row in 'result' 'exit' 'result\tsuccess' 'result\terror\t1700000000' 'exit\t1' 'bogus\ta\tb\tc'; do
   mk_run "$tmp/n" today
   printf '%b\n' "$row" >"$tmp/n/result"
   rc=0
@@ -404,27 +404,34 @@ pass "e1: non-string frame fields are tolerated; short result rows are refused"
 mk_run "$tmp/u" today
 printf '%s\n' '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}' \
   '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"has been denied"}]}}' \
-  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"The user doesn'"'"'t want to proceed"}]}}' >>"$tmp/u/events.jsonl"
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"The user doesn'"'"'t want to proceed"}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","is_error":true,"content":"Denied by the PreToolUse hook"}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t4","is_error":true,"content":"Blocked by policy"}]}}' >>"$tmp/u/events.jsonl"
 rec "$tmp/u" "$tmp/u.json" || fail "e2: record must be written"
 [ "$(jq -r .tool_calls "$tmp/u.json")" = 7 ] || fail "e2: a repeated tool_use id must count once"
-[ "$(jq -r .denials "$tmp/u.json")" = 2 ] || fail "e2: only error results count as denials, in every denial wording"
-ls "$tmp" >"$tmp/ls.out"
-if grep -q '^u\.json\.' "$tmp/ls.out"; then fail "e2: a temporary record file was left behind"; fi
-pass "e2: distinct ids, error-only denials, no leftover temp file"
+[ "$(jq -r .denials "$tmp/u.json")" = 4 ] || fail "e2: only error results count as denials, in every denial wording"
+# An --out starting with a dash is a file name, never an option.
+(cd "$tmp" && rec "$tmp/u" "-dash.json") || fail "e2: an --out starting with a dash must be written"
+jq -e . "$tmp/-dash.json" >/dev/null || fail "e2: the dash-named record must be valid JSON"
+pass "e2: distinct ids, error-only denials, a dash-named --out"
 
 # ---- e3: token shapes, refusal codes and the report table -------------------
 
-mk_run "$tmp/s" today
 GHTOK='ghp_FIXTUREfixture0123456789abcdefABCDEF'
-sed "s|^changed_knobs=none|changed_knobs=$GHTOK|" "$tmp/s/identity" >"$tmp/s/identity.new"
-mv "$tmp/s/identity.new" "$tmp/s/identity"
-rec "$tmp/s" "$tmp/s.json" || fail "e3: record with a GitHub token shape must be written"
-if grep -qF "$GHTOK" "$tmp/s.json"; then fail "e3: a GitHub token shape reached the record"; fi
-for bad in "$GHTOK" 'AKIAFIXTUREFIXTURE12' 'C:\Users\someone\.ssh'; do
+for shape in "$GHTOK" 'github_pat_FIXTURE0123456789' 'xoxb-0123456789-FIXTURE' 'AKIAFIXTUREFIXTURE12'; do
+  mk_run "$tmp/s" today
+  sed "s|^changed_knobs=none|changed_knobs=$shape|" "$tmp/s/identity" >"$tmp/s/identity.new"
+  mv "$tmp/s/identity.new" "$tmp/s/identity"
+  rec "$tmp/s" "$tmp/s.json" || fail "e3: record with the token shape '$shape' must be written"
+  if grep -qF "$shape" "$tmp/s.json"; then fail "e3: the token shape '$shape' reached the record"; fi
+done
+for bad in "$GHTOK" 'github_pat_FIXTURE0123456789' 'xoxb-0123456789-FIXTURE' 'AKIAFIXTUREFIXTURE12' 'C:\Users\someone\.ssh'; do
   rc=0
   "$RR" report --title T --note "x $bad" "$tmp/ca.json" >"$tmp/rep10.md" 2>"$tmp/rep10.err" || rc=$?
   [ "$rc" -eq 1 ] || fail "e3: a note carrying '$bad' must be refused with exit 1, got $rc"
 done
+"$RR" report --title T --note "laughs_often at MAKIAMOTO and AKIA1234" "$tmp/ca.json" >"$tmp/rep10.md" \
+  || fail "e3: ordinary words that merely contain a token prefix must not be refused"
 rc=0
 "$RR" report --title "see /home/someone" "$tmp/ca.json" >"$tmp/rep11.md" 2>"$tmp/rep11.err" || rc=$?
 [ "$rc" -eq 1 ] || fail "e3: a title carrying a home path must be refused, got $rc"

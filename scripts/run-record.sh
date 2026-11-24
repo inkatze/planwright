@@ -24,10 +24,12 @@
 #                    changed_knobs. Values are plain tokens (letters, digits
 #                    and . _ : = , @ + -), so a command or path never rides in.
 
-# A source that is absent, unreadable or an empty event log is named on stderr and nothing is
-# written (exit 3), never zeros. --out defaults to stdout. The OAuth token's
-# value (named by --token-env) and the known token shapes (Anthropic, GitHub,
-# Slack, AWS key ids) are scrubbed.
+# A source that is absent, unreadable or an empty event log, a result row that
+# is unterminated, truncated or of an unknown kind, and a gate output with no
+# GATE_EXIT line are named on stderr and nothing is written (exit 3), never
+# zeros. --out defaults to stdout. The OAuth token's value (named by
+# --token-env) and the known token shapes (Anthropic, GitHub, Slack, AWS key
+# ids) are scrubbed.
 
 # Counting rules: tool calls are the distinct tool_use ids, subagents included;
 # tokens sum the usage of every assistant message once by message id, so a
@@ -35,8 +37,9 @@
 # session total; prompts are can_use_tool control_requests other than
 # AskUserQuestion; denials are error tool results reporting a denial; polish
 # rounds are self-review Skill calls; lens agents are Agent or Task calls whose
-# description or type names a lens; wall time is the last result frame's
-# duration; audited approvals are the audit lines carrying a cmd_sha256.
+# description or type names a lens; wall time is the last numeric duration_ms
+# of a result frame; audited approvals are the audit lines carrying a
+# cmd_sha256.
 
 # compare refuses a pair that differs in more than --variable, and any pair
 # whose known_bad_set_hash differs (never a comparable variable). --variable is
@@ -45,7 +48,7 @@
 # report writes markdown of counts and harness identities, never a recorded
 # command, absolute home path or token. Text carrying a home path, a known
 # token shape, the --token-env value, shell expansion, backticks or a spaced
-# pipeline or and-list is refused and nothing is written.
+# pipeline, and-list or or-list is refused and nothing is written.
 
 # Exit: 0 ok, 1 refused (compare, report), 2 usage, 3 missing source.
 set -u
@@ -73,13 +76,18 @@ plain() {
   return 0
 }
 
+# The token shapes a record scrubs and a report refuses, anchored at a word
+# start so an ordinary word containing ghs_ or sk-ant- is not one.
+TOKEN_ERE='(^|[^A-Za-z0-9])(sk-ant-|gh[pousr]_|github_pat_|xox[abeprs]-|xapp-)[A-Za-z0-9]|A[KS]IA[0-9A-Z]{16}'
+TOKEN_ONIG='(?<![A-Za-z0-9])(sk-ant-|gh[pousr]_|github_pat_|xox[abeprs]-|xapp-)[^[:space:]"]+|A[KS]IA[0-9A-Z]{16}'
+
 # unsafe_text <text>: success when the text carries a home path, a token
 # shape, the named token's value, or command syntax.
 unsafe_text() {
   case $1 in
     */home | */home/* | */Users | */Users/* | *[A-Za-z]:\\Users* | */root | */root/* | *~/* | *\$HOME* | *\$\{* | *\$\(* | *\`*) return 0 ;;
-    *sk-ant-* | *gh[pousr]_* | *github_pat_* | *xox[abpr]-* | *AKIA[0-9A-Z][0-9A-Z][0-9A-Z][0-9A-Z]*) return 0 ;;
   esac
+  printf '%s\n' "$1" | grep -Eq "$TOKEN_ERE" && return 0
   if [ -n "${RR_TOKEN_VALUE:-}" ]; then
     case $1 in *"$RR_TOKEN_VALUE"*) return 0 ;; esac
   fi
@@ -151,12 +159,13 @@ cmd_record() {
   # A row without its newline is a write in flight, never a completion.
   [ -z "$(tail -c 1 <"$result")" ] || die "missing source: result (unterminated row)" 3
   row=$(sed -n '1p' <"$result")
-  # cut passes a line without its delimiter through whole, so a bare word
-  # would read as its own fields.
+  # cut passes a line without its delimiter through whole, so a truncated row
+  # would read as its own fields; the fleet writes at least three fields for
+  # an exit row and four for a result row.
   tab=$(printf '\t')
   case $row in
-    *"$tab"*"$tab"*) ;;
-    *) die "missing source: result (unrecognised result row)" 3 ;;
+    result"$tab"*"$tab"*"$tab"* | exit"$tab"*"$tab"*) ;;
+    result* | exit*) die "missing source: result (a truncated result row)" 3 ;;
   esac
   kind=$(printf '%s' "$row" | cut -f1)
   second=$(printf '%s' "$row" | cut -f2)
@@ -235,11 +244,11 @@ cmd_record() {
     | .tokens.total = (.tokens | add)' <"$events" 2>/dev/null) || die "events: not a readable stream-json log" 3
 
   tok_for_jq=$RR_TOKEN_VALUE
-  rec=$(printf '%s' "$rec" | RR_TOK=$tok_for_jq jq -c '
+  rec=$(printf '%s' "$rec" | RR_TOK=$tok_for_jq jq -c --arg shapes "$TOKEN_ONIG" '
     ($ENV.RR_TOK // "") as $t
     | walk(if type == "string"
         then ((if $t != "" then split($t) | join("scrubbed") else . end)
-              | gsub("(sk-ant-|gh[pousr]_|github_pat_|xox[abpr]-)[^[:space:]\"]+|AKIA[0-9A-Z]{16}"; "scrubbed"))
+              | gsub($shapes; "scrubbed"))
         else . end)') || die "scrub failed" 2
 
   if [ -n "$out" ]; then
@@ -247,6 +256,7 @@ cmd_record() {
     # Written to a new owner-only file and renamed over the target, so an
     # existing file's mode and a planted symlink at the target are replaced;
     # mktemp's exclusive create keeps a planted temp name from being followed.
+    case $out in -*) out=./$out ;; esac
     tmpf=$(umask 077 && mktemp "$out.XXXXXX") || die "cannot write the record" 2
     if ! { printf '%s\n' "$rec" >"$tmpf" && mv -f "$tmpf" "$out"; }; then
       rm -f "$tmpf"
