@@ -499,9 +499,11 @@ krec() {
     --start "$T0" --end "$T1" --outcome "$5" >/dev/null || fail "fixture: the $3 record at $2"
   _f=$(find "$wt/.claude/steps/$1" -name "*-step-$2.rec")
   [ -f "$_f" ] || fail "fixture: no single $3 record at $2 to retime"
-  awk -F '\t' -v K="$4" -v S="$6" -v E="$7" 'BEGIN { OFS = FS }
+  if ! awk -F '\t' -v K="$4" -v S="$6" -v E="$7" 'BEGIN { OFS = FS }
     $1 == "kind" { $2 = K } $1 == "start" { $2 = S } $1 == "end" { $2 = E } { print }' "$_f" >"$_f.new" \
-    && mv "$_f.new" "$_f" || fail "fixture: retiming the $3 record at $2"
+    || ! mv "$_f.new" "$_f"; then
+    fail "fixture: retiming the $3 record at $2"
+  fi
 }
 # Off the minute, so the truth check's round-time rules do not fire.
 T0=2026-11-04T00:00:07Z
