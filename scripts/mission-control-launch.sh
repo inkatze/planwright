@@ -1215,11 +1215,20 @@ cmd_launch() {
     rm -f "$rtmp"
     die "cannot take the reservation-order lock for $name" 2
   }
-  rsv_seq=$(
-    set +f
-    awk -F '\t' '$1 == "seq" && $2 ~ /^[0-9]+$/ && $2 + 0 > m { m = $2 + 0 } END { print m + 1 }' "$REG"/mc-* 2>/dev/null
-  )
-  case $rsv_seq in '' | *[!0-9]*) rsv_seq=1 ;; esac
+  # Only settled rows are read: a temporary row another launch renames away
+  # mid-scan would otherwise abort an awk over the glob and read as no rows.
+  rsv_seq=0
+  set +f
+  set -- "$REG"/mc-*
+  set -f
+  for rsv_f in "$@"; do
+    [ -f "$rsv_f" ] && [ ! -L "$rsv_f" ] || continue
+    case ${rsv_f##*/} in *.tmp.*) continue ;; esac
+    rsv_s=$(row_get "$rsv_f" seq)
+    case $rsv_s in '' | *[!0-9]*) continue ;; esac
+    [ "$rsv_s" -le "$rsv_seq" ] || rsv_seq=$rsv_s
+  done
+  rsv_seq=$((rsv_seq + 1))
   if ! row_write "$rtmp" "$token" launching; then
     pw_lock_release "$order_lock" || :
     rm -f "$rtmp"
@@ -1260,9 +1269,9 @@ cmd_launch() {
   }
 
   # The host-wide bound counts every program's registered sessions that
-  # reserved before this launch (an earlier time, or the same second and an
-  # earlier name), so concurrent launches near the bound admit the first and
-  # never refuse each other. Only worker-profile kinds are held; a tower or
+  # reserved before this launch (a lower reservation sequence, or for a row
+  # with none, a launch time no later than this one), so concurrent launches
+  # near the bound admit the first and never refuse each other. Only worker-profile kinds are held; a tower or
   # orchestrator row is still counted, a mission-control row never. A row of
   # a session that died stays counted until it is retired.
   if runs_local_work "$K_PROFILE"; then
@@ -1975,7 +1984,8 @@ $rp_dest
 # "<program><TAB><working><TAB><waiting>" line per program holding
 # registered non-mission-control sessions in the
 # shared registry that reserved before the named session (its own row and
-# later reservations left out). A remote host's sessions sit in that
+# later reservations left out): a lower reservation sequence when both rows
+# carry one, else a launch time no later than <own-launched>. A remote host's sessions sit in that
 # host's registry (scripts/fleet-remote.sh), so they are never counted here.
 host_live_counts() {
   hl_own=$1 hl_when=$2 hl_own_seq=${3:-}
