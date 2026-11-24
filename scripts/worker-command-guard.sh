@@ -975,7 +975,7 @@ is_trusted_script() {
 # A call is read as the script path, at most one two-word `--worktree <dir>`,
 # then the verb; every word must be the literal the script will see.
 
-# step_script_kind <path>: 0 when the trusted script <path> is a step script,
+# step_script_kind <path>: 0 when <path> is a step script,
 # its kind left in STEP_KIND (`record` or `run`): by name under any casing a
 # case-insensitive filesystem runs, or as a link of a trusted root's copy.
 step_script_kind() {
@@ -7206,9 +7206,9 @@ verify_simple() {
   else
     declared_line_ok || return 1
   fi
-  # Nor is a matched line one naming a step script in a spelling
-  # verify_known_simple does not read as a call: it defers, as undeclared.
-  # Read only after a match, so a command no declaration names never pays
+  # A matched line naming a step script in a spelling verify_known_simple
+  # does not read as a call defers, as undeclared, on either path below. It
+  # is read only after a match, so a command no declaration names never pays
   # for the root lookup.
   ! names_step_script || return 1
   [ "$partner" = 1 ] || {
