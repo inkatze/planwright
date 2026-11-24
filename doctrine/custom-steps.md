@@ -448,7 +448,7 @@ human-owned layers: core and adopter sit outside the worktree and a
 dispatched worker's write set; repo-tracked and machine-local sit inside it,
 inheriting the guard's trusted-repository-code posture for `scripts/`, which
 trusts a file in a git checkout, a declared location included, only as its
-PR base commits it; the
+base commits it inside the worker's worktree, HEAD elsewhere; the
 worker profile is unchanged (REQ-G1.2). The worker command guard
 auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a

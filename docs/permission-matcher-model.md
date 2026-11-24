@@ -556,16 +556,18 @@ same bytes (`scripts/worker-command-guard.sh`, `committed_blob`), and so is a
 declared command step whose location lies in a git checkout, the repository
 or another (`declared_location_ok`); an install copy, which is no checkout of
 its own, is trusted by location. Inside the worktree the session record
-names, that commit is the PR base: the merge base of HEAD and the record's
+names, that commit is the base: the merge base of HEAD and the record's
 `pr_base` remote-tracking ref (`trusted_rev`), since the worker can commit
-there and the guard never sees what a script runs. Elsewhere it is the
-checkout's HEAD. A script a worker wrote or edited prompts, committed or
-not, whichever spelling reaches it (`sh`, `bash`, a direct path, a symlinked
-folder, a `..` walk, inside `fish -c`, `bash -c` or a loop, behind an
-assignment or `timeout`), and so does `bats` on a folder; one the base
-gained counts once the worker merges the base. A record with no `pr_base`,
-or a base with no commit in common, trusts no file in the worktree. The
-check reads the file as it is before the command
+there and the guard never sees what a script runs. `pr_base` is the unit
+branch remote's default branch as the launcher recorded it, not a stacked
+PR's base, so a script only a stacked base holds prompts. Elsewhere the
+commit is the checkout's HEAD. A script a worker wrote or edited prompts,
+committed or not, whichever spelling reaches it (`sh`, `bash`, a direct path,
+a symlinked folder, a `..` walk, inside `fish -c` or a loop, behind
+`timeout`), and so does `bats` on a folder; one the base gained counts once
+the worker merges the base. A record with no `pr_base`, a `pr_base` with no
+remote-tracking ref, or a base with no commit in common trusts no file in the
+worktree. The check reads the file as it is before the command
 runs, so a command that relies on it and also makes a write the own-branch
 arm admits defers as a whole (`cp f scripts/ok.sh && sh scripts/ok.sh`, and
 equally `touch build/x && bash tests/ok.sh`); staging and committing change
@@ -637,8 +639,9 @@ plain forms:
   `--no-globs` (and markdownlint's `-q`). Every folder those files sit in,
   the working directory, and every folder above them must hold no module
   config, committed or not, since a committed one may import a file the
-  worker wrote, and only options and settings files a git checkout commits
-  unchanged (the `committed_blob` check), no options file naming a module
+  worker wrote, and only options and settings files the commit their
+  checkout is held to holds unchanged (the `committed_blob` check, the base
+  inside the recorded worktree), no options file naming a module
   key or holding a backslash, through which an escape could spell one. An
   explicit `--config` naming a committed file would not do instead: each
   folder's own config still loads beside it. A glob or folder operand defers,
@@ -646,11 +649,10 @@ plain forms:
   since either reaches folders the guard does not walk. The check reads the
   folders before the command runs, so a lint beside anything the own-branch
   arm admits (a write, or a git act such as `git add`) defers. What still
-  passes: a settings file the worker committed in an earlier call counts as
-  committed, as any committed file does (the commit sits on the branch,
-  where review sees it), and a committed settings
-  file's `extends` reads the file it names, which a parse error prints part
-  of, so a worker that commits one naming another readable file can see that
+  passes: a settings file the worker committed in a checkout outside the
+  recorded worktree, or in a session with no record, which is held to HEAD;
+  and a trusted settings file's `extends` reads the file it names, which a
+  parse error prints part of, so one naming another readable file shows that
   file's start.
 - **A declared command step** run through `scripts/step-run.sh` runs its
   location, and a session-hosted step's line is printed, only as the git
@@ -672,7 +674,8 @@ screen does not know and so defers. Any other `markdownlint` name, such as the
 one does. The declaration vouches for the words it spells, not
 for the config those folders hold, so a declared lint beside a worker-written
 or uncommitted config defers, and so does a declared `--cd`, `--env` or
-`--tool` on `mise run`, and a file its literal words name is held to HEAD, as
+`--tool` on `mise run`, and a file its literal words name is held to the
+commit its checkout is held to (the base inside the recorded worktree), as
 "Code a worker runs unprompted" states. Other ways a declaration reaches the
 same config are not screened for it: a runner or wrapper with no `--` before
 the linter (`npx markdownlint-cli2`, `env` or `timeout` before it, `node`
@@ -847,8 +850,8 @@ unit is the hook fix, and the tracked file landing in the pull request diff,
 where review sees what will run for every later contributor.
 
 None of this is a sandbox, for an opted-in worker or any other. The guard no
-longer approves a repository script the worker wrote or edited and has not
-committed ("Code a worker runs unprompted"), but a lefthook job is exactly the
+longer approves a repository script the worker wrote or edited, committed or
+not ("Code a worker runs unprompted"), but a lefthook job is exactly the
 route that section leaves open: a job the worker writes runs on its next commit
 or `lefthook run`, and through it the worker can write any path the file-tool
 denies close, the opt-in record, another worktree's lefthook config and the
