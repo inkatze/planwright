@@ -312,7 +312,7 @@ env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$tmp/launch.record" "$RUN" --workt
 grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=task' "$tmp/show.show.env" && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/demo/task-1' "$tmp/show.show.env"
 verdict $? "a context the caller exports is never replaced by the record's" "env: $(cat "$tmp/show.show.env" 2>&1)"
 
-# --- a location in a git checkout runs only as that checkout's HEAD commits it -------------
+# --- a location in a git checkout runs only as that checkout's trusted commit holds it ---
 # The declaration names a file, not its content, and a worker can Write any
 # file in its worktree, so a location written or edited since HEAD is refused.
 fresh
@@ -341,13 +341,22 @@ loc_run() {
   catalog "loc|kind: command|target: $1"
   config 'steps_pre_ci: [loc]'
   _lr=$(sr new-run)
-  srun resolve --run "$_lr" pre-ci --unattended >/dev/null 2>"$tmp/err"
-  srun command --run "$_lr" --point pre-ci --step loc >"$tmp/loc.out" 2>"$tmp/loc.err"
+  srun_loc resolve --run "$_lr" pre-ci --unattended >/dev/null 2>"$tmp/err"
+  srun_loc command --run "$_lr" --point pre-ci --step loc >"$tmp/loc.out" 2>"$tmp/loc.err"
+}
+# srun_loc: srun, under the worker session record LOC_REC names when it is set.
+LOC_REC=''
+srun_loc() {
+  if [ -n "$LOC_REC" ]; then
+    env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$LOC_REC" "$RUN" --worktree "$lw" "$@"
+  else
+    srun "$@"
+  fi
 }
 loc_ran() { loc_run "$1" && [ -s "$tmp/ran" ] && grep -q '^passed' "$tmp/loc.out"; }
 loc_refused() {
   ! loc_run "$1" && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
-    && grep -q 'not as HEAD commits it' "$tmp/loc.err"
+    && grep -q 'not as its trusted commit holds it' "$tmp/loc.err"
 }
 loc_ran "$lw/tools/mark.sh"
 verdict $? "a committed, unmodified location runs" "$(loc_out)"
@@ -386,7 +395,7 @@ rm -f "$tmp/ran"
 srun resolve --run "$r" pre-ci --unattended >/dev/null 2>"$tmp/err"
 ! srun begin --run "$r" --point pre-ci --step loc --owner "$(owner)" >"$tmp/loc.out" 2>"$tmp/loc.err" \
   && grep -q '^failed' "$tmp/loc.out" && ! grep -q '^run' "$tmp/loc.out" \
-  && grep -q 'not as HEAD commits it' "$tmp/loc.err"
+  && grep -q 'not as its trusted commit holds it' "$tmp/loc.err"
 verdict $? "a session-hosted step's begin refuses the location too, printing no line to run" "$(loc_out)"
 catalog "loc|kind: command|target: $lw/tools/mark.sh|hosting: in-session"
 r=$(sr new-run)
@@ -396,6 +405,36 @@ srun begin --run "$r" --point pre-ci --step loc --owner "$(owner)" >"$tmp/loc.ou
 verdict $? "a session-hosted step's begin prints the line of a committed location" "$(loc_out)"
 loc_ran "$lw/tools/mark.sh"
 verdict $? "the location put back byte for byte runs again" "$(loc_out)"
+
+# --- under a worker session record, the worktree is held to its base ---------
+# The worker can commit on its own branch, so in the worktree the record names
+# a location runs only as the merge base with the record's pr_base holds it.
+lwp=$(cd -P "$lw" && pwd -P)
+git -C "$lw" update-ref refs/remotes/origin/main HEAD~1
+printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+LOC_REC=$tmp/loc.record
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record, a location the worker committed but the base lacks is refused" "$(loc_out)"
+git -C "$lw" update-ref refs/remotes/origin/main HEAD
+loc_ran "$lw/tools/mark.sh"
+verdict $? "under a record, a location the base holds runs" "$(loc_out)"
+loc_ran "$tmp/other/tools/kept.sh"
+verdict $? "under a record, another checkout is still held to its HEAD" "$(loc_out)"
+git -C "$lw" branch -q -d -r origin/main
+git -C "$lw" branch refs/remotes/origin/main HEAD
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record, a local branch standing in for the deleted base ref is refused" "$(loc_out)"
+git -C "$lw" branch -q -D refs/remotes/origin/main
+git -C "$lw" update-ref refs/remotes/origin/main HEAD
+printf 'worktree_root=%s\n' "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
+printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
+LOC_REC=''
+loc_ran "$lw/tools/mark.sh"
+verdict $? "with no record, the location is held to HEAD again" "$(loc_out)"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
