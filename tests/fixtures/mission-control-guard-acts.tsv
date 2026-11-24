@@ -302,6 +302,27 @@ defer	read	bash	-	-	mv -S .bak @SCRATCH@/kb/real.md @SCRATCH@/kb/b.md
 defer	read	bash	-	-	curl -o out.html --output-dir @SCRATCH@/kb https://example.invalid
 defer	read	bash	-	-	cd @SCRATCH@/kb && echo x > a.md | cat
 defer	read	bash	-	-	cd @SCRATCH@/kb && sed -i s/a/b/ real.md
+defer	read	bash	-	-	curl -o - https://example.invalid
+defer	read	bash	-	-	curl -D - https://example.invalid
+defer	read	bash	-	-	wget -qO- https://example.invalid
+defer	read	bash	-	-	tar -cf - @SCRATCH@/kb | wc -c
+defer	read	bash	-	-	tar -tf @UNIT@/a.tar
+defer	read	bash	-	-	tar -xf @UNIT@/a.tar -C @SCRATCH@/kb
+defer	read	bash	-	-	tar -cf @SCRATCH@/kb/a.tar -C @UNIT@ .
+defer	read	bash	-	-	echo "ok; ed was here" $(date)
+defer	read	bash	-	-	echo "Done (view the diff) $(date)"
+defer	read	bash	-	-	awk '$1 > 5' @SCRATCH@/kb/real.md
+defer	read	bash	-	-	python3 -c 'print(1 > 2)'
+defer	read	bash	-	-	sed -i '' -e s/a/b/ @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	mv -t/tmp/DOCS @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vim -es -i @UNIT@/x.viminfo -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	vim -V9@UNIT@/vlog -es -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	vim.basic -es -c wq @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vim.tiny @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vimx -es -c wq @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gview -es -c wq @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	evim @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gvimdiff @UNIT@/README.md @SCRATCH@/kb/real.md
 defer	read	bash	-	-	cd @SCRATCH@/kb && perl -pi -e s/a/b/ real.md | cat
 defer	read	bash	-	-	curl --output-dir @SCRATCH@/kb -o out.html https://example.invalid
 defer	read	bash	-	-	cd @SCRATCH@/kb && ln -s @UNIT@/README.md
