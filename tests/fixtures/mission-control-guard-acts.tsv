@@ -233,6 +233,27 @@ deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && (echo x > a.md)
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && { echo x > a.md; }
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && echo $(date) > a.md
 deny	settings-write	bash	-	settings or configuration file	echo x > @UNIT@/.claude/settings.json
+deny	repo-write	bash	-	edits no repository	perl5.36 -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby3.2 -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -0xepi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -0777pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby -C @SCRATCH@ -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby --external-encoding utf-8 -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	eval perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	eval ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ionice -c 3 perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	flock /tmp/x ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sudo chrt 10 vi @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	case a in a) perl -pi -e 1 @UNIT@/README.md ;; esac
+deny	repo-write	bash	-	edits no repository	env --split-string='perl -pi -e 1 @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	mv -S .bak @UNIT@/README.md @SCRATCH@/kb/m.md
+defer	read	bash	-	-	gsed -i s/a/b/ @SCRATCH@/kb/real.md
+defer	read	bash	-	-	gsed -i -e s/a/b/ @SCRATCH@/kb/real.md
+defer	read	bash	-	-	ruby -r @UNIT@/x.rb -pi -e 1 @SCRATCH@/kb/real.md
+defer	read	bash	-	-	mv --suffix .bak @SCRATCH@/kb/real.md @SCRATCH@/kb/b2.md
+defer	read	bash	-	-	mv -bS .bak @SCRATCH@/kb/real.md @SCRATCH@/kb/b3.md
+defer	read	bash	-	-	cd @SCRATCH@/kb && echo x > a#1.md
+defer	read	bash	-	-	ssh host grep -n x notes.md
 defer	read	bash	-	-	timeout 5 grep ex @SCRATCH@/kb/real.md
 defer	read	bash	-	-	find @SCRATCH@/kb -name vi
 defer	read	bash	-	-	echo "$(date) vi"
