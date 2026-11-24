@@ -314,7 +314,8 @@ verdict $? "a context the caller exports is never replaced by the record's" "env
 
 # --- a location in a git checkout runs only as that checkout's trusted commit holds it ---
 # The declaration names a file, not its content, and a worker can Write any
-# file in its worktree, so a location written or edited since HEAD is refused.
+# file in its worktree, so a location the checkout's trusted commit does not
+# hold is refused.
 fresh
 # The worktree by its own name: `wt` is also assigned inside a subshell further
 # up, which shellcheck reads as a change that may be lost.
@@ -356,7 +357,7 @@ srun_loc() {
 loc_ran() { loc_run "$1" && [ -s "$tmp/ran" ] && grep -q '^passed' "$tmp/loc.out"; }
 loc_refused() {
   ! loc_run "$1" && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
-    && grep -q 'not as its trusted commit holds it' "$tmp/loc.err"
+    && grep -q 'not run: its location' "$tmp/loc.err"
 }
 loc_ran "$lw/tools/mark.sh"
 verdict $? "a committed, unmodified location runs" "$(loc_out)"
@@ -432,8 +433,52 @@ verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
 printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
 loc_refused "$lw/tools/mark.sh"
 verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
-loc_ran "$tmp/other/tools/kept.sh"
-verdict $? "under a record repeating worktree_root, another checkout keeps HEAD" "$(loc_out)"
+# An unusable record trusts nothing anywhere: the worker may still commit, and
+# nothing places where.
+loc_refused "$tmp/other/tools/kept.sh"
+verdict $? "under a record repeating worktree_root, another checkout is refused too" "$(loc_out)"
+grep -q 'trusts no commit of' "$tmp/loc.err"
+verdict $? "the refusal names no edit as its remedy" "$(loc_out)"
+for spec in "$lwp/|trailing slash" "$tmp/gone|a missing directory"; do
+  printf 'worktree_root=%s\npr_base=origin/main\n' "${spec%%|*}" >"$tmp/loc.record"
+  loc_refused "$lw/tools/mark.sh"
+  verdict $? "under a record whose worktree_root is not canonical (${spec#*|}), a location is refused" "$(loc_out)"
+done
+printf 'worktree_root=%s\npr_base=origin/main\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record repeating pr_base, a location is refused" "$(loc_out)"
+printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$lw/inside.record"
+LOC_REC=$lw/inside.record
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record stored inside the worktree it names, a location is refused" "$(loc_out)"
+rm -f "$lw/inside.record"
+LOC_REC=$tmp/missing.record
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record path that does not exist, a location is refused" "$(loc_out)"
+printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+ln -sf "$tmp/loc.record" "$tmp/link.record"
+LOC_REC=$tmp/link.record
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record that is a symbolic link, a location is refused" "$(loc_out)"
+LOC_REC=$tmp/loc.record
+git -C "$lw" symbolic-ref refs/remotes/origin/main "refs/heads/$(git -C "$lw" symbolic-ref --short HEAD)"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record, the base's name as a symbolic ref is refused" "$(loc_out)"
+git -C "$lw" symbolic-ref --delete refs/remotes/origin/main
+git -C "$lw" update-ref refs/remotes/origin/main HEAD
+# A repository nested in the recorded worktree, whatever refs it carries.
+mkdir -p "$lw/sub/n/tools"
+cp "$tmp/mark.orig" "$lw/sub/n/tools/n.sh"
+chmod +x "$lw/sub/n/tools/n.sh"
+git init -q "$lw/sub/n"
+git -C "$lw/sub/n" add tools
+git -C "$lw/sub/n" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  -c core.hooksPath=/dev/null commit -q -m "chore: nested"
+git -C "$lw/sub/n" update-ref refs/remotes/origin/main HEAD
+loc_refused "$lw/sub/n/tools/n.sh"
+verdict $? "under a record, a repository nested in its worktree is refused" "$(loc_out)"
+loc_ran "$lw/tools/mark.sh"
+verdict $? "under the usable record again, the base's location runs" "$(loc_out)"
 LOC_REC=''
 loc_ran "$lw/tools/mark.sh"
 verdict $? "with no record, the location is held to HEAD again" "$(loc_out)"

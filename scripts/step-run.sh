@@ -75,8 +75,9 @@
 #           128+n after the record. A refused context value, location, or
 #           args word (resolve-steps.sh --line's checks) fails the step
 #           without running it, and so does a location in a git checkout
-#           that is not as its trusted commit holds it (committed_location), here and at
-#           begin. A re-fire must name a step whose row
+#           that is not as its trusted commit holds it
+#           (committed_location), here and at begin. A re-fire must name a
+#           step whose row
 #           declares refire post-pr that this run has not re-fired. In its
 #           own group the check has no terminal: one that reads /dev/tty
 #           under a controlling terminal stops, as any background job does.
@@ -222,47 +223,54 @@ rgit() (
 )
 
 # trusted_commit <root>: print the commit a location in the git checkout
-# <root> is held to, the worker command guard's rule (its trusted_rev): HEAD,
-# except where a worker session record is set. There the worktree the record
-# names is held to the merge base of HEAD and the record's pr_base
-# remote-tracking ref, read literally by show-ref --verify, since the worker
-# can commit on its own branch; a repository nested in that worktree, a
-# missing or repeated pr_base, and a base with no commit in common print
-# nothing and return 1. A record that is unreadable or names no single
-# worktree leaves the unit's own worktree, where the worker can still commit,
-# trusting nothing, and a checkout elsewhere held to HEAD.
+# <root> is held to. It mirrors the worker command guard's trusted_rev and
+# its session_record_load checks, which change together with it: HEAD with no
+# worker session record; under a record, its worktree is held to the merge
+# base of HEAD and the record's pr_base remote-tracking ref (read by show-ref
+# --verify, a symbolic ref refused), a repository nested in it trusts nothing,
+# and a checkout elsewhere keeps HEAD. A record that is unusable (not an
+# absolute path to this user's own regular file of at most 4096 bytes, inside
+# the worktree it names, or naming no single canonical checkout) trusts
+# nothing anywhere, since the worker may still commit and nothing places
+# where. Returns 1, printing nothing, wherever nothing is trusted.
 trusted_commit() {
-  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' n_wt=0 n_base=0 oid rev
+  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' n_wt=0 n_base=0 size rdir oid rev
   if [ -z "$rec" ]; then
     printf HEAD
     return 0
   fi
-  if [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      case $line in
-        worktree_root=*)
-          r_wt=${line#worktree_root=}
-          n_wt=$((n_wt + 1))
-          ;;
-        pr_base=*)
-          r_base=${line#pr_base=}
-          n_base=$((n_base + 1))
-          ;;
-      esac
-    done <"$rec"
-  fi
-  [ "$n_wt" -eq 1 ] || r_wt=''
+  case $rec in
+    /?*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ] || return 1
+  size=$(wc -c <"$rec" 2>/dev/null) || return 1
+  [ "${size// /}" -le 4096 ] 2>/dev/null || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      worktree_root=*)
+        r_wt=${line#worktree_root=}
+        n_wt=$((n_wt + 1))
+        ;;
+      pr_base=*)
+        r_base=${line#pr_base=}
+        n_base=$((n_base + 1))
+        ;;
+    esac
+  done <"$rec"
+  [ "$n_wt" -eq 1 ] || return 1
   [ "$n_base" -eq 1 ] || r_base=''
   case $r_wt in
     /?*) ;;
-    *)
-      [ "$1" != "$worktree" ] || return 1
-      case $1/ in
-        "$worktree"/*) return 1 ;;
-      esac
-      printf HEAD
-      return 0
-      ;;
+    *) return 1 ;;
+  esac
+  case $r_wt in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
+  [ -d "$r_wt" ] && [ -e "$r_wt/.git" ] && [ "$(cd "$r_wt" 2>/dev/null && pwd -P)" = "$r_wt" ] || return 1
+  rdir=$(cd "$(dirname "$rec")" 2>/dev/null && pwd -P) || return 1
+  case $rdir/ in
+    "$r_wt"/*) return 1 ;;
   esac
   if [ "$1" != "$r_wt" ]; then
     case $1/ in
@@ -276,8 +284,12 @@ trusted_commit() {
     *) return 1 ;;
   esac
   case $r_base in
-    *[!A-Za-z0-9._/+@-]* | *..* | *//* | */ | *.lock | */.* | *.) return 1 ;;
+    *[!A-Za-z0-9._/+@-]* | *..* | *//* | */ | *.lock | *.lock/* | */.* | *.) return 1 ;;
   esac
+  case ${r_base%%/*} in
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  ! rgit -C "$1" symbolic-ref -q "refs/remotes/$r_base" >/dev/null 2>&1 || return 1
   oid=$(rgit -C "$1" show-ref --verify --hash "refs/remotes/$r_base" 2>/dev/null) || return 1
   case $oid in
     '' | *[!0-9a-f]*) return 1 ;;
@@ -294,12 +306,14 @@ trusted_commit() {
 # in its worktree, so a location in a git checkout runs only as that
 # checkout's trusted commit holds it (trusted_commit): a regular file whose
 # bytes are the blob that commit records at that path. A location spelled
-# inside the unit's worktree is held
-# to it even when a symlinked folder resolves it elsewhere, and so is refused.
-# A location with no `.git` entry in any folder above it (an installed tool)
-# keeps the declaration's trust; any other is held to the checkout that entry
-# marks, so a git that cannot answer for it (a broken or foreign `.git`, a
-# location inside a checkout's git folder) refuses rather than trusts.
+# inside the unit's worktree is held to it even when a symlinked folder
+# resolves it elsewhere, and so is refused. A location with no `.git` entry in
+# any folder above it (an installed tool) keeps the declaration's trust; any
+# other is held to the checkout that entry marks, so a git that cannot answer
+# for it (a broken or foreign `.git`, a location inside a checkout's git
+# folder) refuses rather than trusts. LOC_NO_TRUST says the refusal was
+# trusted_commit's, so the message names no edit as the remedy.
+LOC_NO_TRUST=0
 committed_location() {
   local loc=$1 d full root line meta want have rev
   d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
@@ -321,7 +335,10 @@ committed_location() {
     *) return 1 ;;
   esac
   [ -f "$full" ] && [ ! -L "$full" ] || return 1
-  rev=$(trusted_commit "$root") || return 1
+  rev=$(trusted_commit "$root") || {
+    LOC_NO_TRUST=1
+    return 1
+  }
   line=$(rgit -C "$root" -c core.quotePath=false ls-tree --full-tree "$rev" -- "${full#"$root"/}" 2>/dev/null) || return 1
   case $line in
     *"$NL"* | '') return 1 ;;
@@ -848,8 +865,13 @@ render_line() {
     finish failed "$1"
   fi
   if ! committed_location "$ROW_LOCATION"; then
-    printf 'step-run: step %s not run: its location %s is in a git checkout, but not as its trusted commit holds it (HEAD, or the base in the worktree a worker session record names), or git cannot answer for that checkout; put it back\n' \
-      "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    if [ "$LOC_NO_TRUST" = 1 ]; then
+      printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record names no usable worktree or base, or the checkout is nested in that worktree); no edit makes it runnable here\n' \
+        "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    else
+      printf 'step-run: step %s not run: its location %s is in a git checkout, but not as its trusted commit holds it (HEAD, or the base in the worktree a worker session record names), or git cannot answer for that checkout; put it back, or outside that worktree commit it\n' \
+        "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    fi
     cat "$work/loc.err" >>"$1"
     cat "$work/loc.err" >&2
     finish failed "$1"

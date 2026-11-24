@@ -773,26 +773,28 @@ canon_under() {
 # and the guard never sees what a script runs. The ref is read by show-ref
 # --verify, which takes the full name literally: git's ordinary lookup falls
 # through to a local branch named refs/remotes/<base> once the real ref is
-# deleted, and the profile statically allows both acts. A repository nested in
-# the worktree, which the worker can give any refs, trusts nothing. Where the
-# record is set but names no usable worktree, the repository the session sits
-# in (and any nested in it) trusts nothing, since the static allows still let
-# the worker commit there; a checkout elsewhere keeps HEAD. Called outside a
-# command substitution, so the per-root cache survives the hook call.
+# deleted, and the profile statically allows both acts; a symbolic ref there is
+# refused too, since show-ref follows it. A repository nested in the worktree,
+# which the worker can give any refs, trusts nothing.
+#
+# A record that is set but names no usable worktree trusts nothing at all:
+# the static allows still let the worker commit, and the guard cannot place
+# where (a shell sitting in a repository nested in the one it committed in
+# leaves the outer one looking like "elsewhere"). The one exception is the
+# hook's own root, held to HEAD: it holds this guard, so a worker able to
+# rewrite it has already beaten the guard, and its step scripts keep running.
+#
+# The recorded worktree's base is resolved once per hook call; trusted_rev is
+# called outside a command substitution so that the cache survives.
 TRUSTED_REV_ROOT=''
 TRUSTED_REV=''
 TRUSTED_REV_OUT=''
 trusted_rev() {
-  local oid rev cwd_root
+  local oid rev
   TRUSTED_REV_OUT=''
   if [ -z "$REC_WT" ]; then
     if [ -n "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ]; then
-      [ -n "${HOOK_PAYLOAD_CWD:-}" ] || return 1
-      if cwd_root=$(repo_root_of "$HOOK_PAYLOAD_CWD"); then
-        case $1/ in
-          "$cwd_root"/*) return 1 ;;
-        esac
-      fi
+      [ -n "${HOOK_SELF_ROOT:-}" ] && [ "$1" = "$HOOK_SELF_ROOT" ] || return 1
     fi
     TRUSTED_REV_OUT=HEAD
     return 0
@@ -806,6 +808,7 @@ trusted_rev() {
   fi
   if [ "$TRUSTED_REV_ROOT" != "$1" ]; then
     [ -n "$REC_BASE" ] || return 1
+    ! git_plain -C "$1" symbolic-ref -q "refs/remotes/$REC_BASE" >/dev/null 2>&1 || return 1
     oid=$(git_plain -C "$1" show-ref --verify --hash "refs/remotes/$REC_BASE" 2>/dev/null) || return 1
     case $oid in
       '' | *[!0-9a-f]*) return 1 ;;
@@ -1189,9 +1192,9 @@ step_excerpt_ok() {
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
 # and is a file its trusted commit holds unchanged (used for `bats <file>`,
-# which need not sit under scripts/ or tests/, and which stays REPO-scoped — an install
-# ships no test files to run). A directory operand fails, since bats would run
-# whatever files it holds.
+# which need not sit under scripts/ or tests/, and which stays REPO-scoped —
+# an install ships no test files to run). A directory operand fails, since
+# bats would run whatever files it holds.
 is_contained_file() {
   local root full
   root=$(repo_root_of "$2") || return 1
@@ -1334,10 +1337,13 @@ guard_mkdir() {
 # outside its grammar is dropped, disabling whatever reads it: the
 # policy reads as the empty list, and without the worktree root and unit
 # branch neither the own-branch arm nor a `cd` approves anything, and without
-# the scratch root the scratch arm approves nothing. The scratch root must be
-# this user's own canonical directory, apart from the worktree in both
-# directions. A record that is unreadable, not this user's own regular file,
-# or inside the worktree or the scratch root it describes is no record.
+# the scratch root the scratch arm approves nothing; without the worktree root
+# or the PR base, no file is trusted by its content (trusted_rev). The scratch
+# root must be this user's own canonical directory, apart from the worktree in
+# both directions. A record that is unreadable, not this user's own regular
+# file, or inside the worktree or the scratch root it describes loads no
+# field, which is not the same as no record: trusted_rev, seeing the variable
+# set, trusts nothing.
 #
 # The audit-log home must be this user's own writable canonical directory,
 # apart from the worktree and the scratch root in both directions, and the
@@ -6564,8 +6570,9 @@ classify_verb() {
 # declarations come from the session record, read by the launcher at the
 # primary checkout, never from a file the worker can write; the floor is read
 # before them (verify_simple). Running one runs repository code: a script its
-# literal words name is held to its trusted commit as the repository's scripts/ are
-# (check_literals_committed), and whatever a `<path>` names runs as declared.
+# literal words name is held to its trusted commit as the repository's
+# scripts/ are (check_literals_committed), and whatever a `<path>` names runs
+# as declared.
 # That trust stops at a config loader: a declared markdownlint or mise run
 # still passes the screen the undeclared command does (check_loader_ok).
 
@@ -6783,8 +6790,9 @@ check_command_ok() {
 # check_literals_committed <declaration> <canonical-cwd>: every literal word
 # of the declaration that names an existing file, from the working directory
 # or by its absolute path, is held to what its trusted commit holds, as a
-# declared step's location is (declared_location_ok): the declaration names the file, not its
-# content, and the worker can Write it. A bare first word is looked up on PATH,
+# declared step's location is (declared_location_ok): the declaration names
+# the file, not its content, and the worker can Write it. A bare first word is
+# looked up on PATH,
 # never in the working directory, and a `<path>` placeholder is the declarer's
 # choice of what the runner is given; both stay as declared.
 check_literals_committed() {
@@ -6926,8 +6934,8 @@ check_loader_screen() {
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
 # scripts/, which holds a location inside the repository to what its trusted
-# commit holds there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
-# bare target, or an extra arg defers. The declarations are resolved at most
+# commit holds there: declared_location_ok), so the match is exact: a segment
+# sharing only the first word, a bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
 # of its location word (the first after any context assignments) is the last
@@ -7260,8 +7268,8 @@ declared_line_ok() {
 # declared_location_ok <abs-path>: a declared step's location in a git checkout
 # (the session's repository, or another such as the primary) is held to what
 # that checkout's trusted commit holds (trusted_rev), as a script run by its
-# path is: the declaration names the file, not its content, and the worker can Write the file. A
-# location spelled inside the session's repository counts as in it even when a
+# path is: the declaration names the file, not its content, and the worker
+# can Write the file. A location spelled inside the session's repository counts as in it even when a
 # symlinked folder resolves it elsewhere, and so defers. A location in no
 # checkout keeps the declaration's trust.
 declared_location_ok() {

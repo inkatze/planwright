@@ -153,6 +153,12 @@ assert_defer "the same stand-in, for a base script with nothing to check it by" 
 corpus_git_env -C "$WT" branch -D -q refs/remotes/origin/main \
   && corpus_git_env -C "$WT" update-ref refs/remotes/origin/main "$BASE_OID" || exit 1
 assert_allow "the tracking ref restored" "bash scripts/ok.sh" Bash "$WT"
+# show-ref follows a symbolic ref, so one at the base's name is refused.
+corpus_git_env -C "$WT" symbolic-ref refs/remotes/origin/main "refs/heads/$UB" || exit 1
+assert_defer "the base's name as a symbolic ref to the unit branch" "bash scripts/act-merge.sh" Bash "$WT"
+corpus_git_env -C "$WT" symbolic-ref --delete refs/remotes/origin/main \
+  && corpus_git_env -C "$WT" update-ref refs/remotes/origin/main "$BASE_OID" || exit 1
+assert_allow "the tracking ref restored again" "bash scripts/ok.sh" Bash "$WT"
 
 echo "### the base moves: a script it gains counts once the worker merges it"
 mkdir -p "$MAIN/scripts"
@@ -165,7 +171,8 @@ assert_defer "a copy of a base script the branch has not merged" "bash scripts/g
 # worker commits is still its own.
 wcommit "$WT" copy scripts/gained.sh || exit 1
 assert_defer "a committed copy of a script only the base's tip holds" "bash scripts/gained.sh" Bash "$WT"
-assert_defer "a merge and the run in one command" \
+# Regression only: a merge beside any trusted script defers by its shape.
+assert_defer "shape: a merge and the run in one command" \
   "git merge -q --no-edit origin/main && bash scripts/gained.sh" Bash "$WT"
 assert_defer "a fetch, which moves no merge base, and the run" \
   "git fetch -q origin && bash scripts/gained.sh" Bash "$WT"
@@ -202,6 +209,10 @@ ORPHAN=$(wgit "$WT" commit-tree -m orphan 4b825dc642cb6eb9a060e54bf8d69288fbee49
   && corpus_git_env -C "$WT" update-ref refs/remotes/origin/orphan "$ORPHAN" || exit 1
 under "$(record_with orphan pr_base=origin/orphan)"
 assert_defer "a base with no commit in common" "bash scripts/ok.sh" Bash "$WT"
+DUPBASE=$(record_with dupbase)
+printf 'pr_base=origin/main\n' >>"$DUPBASE"
+under "$DUPBASE"
+assert_defer "a repeated pr_base" "bash scripts/ok.sh" Bash "$WT"
 
 echo "### a record that names no usable worktree trusts no worker commit"
 DUP=$(record_with dup)
@@ -235,52 +246,6 @@ printf '#!/bin/sh\ngh pr merge 1\n' >"$C/scripts/planted.sh"
 HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
 assert_allow "a root checkout's committed script" "bash $C/scripts/plug.sh" Bash "$WT"
 assert_defer "a script planted in that root" "bash $C/scripts/planted.sh" Bash "$WT"
-# A record naming no usable worktree distrusts only the repository the session
-# sits in, the one its static commit allow reaches.
-under "$DUP"
-HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
-assert_allow "a repeated worktree_root: a root checkout elsewhere keeps HEAD" \
-  "bash $C/scripts/plug.sh" Bash "$WT"
-assert_defer "a repeated worktree_root: the session's own repository trusts nothing" \
-  "bash scripts/ok.sh" Bash "$WT"
-
-echo "### a record naming no usable worktree cannot commit in another checkout unprompted"
-# The narrowing above holds only while such a session has no unprompted way to
-# commit in a checkout it does not sit in, or to move its shell there: a
-# commit there would make that checkout's HEAD hold a script it wrote. Each
-# shape must get past neither the guard nor the profile's static rules (the
-# matcher model, tests/lib/permission-matcher.sh); a deny counts as refused.
-# shellcheck source=tests/lib/permission-matcher.sh
-. "$REPO_ROOT/tests/lib/permission-matcher.sh"
-pm_load_rules "$(jq -r '.permissions.deny[]?' "$REPO_ROOT/config/worker-settings.json")" '' \
-  "$(jq -r '.permissions.allow[]?' "$REPO_ROOT/config/worker-settings.json")" || {
-  echo "FAIL: the matcher model rejected the worker profile's rules" >&2
-  exit 1
-}
-printf '#!/bin/sh\ngh pr merge 1\n' >"$C/scripts/evil.sh"
-under "$DUP"
-HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
-for c in "cd $C" "cd $C && git add scripts/evil.sh" "cd $C && git commit -q -m x" \
-  "cd $C && git add -A && git commit -q -m x" "git -C $C add scripts/evil.sh" \
-  "git -C $C commit -q -am x" "git -C $C add -A && git -C $C commit -q -m x" \
-  "git --git-dir=$C/.git --work-tree=$C commit -q -am x" "GIT_DIR=$C/.git git commit -q -am x" \
-  "GIT_WORK_TREE=$C git add -A" "env GIT_DIR=$C/.git git commit -q -am x" \
-  "(cd $C && git commit -q -am x)" "fish -c 'cd $C; git commit -q -am x'" \
-  "pushd $C && git commit -q -am x"; do
-  assert_defer "no usable worktree, the guard: $c" "$c" Bash "$WT"
-  case $(pm_decide "$c") in
-    allow) fail "no usable worktree, the static rules allow: $c" ;;
-    *) pass "no usable worktree, the static rules do not allow: $c" ;;
-  esac
-done
-# A control the model does allow, so the loop above cannot pass on a model
-# that allows nothing.
-case $(pm_decide "git commit -q -m x") in
-  allow) pass "control: the static rules allow a commit in the session's own directory" ;;
-  *) fail "control: the static rules no longer allow a plain commit; the rows above prove nothing" ;;
-esac
-assert_allow "control: the root checkout's committed script still runs" "bash $C/scripts/plug.sh" Bash "$WT"
-assert_defer "the script that would need such a commit" "bash $C/scripts/evil.sh" Bash "$WT"
 # A planwright root that is the recorded worktree itself is held to the base.
 under "$REC"
 HOOK_ENV+=("PLANWRIGHT_ROOT=$WT")
@@ -288,6 +253,30 @@ assert_defer "the worktree as a planwright root: a committed script" \
   "bash $WT/scripts/act-merge.sh" Bash "$CORPUS_OUTSIDE"
 assert_allow "the worktree as a planwright root: a base script" \
   "bash $WT/scripts/ok.sh" Bash "$CORPUS_OUTSIDE"
+
+echo "### a record set but naming no usable worktree trusts nothing but the hook's own root"
+# Such a session can still commit through the static allows, and the guard
+# cannot place where: a shell sitting in a repository nested in the one it
+# committed in would make the outer one look like a checkout elsewhere.
+for r in "$DUP" "$STATE/missing.record" relative.record; do
+  under "$r"
+  HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
+  assert_defer "record $r: the session's own repository" "bash scripts/ok.sh" Bash "$WT"
+  assert_defer "record $r: a root checkout elsewhere" "bash $C/scripts/plug.sh" Bash "$WT"
+  under "$r"
+  HOOK_ENV+=("PLANWRIGHT_ROOT=$WT")
+  assert_defer "record $r: the worktree as a root, from a nested repository's directory" \
+    "bash $WT/scripts/act-merge.sh" Bash "$N"
+  assert_defer "record $r: the worktree as a root, from outside every checkout" \
+    "bash $WT/scripts/act-merge.sh" Bash "$CORPUS_OUTSIDE"
+done
+under "$DUP"
+assert_allow "the hook's own root keeps HEAD, so its step scripts still run" \
+  "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$WT"
+under "$REC"
+HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
+assert_allow "control: the root checkout elsewhere under a usable record" \
+  "bash $C/scripts/plug.sh" Bash "$WT"
 HOOK_ENV=()
 
 finish_suite worker-command-guard-own-commit
