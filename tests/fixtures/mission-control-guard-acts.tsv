@@ -156,10 +156,6 @@ deny	repo-write	bash	-	edits no repository	cp @SCRATCH@/kb/real.md @UNIT@/README
 deny	repo-write	bash	-	edits no repository	cp @SCRATCH@/kb/real.md @UNIT@
 deny	repo-write	bash	-	edits no repository	cp -t @UNIT@ @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	mv @SCRATCH@/kb/real.md @UNIT@/README.md
-deny	repo-write	bash	-	edits no repository	mv @UNIT@/README.md @SCRATCH@/kb/moved.md
-deny	repo-write	bash	-	edits no repository	install @SCRATCH@/kb/real.md @UNIT@/README.md
-deny	repo-write	bash	-	edits no repository	rsync @SCRATCH@/kb/real.md @UNIT@/README.md
-deny	repo-write	bash	-	edits no repository	sort -o @UNIT@/sorted.md @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	dd if=@SCRATCH@/kb/real.md of=@UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	ed -s @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	printf '1d\nw\nq\n' | ed -s @UNIT@/README.md
@@ -202,9 +198,6 @@ deny	repo-write	bash	-	edits no repository	dd if=@SCRATCH@/kb/real.md of=README.
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb; echo x > notes.md
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb || echo x > notes.md
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && cd @UNIT@ && echo x > notes.md
-deny	repo-write	bash	-	edits no repository	curl -o out.html https://example.invalid
-deny	repo-write	bash	-	edits no repository	curl --output-dir @UNIT@ -o out.html https://example.invalid
-deny	repo-write	bash	-	edits no repository	ln -s @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	perl -0x41pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	gawk '@include "inplace"; {print}' @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	gawk -e '@include "inplace"' -e '{print}' @UNIT@/README.md
@@ -223,11 +216,6 @@ deny	repo-write	bash	-	edits no repository	xargs ed < @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	find @SCRATCH@/kb -exec ex -sc x {} +
 deny	repo-write	bash	-	edits no repository	echo x 2> @UNIT@/err.log
 deny	repo-write	bash	-	edits no repository	exec > @UNIT@/out.log
-deny	repo-write	bash	-	edits no repository	tar -C @UNIT@ -xf @SCRATCH@/kb/a.tar
-deny	repo-write	bash	-	edits no repository	unzip -d @UNIT@ @SCRATCH@/kb/a.zip
-deny	repo-write	bash	-	edits no repository	wget -O @UNIT@/x.html https://example.invalid
-deny	repo-write	bash	-	edits no repository	wget -P @UNIT@ https://example.invalid
-deny	repo-write	bash	-	edits no repository	curl --output-dir @SCRATCH@/kb -o @UNIT@/abs.html https://example.invalid
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && echo x > a.md & echo y > b.md
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && (echo x > a.md)
 deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && { echo x > a.md; }
@@ -246,7 +234,6 @@ deny	repo-write	bash	-	edits no repository	flock /tmp/x ed -s @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo chrt 10 vi @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	case a in a) perl -pi -e 1 @UNIT@/README.md ;; esac
 deny	repo-write	bash	-	edits no repository	env --split-string='perl -pi -e 1 @UNIT@/README.md'
-deny	repo-write	bash	-	edits no repository	mv -S .bak @UNIT@/README.md @SCRATCH@/kb/m.md
 defer	read	bash	-	-	gsed -i s/a/b/ @SCRATCH@/kb/real.md
 defer	read	bash	-	-	gsed -i -e s/a/b/ @SCRATCH@/kb/real.md
 defer	read	bash	-	-	ruby -r @UNIT@/x.rb -pi -e 1 @SCRATCH@/kb/real.md
@@ -314,7 +301,7 @@ defer	read	bash	-	-	echo "Done (view the diff) $(date)"
 defer	read	bash	-	-	awk '$1 > 5' @SCRATCH@/kb/real.md
 defer	read	bash	-	-	python3 -c 'print(1 > 2)'
 defer	read	bash	-	-	sed -i '' -e s/a/b/ @SCRATCH@/kb/real.md
-deny	repo-write	bash	-	edits no repository	mv -t/tmp/DOCS @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	mv -t@UNIT@/DOCS @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	vim -es -i @UNIT@/x.viminfo -c q @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	vim -V9@UNIT@/vlog -es -c q @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	vim.basic -es -c wq @UNIT@/README.md

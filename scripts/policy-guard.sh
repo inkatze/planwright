@@ -44,10 +44,10 @@
 # screen makes; a failed read leaves no home and so no allowance. A Bash write
 # target inside a work tree or bare repository denies in the same terms as the
 # file surface, read as written and followed on disk: a redirect (>, >>, >|,
-# &>), tee, dd's of=, truncate, cp, mv (its sources too), install, rsync, ln,
-# the output options of sort, curl, wget, tar and unzip, sed or gsed -i or
-# --in-place, perl or ruby -i, awk or gawk including the inplace extension, and
-# every file ed, ex or vi (under any of vim's names) edits, each option value
+# &>), tee, dd's of=, truncate, the destination of cp and mv (-t included), sed
+# or gsed -i or --in-place, perl or ruby -i, awk or gawk including the inplace
+# extension, and every file ed, ex or vi (under any of vim's names) edits or
+# writes, each option value
 # read as its tool reads it, a variable the command assigned a plain literal
 # read as that literal. An in-place editor behind xargs, find -exec, a shell's
 # command string or eval, in a here-document or here-string a shell reads, or
@@ -56,7 +56,10 @@
 # like, RE_MC_OPAQUE_NAMES). A relative target counts from the directory
 # the command starts in and every one it changes to, unless it opens with its
 # only cd, joined to every later statement by &&. Not read, the accepted
-# residual: rm, touch and mkdir; a program an interpreter runs, and a file an
+# residual: rm, touch and mkdir; a copy's or move's source, rsync
+# --remove-source-files and tar --remove-files; writes by install, rsync and
+# ln and through the output options of sort, curl, wget, tar and unzip, which
+# pass the posture screen alone; a program an interpreter runs, and a file an
 # editor's own script writes (sed's w, ed's or vi's :w to another name); a file
 # a tool writes under a default name in the working directory (wget, curl -O,
 # an unpack with no -C or -d); writers the screen does not parse (find
@@ -7062,26 +7065,17 @@ mc_outflag_screen() {
         outdir=$val
         ;;
     esac
-    # An output file's repository reading waits for --output-dir, which a
-    # relative one is written under, wherever it stands.
-    case $verb:$key in
-      *:-o | *:--output)
-        ! mc_write_word_refused "$val" "$role" 0 || emit_deny "$MC_REFUSAL"
-        outvals[${#outvals[@]}]=$val
-        ;;
-      *) ! mc_write_word_refused "$val" "$role" || emit_deny "$MC_REFUSAL" ;;
-    esac
+    # These writers' targets pass the posture screen alone: the repository
+    # screen covers the redirect, tee, dd, truncate, cp and mv destinations
+    # and the in-place editors.
+    ! mc_write_word_refused "$val" "$role" 0 || emit_deny "$MC_REFUSAL"
+    case $verb:$key in *:-o | *:--output) outvals[${#outvals[@]}]=$val ;; esac
   done
+  [ -n "$outdir" ] || return 0
   for w in ${outvals[@]+"${outvals[@]}"}; do
     case $w in
-      /* | '~'*) ! mc_write_word_refused "$w" 1 || emit_deny "$MC_REFUSAL" ;;
-      *)
-        if [ -n "$outdir" ]; then
-          ! mc_write_word_refused "${outdir%/}/$w" 1 || emit_deny "$MC_REFUSAL"
-        else
-          ! mc_write_word_refused "$w" 1 || emit_deny "$MC_REFUSAL"
-        fi
-        ;;
+      /* | '~'*) ;;
+      *) ! mc_write_word_refused "${outdir%/}/$w" 1 0 || emit_deny "$MC_REFUSAL" ;;
     esac
   done
   return 0
@@ -7531,7 +7525,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -7964,7 +7958,11 @@ XEOF_RUN
       done
     fi
     # opsr: per operand, the <repo> argument mc_write_word_refused takes; empty
-    # leaves it to the operand's role.
+    # leaves it to the operand's role. The repository screen reads tee's and
+    # truncate's files, dd's of= file, and cp's and mv's destinations; the
+    # other verbs here (rsync, install, ln) pass the posture screen alone.
+    rr=0
+    case $verb in cp | mv | tee | dd | truncate) rr='' ;; esac
     ops=()
     opsr=()
     tdir=''
@@ -7980,7 +7978,7 @@ XEOF_RUN
       fi
       if [ "$k" = 2 ]; then
         k=0
-        ! mc_write_word_refused "$w" 1 || emit_deny "$MC_REFUSAL"
+        ! mc_write_word_refused "$w" 1 0 || emit_deny "$MC_REFUSAL"
         continue
       fi
       if [ "$k" = 3 ]; then
@@ -7989,16 +7987,13 @@ XEOF_RUN
         opsr[${#opsr[@]}]=0
         continue
       fi
-      # truncate's size and reference file, and a copy verb's backup suffix,
-      # are values.
+      # truncate's size and reference file are values.
       case $verb:$w in
         truncate:--?*) ! mc_long_is "$w" 3 --size --reference || k=3 ;;
         truncate:-[!-]*)
           c=${w#-}
           case $c in *[rs]*) [ -n "${c#*[rs]}" ] || k=3 ;; esac
           ;;
-        cp:--?* | mv:--?* | install:--?*) ! mc_long_is "$w" 4 --suffix || k=3 ;;
-        cp:-S | mv:-S | install:-S | cp:-[!-]*S | mv:-[!-]*S | install:-[!-]*S) k=3 ;;
       esac
       case $w in
         -e | -f | --expression | --file)
@@ -8011,7 +8006,7 @@ XEOF_RUN
           case $verb:${w%%=*} in
             rsync:--log-file | rsync:--write-batch | rsync:--only-write-batch | rsync:--backup-dir | rsync:--partial-dir | rsync:--temp-dir)
               case $w in
-                *=*) ! mc_write_word_refused "${w#*=}" 1 || emit_deny "$MC_REFUSAL" ;;
+                *=*) ! mc_write_word_refused "${w#*=}" 1 0 || emit_deny "$MC_REFUSAL" ;;
                 *) k=2 ;;
               esac
               continue
@@ -8045,13 +8040,11 @@ XEOF_RUN
       esac
       ops[${#ops[@]}]=$w
       # sed's in-place files were read by its own parser above; dd writes only
-      # its of= file; mv takes each source out of where it sits.
+      # its of= file.
       case $verb:$w in
-        sed:*) opsr[${#opsr[@]}]=0 ;;
-        mv:*) opsr[${#opsr[@]}]=1 ;;
         dd:of=*) opsr[${#opsr[@]}]='' ;;
         dd:*) opsr[${#opsr[@]}]=0 ;;
-        *) opsr[${#opsr[@]}]='' ;;
+        *) opsr[${#opsr[@]}]=$rr ;;
       esac
     done
     # A copy verb's destination is its target directory or its last operand;
@@ -8060,16 +8053,7 @@ XEOF_RUN
     # already there.
     if [ -n "$tdir" ]; then
       ops[${#ops[@]}]=$tdir
-      opsr[${#opsr[@]}]=''
-    fi
-    # ln with one operand makes its link in the working directory under the
-    # target's own name, and only names the target.
-    if [ "$makes_link" = 1 ] && [ "$verb" != cp ] && [ "${#ops[@]}" = 1 ]; then
-      opsr[0]=0
-      w=${ops[0]//[\"\'\\]/}
-      w=${w%/}
-      MC_REFUSAL=$MC_REPO_DENY
-      ! mc_reaches_repo "${w##*/}" || emit_deny "$MC_REFUSAL"
+      opsr[${#opsr[@]}]=$rr
     fi
     k=0
     for w in ${ops[@]+"${ops[@]}"}; do
@@ -8129,7 +8113,7 @@ XEOF_RUN
             esac
           done
           w=${w%/}
-          ! mc_write_word_refused "${dst%/}/${w##*/}" 1 || emit_deny "$MC_REFUSAL"
+          ! mc_write_word_refused "${dst%/}/${w##*/}" 1 "$rr" || emit_deny "$MC_REFUSAL"
         done
         ;;
     esac

@@ -928,20 +928,22 @@ one refuses.
 The `mission-control` tier of `scripts/policy-guard.sh` refuses a Bash write
 into any git work tree or bare repository with the same refusal its file
 surface gives an Edit or Write there ("mission control edits no repository"):
-every write target the settings screen already reads (redirects, `tee`, `dd
-of=`, the copy verbs and the output options) and every file an in-place editor
-rewrites (`sed -i`, `perl -i`, `ruby -i`, `awk` with the inplace extension,
-`ed`, `ex` and `vi`), each read as written and followed on disk. An in-place
-editor run behind another command, in a here-document or here-string a shell
-reads, or in text the guard cannot parse is refused fail closed, from a text
-reading of the command rather than a parse.
+a redirect's target, the files `tee`, `truncate` and `dd of=` write, the
+destination of `cp` and `mv`, and every file an in-place editor rewrites
+(`sed -i`, `perl -i`, `ruby -i`, `awk` with the inplace extension, `ed`, `ex`
+and `vi`), each read as written and followed on disk. An in-place editor run
+behind another command, in a here-document or here-string a shell reads, or in
+text the guard cannot parse is refused fail closed, from a text reading of the
+command rather than a parse. Other writers the settings screen reads
+(`install`, `rsync`, `ln`, and the output options of `sort`, `curl`, `wget`,
+`tar` and `unzip`) pass that screen alone.
 
 That text reading has known gaps and one known over-refusal, named with the
 rest of the accepted residual in the guard's header comment: it misses
 writers and runners it does not list, a here-string a shell reads from a
 later line, and some spellings of a compound command's closer before a
 here-string, and it refuses an editor's name opening a here-string that a
-script beside a shell only reads as data.
+script beside a shell or runner only reads as data.
 
 ## Changing any of this
 
