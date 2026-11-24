@@ -157,6 +157,7 @@ expect deny "[mission-control] an in-place editor in a here-document a shell rea
 reason_has 'edits no repository' "[mission-control] the here-document in-place refusal names the repository rule"
 pg mission-control "cd $KB && cat > notes.md <<'EOF'${NL}text${NL}EOF"
 expect defer "[mission-control] a store heredoc after the one cd, from a repository cwd, is permitted"
+# shellcheck disable=SC2016 # the command text is literal
 TMPDIR=$UNIT pg mission-control 'S=$(mktemp -d); echo x > "$S/x"'
 expect deny "[mission-control] a write under a fresh mktemp -d directory is refused when TMPDIR lies in a repository"
 reason_has 'edits no repository' "[mission-control] the mktemp-in-repository refusal names the repository rule"
