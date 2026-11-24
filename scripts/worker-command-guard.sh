@@ -789,7 +789,6 @@ trusted_rev() {
     if [ -n "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ]; then
       [ -n "${HOOK_PAYLOAD_CWD:-}" ] || return 1
       if cwd_root=$(repo_root_of "$HOOK_PAYLOAD_CWD"); then
-        [ "$1" != "$cwd_root" ] || return 1
         case $1/ in
           "$cwd_root"/*) return 1 ;;
         esac
