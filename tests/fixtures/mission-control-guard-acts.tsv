@@ -274,9 +274,12 @@ deny	repo-write	bash	-	edits no repository	doas -C /etc/doas.conf ed -s @UNIT@/R
 deny	repo-write	bash	-	edits no repository	env -iSed\ -s @UNIT@/README.md
 deny	repo-write	bash	-	hands a write verb	env -S'sed -i s/a/b/ @UNIT@/README.md'
 deny	repo-write	bash	-	edits no repository	at now <<< 'ed -s @UNIT@/README.md'
-defer	read	bash	-	-	python3 parse.py <<< vi
-defer	read	bash	-	-	bash run.sh <<< ex
-defer	read	bash	-	-	bash -c 'read -r a <<< ex; echo $a'
+deny	repo-write	bash	-	edits no repository	sudo bash <<< 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	bash -o pipefail <<< 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	X=1 bash <<< 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	source /dev/stdin <<< 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	cat <<< 'ed -s @UNIT@/README.md' | bash
+defer	read	bash	-	-	python3 parse.py <<< hello
 defer	read	bash	-	-	doas -u x cp @SCRATCH@/kb/real.md @SCRATCH@/kb/d.md
 defer	read	bash	-	-	timeout 5 grep ex @SCRATCH@/kb/real.md
 defer	read	bash	-	-	find @SCRATCH@/kb -name vi
