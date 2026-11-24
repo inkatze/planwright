@@ -56,10 +56,12 @@
 # like, RE_MC_OPAQUE_NAMES). A relative target counts from the directory
 # the command starts in and every one it changes to, unless it opens with its
 # only cd, joined to every later statement by &&. Not read, the accepted
-# residual: rm, touch and mkdir; a copy's or move's source, rsync
-# --remove-source-files and tar --remove-files; writes by install, rsync and
-# ln and through the output options of sort, curl, wget, tar and unzip, which
-# pass the posture screen alone; a program an interpreter runs, and a file an
+# residual: rm, touch and mkdir; a copy's or move's source (an mv out of a
+# repository removes the file there), rsync --remove-source-files and tar
+# --remove-files; an unpack into a repository (tar -x ... -C <repository>,
+# unzip -d <repository>); writes by install, rsync and ln and through the
+# output options of sort, curl, wget, tar and unzip, which pass the posture
+# screen alone; a program an interpreter runs, and a file an
 # editor's own script writes (sed's w, ed's or vi's :w to another name); a file
 # a tool writes under a default name in the working directory (wget, curl -O,
 # an unpack with no -C or -d); writers the screen does not parse (find

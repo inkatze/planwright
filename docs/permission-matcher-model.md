@@ -936,7 +936,10 @@ behind another command, in a here-document or here-string a shell reads, or in
 text the guard cannot parse is refused fail closed, from a text reading of the
 command rather than a parse. Other writers the settings screen reads
 (`install`, `rsync`, `ln`, and the output options of `sort`, `curl`, `wget`,
-`tar` and `unzip`) pass that screen alone.
+`tar` and `unzip`) pass that screen alone, so these writes into a repository
+go unscreened and are accepted residual: an unpack into one (`tar -x ... -C
+<repository>`, `unzip -d <repository>`), an `mv` whose source sits in one, a
+copy's source, `rsync --remove-source-files` and `tar --remove-files`.
 
 That text reading has known gaps and one known over-refusal, named with the
 rest of the accepted residual in the guard's header comment: it misses
