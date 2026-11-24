@@ -61,6 +61,8 @@ printf 'notes\n' >"$WT/notes.txt"
 gitq "$WT" add -A
 gitq "$WT" commit -q -m init
 gitq "$WT" branch -M main
+# The record names this repository, so a declared location is held to its base.
+gitq "$WT" update-ref refs/remotes/origin/main HEAD
 FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
   "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
   "PLANWRIGHT_ADOPTER_OVERLAY=" "PLANWRIGHT_REPO_ROOT=$WT"

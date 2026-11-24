@@ -34,8 +34,9 @@ for t in declared.sh other.sh undeclared.sh pooled.sh; do
   printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/$t"
   chmod +x "$FX/repo/tools/$t"
 done
-# A declared location inside the repository is held to what HEAD commits.
-fixture_commit "$FX/repo" tools || exit 1
+# A declared location inside the repository is held to what its commit holds:
+# HEAD, or the PR base where a session record names the repository.
+fixture_commit "$FX/repo" tools && fixture_base "$FX/repo" || exit 1
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
 # The sandbox is itself a checkout, and a declared location in one is held to
@@ -322,7 +323,7 @@ assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARE
 # absolute path as a declared step names it (REQ-F1.5); the read-only form
 # of the same program still approves, so the refusal is the floor's.
 cp "$DECLARED" "$FX/repo/tools/gh"
-fixture_commit "$FX/repo" tools/gh || exit 1
+fixture_commit "$FX/repo" tools/gh && fixture_base "$FX/repo" || exit 1
 stub_reserved() {
   stub_scripts "$1"
   cat >"$1/scripts/resolve-steps.sh" <<STUB
