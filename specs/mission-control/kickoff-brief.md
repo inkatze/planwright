@@ -2617,3 +2617,24 @@ Class: meaning
 Lens-pass: Amendment 22, delta-scoped lens review above (spec lens set, fanned out by lens group; every finding dispositioned)
 Anchor: `eee77526da5c0f56885e08d78495b619ff720b0f` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — Amendment 22 review wording (2026-11-24)
+
+Marked self-re-anchor for an expression-only edit, per the meta-spec's
+expression-only lane (`doctrine/spec-format.md`, *Writers*). After the
+Amendment 22 sign-off, the pull request's automated review raised five
+wording readings in the new text: "open or closed" read as attached to the
+required pull requests rather than the commitment (REQ-P1.15, D-115); `close`
+was missing from the holder-only acts in REQ-P1.15, though its test entry
+already refuses a non-holder's close; and "mark one the handover file lacks"
+read as marking a single commitment (REQ-P1.17, D-115). Each now says what
+the walk decided; no requirement, decision, task or test changes meaning.
+The operator approved the wording through the hub, in their words:
+"approve the wording fixes" (decisions-202611-151).
+
+**Cites the changelog line:** the 2026-11-24 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `2375e3939eff4b17787c15d1cf3332b880dcc988` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

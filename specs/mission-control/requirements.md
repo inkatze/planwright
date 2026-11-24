@@ -1517,14 +1517,14 @@ the runner works, never a list that grows and is forgotten.
   rows in its program home, each naming an id, **when** (a calendar day,
   `YYYY-MM-DD`, with a time of day carried as text where one is stated), the
   **event** (what is owed to whom), at least one **required pull request**
-  (each `owner/repo#n`), its state (open or closed) and the operator's
-  words that stated it, quoted. `add` SHALL allocate the id (`commit-<n>`),
+  (each `owner/repo#n`), the commitment's own state (open or closed) and
+  the operator's words that stated it, quoted. `add` SHALL allocate the id (`commit-<n>`),
   never take one, and SHALL refuse a pull request outside `owner/repo#n`,
   an id the program's operator-stated dates file already uses, and any text
   holding a control byte, a tab or a newline; every printer SHALL strip
   control bytes. Only the **holding mission control**, the live holder of
   the program's name as `mc-handover.sh holder` reports it and matching the
-  session given, SHALL add or change a commitment, and only on the
+  session given, SHALL add, change or close a commitment, and only on the
   operator's stated word; a worker, any other session, a stale holder or no
   holder SHALL be refused. A commitment SHALL close only through a close
   naming a reason, `delivered`, `waived` or `moved`, and a note; a row SHALL
@@ -1550,9 +1550,9 @@ the runner works, never a list that grows and is forgotten.
 - **REQ-P1.17** `mc-handover.sh write` SHALL read the commitment store and
   carry each open commitment as an `item` line whose id is the commitment's
   id. `verify` and the operator's `resume` SHALL read the store, print every
-  open commitment (id, when, event, required pull requests) and mark one the
-  handover file lacks, which a commitment added after the file was written
-  is. `take` and `resume` SHALL refuse while the session has not
+  open commitment (id, when, event, required pull requests) and mark every
+  one the handover file lacks, as a commitment added after the file was
+  written is. `take` and `resume` SHALL refuse while the session has not
   acknowledged every open commitment the store holds, by its own id, one
   acknowledgement per commitment, each recorded with the acknowledging
   session and the time, and the refusal SHALL name each unacknowledged id.
@@ -1830,6 +1830,10 @@ the runner works, never a list that grows and is forgotten.
   each required pull request's live state (REQ-P1.18). D-115, Tasks 150 to
   152, a note on D-27 (see the kickoff brief's Amendment 22). Numbering
   follows spec-pipeline's ID ledger of unlanded reservations.
+- 2026-11-24 — Expression-only (review wording): five readings in the
+  Amendment 22 text made unambiguous (the commitment's own state, close
+  among the holder-only acts, every missing commitment marked), meaning
+  unchanged (see the kickoff brief's re-anchor after Amendment 22).
 
 ## Sources
 

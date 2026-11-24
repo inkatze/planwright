@@ -2054,7 +2054,8 @@ batch's answer.
 **Decision:** A program keeps a commitment store in its program home: per
 commitment an id (`commit-<n>`, allocated by `add`), when (a day), the
 event (what is owed to whom), the required pull requests (`owner/repo#n`),
-open or closed, and the operator's words quoted, in the follow-up ledger's
+the commitment's own state (open or closed), and the operator's words
+quoted, in the follow-up ledger's
 row format and under its writer rules (D-65), every verb under the store's
 lock. A new script, `scripts/mc-commitments.sh`, owns the verbs: `add` and
 `change` (only the live holder of the program's name, with the operator's
@@ -2075,8 +2076,8 @@ cannot say merged or closed. Four readers use it:
   the other.
 - **The handover (D-30)** writes each open commitment into the handover
   file as an item named by the commitment's id; `verify` and `resume` read
-  the store, print each open commitment and mark one the file lacks (a
-  commitment added after the file was written); `take` and `resume` refuse
+  the store, print each open commitment and mark every one the file lacks
+  (as a commitment added after the file was written is); `take` and `resume` refuse
   until the session has acknowledged every open commitment by id, naming
   the missing ids (REQ-P1.17). An acknowledgement is per session, so a
   later successor acknowledges again. The store, not the file, is the
