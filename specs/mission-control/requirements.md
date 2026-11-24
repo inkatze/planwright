@@ -1513,6 +1513,75 @@ the runner works, never a list that grows and is forgotten.
   table of every check.
   *(Cites: D-69; REQ-P1.13; the outcome-audit report (2026-11-13,
   Sources).)*
+- **REQ-P1.15** Each program SHALL keep a **commitment store**: durable
+  rows in its program home, each naming an id, **when** (a calendar day,
+  `YYYY-MM-DD`, with a time of day carried as text where one is stated), the
+  **event** (what is owed to whom), at least one **required pull request**
+  (each `owner/repo#n`), its state (open or closed) and the operator's
+  words that stated it, quoted. `add` SHALL allocate the id (`commit-<n>`),
+  never take one, and SHALL refuse a pull request outside `owner/repo#n`,
+  an id the program's operator-stated dates file already uses, and any text
+  holding a control byte, a tab or a newline; every printer SHALL strip
+  control bytes. Only the **holding mission control**, the live holder of
+  the program's name as `mc-handover.sh holder` reports it and matching the
+  session given, SHALL add or change a commitment, and only on the
+  operator's stated word; a worker, any other session, a stale holder or no
+  holder SHALL be refused. A commitment SHALL close only through a close
+  naming a reason, `delivered`, `waived` or `moved`, and a note; a row SHALL
+  never be deleted, and a close of a commitment already closed SHALL be
+  refused. An acknowledgement (REQ-P1.17) of a closed commitment SHALL be a
+  no-op that passes, and a repeated one idempotent. Every verb SHALL write
+  under the store's lock, and the store follows the follow-up ledger's row
+  format and writer rules (REQ-K1.5). **Overdue**, for a commitment, means
+  its day has passed while it is open (REQ-P1.16).
+  *(Cites: D-115; REQ-K1.5; the work-machine commitments report
+  (2026-11-23, Sources); the Amendment 22 rulings (2026-11-23, Sources).)*
+- **REQ-P1.16** The commitment store SHALL be the one place a dated
+  commitment's date is kept: the deadline-watch duty (D-27) SHALL read each
+  open commitment's date as one more source under every mode of the
+  program's deadlines fact class, `cited` included, the commitment's id as
+  its unit, so an open commitment is urgent inside
+  `mission_control_deadline_horizon` whole UTC days and overdue once past
+  (a time of day does not move the day), and a closed one SHALL drop out.
+  The operator-stated dates the duty already keeps SHALL read and rank as
+  before, an id clash with them being impossible (REQ-P1.15), and no new
+  knob is added.
+  *(Cites: D-115, D-27; the Amendment 22 rulings (2026-11-23, Sources).)*
+- **REQ-P1.17** `mc-handover.sh write` SHALL read the commitment store and
+  carry each open commitment as an `item` line whose id is the commitment's
+  id. `verify` and the operator's `resume` SHALL read the store, print every
+  open commitment (id, when, event, required pull requests) and mark one the
+  handover file lacks, which a commitment added after the file was written
+  is. `take` and `resume` SHALL refuse while the session has not
+  acknowledged every open commitment the store holds, by its own id, one
+  acknowledgement per commitment, each recorded with the acknowledging
+  session and the time, and the refusal SHALL name each unacknowledged id.
+  An acknowledgement belongs to the session that gave it, so a later
+  successor SHALL acknowledge again, and an overdue open commitment SHALL
+  still gate the take.
+  *(Cites: D-115, D-68; REQ-F1.21, REQ-P1.8; the Amendment 22 rulings
+  (2026-11-23, Sources).)*
+- **REQ-P1.18** Each runner pass SHALL record, for every open commitment,
+  each required pull request's live state as one read of that pull request
+  from the forge (open, draft, merged or closed, and its checks passing,
+  failing, pending or absent) where the session reads it, and SHALL raise
+  an event for a commitment when one of its pull requests changes state, and
+  once a UTC day while the commitment is inside
+  `mission_control_deadline_horizon` days of its date or overdue, with the
+  id, date and states in the event and never the event text or the quoted
+  words. The panel and the first turn after silence SHALL list every open
+  commitment with the deadline-watch's other dates, earliest first. A
+  commitment whose
+  required pull requests have all merged SHALL be reported `ready to close`
+  and SHALL stay open until a close (REQ-P1.15). A pull request whose state
+  cannot be read SHALL show as `unknown` with the reason and SHALL raise an
+  event of the failure class, pushed to the operator through the
+  notification channel (REQ-P1.2); a not-found read carries that reason,
+  and `change` is the remedy for a renamed or moved pull request. It SHALL
+  NOT block a take, and the pass SHALL still report the commitment's other
+  pull requests.
+  *(Cites: D-115, D-27; REQ-P1.2, REQ-F1.10; the Amendment 22 rulings
+  (2026-11-23, Sources).)*
 
 ## Changelog
 
@@ -1753,6 +1822,14 @@ the runner works, never a list that grows and is forgotten.
 - 2026-11-23 — Expression-only (data hygiene): the legacy-bundle report's
   Sources entry names the adopter generically instead of by project name,
   meaning unchanged (see the kickoff brief's re-anchor after Amendment 21).
+- 2026-11-23 — Amendment 22 (meaning-class, on the Active bundle, relayed
+  by the hub): a commitment store per program, one list the deadline-watch
+  duty reads its dates from (REQ-P1.15, REQ-P1.16), carried by the handover
+  file with `verify` printing it and `take` refusing until each open
+  commitment is acknowledged by id (REQ-P1.17), and a per-pass report of
+  each required pull request's live state (REQ-P1.18). D-115, Tasks 150 to
+  152, a note on D-27 (see the kickoff brief's Amendment 22). Numbering
+  follows spec-pipeline's ID ledger of unlanded reservations.
 
 ## Sources
 
@@ -2019,3 +2096,23 @@ the runner works, never a list that grows and is forgotten.
   both sign (Recommended)" (the merge waits for a routed human-gates
   amendment, and its pull requests stay draft until both are signed).
   Framed REQ-I1.11, REQ-D1.18, Tasks 148 and 149.
+- **The work-machine commitments report (2026-11-23)** — a mission-control
+  successor on the work machine dropped a dated customer deadline that sat
+  as one line of handover prose; the operator there said, "You are not
+  doing anything to make this mechanical." Asked: a first-class store of
+  commitments (when, the event, the required pull requests), carried by the
+  handover, printed by `verify`, reported each pass with each pull request's
+  live state, and gating `take` until acknowledged. Framed REQ-P1.15 to
+  REQ-P1.18, D-115.
+- **The Amendment 22 rulings (2026-11-23)** — relayed through the hub, the
+  operator's words: "One list (Recommended)" (commitments are the one place
+  a date is kept; the deadline watcher reads them); "Name each one
+  (Recommended)" (a successor acknowledges every open commitment by its
+  id); "A session closes it with a reason (Recommended)" (ready to close is
+  reported, a session closes with a note, a merge never closes one);
+  "Mission control, on your word (Recommended)" (only the holding mission
+  control records a commitment, quoting the operator); "Say so loudly
+  (Recommended)" (an unreadable pull request shows as unknown and raises an
+  alert, without blocking a take); "On change or near the date
+  (Recommended)" (an event on a state change, and daily inside the urgent
+  window). Framed REQ-P1.15 to REQ-P1.18, D-115, Tasks 150 to 152.
