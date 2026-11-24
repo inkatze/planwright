@@ -663,8 +663,8 @@ one does. The declaration vouches for the words it spells, not
 for the config those folders hold, so a declared lint beside a worker-written
 or uncommitted config defers, and so does a declared `--cd`, `--env` or
 `--tool` on `mise run`, and a file its literal words name is held to HEAD, as
-"Code a worker runs unprompted" states. Other ways a declaration reaches the same config
-still pass on the declaration alone: a runner or wrapper with no `--` before
+"Code a worker runs unprompted" states. Other ways a declaration reaches the
+same config are not screened for it: a runner or wrapper with no `--` before
 the linter (`npx markdownlint-cli2`, `env` or `timeout` before it, `node`
 running its bin script), a package script that runs one, and
 `mise exec`, `mise watch` or a task named straight after `mise`, which load
