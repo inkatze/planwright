@@ -418,7 +418,7 @@ pass "e2: distinct ids, error-only denials, a dash-named --out"
 
 # ---- e3: token shapes, refusal codes and the report table -------------------
 
-GHTOK='ghp_FIXTUREfixture0123456789abcdefABCDEF'
+GHTOK='ghp_''FIXTUREfixture0123456789abcdefABCDEF'
 for shape in "$GHTOK" 'github_pat_FIXTURE0123456789' 'xoxb-0123456789-FIXTURE' 'AKIAFIXTUREFIXTURE12'; do
   mk_run "$tmp/s" today
   sed "s|^changed_knobs=none|changed_knobs=$shape|" "$tmp/s/identity" >"$tmp/s/identity.new"

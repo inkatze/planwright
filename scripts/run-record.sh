@@ -41,6 +41,10 @@
 # of a result frame; audited approvals are the audit lines carrying a
 # cmd_sha256.
 
+# Outcome: an exit row with rc 124 is timed-out; an error (is_error true, or a
+# nonzero exit rc) is rate-limited when its cause is limited=<vendor>, else
+# crashed; anything else is completed.
+
 # compare refuses a pair that differs in more than --variable, and any pair
 # whose known_bad_set_hash differs (never a comparable variable). --variable is
 # a harness field, or `candidate` for the diff hash and the knobs together.
