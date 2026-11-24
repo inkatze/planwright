@@ -101,6 +101,18 @@ else
   fail "the operator-asked launch past the host bound exited $RC: $ERR"
 fi
 
+# Launches in the same second are ordered by their reservation, not by the
+# clock or their random names: a launch counts every session reserved before
+# it. Pushing the earlier rows' launch time past this launch stands for a fast
+# host that lands two sequential launches in one second.
+for same_row in "$capreg"/mc-alpha-*; do
+  [ -f "$same_row" ] || continue
+  sed "s/^launched${TAB}.*/launched${TAB}99999999999/" "$same_row" >"$same_row.tmp.sed" && mv "$same_row.tmp.sed" "$same_row"
+done
+cap_launch same-second
+[ "$RC" = 4 ] && ok "a launch counts earlier sessions however their launch times compare" \
+  || fail "earlier sessions with a later launch time were not counted against the bound (exit $RC): $ERR"
+
 # A mission-control launch is never held by the bound.
 SHIM_RECORD_DIR="$tmp/rec-cap-mc" ml_cap launch --program alpha --kind mission-control --scope cap-mc --brief "$tmp/brief.md"
 [ "$RC" = 0 ] && ok "a mission-control launch is not held by the host-wide bound" || fail "a mission-control launch under the bound exited $RC: $ERR"
