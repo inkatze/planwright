@@ -243,6 +243,44 @@ assert_allow "a repeated worktree_root: a root checkout elsewhere keeps HEAD" \
   "bash $C/scripts/plug.sh" Bash "$WT"
 assert_defer "a repeated worktree_root: the session's own repository trusts nothing" \
   "bash scripts/ok.sh" Bash "$WT"
+
+echo "### a record naming no usable worktree cannot commit in another checkout unprompted"
+# The narrowing above holds only while such a session has no unprompted way to
+# commit in a checkout it does not sit in, or to move its shell there: a
+# commit there would make that checkout's HEAD hold a script it wrote. Each
+# shape must get past neither the guard nor the profile's static rules (the
+# matcher model, tests/lib/permission-matcher.sh); a deny counts as refused.
+# shellcheck source=tests/lib/permission-matcher.sh
+. "$REPO_ROOT/tests/lib/permission-matcher.sh"
+pm_load_rules "$(jq -r '.permissions.deny[]?' "$REPO_ROOT/config/worker-settings.json")" '' \
+  "$(jq -r '.permissions.allow[]?' "$REPO_ROOT/config/worker-settings.json")" || {
+  echo "FAIL: the matcher model rejected the worker profile's rules" >&2
+  exit 1
+}
+printf '#!/bin/sh\ngh pr merge 1\n' >"$C/scripts/evil.sh"
+under "$DUP"
+HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
+for c in "cd $C" "cd $C && git add scripts/evil.sh" "cd $C && git commit -q -m x" \
+  "cd $C && git add -A && git commit -q -m x" "git -C $C add scripts/evil.sh" \
+  "git -C $C commit -q -am x" "git -C $C add -A && git -C $C commit -q -m x" \
+  "git --git-dir=$C/.git --work-tree=$C commit -q -am x" "GIT_DIR=$C/.git git commit -q -am x" \
+  "GIT_WORK_TREE=$C git add -A" "env GIT_DIR=$C/.git git commit -q -am x" \
+  "(cd $C && git commit -q -am x)" "fish -c 'cd $C; git commit -q -am x'" \
+  "pushd $C && git commit -q -am x"; do
+  assert_defer "no usable worktree, the guard: $c" "$c" Bash "$WT"
+  case $(pm_decide "$c") in
+    allow) fail "no usable worktree, the static rules allow: $c" ;;
+    *) pass "no usable worktree, the static rules do not allow: $c" ;;
+  esac
+done
+# A control the model does allow, so the loop above cannot pass on a model
+# that allows nothing.
+case $(pm_decide "git commit -q -m x") in
+  allow) pass "control: the static rules allow a commit in the session's own directory" ;;
+  *) fail "control: the static rules no longer allow a plain commit; the rows above prove nothing" ;;
+esac
+assert_allow "control: the root checkout's committed script still runs" "bash $C/scripts/plug.sh" Bash "$WT"
+assert_defer "the script that would need such a commit" "bash $C/scripts/evil.sh" Bash "$WT"
 # A planwright root that is the recorded worktree itself is held to the base.
 under "$REC"
 HOOK_ENV+=("PLANWRIGHT_ROOT=$WT")
