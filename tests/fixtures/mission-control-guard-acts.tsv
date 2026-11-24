@@ -205,6 +205,54 @@ deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && cd @UNIT@ && echo 
 deny	repo-write	bash	-	edits no repository	curl -o out.html https://example.invalid
 deny	repo-write	bash	-	edits no repository	curl --output-dir @UNIT@ -o out.html https://example.invalid
 deny	repo-write	bash	-	edits no repository	ln -s @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	perl -0x41pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk '@include "inplace"; {print}' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -e '@include "inplace"' -e '{print}' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -f inplace.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gsed -i s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	view -es -c 'wq!' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	rvim @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vimdiff @UNIT@/README.md @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	ruby -pi -e 'gsub(/a/,"b")' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby -i.bak -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	eval echo x '>' @UNIT@/a.md
+deny	repo-write	bash	-	edits no repository	eval 'echo x >' @UNIT@/a.md
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb '&&' echo hi > README.md #x
+deny	repo-write	bash	-	hands a write verb	xargs gsed -i s/a/b/ < @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	xargs ed < @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	find @SCRATCH@/kb -exec ex -sc x {} +
+deny	repo-write	bash	-	edits no repository	echo x 2> @UNIT@/err.log
+deny	repo-write	bash	-	edits no repository	exec > @UNIT@/out.log
+deny	repo-write	bash	-	edits no repository	tar -C @UNIT@ -xf @SCRATCH@/kb/a.tar
+deny	repo-write	bash	-	edits no repository	unzip -d @UNIT@ @SCRATCH@/kb/a.zip
+deny	repo-write	bash	-	edits no repository	wget -O @UNIT@/x.html https://example.invalid
+deny	repo-write	bash	-	edits no repository	wget -P @UNIT@ https://example.invalid
+deny	repo-write	bash	-	edits no repository	curl --output-dir @SCRATCH@/kb -o @UNIT@/abs.html https://example.invalid
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && echo x > a.md & echo y > b.md
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && (echo x > a.md)
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && { echo x > a.md; }
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && echo $(date) > a.md
+deny	settings-write	bash	-	settings or configuration file	echo x > @UNIT@/.claude/settings.json
+defer	read	bash	-	-	timeout 5 grep ex @SCRATCH@/kb/real.md
+defer	read	bash	-	-	find @SCRATCH@/kb -name vi
+defer	read	bash	-	-	echo "$(date) vi"
+defer	read	bash	-	-	echo "fix ed handling $(date)"
+defer	read	bash	-	-	echo "ping Ed about it $(date)"
+defer	read	bash	-	-	echo $(perl -MFile::Spec -e 1)
+defer	read	bash	-	-	bash -c 'perl -Mstrict -e 1'
+defer	read	bash	-	-	echo $(awk -v mode=inplace 1 @SCRATCH@/kb/real.md)
+defer	read	bash	-	-	xargs echo ex < @SCRATCH@/kb/real.md
+defer	read	bash	-	-	node build.js --editor vi
+defer	read	bash	-	-	perl -e 1 ex
+defer	read	bash	-	-	sed -i -f @UNIT@/x.sed @SCRATCH@/kb/real.md
+defer	read	bash	-	-	perl -I @UNIT@ -pi -e 1 @SCRATCH@/kb/real.md
+defer	read	bash	-	-	awk -f @UNIT@/p.awk -i inplace @SCRATCH@/kb/real.md
+defer	read	bash	-	-	ed -p @UNIT@/x @SCRATCH@/kb/real.md
+defer	read	bash	-	-	vim -es -c w -u @UNIT@/vimrc @SCRATCH@/kb/real.md
+defer	read	bash	-	-	truncate --reference=@UNIT@/README.md @SCRATCH@/kb/real.md
+defer	read	bash	-	-	mv -S .bak @SCRATCH@/kb/real.md @SCRATCH@/kb/b.md
+defer	read	bash	-	-	curl -o out.html --output-dir @SCRATCH@/kb https://example.invalid
+defer	read	bash	-	-	cd @SCRATCH@/kb && echo x > a.md | cat
 defer	read	bash	-	-	cd @SCRATCH@/kb && sed -i s/a/b/ real.md
 defer	read	bash	-	-	cd @SCRATCH@/kb && perl -pi -e s/a/b/ real.md | cat
 defer	read	bash	-	-	curl --output-dir @SCRATCH@/kb -o out.html https://example.invalid

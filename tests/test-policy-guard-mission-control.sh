@@ -155,6 +155,10 @@ echo "# an in-place editor or write the screen reads only as text, into a reposi
 pg mission-control "bash <<'EOF'${NL}perl -pi -e s/a/b/ $SCRATCH/kb/real.md${NL}EOF"
 expect deny "[mission-control] an in-place editor in a here-document a shell reads is refused"
 reason_has 'edits no repository' "[mission-control] the here-document in-place refusal names the repository rule"
+pg mission-control "bash <<'EOF'${NL}echo ed vi ex${NL}EOF"
+expect defer "[mission-control] editor names a here-document only prints are no editor run"
+pg mission-control "cd${NL}x=1 && echo hi > README.md"
+expect deny "[mission-control] a bare cd ending its line keeps the starting directory a write base"
 pg mission-control "cd $KB && cat > notes.md <<'EOF'${NL}text${NL}EOF"
 expect defer "[mission-control] a store heredoc after the one cd, from a repository cwd, is permitted"
 # shellcheck disable=SC2016 # the command text is literal

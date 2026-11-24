@@ -45,15 +45,20 @@
 # target inside a work tree or bare repository denies in the same terms as the
 # file surface, read as written and followed on disk: a redirect (>, >>, >|,
 # &>), tee, dd's of=, truncate, cp, mv (its sources too), install, rsync, ln,
-# the output options of sort, curl, wget, tar and unzip, sed -i or --in-place,
-# perl -i, awk or gawk loading the inplace extension, and every file ed, ex or
-# vi edits, each option value read as its tool reads it, a variable the command
-# assigned a plain literal read as that literal. An in-place editor behind a
-# runner, in a here-document a shell reads, or in text the guard cannot parse
-# denies too. A relative target counts from the directory the command starts
-# in and every one it changes to, unless it opens with its only cd, joined to
-# every later statement by &&. rm, touch, mkdir and a program an interpreter
-# runs are not read, the accepted residual. Its flip,
+# the output options of sort, curl, wget, tar and unzip, sed or gsed -i or
+# --in-place, perl or ruby -i, awk or gawk including the inplace extension, and
+# every file ed, ex or vi (under any of vim's names) edits, each option value
+# read as its tool reads it, a variable the command assigned a plain literal
+# read as that literal. An in-place editor behind xargs, find -exec, a shell's
+# command string or eval, in a here-document a shell reads, or in text the
+# guard cannot parse denies too. A relative target counts from the directory
+# the command starts in and every one it changes to, unless it opens with its
+# only cd, joined to every later statement by &&. Not read, the accepted
+# residual: rm, touch and mkdir; a program an interpreter runs, and a file an
+# editor's own script writes (sed's w, ed's or vi's :w to another name); a file
+# a tool writes under a default name in the working directory (wget, curl -O,
+# an unpack with no -C or -d); and writers the screen does not parse (find
+# -fprint, patch, sponge and the like). Its flip,
 # for a PR of the repository it runs in or of a program-listed one it names
 # with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency
@@ -5704,7 +5709,7 @@ RE_MC_DATA_MEMORY='^(~|\$HOME|\$\{HOME\}|/[^$`*?[{]*)/\.c[l]aude/(projects/[^/$`
 # A word that runs the text it is handed, so quoted text stays in view.
 RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|python3?|perl|ruby|node|xargs|ssh)([^[:alnum:]_-]|$)'
 # A write verb in unparsed text; sed counts only with an in-place flag.
-RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])(((cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
+RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])(((cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
 RE_MC_REBIND='(^|[^[:alnum:]_])(eval|printf[[:space:]]+-v|declare|typeset|local|read|mapfile|readarray|unset|source|export[[:space:]]+-n)([^[:alnum:]_]|$)|\$\{!'
 MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'
@@ -5743,25 +5748,36 @@ RE_MC_RUNNER='^(env|sudo|doas|xargs|nohup|nice|ionice|timeout|gtimeout|stdbuf|se
 RE_MC_RUNNER_CMD=${RE_MC_RUNNER#^}
 RE_MC_RUNNER_CMD='(^|[;&|(){}!]|'$'\n'')[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|then|do|else|elif|if|while|until|!)[[:space:]]+)*([^[:space:];&|()]*/)?'${RE_MC_RUNNER_CMD%$}'([[:space:]]|$)'
 # A write verb as a word. Keep it in step with mc_settings_screen's verb
-# dispatch: a verb missing here is screened bare but not behind a runner.
-RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-])(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|sort|c[u]rl|w[g]et|tar|unzip)([^[:alnum:]_-]|$)'
+# dispatch: a verb missing here is screened bare but not behind a runner. The
+# in-place editors (mc_inplace_targets) have their own text form,
+# RE_MC_INPLACE_*, kept in step with that parser's verbs.
+RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-])(cp|mv|install|ln|link|tee|dd|rsync|truncate|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([^[:alnum:]_-]|$)'
 # The same verbs as whole words among a runner's text: a script or file named
 # after a verb (install.sh, sort.py) is no verb.
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/])(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|sort|c[u]rl|w[g]et|tar|unzip)([[:space:];&|)`}]|$)'
+RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/])(cp|mv|install|ln|link|tee|dd|rsync|truncate|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([[:space:];&|)`}]|$)'
 MC_UNPARSED_DENY='mission control writes no settings or configuration file, and this command runs a write verb or writer in text the guard cannot parse (a command substitution, say), so it cannot read the target - refusing (fail closed). Run the write in a command of its own, with no substitution.'
 MC_WRAPPED_DENY='mission control writes no settings or configuration file, and this command hands a write verb to another command (behind a wrapper, xargs, a shell or find) whose targets the guard cannot read - refusing (fail closed). Run the write verb on its own with its target spelled out.'
 MC_REPO_DENY='mission control edits no repository, and this command writes a path that lies inside one (read as written and followed on disk, from every directory the command may run in); every change goes through a session it dispatches.'
-MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs an in-place editor (perl -i, awk -i inplace, ed, ex or vi) behind another command (a wrapper, xargs, a shell or find), in a here-document a shell reads, or in text the guard cannot parse, so it cannot read the files it rewrites - refusing (fail closed). Run the editor as its own command with its files spelled out; every repository change goes through a session it dispatches.'
-# An in-place editor in text, its name in any letter case: perl with a switch
-# cluster carrying i, awk or gawk naming the inplace extension, and the line
-# editors and vi, whose every file operand is opened for writing.
-# shellcheck disable=SC2016 # regexes; the backquote is literal
-RE_MC_INPLACE_PERL='(^|[[:space:];&|(`{=/])[Pp][Ee][Rr][Ll][0-9.]*[[:space:]]([^;&|]*[[:space:]])?-[A-Za-z0-9]*i'
+MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs an in-place editor (perl -i, ruby -i, awk with the inplace extension, ed, ex or vi) behind another command (xargs, find, a shell or eval), in a here-document a shell reads, or in text the guard cannot parse, so it cannot read the files it rewrites - refusing (fail closed). Run the editor as its own command with its files spelled out; every repository change goes through a session it dispatches.'
+# An in-place editor run in text: its name opening a statement (past
+# assignments, keywords, a wrapper and its options, and a directory prefix),
+# so a word that is only an argument (grep ex, find -name vi) is none. perl or
+# ruby with a switch cluster reaching i past flag letters only, awk or gawk
+# including the inplace extension, and the line editors and vi, whose every
+# file operand is opened for writing. The name is matched in any letter case,
+# perl's and ruby's i in their own (it is no I). A closing parenthesis or
+# backquote opens no statement, so the word after one is an argument.
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_INPLACE_AWK='(^|[[:space:];&|(`{=/])[Gg]?[Aa][Ww][Kk][[:space:]][^;&|]*[Ii][Nn][Pp][Ll][Aa][Cc][Ee]'
+RE_MC_INPLACE_LEAD='(^|[;&|({]|'$'\n''|(^|[[:space:]=])`|[[:space:]]-(exec|execdir|ok|okdir)[[:space:]])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|then|do|else|elif|if|while|until|!|env|nice|nohup|timeout|stdbuf|setsid|sudo|doas|exec|command|builtin|time|xargs|busybox|-[^[:space:]]*|[0-9][^[:space:]]*)[[:space:]]+)*([^[:space:];&|()]*/)?'
+RE_MC_INPLACE_PERL=$RE_MC_INPLACE_LEAD'([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:space:]]+([^;&|]*[[:space:]])?-[0-9acnpsStTuUvwWXhl]*i'
+RE_MC_INPLACE_AWK=$RE_MC_INPLACE_LEAD'g?awk[[:space:]]+([^;&|]*[[:space:]])?(-i[[:space:]]*|--i[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk)?([[:space:];&|)]|$)'
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_INPLACE_EDITOR='(^|[[:space:];&|(`{=/])([Ee][DdXx]|[Vv][Ii][Mm]?|[Nn][Vv][Ii][Mm])([[:space:];&|)`}]|$)'
+RE_MC_INPLACE_EDITOR=$RE_MC_INPLACE_LEAD'(r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([[:space:];&|)`}]|$)'
+# The same tools named anywhere, as a word: the screen's opening test, which
+# only decides whether a command is parsed at all (a shell's command string
+# runs a tool its own words never put in command position).
+RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-])(perl|ruby|g?awk|g?sed|r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([^[:alnum:]_-]|$)'
 # The hop bound for one link chain.
 readonly MC_HOP_MAX=40
 
@@ -5931,8 +5947,21 @@ mc_phys_dir() {
 # answer for itself), a chain past MC_HOP_MAX, more follows than
 # MC_FOLLOW_MAX, or the guard's deadline near. MC_PHYS_MISSING: 0 the path
 # exists, 1 only its last component is missing, 2 a directory above it is
-# missing too.
+# missing too. The last path followed is kept: the posture and repository
+# screens follow each target in turn, and the disk stands still between them.
+MC_RP_KEY=''
+MC_RP_PHYS=''
+MC_RP_MISSING=0
 mc_resolve_path() {
+  if [ -n "$MC_RP_KEY" ] && [ "$1" = "$MC_RP_KEY" ]; then
+    MC_PHYS=$MC_RP_PHYS MC_PHYS_MISSING=$MC_RP_MISSING
+    return 0
+  fi
+  mc_resolve_path_walk "$1" || return 1
+  MC_RP_KEY=$1 MC_RP_PHYS=$MC_PHYS MC_RP_MISSING=$MC_PHYS_MISSING
+}
+
+mc_resolve_path_walk() {
   local p=$1 n=0 dir leaf d rest phys tgt
   MC_PHYS_MISSING=0
   MC_FOLLOWS=$((MC_FOLLOWS + 1))
@@ -6173,8 +6202,12 @@ mc_reaches_repo() {
 # mc_inplace_text <text> — 0 when the text, its quotes and escapes dropped,
 # runs an in-place editor (RE_MC_INPLACE_*).
 mc_inplace_text() {
-  local t=${1//[\"\'\\]/}
-  [[ $t =~ $RE_MC_INPLACE_PERL || $t =~ $RE_MC_INPLACE_AWK || $t =~ $RE_MC_INPLACE_EDITOR ]]
+  local t=${1//[\"\'\\]/} rc=1
+  [[ $t =~ $RE_MC_INPLACE_PERL ]] && return 0
+  shopt -s nocasematch
+  [[ $t =~ $RE_MC_INPLACE_AWK || $t =~ $RE_MC_INPLACE_EDITOR ]] && rc=0
+  shopt -u nocasematch
+  return "$rc"
 }
 
 # mc_env_rebound <name> — 0 when the command could rebind the variable, so its
@@ -6287,13 +6320,17 @@ mc_rel_bases() {
 # &&, and every later statement is joined the same way (a pipe within one
 # aside): nothing after the cd runs unless it moved the shell, so the working
 # directory the command started in is no place a relative write lands. Quoted
-# text is blanked first; text a scan cannot follow (a quote left open, an
-# escape) keeps its quotes, and a separator inside them reads as one.
+# text is blanked first; text whose quoting a scan cannot follow (a quote left
+# open, an escape, a comment) is not read, so the cwd stays a base. The cd and
+# its && share a line: a bare cd ending its line is a statement of its own.
 mc_cd_first() {
   local b after re
   mc_blank_quotes "$1" all
   b=$MC_BLANKED
-  re='^[[:space:]]*cd[[:space:]][^;&|<>()`{}'$NL']*&&'
+  if [ "$b" = "$1" ]; then
+    case $1 in *[\"\'\\#]*) return 1 ;; esac
+  fi
+  re='^[[:space:]]*cd[[:blank:]][^;&|<>()`{}'$NL']*&&'
   [[ $b =~ $re ]] || return 1
   after=${b#"${BASH_REMATCH[0]}"}
   # A here-document body dropped before this leaves its closing line break.
@@ -6640,7 +6677,9 @@ mc_under_store_root() {
 # one on disk, or cannot be followed there, or, with <repo> 1, lands inside a
 # repository (mc_reaches_repo). <role> (default 1, a path the write opens) is
 # mc_target_posture's; <repo> defaults to 1 for every role but a copy source
-# (2), which is only read. MC_REFUSAL is the reason to give.
+# (2), which is only read, and `only` skips the on-disk posture follow for a
+# word an earlier call already passed through it. MC_REFUSAL is the reason to
+# give.
 mc_write_word_refused() {
   local w=${1#of=} rc repo=${3:-}
   if [ -z "$repo" ]; then
@@ -6660,7 +6699,7 @@ mc_write_word_refused() {
     mc_posture_word "$w" && return 0
   fi
   MC_REFUSAL=$MC_LINK_DENY
-  mc_write_via_link "$w" && return 0
+  [ "$repo" = only ] || ! mc_write_via_link "$w" || return 0
   MC_REFUSAL=$MC_SETTINGS_DENY
   if mc_expands "$w"; then
     # An expansion under a program home could assemble a link or a dot-dot
@@ -6674,7 +6713,7 @@ mc_write_word_refused() {
       0) w=$MC_DL ;;
       2)
         # A fresh mktemp -d directory sits in TMPDIR, or in /tmp with none set.
-        [ "$repo" = 1 ] || return 1
+        [ "$repo" != 0 ] || return 1
         MC_REFUSAL=$MC_REPO_DENY
         mc_repo_path "${TMPDIR:-/tmp}"
         return
@@ -6683,8 +6722,10 @@ mc_write_word_refused() {
     esac
   fi
   MC_REFUSAL=$MC_LINK_DENY
-  mc_reaches_posture "$w" "${2:-1}" && return 0
-  [ "$repo" = 1 ] || return 1
+  if [ "$repo" != only ]; then
+    mc_reaches_posture "$w" "${2:-1}" && return 0
+  fi
+  [ "$repo" != 0 ] || return 1
   MC_REFUSAL=$MC_REPO_DENY
   mc_reaches_repo "$w"
 }
@@ -7094,12 +7135,13 @@ mc_ipt_sed() {
   return 0
 }
 
-# mc_ipt_perl <first> — perl, whose switches end at the first word that is not
-# one: a cluster's i makes the run in-place (the rest of the cluster its
-# backup suffix); e and E give the program, I takes a value, and the switches
-# that take the rest of their cluster end it.
+# mc_ipt_perl <first> <perl|ruby> — perl or ruby, whose switches end at the
+# first word that is not one: a cluster's i makes the run in-place (the rest of
+# the cluster its backup suffix); e (and perl's E) gives the program, I (and
+# ruby's r, C and E) takes a value, 0 takes its octal or 0x hex digits and the
+# cluster goes on, and the switches that take the rest of their cluster end it.
 mc_ipt_perl() {
-  local k=$1 n=${#SW[@]} w c ch j ip=0 given=0 val=0 stop=0 pos=()
+  local k=$1 tool=$2 n=${#SW[@]} w c ch j ip=0 given=0 val=0 stop=0 pos=()
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     k=$((k + 1))
@@ -7123,17 +7165,32 @@ mc_ipt_perl() {
         while [ "$j" -lt "${#c}" ]; do
           ch=${c:$j:1}
           j=$((j + 1))
-          case $ch in
-            i)
+          case $tool:$ch in
+            *:i)
               ip=1
               break
               ;;
-            e | E | I)
-              [ "$ch" = I ] || given=1
+            *:0)
+              case ${c:$j:1} in
+                x | X)
+                  j=$((j + 1))
+                  while [ "$j" -lt "${#c}" ]; do
+                    case ${c:$j:1} in [0-9A-Fa-f]) j=$((j + 1)) ;; *) break ;; esac
+                  done
+                  ;;
+                *)
+                  while [ "$j" -lt "${#c}" ]; do
+                    case ${c:$j:1} in [0-7]) j=$((j + 1)) ;; *) break ;; esac
+                  done
+                  ;;
+              esac
+              ;;
+            *:e | perl:E | *:I | ruby:r | ruby:C | ruby:E)
+              case $tool:$ch in *:e | perl:E) given=1 ;; esac
               [ "$j" -lt "${#c}" ] || val=1
               break
               ;;
-            C | d | D | F | m | M | x | V) break ;;
+            *:d | *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V | ruby:K) break ;;
           esac
         done
         ;;
@@ -7157,19 +7214,46 @@ mc_ipt_inplace_lib() {
   return 1
 }
 
+# mc_ipt_awk_includes <program text> — 0 when awk program text includes or
+# loads the inplace extension.
+mc_ipt_awk_includes() {
+  local re='@(include|load)[[:space:]]*"([^"]*/)?inplace(\.awk)?"'
+  [[ $1 =~ $re ]]
+}
+
+# mc_ipt_awk_opt <letter> <value> — one awk option with its value, applied to
+# the calling mc_ipt_awk's ip, given and stop (bash's dynamic scope): -i
+# includes a library; -f, -e and -E give the program, -E ending the options;
+# the program file named inplace.awk, or program text including it, is the
+# extension itself.
+mc_ipt_awk_opt() {
+  case $1 in
+    i) ! mc_ipt_inplace_lib "$2" || ip=1 ;;
+    f | E)
+      given=1
+      [ "$1" != E ] || stop=1
+      lc "${2##*/}"
+      case $LC in inplace | inplace.awk) ip=1 ;; esac
+      ;;
+    e)
+      given=1
+      ! mc_ipt_awk_includes "$2" || ip=1
+      ;;
+  esac
+}
+
 # mc_ipt_awk <first> — awk and gawk, whose options end at the program text:
-# an include (-i or --include) of the inplace extension makes the run
-# in-place; -f, -e and -E (or --file, --source, --exec) give the program, so
-# no positional word is; -v, -F, -l and -W take a value. A var=value operand
-# is an assignment, no file.
+# including the inplace extension (mc_ipt_awk_opt, or the program text) makes
+# the run in-place; -f, -e and -E (or --file, --source, --exec) give the
+# program, so no positional word is; -v, -F, -l and -W take a value. A
+# var=value operand is an assignment, no file.
 mc_ipt_awk() {
-  local k=$1 n=${#SW[@]} w c ch j ip=0 given=0 val='' stop=0 pos=() kind v
+  local k=$1 n=${#SW[@]} w c ch j ip=0 given=0 val='' stop=0 pos=()
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     k=$((k + 1))
     if [ -n "$val" ]; then
-      [ "$val" != inc ] || ! mc_ipt_inplace_lib "$w" || ip=1
-      [ "$val" != last ] || stop=1
+      mc_ipt_awk_opt "$val" "$w"
       val=''
       continue
     fi
@@ -7180,24 +7264,24 @@ mc_ipt_awk() {
     case $w in
       --) stop=1 ;;
       --?*)
-        c=${w%%=*} kind=''
+        # Each long option as the short one it spells.
+        c=${w%%=*} ch=''
         if mc_long_is "$c" 3 --include; then
-          kind=inc
+          ch=i
         elif mc_long_is "$c" 3 --exec; then
-          kind=last
-        elif mc_long_is "$c" 4 --file --source; then
-          kind=prog
+          ch=E
+        elif mc_long_is "$c" 4 --file; then
+          ch=f
+        elif mc_long_is "$c" 4 --source; then
+          ch=e
         elif mc_long_is "$c" 4 --assign --field-separator --load; then
-          kind=arg
+          ch=v
         fi
-        [ -n "$kind" ] || continue
-        [ "$kind" = inc ] || [ "$kind" = arg ] || given=1
+        [ -n "$ch" ] || continue
         if [ "$c" = "$w" ]; then
-          val=$kind
+          val=$ch
         else
-          v=${w#*=}
-          [ "$kind" != inc ] || ! mc_ipt_inplace_lib "$v" || ip=1
-          [ "$kind" != last ] || stop=1
+          mc_ipt_awk_opt "$ch" "${w#*=}"
         fi
         ;;
       -?*)
@@ -7207,19 +7291,10 @@ mc_ipt_awk() {
           j=$((j + 1))
           case $ch in
             f | e | E | i | v | F | l | W)
-              case $ch in
-                f | e) kind=prog ;;
-                E) kind=last ;;
-                i) kind=inc ;;
-                *) kind=arg ;;
-              esac
-              [ "$kind" = inc ] || [ "$kind" = arg ] || given=1
               if [ "$j" -lt "${#c}" ]; then
-                v=${c:$j}
-                [ "$kind" != inc ] || ! mc_ipt_inplace_lib "$v" || ip=1
-                [ "$kind" != last ] || stop=1
+                mc_ipt_awk_opt "$ch" "${c:$j}"
               else
-                val=$kind
+                val=$ch
               fi
               break
               ;;
@@ -7232,8 +7307,11 @@ mc_ipt_awk() {
         ;;
     esac
   done
+  if [ "$given" = 0 ] && [ "${#pos[@]}" -gt 0 ]; then
+    ! mc_ipt_awk_includes "${pos[0]}" || ip=1
+    pos=("${pos[@]:1}")
+  fi
   [ "$ip" = 1 ] || return 1
-  [ "$given" = 1 ] || [ "${#pos[@]}" = 0 ] || pos=("${pos[@]:1}")
   for w in ${pos[@]+"${pos[@]}"}; do
     [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || mc_ipt_add "$w"
   done
@@ -7280,18 +7358,19 @@ mc_ipt_ed() {
   return 0
 }
 
-# mc_ipt_vi <first> — ex, vi, vim and nvim, which can write every file they
-# edit: every operand is one, and so is the script file -w or -W writes; +cmd
-# runs a command, and -c, -S, -u, -U, -i, -T, -t and -q (and the long options
-# that take one) take a value.
+# mc_ipt_vi <first> — ex, vi and vim under each of their names, which can
+# write every file they edit: every operand is one, and so is the script file
+# -w or -W writes; +cmd runs a command, and -c, -S, -u, -U, -i, -T, -t and -q
+# (and the long options that take one) take a value. val is what the next word
+# is: skip (an option's value) or written (a file the option writes).
 mc_ipt_vi() {
-  local k=$1 n=${#SW[@]} w c ch j val=0 ends=0
+  local k=$1 n=${#SW[@]} w c ch j val='' ends=0
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     k=$((k + 1))
-    if [ "$val" != 0 ]; then
-      [ "$val" != 2 ] || mc_ipt_add "$w"
-      val=0
+    if [ -n "$val" ]; then
+      [ "$val" != written ] || mc_ipt_add "$w"
+      val=''
       continue
     fi
     if [ "$ends" = 0 ]; then
@@ -7301,7 +7380,7 @@ mc_ipt_vi() {
           continue
           ;;
         --cmd | --startuptime | --servername | --remote-expr | --remote-send | --listen | --log)
-          val=1
+          val=skip
           continue
           ;;
         --* | +*) continue ;;
@@ -7315,8 +7394,8 @@ mc_ipt_vi() {
                 if [ "$j" -lt "${#c}" ]; then
                   case $ch in w | W) mc_ipt_add "${c:$j}" ;; esac
                 else
-                  val=1
-                  case $ch in w | W) val=2 ;; esac
+                  val=skip
+                  case $ch in w | W) val=written ;; esac
                 fi
                 break
                 ;;
@@ -7333,15 +7412,16 @@ mc_ipt_vi() {
 }
 
 # mc_inplace_targets <verb> <first> — the parser for the verb; 1 for a verb
-# with none.
+# with none. Keep its verbs in step with RE_MC_INPLACE_*.
 mc_inplace_targets() {
   MC_IPT=()
   case $1 in
-    sed) mc_ipt_sed "$2" ;;
-    perl | perl[0-9]*) mc_ipt_perl "$2" ;;
+    sed | gsed) mc_ipt_sed "$2" ;;
+    perl | perl[0-9]*) mc_ipt_perl "$2" perl ;;
+    ruby | ruby[0-9]*) mc_ipt_perl "$2" ruby ;;
     awk | gawk) mc_ipt_awk "$2" ;;
-    ed) mc_ipt_ed "$2" ;;
-    ex | vi | vim | nvim) mc_ipt_vi "$2" ;;
+    ed | red) mc_ipt_ed "$2" ;;
+    ex | vi | vim | gvim | nvim | view | rview | rvim | vimdiff) mc_ipt_vi "$2" ;;
     *) return 1 ;;
   esac
 }
@@ -7423,9 +7503,9 @@ mc_settings_screen() {
       if [ "$named" = 0 ]; then
         k=1
         shopt -s nocasematch
-        [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS ]] && k=0
+        [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_INPLACE_NAMES ]] && k=0
         shopt -u nocasematch
-        [ "$k" = 0 ] || mc_inplace_text "$t" || return 0
+        [ "$k" = 0 ] || return 0
         k=0
       fi
       ;;
@@ -7455,6 +7535,10 @@ mc_settings_screen() {
   # shellcheck disable=SC2016 # literal patterns
   [[ $r =~ $RE_MC_INTERPRETER || $r == *\\* || $r =~ $re || $r =~ $RE_MC_RUNNER_CMD || $r == *'"$('* || $r == *'"`'* ]] && scan=0
   case $r in *'<<'*) [ "$stripped" = 1 ] || scan=0 ;; esac
+  # eval joins its words before it parses them, so a redirect sign quoted apart
+  # from its target ('>' file) is read with the quotes gone as well.
+  re='(^|[;&|(){}]|'$NL')[[:space:]]*eval[[:space:]]'
+  [[ $r =~ $re ]] && r="$r$NL${r//[\"\']/}"
   MC_BLANKED=$r
   [ "$scan" = 0 ] || mc_blank_quotes "$r" messages
   # Text that names a posture file next to a redirect refuses, unless the only
@@ -7522,7 +7606,7 @@ XEOF_RUN
     if [ -n "$wg" ] && [ "$wg" != "$w" ]; then
       ! mc_write_word_refused "$wg" 1 || emit_deny "$MC_REFUSAL"
     fi
-    ! mc_write_word_refused "$w" || emit_deny "$MC_REFUSAL"
+    ! mc_write_word_refused "$w" 1 only || emit_deny "$MC_REFUSAL"
   done
   if ! tokenize "$t"; then
     # Unparsed text (a command substitution, say) fails closed where it could
@@ -7645,12 +7729,20 @@ XEOF_RUN
           [[ " ${LC##*/} " =~ $RE_MC_RUNNER_WORDS ]] && w=CMD
         fi
         # An in-place editor found here is vetted the same way, the runner
-        # itself among them (perl and awk run text too).
+        # itself among them (perl and awk run text too). xargs's command and
+        # the command after a find -exec open a statement; a word holding a
+        # command string (a shell's -c text) is read as one of its own.
         if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ]; then
           ci="$ci CMD "
+        elif [ "$k" = "$vi" ]; then
+          ci="$ci ; $w "
         else
           ci="$ci $w "
         fi
+        case $w in -exec | -execdir | -ok | -okdir) ci="$ci ; " ;; esac
+        case $w in
+          *[[:space:]\;\&\|\(\)\`]*) ! mc_inplace_text "$w" || emit_deny "$MC_REPO_WRAPPED_DENY" ;;
+        esac
         k=$((k + 1))
         c="$c $w "
       done
@@ -7743,7 +7835,7 @@ XEOF_RUN
       w[g]et) outflag='OPoa --output-document --directory-prefix --output-file --append-output --save-cookies --rejected-log' ;;
       tar) outflag='Cfg --directory --file --one-top-level= --listed-incremental --index-file --volno-file' ;;
       unzip) outflag='d' ;;
-      sed)
+      sed | gsed)
         # The files an in-place run rewrites, read as sed's own parser reads
         # them; the operand scan below stays the posture screen's.
         if mc_inplace_targets sed "$((vi + 1))"; then
@@ -7756,14 +7848,14 @@ XEOF_RUN
         done
         [ "$inplace" = 1 ] || continue
         ;;
-      perl | perl[0-9]* | awk | gawk | ed | ex | vi | vim | nvim)
+      *)
+        # An in-place editor's files; any other verb writes nothing here.
         mc_inplace_targets "$verb" "$((vi + 1))" || continue
         for w in ${MC_IPT[@]+"${MC_IPT[@]}"}; do
           ! mc_write_word_refused "$w" 1 || emit_deny "$MC_REFUSAL"
         done
         continue
         ;;
-      *) continue ;;
     esac
     if [ -n "$outflag" ]; then
       mc_outflag_screen "$verb" "$outflag" "$((vi + 1))"
@@ -7803,16 +7895,17 @@ XEOF_RUN
         opsr[${#opsr[@]}]=0
         continue
       fi
-      # truncate's size and reference file are values.
-      if [ "$verb" = truncate ]; then
-        case $w in
-          --?*) ! mc_long_is "$w" 3 --size --reference || k=3 ;;
-          -[!-]*)
-            c=${w#-}
-            case $c in *[rs]*) [ -n "${c#*[rs]}" ] || k=3 ;; esac
-            ;;
-        esac
-      fi
+      # truncate's size and reference file, and a copy verb's backup suffix,
+      # are values.
+      case $verb:$w in
+        truncate:--?*) ! mc_long_is "$w" 3 --size --reference || k=3 ;;
+        truncate:-[!-]*)
+          c=${w#-}
+          case $c in *[rs]*) [ -n "${c#*[rs]}" ] || k=3 ;; esac
+          ;;
+        cp:--?* | mv:--?* | install:--?*) ! mc_long_is "$w" 4 --suffix || k=3 ;;
+        cp:-S | mv:-S | install:-S | cp:-[!-]*S | mv:-[!-]*S | install:-[!-]*S) k=3 ;;
+      esac
       case $w in
         -e | -f | --expression | --file)
           # sed's script options; for any other verb these are plain flags.
