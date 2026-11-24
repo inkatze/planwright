@@ -276,6 +276,8 @@ SREC=$REPO_ROOT/scripts/step-record.sh
 SRUN=$REPO_ROOT/scripts/step-run.sh
 mkdir -p "$WT/bin"
 ln -s "$SREC" "$WT/bin/sr"
+ln -s "$SRUN" "$WT/bin/sn"
+: >"$WT/scripts/step-record.sh"
 SARGS='write --run <word> --point <word> --step <word> --start <word> --outcome <word>'
 SDECLS="scripts/step-record.sh $SARGS; ./scripts/step-record.sh $SARGS"
 SDECLS="$SDECLS; mise exec -- scripts/step-record.sh $SARGS; mise exec -- $SREC $SARGS"
@@ -283,9 +285,11 @@ SDECLS="$SDECLS; $SREC $SARGS; SCRIPTS/STEP-RECORD.SH $SARGS; mise exec -- Scrip
 SDECLS="$SDECLS; mise exec -- ./scripts/step-record.sh $SARGS; mise exec -- step-record.sh $SARGS"
 SDECLS="$SDECLS; bin/sr $SARGS; make check SCRIPT=scripts/step-record.sh"
 SDECLS="$SDECLS; mise exec -- scripts/step-run.sh <word>...; mise exec -- $SRUN <word>..."
+SDECLS="$SDECLS; make check SCRIPT=scripts/step-run.sh; make check A=B=scripts/step-record.sh"
+SDECLS="$SDECLS; bin/sn <word>...; bin/lint <path>...; make check SCRIPT=scripts/ok.sh"
 SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>"
-# No word of it is one the partner scan refuses, so only the step-script
-# reading keeps it from the own push.
+# No word of these write arguments is one the partner scan refuses, so only
+# the step-script reading keeps the rows below from the own push.
 SW="write --run 000001 --point pre-pr --step lint --start $T --outcome passed"
 STEPPED=(
   "scripts/step-record.sh $SW"
@@ -301,13 +305,27 @@ STEPPED=(
   "make check SCRIPT=scripts/step-record.sh"
   "mise exec -- scripts/step-run.sh frobnicate"
   "mise exec -- $SRUN frobnicate"
+  "make check SCRIPT=scripts/step-run.sh"
+  "make check A=B=scripts/step-record.sh"
+  "bin/sn frobnicate"
+  # Every word is read, so a step script given only as an argument defers too.
+  "bin/lint scripts/step-record.sh"
+)
+# Each control: a declared read-only command naming no step script, which
+# still runs alone and partners the own push.
+CONTROLS=(
+  "mix test test"
+  "mise exec -- mix credo strict"
+  "make check SCRIPT=scripts/ok.sh"
+  "bin/lint scripts/ok.sh"
 )
 for col in 1 4; do
   under "$(with_checks "stepped.$col" "$col" "$SDECLS")"
-  assert_allow "F1.12 [$col]: a read-only check command still partners the own push" \
-    "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
-  assert_allow "F1.12 [$col]: a runner-prefixed check command still partners the own push" \
-    "mise exec -- mix credo strict && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  for c in "${CONTROLS[@]}"; do
+    assert_allow "F1.12 [$col]: declared $c, alone as before" "$c" Bash "$WT"
+    assert_allow "F1.12 [$col]: declared $c still partners the own push" \
+      "$c && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  done
   for s in "${STEPPED[@]}"; do
     assert_defer "F1.12 [$col]: declared $s, alone" "$s" Bash "$WT"
     assert_defer "F1.12 [$col]: declared $s before the own push" \
