@@ -321,7 +321,8 @@
 #       then relaunch with `--resume <session_id>`, in --cwd when given and
 #       otherwise in the caller's directory (a session resumes only from the
 #       directory it started in). A missing session halts
-#       with exit 4, a failed resume with exit 5 — both surfaced as
+#       with exit 4, a failed resume with exit 5 (a launch opt-in record the
+#       resume cannot trust among them: launch the worker fresh) — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
 #       tower and other workers continue). A launch opt-in record the resume
 #       cannot trust refuses the recover with exit 7: launch the worker fresh.
