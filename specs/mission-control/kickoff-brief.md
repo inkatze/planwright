@@ -2274,3 +2274,202 @@ Class: meaning
 Lens-pass: Amendment 20, delta-scoped lens review above (spec lens set, walked inline; every finding dispositioned)
 Anchor: `e8a82e83c86249cc4318668a621324b622bfc864` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 21 (2026-11-22, amendment: what a spec-branch pull request's own worker may push, and finished bundles that predate kickoff)
+
+Spec path `specs/mission-control`; walk started at `6863c1f0`; walkthrough
+date 2026-11-22. Mode: amendment on an Active bundle, operator-declared
+through the hub ("Small amendment first (Recommended)") and walked by relay,
+one plain question per turn. Validator at walk start: 0 errors, 0 warnings.
+Scope: a worker on a spec's sign-off pull request may push a clean forward
+merge of main onto that spec branch (PR #1140); a worker on an amendment or
+spec-rework pull request may push only a clean merge of the pull request's
+base (the refusal of everything else is PR #1155's); readiness accepts a
+finished bundle that predates kickoff and has no brief (PR #1142).
+Numbering: read against origin/main, every mission-control branch, local
+and remote, and spec-pipeline's ID ledger of reservations on branches that
+have not landed. REQ-I1.9 and REQ-I1.10 are reserved there, so this
+amendment mints REQ-D1.18, REQ-I1.11, D-114 and Tasks 148 and 149. The
+relay brief placed the worker-tier parity note on Task 32; it is Task 19's
+(the kickoff permission profile; Task 32 is the tower-comms reply-hook
+amendment).
+
+#### Goal and glossary (Amendment 21)
+
+Restatement: the session working a spec's own pull request may keep that
+branch current with main by itself, but may never change the spec text,
+which stays the kickoff's and the operator's; and readiness stops refusing
+pull requests that touch a bundle finished before kickoff existed. Rules
+out: any new route for a spec edit, any rewrite or force, any human-gates
+text change from this walk. Assumes: PR #1140 and PR #1155 land as the
+build (Task 148), and the human-gates batch amendment admits the merge and
+push. Terms: *spec-branch pull request* (REQ-I1.11: head a sign-off,
+amendment or spec-rework branch; distinct from REQ-D1.14's *spec-only pull
+request*, which is about the changed paths); *sign-off branch*
+(`planwright/<spec>/spec`); *base* here (the remote's default branch);
+*clean merge* (a two-parent merge of a base commit whose tree is exactly
+the clean merge of its parents); *legacy bundle* (REQ-D1.18).
+
+#### Requirements walkthrough (Amendment 21)
+
+Four questions went to the operator through the hub, each with a marked
+recommendation; their answers, verbatim:
+
+1. Several merges in one push, and an empty push: "Allow both
+   (Recommended)".
+2. Bundle-only commits on an amendment or spec-rework branch: "No, base
+   merges only (Recommended)".
+3. The legacy-bundle exception: "Record + read the PR base (Recommended)"
+   (the hub's recommendation; this walk had recommended recording it as
+   built with the stale-ref gap accepted). The base-commit read is Task
+   149.
+4. Human-gates REQ-E1.1 forbids a worker's merge into a spec branch: "Hold
+   builds until both sign (Recommended)". Mission control later relayed the
+   operator's standing rules: the human-gates work folds into that spec's
+   next batch amendment, which also asks whether spec-rework is included
+   (it recommends including it); Amendment 21 keeps spec-rework, subject
+   to that answer.
+
+Inconsistency resolved by spec edit: REQ-D1.13 required a matching anchor
+for every bundle readiness reads, which the merged #1142 contradicts;
+REQ-D1.18 supersedes it with the exception, the REQ-D1.13 body unedited.
+Spec edits: `requirements.md` (REQ-D1.13's `Superseded-by` line,
+REQ-D1.18, REQ-I1.11, notes on REQ-D1.14 and REQ-I1.8, three Sources
+entries, the changelog line); `design.md` (D-114, notes on D-33, D-36 and
+D-45); `tasks.md` (Tasks 148 and 149, notes on Tasks 19, 35, 36 and 37);
+`test-spec.md` (the REQ-D1.18 and REQ-I1.11 entries, pointer notes on the
+REQ-D1.14 and REQ-I1.8 entries).
+
+#### Design walkthrough (Amendment 21)
+
+D-114 is minted for the worker's merge-and-push route. D-36 gains a note
+(its kickoff push unchanged, the worker route separate); D-45 gains the
+legacy exception with its rejected alternative (a retro kickoff of every
+pre-kickoff bundle); D-33's spec-only hold points at it. No decision is
+superseded.
+
+#### Verification approach (Amendment 21)
+
+Both new requirements have `[test]` entries. REQ-D1.18's acceptance and
+refusals run today in `tests/test-mc-readiness-legacy-done.sh`; its
+stale-ref rename case is Task 149's to add. REQ-I1.11's sign-off-branch
+cases run in #1140's suite once it lands; its amendment and spec-rework
+cases, and the inversion of #1155's denies for the named branch, are Task
+148's. No dead path: each named check runs today or is a signed task's
+deliverable.
+
+#### Task graph (Amendment 21)
+
+Task 149 depends on Task 35 (completed). Task 148 has no in-bundle
+dependency; its hold is the human-gates batch amendment, stated in its
+deliverables because a foreign amendment is not a task id. Deliberate
+non-edge: Task 148 does not depend on Task 19 (the kickoff kind is another
+tier).
+
+#### Risk register (Amendment 21)
+
+1. A legacy bundle's content can change in a pull request with no
+   sign-off. Mitigation: only a bundle the base already holds as Done or
+   pre-pipeline qualifies, and adding or re-statusing one refuses.
+   Accepted.
+2. The remote can move between the guard's read and the push itself.
+   Mitigation: the push is the command's only act, and the push still
+   fast-forwards only; this is the guard's existing pre-run model.
+   Accepted.
+3. The hold on Task 148's builds is procedural (draft state, mission
+   control's ruling), with no mechanical gate in this bundle. Mitigation:
+   REQ-I1.11 and Task 148 state it, and mission control confirms every
+   ready flip of these pull requests.
+4. The human-gates batch may exclude spec-rework. Mitigation: REQ-I1.11
+   makes spec-rework subject to that answer; a narrowing then goes into
+   this bundle's next batch amendment.
+5. Readiness reads only a rename's destination when deciding touched
+   bundles, so a spec file renamed out of its bundle escapes the sign-off
+   check (an observation on main, 2026-11-23). Outside this amendment's
+   scope; it stays an observation for the next batch.
+
+Decision-domain gap check: authorization (decided: REQ-I1.11's two acts and
+refusals), failure handling (unreadable remote or base refuses; a conflicted
+merge goes to the kickoff session or the operator), source of truth (remote
+reads for the push, the forge's `baseRefOid` for legacy), rollout (the draft
+hold, risk 3). No other domain is touched.
+
+#### Lens review (Amendment 21, delta-scoped)
+
+Fanned out, one read-only agent per lens (testability with dead paths,
+documentation drift with cross-file consistency), over the Amendment 21
+delta and the shipped code it describes (PR #1140's diff, PR #1142's
+`scripts/mc-readiness.sh`, PR #1155), then a self-critique pass. Findings
+were validated against the text and the code before disposition. Counts
+are raw, per lens: a finding two lenses raised counts in both rows and was
+dispositioned once. Totals: 40 lens findings, 32 applied and 8 declined,
+plus 1 applied from the self-critique pass.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 8 | 7 applied: the route needs `worker_base_merge: allow`; the amendment-branch local fast-forward stays; the base is the remote's default branch; the local-state refusals move into REQ-I1.11; the hold names the batch amendment and REQ-A1.6's row; Task 148 is the landing of #1140 and #1155; the REQ-I1.8 note names the push helper. 1 declined: a routed human-gates task here, since that work is the human-gates spec's batch amendment under the operator's batch rule, and Task 148 states the hold |
+| Ambiguity and interpretation forks | 8 | 6 applied: clean-merge wording in the test entry; the base defined; `baseRefOid` named; the hold stated as draft until both sign; Task 148 adopts the two PRs; "deletes no brief for it" and a legacy bundle's unsigned content change stated. 2 declined: matching the record's spec (the record names the exact branch, so there is nothing to match); a fast-forward to the base tip (it adds no commit the base lacks, so it is the admitted empty case) |
+| Citation and coverage integrity | 3 | 3 applied: the brief's mint list names Task 149; Task 148 lists the files its PRs touch; the local-state refusals gain test cases |
+| Dead verification paths | 4 | 4 applied: the REQ-D1.18 entry says which refusals run on the code path; Task 148 inverts #1155's clean-merge denies; cases run on all three branch kinds; the mode case covers every file |
+| Decision-domain gaps | 4 | 3 applied: a merge's second parent is a base commit; a conflicted merge goes to the kickoff session or the operator; the forge field is named. 1 declined into risk 3: the hold has no mechanical gate |
+| Testability | 2 | 1 applied: Task 149's evidence carries the base commit and the rename arrives as a rename. 1 declined: Task 148's Done-when is evaluable once its own deliverables land, which is what the task is |
+| Cross-file consistency | 7 | 5 applied: the D-36 and D-33 notes; REQ-D1.18 names "a pull request naming no base" as a refusal; and two duplicates (the local-state refusals in REQ-I1.11, the clean-merge test wording). 2 declined: Task 35's citation line stays unedited, since its note names REQ-D1.18 and the other REQ-D1.13 citations are historical; the routed-task duplicate |
+| Documentation and glossary drift | 4 | 3 applied: *spec-branch pull request* defined and used throughout, kept apart from *spec-only pull request*; *base* defined as main. 1 declined: more pointers for *legacy*, since each use already sits under or names REQ-D1.18 |
+| Rendered-content safety and data hygiene | 0 | n/a for rendering (the prose is rendered only as Markdown by the forge); data hygiene checked: no secret, hostname or company detail |
+
+Self-critique pass: one more applied, REQ-I1.11's "grants no ready flip"
+dropped, since a worker's own flip follows `ready_flip_policy` and the
+clause had no test. Altitude check: not applicable; the delta pins no
+altitude claim. Ship-gate check: each out-of-band fix it names has a
+ship-gate record: PR #1140 and PR #1155 in Task 148, PR #1142 in the Task
+35 note and Task 149. Stale-reference sweep (REQ-D1.13 superseded): notes
+on Tasks 36 and 37, which cite it and are unbuilt; Task 35's citation and
+the changelog's are historical. Notable for the operator: risk 1 (a legacy
+bundle's content can change unsigned) and risk 3 (the hold is
+procedural).
+
+#### Pre-flip verification (Amendment 21)
+
+No status flip (the bundle is already signed); `Last reviewed:` 2026-11-23
+on all four spec files, every one touched by the delta. Lint:
+`markdownlint-cli2` over the five bundle files, 0 errors. Recorded claims
+re-derived mechanically: the lens table's per-row counts sum to the stated
+totals, and the amendment notes the changelog lists match the notes in the
+files. Enumeration cross-check: the delta's ranges (Tasks 148 and 149,
+REQ-I1.9 and REQ-I1.10 reserved) were checked against the bundle and
+spec-pipeline's ID ledger. Stale-reference sweep: recorded in the lens
+review above.
+
+#### Sign-off record (Amendment 21)
+
+Signed off 2026-11-23 by the operator, relayed through the hub, asked with
+no option preselected: "Yes, sign off A21" (decisions-202611-132).
+Amendment on an Active bundle: no status flip; `Last reviewed:` 2026-11-23
+on all four spec files; validator re-run with 0 errors once this anchor was
+recorded. The delta adds and supersedes requirements, so it is
+meaning-class. Accepted risks: see the register above, risks 1 and 3 named
+to the operator at sign-off. The builds Task 148 lands stay draft until
+this amendment and the human-gates batch amendment are both signed.
+
+Class: meaning
+Lens-pass: Amendment 21, delta-scoped lens review above (spec lens set, fanned out one agent per lens; every finding dispositioned)
+Anchor: `a7e4ba9842230193a85bec4e28b16cde30051329` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — the legacy-bundle report names the adopter generically (2026-11-23)
+
+Marked self-re-anchor for an expression-only edit, per the meta-spec's
+expression-only lane (`doctrine/spec-format.md`, *Writers*). After the
+Amendment 21 sign-off, the repository's purged-identifier check flagged
+two lines of the new Sources entry "The legacy-bundle report
+(2026-11-22)" for naming a project this history keeps out. Both now name
+"an adopter" instead; no requirement, decision, task or test changes
+meaning. The operator approved the wording through the hub, in their
+words: "Approve the edit (Recommended)".
+
+**Cites the changelog line:** the 2026-11-23 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `4157f1a25244899ae0f63df8852803677532c5f2` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

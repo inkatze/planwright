@@ -498,6 +498,9 @@ assert_eq "a --root is the seam's own and stands" "$old_copy/config/worker-setti
 srwt="$SANDBOX/sr-wt"
 mkdir -p "$srwt"
 env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE git -C "$srwt" init -q
+env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE git -C "$srwt" -c user.name=Fixture \
+  -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m "chore: base"
+srwt_head=$(env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE git -C "$srwt" rev-parse HEAD)
 stale_run "$old_copy" step-record.sh --worktree "$srwt" new-run
 assert_eq "a stale step-record.sh refuses to open a run" 1 "$CODE"
 assert_eq "and opens none" "" "$OUT"
@@ -536,7 +539,7 @@ case $ERR in
     ;;
 esac
 stale_run "$old_copy" step-record.sh --worktree "$srwt" write --completion --run 000001 --point pre-ci \
-  --head 0123456789abcdef0123456789abcdef01234567
+  --head "$srwt_head"
 assert_eq "a stale step-record.sh still writes into a run opened before the upgrade" 0 "$CODE"
 case $ERR in
   *WARNING*"$new_copy"*) echo "ok: and warns while it writes" ;;
