@@ -274,10 +274,17 @@ echo "### REQ-F1.12 — a declaration naming a step script is never a check comm
 T=2026-11-22T10:00:00Z
 SREC=$REPO_ROOT/scripts/step-record.sh
 SRUN=$REPO_ROOT/scripts/step-run.sh
+# bin/sr and bin/sn are the installed step scripts under other names, which
+# only the link reading catches; bin/ok links a non-step installed script, so
+# the link reading must not over-match it. The worktree's own (empty)
+# scripts/step-record.sh lets the <path> rows below name an existing file.
 mkdir -p "$WT/bin"
 ln -s "$SREC" "$WT/bin/sr"
 ln -s "$SRUN" "$WT/bin/sn"
+ln -s "$REPO_ROOT/scripts/resolve-steps.sh" "$WT/bin/ok"
 : >"$WT/scripts/step-record.sh"
+# Every STEPPED and CONTROLS row below needs its declaration here: an
+# undeclared row would defer for want of one and prove nothing.
 SARGS='write --run <word> --point <word> --step <word> --start <word> --outcome <word>'
 SDECLS="scripts/step-record.sh $SARGS; ./scripts/step-record.sh $SARGS"
 SDECLS="$SDECLS; mise exec -- scripts/step-record.sh $SARGS; mise exec -- $SREC $SARGS"
@@ -287,7 +294,7 @@ SDECLS="$SDECLS; bin/sr $SARGS; make check SCRIPT=scripts/step-record.sh"
 SDECLS="$SDECLS; mise exec -- scripts/step-run.sh <word>...; mise exec -- $SRUN <word>..."
 SDECLS="$SDECLS; make check SCRIPT=scripts/step-run.sh; make check A=B=scripts/step-record.sh"
 SDECLS="$SDECLS; bin/sn <word>...; bin/lint <path>...; make check SCRIPT=scripts/ok.sh"
-SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>"
+SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>; bin/ok <word>..."
 # No word of these write arguments is one the partner scan refuses, so only
 # the step-script reading keeps the rows below from the own push.
 SW="write --run 000001 --point pre-pr --step lint --start $T --outcome passed"
@@ -318,6 +325,7 @@ CONTROLS=(
   "mise exec -- mix credo strict"
   "make check SCRIPT=scripts/ok.sh"
   "bin/lint scripts/ok.sh"
+  "bin/ok lint"
 )
 for col in 1 4; do
   under "$(with_checks "stepped.$col" "$col" "$SDECLS")"
