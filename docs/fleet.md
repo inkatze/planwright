@@ -1026,7 +1026,9 @@ own open pull request, and an `export` of its step context. An act may close
 an `&&` chain of partners that each pass the guard on their own: a
 `git add` or `git commit` the `own-branch` arm approves, and a gate task
 (`mise run`, `lefthook run`, `bats`, a repository `tests/` or `scripts/`
-script, a declared check command or command step), so `git commit -m <msg> && git push origin
+script, a declared command step, or a declared check command naming no
+program its write scan refuses, as the `worker_check_commands` row of
+`docs/options-reference.md` lists), so `git commit -m <msg> && git push origin
 <unit branch>` and `mise run check && git push origin <unit branch>` run
 unprompted. A partner joined by `;`, a line break, `||`, `|` or `&`, a partner after
 the act, and any file write, other git act or non-step plugin script in the
@@ -2869,7 +2871,10 @@ That approves `mix test test/a_test.exs test/b_test.exs:12` and
 sequence), a run from inside the hooks or `.claude` directory, and any word
 holding a metacharacter or an expansion. The `deny`
 block is read first, so no declaration lifts it, and a malformed declaration
-is dropped alone. The launcher reads the knob at the primary checkout into the
+is dropped alone. A declared check command that names git, a file writer, a
+wrapper or an interpreter (`git commit`, `rm`, `env`, `python`) still runs
+alone, but never in the same command as a worker's own push or pull request
+body edit. The launcher reads the knob at the primary checkout into the
 session record, so an edit inside the worker's own worktree changes nothing
 and a change reaches a worker only by relaunch. Running a declared command
 runs the repository's own code, the trust the guard already gives its
