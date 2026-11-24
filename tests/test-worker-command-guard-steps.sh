@@ -34,8 +34,13 @@ for t in declared.sh other.sh undeclared.sh pooled.sh; do
   printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/$t"
   chmod +x "$FX/repo/tools/$t"
 done
+# A declared location inside the repository is held to what HEAD commits.
+fixture_commit "$FX/repo" tools || exit 1
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
+# The sandbox is itself a checkout, and a declared location in one is held to
+# its HEAD.
+fixture_commit "$SANDBOX" "${FX#"$(cd "$SANDBOX" && pwd -P)"/}/bin" || exit 1
 DECLARED="$FX/repo/tools/declared.sh"
 OTHER="$FX/repo/tools/other.sh"
 POOLED="$FX/repo/tools/pooled.sh"
@@ -68,12 +73,23 @@ steps:
   - id: reserved
     kind: command
     target: $FX/repo/tools/gh
+  - id: linked
+    kind: command
+    target: $FX/repo/linked/declared.sh
+    args: --mode strict
   - id: tooled
     kind: command
     target: $DECLARED
     args: --with git
 YAML
-printf 'steps_pre_ci: [declared, bare, rel, pooled, tooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+printf 'steps_pre_ci: [declared, bare, rel, pooled, linked, tooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+# A folder of the repository linked to one outside it, whose script the
+# sandbox checkout commits: spelled inside the repository, it is held to the
+# repository's HEAD, which never holds a file reached through a link.
+mkdir -p "$FX/outside"
+cp "$DECLARED" "$FX/outside/declared.sh"
+ln -s "$FX/outside" "$FX/repo/linked"
+fixture_commit "$SANDBOX" "${FX#"$(cd "$SANDBOX" && pwd -P)"/}/outside" || exit 1
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
 steps:
   - id: traversal
@@ -144,6 +160,15 @@ assert_defer "path target with a traversal segment deferred" \
 assert_defer "declared line chained with an unsafe segment deferred" \
   "$DECLARED --mode strict; rm -rf x" Bash "$FXC"
 assert_defer "declared line with a write redirect deferred" "$DECLARED --mode strict > out" Bash "$FXC"
+# The declaration names a file, not its content: an edit the worker has not
+# committed takes the line back to a prompt, and putting it back restores it.
+cp "$DECLARED" "$FX/declared.orig"
+printf 'printf pwned\n' >>"$DECLARED"
+assert_defer "a declared location edited since HEAD deferred" "$DECLARED --mode strict" Bash "$FXC"
+cp "$FX/declared.orig" "$DECLARED"
+assert_allow "the declared location put back approved again" "$DECLARED --mode strict" Bash "$FXC"
+assert_defer "a declared location behind a symlinked repository folder deferred" \
+  "$FX/repo/linked/declared.sh --mode strict" Bash "$FXC"
 assert_defer "declared line behind a non-context assignment deferred" \
   "LD_PRELOAD=/x.so $DECLARED --mode strict" Bash "$FXC"
 assert_defer "declared line behind a context assignment carrying an expansion deferred" \
@@ -297,6 +322,7 @@ assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARE
 # absolute path as a declared step names it (REQ-F1.5); the read-only form
 # of the same program still approves, so the refusal is the floor's.
 cp "$DECLARED" "$FX/repo/tools/gh"
+fixture_commit "$FX/repo" tools/gh || exit 1
 stub_reserved() {
   stub_scripts "$1"
   cat >"$1/scripts/resolve-steps.sh" <<STUB

@@ -132,7 +132,7 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   fi
   # A worker-profile session's record names mission control as its launcher
   # (human-gates REQ-F1.6), kept for a recover; no other profile's does.
-  lmark=$(cat "$fleet/streamjson/$name/launcher" 2>/dev/null) || lmark=''
+  lmark=$(find "$fleet/streamjson/$name" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec sed -n 's/^launcher=//p' {} + 2>/dev/null) || lmark=''
   case $prof:$lmark in
     worker:mission-control)
       # The session's own record: <worktree hash>-<handle hash>.record.

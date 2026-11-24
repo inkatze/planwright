@@ -192,9 +192,12 @@ hook_verdict() {
 }
 
 fix="$tmp/fixture-repo"
-mkdir -p "$fix/.git" "$fix/scripts"
+mkdir -p "$fix/scripts"
 printf '#!/bin/sh\necho real\n' >"$fix/scripts/real.sh"
 ln -s /bin/true "$fix/scripts/link.sh"
+# shellcheck source=tests/lib/committed-fixture.sh
+. "$REPO_ROOT/tests/lib/committed-fixture.sh"
+fixture_commit "$fix" scripts || exit 1
 
 for hook in worker-command-guard.sh tower-command-guard.sh; do
   h="$REPO_ROOT/scripts/$hook"
