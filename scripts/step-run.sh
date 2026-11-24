@@ -1224,7 +1224,7 @@ cmd_audit() {
   fi
   line="audit${TAB}complete${TAB}$head"
   [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
-  [ "$unrun" -eq 0 ] || echo "step-run: an unrun gap is a skill or prompt record that started and ended in one second with no head move, so it is no evidence the step ran; record the step skipped with reason missing in a fresh run (never edit a written record)" >&2
+  [ "$unrun" -eq 0 ] || echo "step-run: an unrun gap is a skill or prompt record that started and ended in the same second with no head move, so it is no evidence the step ran; record the step skipped with reason missing in a fresh run (never edit a written record)" >&2
   printf '%s\n' "$line"
   [ "$any" -eq 0 ]
 }
