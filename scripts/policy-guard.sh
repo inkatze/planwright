@@ -7616,7 +7616,15 @@ mc_settings_screen() {
     *'<<'*)
       while IFS= read -r w; do
         case $w in *'<<'*) ;; *) continue ;; esac
-        [[ $w =~ $RE_MC_INTERPRETER || $w =~ $RE_MC_RUNNER_CMD ]] || continue
+        if ! [[ $w =~ $RE_MC_INTERPRETER || $w =~ $RE_MC_RUNNER_CMD ]]; then
+          # A group's or subshell's closing line hands its here-string to a
+          # shell or runner the group holds on an earlier line.
+          re='^[[:space:]]*[})]'
+          if [[ $w == *'<<<'* && $w =~ $re ]] && [[ $t =~ $RE_MC_INTERPRETER || $t =~ $RE_MC_RUNNER_CMD ]]; then
+            ! mc_inplace_text "${w//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
+          fi
+          continue
+        fi
         shopt -s nocasematch
         k=1
         [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
