@@ -12,6 +12,8 @@ unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 failures=0
 fail() {
@@ -227,7 +229,13 @@ expect_out "launches are judged against the knob in force" "launch-backend${tab}
 if [ "$(id -u)" != 0 ]; then
   chmod 000 "$sessions"
   cfg doctor --program alpha
+  sessions_denied=0
+  hermetic_access_denied r "$sessions" && sessions_denied=1
   chmod 700 "$sessions"
+fi
+if [ "$(id -u)" != 0 ] && [ "$sessions_denied" -eq 0 ]; then
+  echo "skip: unreadable registry: the running user still reads $sessions under mode 000"
+elif [ "$(id -u)" != 0 ]; then
   expect_rc "doctor with an unreadable registry still reports" 0
   expect_out "an unreadable registry is an unknown launches check" "unknown${tab}launches${tab}the launch registry could not be read"
   expect_out "the other checks still report beside an unreadable registry" "override${tab}mission_control_launch_backend${tab}adopter${tab}tmux${tab}stream-json"
@@ -426,9 +434,11 @@ rm -f "$adopter/planwright.yml" "$mlocal"
 printf 'mission_control_stall_window: 20m # interim\n' >"$mlocal"
 chmod 000 "$mlocal"
 cfg doctor --program drift
+mlocal_denied=0
+hermetic_access_denied r "$mlocal" && mlocal_denied=1
 chmod 644 "$mlocal"
 rm -f "$mlocal"
-if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; else
+if [ "$(id -u)" -eq 0 ]; then ok "REQ-A1.9: drift: root reads any file, so the unreadable-layer case is skipped"; elif [ "$mlocal_denied" -eq 0 ]; then echo "skip: drift: the running user still reads the local layer under mode 000"; else
   expect_out "drift: an unreadable local layer is an unknown temporary check" "unknown${tab}temporary${tab}$mlocal cannot be read"
   expect_no_out "drift: an unknown temporary check is printed as itself, never reshaped as a temporary finding" "temporary${tab}unknown"
 fi
@@ -437,6 +447,37 @@ printf '# temporary until 2020-04-04\nmission_control_stall_window: 20m\n' >>"$t
 cfg doctor --program drift
 expect_no_out "REQ-A1.9: drift: the team-shared repo-tracked layer is not scanned" "temporary${tab}"
 printf '%s\n' "$tracked_save" >"$tracked"
+
+# Rule text and comments are matched as data: metacharacters run nothing, and
+# no layer or rule file changes.
+sentinel="$tmp/sentinel-ran"
+# shellcheck disable=SC2016 # the metacharacters are the fixture
+printf 'mission_control_stall_window: 20m # interim `touch %s` $(touch %s) ; touch %s\n' "$sentinel" "$sentinel" "$sentinel" >"$mlocal"
+# shellcheck disable=SC2016 # the metacharacters are the fixture
+printf '# temporary adopter note `touch %s` $(touch %s) ; touch %s\nmission_control_handover_context: 55\n' "$sentinel" "$sentinel" "$sentinel" >"$adopter/planwright.yml"
+mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`touch $sentinel\` \$(touch $sentinel); touch $sentinel" --subject stall --source "operator, fixture" --date 2026-01-01
+expect_rc "REQ-A1.9: drift: a rule carrying metacharacters is stored" 0
+rules_file="$drift_home/rules.yaml"
+# Both defaults files are layers: doctor reads the checkout's own, config-get
+# the fixture core's.
+layer_sums() {
+  for f in "$rules_file" "$repo_root/config/defaults.yml" "$core/config/defaults.yml" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
+    printf '%s %s\n' "$(sum "$f")" "${f#"$tmp"/}"
+  done
+}
+sums_before=$(layer_sums)
+if printf '%s\n' "$sums_before" | grep -q '^absent '; then fail "drift: a layer or the rules file was missing before the audit, so its checksum proves nothing: $sums_before"; fi
+cfg doctor --program drift
+expect_rc "REQ-A1.9: drift: metacharacters in a rule and a comment still audit" 0
+expect_out "REQ-A1.9: drift: a local comment with metacharacters is still a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker interim"
+expect_out "REQ-A1.9: drift: an adopter comment with metacharacters is still a finding" "temporary${tab}$adopter/planwright.yml${tab}mission_control_handover_context${tab}marker temporary"
+expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rule-knob${tab}r-10${tab}mission_control_stall_window${tab}30m${tab}20m"
+if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: storing the rule or auditing it executed rule or comment text"; fi
+sums_after=$(layer_sums)
+if [ "$sums_after" = "$sums_before" ]; then
+  ok "REQ-A1.9: drift: the rule file and every layer are unchanged after the audit"
+else fail "drift: the audit changed a layer or the rules file; before: $sums_before; after: $sums_after"; fi
+rm -f "$mlocal" "$adopter/planwright.yml"
 
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3

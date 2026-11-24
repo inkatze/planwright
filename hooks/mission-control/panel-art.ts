@@ -143,6 +143,8 @@ export function spriteGrid(state: SpriteState, frame: number): { pixels: Pixel[]
 
 export type Cells = { columns: number; rows: number; cells: string }
 
+const base64Of = (bytes: Uint8Array): string => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''))
+
 // The mascot as a Raster: each cell is an upper half block, its foreground the
 // upper pixel and its background the lower; a transparent pixel is the
 // terminal's own colour.
@@ -163,5 +165,5 @@ export function spriteCells(state: SpriteState, frame: number): Cells {
       words[i + 2] = lit.get((r * 2 + 1) * columns + c) ?? DEFAULT_COLOR
     }
   }
-  return { columns, rows, cells: new Uint8Array(words.buffer).toBase64() }
+  return { columns, rows, cells: base64Of(new Uint8Array(words.buffer)) }
 }

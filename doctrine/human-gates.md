@@ -6,10 +6,12 @@ list: every skill, profile, guard, and doc restates it by citing this doc, and
 a copy that diverges from it is a defect.
 
 Citations: human-gates REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5,
-REQ-A1.6, REQ-B1.1, REQ-C1.1, REQ-C1.6, REQ-C1.9, REQ-D1.1, REQ-D1.2, REQ-D1.4,
-REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-E1.1, REQ-E1.2, REQ-F1.1, REQ-F1.2,
-REQ-F1.4, REQ-F1.5, REQ-G1.7, REQ-G1.9, REQ-G1.10, REQ-G1.13 · human-gates D-1,
-D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14, D-15, D-18 · supersedes
+REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B1.1, REQ-C1.1, REQ-C1.6, REQ-C1.9, REQ-D1.1,
+REQ-D1.2, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D1.9, REQ-D1.10, REQ-E1.1,
+REQ-E1.2, REQ-F1.1, REQ-F1.2, REQ-F1.4, REQ-F1.5, REQ-G1.7, REQ-G1.9, REQ-G1.10,
+REQ-G1.13, REQ-I1.17, REQ-A1.11, REQ-F1.6, REQ-F1.7, REQ-F1.8 · human-gates D-1,
+D-2, D-3, D-4, D-6, D-7, D-8, D-9, D-10, D-14, D-15, D-18, D-19, D-20, D-24,
+D-27 · supersedes
 bootstrap D-26 (scoped), bootstrap REQ-J1.1, bootstrap REQ-J1.4.
 
 ## The gate test
@@ -34,18 +36,28 @@ cannot be named does not ship.
 | Signing off a Needs-sign-off finding | Human gate | Approval arm; given by the approval act below, never by the flip |
 | Signing off a spec at kickoff | Human gate | Approval arm; no skill acts on a spec that is neither Ready nor Active, and `/orchestrate` never chains into `/spec-kickoff` |
 | Publishing a release | Human gate | Irreversible arm; the release tooling automates up to it, never through it |
-| Force-pushing a branch outside the protected set | Human gate | Irreversible arm; only on the operator's explicit request in the same turn, never from a standing decision, executed by the tower after naming the remote commits it drops |
+| Force-pushing a branch outside the protected set | Human gate | Irreversible arm; only on the operator's explicit request in the same turn, never from a standing decision, executed by the tower after naming the remote commits it drops; the tower path is the one for a ready PR, and the draft-branch rewrite row below is its one exception |
 | Purging a leaked secret from history | Human gate | Irreversible arm; human-run, the tower may prepare the command and a rotation checklist |
 | Rewriting main, a protected branch, or a spec branch | Human gate | Irreversible arm; no tier under any value |
-| Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class of task-branch PRs from the base repository, merged only through `scripts/merge-admitted.sh`; a release PR is never a class admission, so its merge stays a human approval act under every value |
+| Executing an authorized merge | Policy | `merge_policy`, default `human`; `on-approval` lets the host merge once the human enables auto-merge, `policy-class` admits a declared class of task-branch PRs from the base repository, merged only through `scripts/merge-admitted.sh`; a release, dependency-bot, flight-branch, or human-branch PR merges with no per-PR human act only through an automatic class below, and under every `merge_policy` value a release PR merges only through the `release` class in `auto_merge_classes`, otherwise only by a human |
+| Merging a release PR | Policy | `auto_merge_classes`, default empty; class `release`: the release tool's own PR from a bot author, touching only the version file, changelog, and manifest, passing the release tool's pre-validation; its outward effect is the publish, accepted by the operator at a kickoff before the class is enabled |
+| Merging a dependency-bot PR | Policy | `auto_merge_classes`, default empty; class `dependency`: a bot author on `auto_merge_dependency_authors`, only manifests and lockfiles, patch or minor updates, never a major one |
+| Merging a test-only PR | Policy | `auto_merge_classes`, default empty; class `test-only`: only test paths, no test file deleted or renamed away, every required check green |
+| Merging an observation-carry PR | Policy | `auto_merge_classes`, default empty; class `observation-carry`: only observation fragments added or moved, a move changing only the consumption lines the archive step appends |
+| Merging a bookkeeping PR | Policy | `auto_merge_classes`, default empty; class `bookkeeping`: only Awaiting-input reference bullets removed, for tasks that derive Completed on the base |
+| Merging a docs-only PR | Policy | `auto_merge_classes`, default empty; class `docs-only`: only adopter-facing documentation, never doctrine, skills, specs, or agent instruction files |
+| Merging a regeneration PR | Policy | `auto_merge_classes`, default empty; class `regeneration`: the head is exactly what the base's own named command reproduces from a clean base checkout |
+| Halting every automatic merge | Policy | `auto_merge_halt`, default `false`; true in any layer stops every class merge, and an unreadable value counts as true, so a stricter layer is never overridden |
 | The draft→ready flip of a unit PR | Policy | `ready_flip_policy`, default `unit-owner`; `human` reserves it, except the merge helper's own flip of a PR its class admits |
 | Refusing the draft→ready flip of a PR behind its base | Policy | `ready_guard_behind_base`, default `checks`: a behind PR passes when GitHub reports it mergeable and its checks passed on its head with at least one success; `refuse` refuses any behind PR; `conflict-only` passes a mergeable one whatever its checks; read from the core and adopter layers only |
 | The draft→ready flip of a spec PR | Policy | `mark_spec_pr_ready_on_kickoff`, default `true` |
 | Merging the PR base or the branch's own remote branch into the owned branch | Policy | `worker_base_merge`, default `allow`; conflicts by `worker_merge_conflict_policy`, default `halt` |
 | Reshaping never-pushed commits on the owned unit branch | Policy | `unpushed_rewrite`, default `allow` |
+| Publishing a rewrite of the owned unit branch while its PR is a draft | Policy | `draft_rewrite`, default `deny`, read only from the launch record of a worker `/mission-control` launches; the one route is `scripts/worker-branch-sync.sh push --force-with-lease=<branch>:<sha> --force-if-includes`, leased on the tip the rewrite started from, while the branch heads one same-repository draft PR no other PR is based on, replacing only the worker's own commits; a ready PR takes new commits or the force-push row's tower path, and the worker tier never deletes a unit branch on the remote |
+| Syncing the owned unit branch's worktree to its own remote branch or a descendant commit | Composition contract | A worker `/mission-control` launches, as its brief names it, only through `scripts/worker-branch-sync.sh reset <origin/branch>` or its `ff <sha>`, in its clean worktree on a branch no other worktree or live session holds; a reset refreshes that remote branch first, one that drops local commits follows `unpushed_rewrite`, and neither verb pushes (the helper's `push` is the draft-branch rewrite row's) |
 | Branches protected beyond the core floor | Policy | `protected_branches`, default empty; it adds to `main`, `master`, and `planwright/*/spec`, never removes |
 | Pushing the unit branch and opening its draft PR | Composition contract | `/execute-task`, or a standalone `/self-review`; `/polish` and every `--nested` review skill never push |
-| Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as the relayed kickoff session under the worker profile (scope `kickoff-<spec>`), which pushes only the one spec branch its launch record names, or that spec's own amendment branch (`planwright/<spec>/amendment-<n>`), through `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>`: a plain, non-forced push, never forced; no other agent session may push a spec branch; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
+| Pushing a spec branch and opening its draft PR | Composition contract | `/spec-kickoff`, run attended under no tier profile, or as the relayed kickoff session under the worker profile (scope `kickoff-<spec>`, or `kickoff-<spec>-a<n>` with an optional lowercase letter or `-<word>` suffix, for amendment `<n>` alone and only where no other spec's kickoff could share that scope), which pushes only the one spec branch its launch record names, or that spec's own amendment branch (`planwright/<spec>/amendment-<n>`), through `"$CLAUDE_PLUGIN_ROOT"/scripts/kickoff-spec-push.sh <spec>`, run as its own command or after cd only: a plain, non-forced push, never forced; no other agent session may push a spec branch; a plain push of a spec branch is not a gate, and rewriting one stays a human gate |
 | Flipping under `unit-owner` | Composition contract | `/execute-task`'s convergence run, or the review skill it delegates its terminal step to; a mission-control session, for any pull request of the repository whose checkout it runs in, not only the units it launched; a standalone review run never flips |
 
 ## The floor
@@ -57,8 +69,39 @@ base-merge denies under every value: those are the tower tier's refusals.
 Separately, at every tier and with no knob read, the policy guard denies the
 `gh api` spelling of the flip, its undo, a PR merge, a base merge, or a forced
 ref update (REQ-G1.7). Pushed history stays append-only outside
-the force-push and secret-purge rows of the list. A doc stating this floor
+the force-push, draft-branch rewrite, and secret-purge rows of the list. A doc stating this floor
 cites this section; it does not restate an unconditional never.
+
+## The class test
+
+A class of pull requests merges with no per-PR human act only when it passes
+all four arms, the bar every future class meets:
+
+- **Mechanical membership.** Mechanical predicates over the PR's head decide
+  it, with no model in the decision path.
+- **Verifiable on the current head.** Every predicate is read on the head
+  immediately before the merge, and one that cannot be read counts as unmet.
+- **Undone by one revert PR.** The merge changes nothing outside the
+  repository.
+- **No harm outside the maintainers.** A wrong admission left until the
+  operator notices harms no one else: no published artifact, secret,
+  enforcement surface, or sign-off item.
+
+A class whose merge has an outward effect names the outward effect, and is
+enabled only after the operator accepted it at a kickoff. That acceptance
+excuses the second pair of arms for the named effect alone; every other arm
+still applies. A review step a class's cadence requires may add a refusal and
+never decides membership or admits a PR. The test is the bar, never a
+permission for an act it does not name.
+
+## Standing authorization
+
+Enabling a class in `auto_merge_classes` is the human's standing
+authorization of every merge inside it, so authorizing a merge stays a human
+gate. These stay human gates, unchanged by any class: the merge of every PR
+outside an enabled class, a spec PR and every sign-off, a push to a protected
+branch, every force push, the deletion of a remote branch, and every message
+to a person.
 
 ## The approval act
 
@@ -76,5 +119,5 @@ mechanics live in [Gate Wiring](gate-wiring.md).
 bootstrap D-26 stays the origin of the reserved-control list, superseded by
 this doc where the list changed; its unchanged rules are the "Signing off a
 spec at kickoff" row. Its merge floor now reads as the floor section; its
-rewrite rule as the force-push, secret-purge, main-rewrite, and never-pushed
-rows; its all-drafts rule as the two flip rows.
+rewrite rule as the force-push, draft-branch rewrite, secret-purge,
+main-rewrite, and never-pushed rows; its all-drafts rule as the two flip rows.

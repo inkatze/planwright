@@ -10,17 +10,27 @@ name: PR-Agent
 # exception), so a fork PR never reaches the key. Never switch the trigger to
 # pull_request_target.
 #
-# Set the repository secret OPENROUTER_API_KEY to turn it on. Swap the model
-# with the repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS and
-# PR_AGENT_MAX_FINDINGS, no code change needed. A new PR-Agent release is a
-# manual bump of the image digest below.
+# When it runs: once per pull request, on the run the ready flip fires
+# (ready_for_review), and again only when a fix round after the flip changes
+# code and asks for one more by requesting a reviewer (review_requested, which
+# scripts/request-reviewer.sh sends). Never on opened, synchronize or reopened:
+# each paid review is a review of a head that is still changing. The request is
+# the same pull_request event, so the conditions below apply unchanged. Any
+# reviewer's request counts, since the event does not say which; a draft never
+# runs, and a pull request opened ready needs a request to get its one run.
+# scripts/check-workflow-posture.sh enforces the trigger set.
+#
+# Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
+# repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS,
+# PR_AGENT_MAX_FINDINGS and PR_AGENT_REVIEW_RETRIES, no code change needed. A
+# new PR-Agent release is a manual bump of the image digest below.
 
 # The pinned digest and the shell commands run long; keep them whole.
 # yamllint disable rule:line-length
 
 "on":
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, review_requested]
+    types: [ready_for_review, review_requested]
 
 permissions: {}
 
@@ -31,8 +41,9 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && !contains(github.event.pull_request.labels.*.name, 'skip-pr-agent')
+      && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     concurrency:
       group: pr-agent-${{ github.event.pull_request.number }}
       cancel-in-progress: true
@@ -68,57 +79,84 @@ jobs:
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # The action's runtime image, pinned by digest: pragent/pr-agent:0.49.0-github_action.
-      # Dependabot does not update docker:// references; bump this by hand.
+      - name: Check out the review wrapper
+        if: env.HAS_KEY == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      # The wrapper retries a try whose model output came back empty or
+      # unparseable (whether the action then exits 0 or 1) up to
+      # PR_AGENT_REVIEW_RETRIES times, rate limits on a budget of their own,
+      # and fails the step by name when no review lands, unless the first try
+      # was PR-Agent's own silent skip.
+      # AI_TIMEOUT below is a per-read inactivity limit, not a total
+      # deadline, so each try has its own bound inside the wrapper. Keep the
+      # step limit above the wrapper's deadline and below the job's: the
+      # wrapper then names its own failure, and the run marker still posts.
       - name: Review
         id: review
         if: env.HAS_KEY == 'true'
-        uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
-        # AI_TIMEOUT below is a per-read inactivity limit, not a total
-        # deadline, so a hung call plus replays can outlast the job. This step
-        # limit is the hard bound: it fails the step (the run marker still
-        # posts, with the failure status) instead of the job limit reporting
-        # "cancelled" with nothing posted.
-        timeout-minutes: 10
+        timeout-minutes: 40
+        run: >-
+          /bin/bash scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"
+          --pr "$PR" --head "$HEAD_SHA" --retries "$PR_AGENT_REVIEW_RETRIES"
+          --deadline-seconds 2100
         env:
+          # The action's runtime image, pinned by digest: pragent/pr-agent:0.49.0-github_action.
+          # Dependabot does not update image digests; bump this by hand.
+          PR_AGENT_IMAGE: pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+          # A repository variable, like the model knobs: a pull_request run
+          # takes no inputs. Each retry re-runs the whole fallback chain.
+          PR_AGENT_REVIEW_RETRIES: ${{ vars.PR_AGENT_REVIEW_RETRIES || '2' }}
+          # gh reads GH_TOKEN; the container gets GITHUB_TOKEN.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # PR-Agent's settings, spelled SECTION__KEY, which its loader reads
+          # as section.key. Keep them out of the dotted spelling: that is no
+          # shell name, so the /bin/sh (dash) that starts docker drops it.
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
-          CONFIG.MODEL: ${{ vars.PR_AGENT_MODEL || 'openrouter/moonshotai/kimi-k2.7-code' }}
+          CONFIG__MODEL: ${{ vars.PR_AGENT_MODEL || 'openrouter/moonshotai/kimi-k2.7-code' }}
           # Tried in order; a second vendor family keeps one provider's outage
           # from failing the review.
-          CONFIG.FALLBACK_MODELS: >-
+          CONFIG__FALLBACK_MODELS: >-
             ${{ vars.PR_AGENT_FALLBACK_MODELS
             || '["openrouter/deepseek/deepseek-v4-pro-0813", "openrouter/google/gemini-3.8-flash"]' }}
           # OpenRouter models litellm does not know need a context size; this
           # is the smaller default's window. MAX_MODEL_TOKENS is the real cost
           # cap: a diff over it is clipped, never billed in full.
-          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "262144"
-          CONFIG.MAX_MODEL_TOKENS: "64000"
-          CONFIG.LARGE_PATCH_POLICY: clip
-          OPENROUTER.MAX_TOKENS: "16000"
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: "262144"
+          CONFIG__MAX_MODEL_TOKENS: "64000"
+          CONFIG__LARGE_PATCH_POLICY: clip
+          OPENROUTER__MAX_TOKENS: "16000"
           # No replay on the model that just missed the limit: a replay lets
           # the primary and fallback models spend several times the per-call
           # limit.
-          CONFIG.AI_TIMEOUT: "90"
-          CONFIG.RETRY_SAME_MODEL_ON_TIMEOUT: "false"
-          CONFIG.LOG_LEVEL: INFO
-          CONFIG.REPO_CONTEXT_FILES: '[["AGENTS.md", "CLAUDE.md"]]'
+          CONFIG__AI_TIMEOUT: "90"
+          CONFIG__RETRY_SAME_MODEL_ON_TIMEOUT: "false"
+          CONFIG__LOG_LEVEL: INFO
+          CONFIG__REPO_CONTEXT_FILES: '[["AGENTS.md", "CLAUDE.md"]]'
 
-          GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
-          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "false"
-          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "false"
-          # The action's default leaves out synchronize, so it would skip every
-          # push after the PR opens. Keep this list equal to the trigger types
-          # above; scripts/check-workflow-posture.sh enforces it.
-          GITHUB_ACTION_CONFIG.PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
-          GITHUB_ACTION_CONFIG.HANDLE_PUSH_TRIGGER: "true"
-          GITHUB_ACTION_CONFIG.PUSH_COMMANDS: '["/review -i"]'
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+          # The wrapper forwards no GITHUB_OUTPUT into the container.
+          GITHUB_ACTION_CONFIG__ENABLE_OUTPUT: "false"
+          # The action skips any action this list leaves out. Keep it equal to
+          # the trigger types above; scripts/check-workflow-posture.sh
+          # enforces it.
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["ready_for_review", "review_requested"]'
+          # Nothing here reacts to a push, whatever the action's default.
+          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "false"
 
-          PR_REVIEWER.INLINE_KEY_ISSUES: "true"
-          PR_REVIEWER.NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
-          PR_REVIEWER.ENABLE_REVIEW_LABELS_SECURITY: "false"
-          PR_REVIEWER.ENABLE_REVIEW_LABELS_EFFORT: "false"
+          PR_REVIEWER__INLINE_KEY_ISSUES: "true"
+          PR_REVIEWER__NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}
+          PR_REVIEWER__ENABLE_REVIEW_LABELS_SECURITY: "false"
+          PR_REVIEWER__ENABLE_REVIEW_LABELS_EFFORT: "false"
 
       # One comment per PR, edited in place on every run, for /bot-review:
       # PR-Agent names the reviewed commit only when a full review edits its
@@ -130,7 +168,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ steps.head.outputs.sha }}
-          STATUS: ${{ steps.review.outcome }}
+          # With the key set, a skipped review means an earlier step failed.
+          STATUS: ${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}
         run: |
           marker="<!-- pr-agent-run: id=$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT head=$HEAD_SHA status=$STATUS -->"
           body="$marker"$'\n'"PR-Agent run $GITHUB_RUN_ID reviewed \`${HEAD_SHA:0:12}\`: $STATUS."

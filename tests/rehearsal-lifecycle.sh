@@ -321,7 +321,11 @@ final_round() {
     same_pids "${tracked:-}"
   } | awk 'NF' | sort -u))
   [ -z "$fc_rows" ] && return 0
-  fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$(printf '%s\n' "$fc_rows" | cut -f1)" | awk 'NF' | sort -u)
+  # Each leftover with its argv, one printable line: a bare pid in a CI log
+  # names nothing once the run is gone.
+  fc_seen=$(printf '%s\n%s\n' "$fc_seen" "$(printf '%s\n' "$fc_rows" \
+    | awk -F'\t' '{ print $1 " (" substr($3, 1, 120) ")" }' \
+    | tr -d '\000-\011\013-\037\177-\237')" | awk 'NF' | sort -u)
   # Re-checked against a fresh table immediately before the kill, so a pid
   # reissued since the scan is spared.
   for fc_p in $(same_pids "$fc_rows"); do

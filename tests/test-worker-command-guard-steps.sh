@@ -68,8 +68,12 @@ steps:
   - id: reserved
     kind: command
     target: $FX/repo/tools/gh
+  - id: tooled
+    kind: command
+    target: $DECLARED
+    args: --with git
 YAML
-printf 'steps_pre_ci: [declared, bare, rel, pooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+printf 'steps_pre_ci: [declared, bare, rel, pooled, tooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
 steps:
   - id: traversal
@@ -101,6 +105,29 @@ assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --
 assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
 assert_allow "declared line chained with a known-safe segment approved" \
   "$DECLARED --mode strict && git status" Bash "$FXC"
+# A declared command-step line is a chain partner: it may come before an
+# own-unit push joined only by `&&`, never after it or by `;`.
+OU_B=planwright/flight/demo-0123abcd
+write_record "$FX/own.record" "$FXC" '' "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_allow "the own-unit push alone under a record (control)" "git push origin $OU_B" Bash "$FXC"
+assert_allow "an own-unit push after a declared line" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+assert_defer "a declared line after an own-unit push" "git push origin $OU_B && $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a declared line joined to an own-unit push by ;" "$DECLARED --mode strict; git push origin $OU_B" Bash "$FXC"
+write_record "$FX/own-arm.record" "$FXC" own-branch "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own-arm.record")
+assert_allow "an own-unit push after a declared line under the own-branch arm" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+# A declared step line stays a partner when a check command declares the same
+# words, even one naming a program the check-command write scan refuses.
+write_record "$FX/own-chk.record" "$FXC" '' "$OU_B"
+printf 'check_commands=%s\n' "$DECLARED --with git" >>"$FX/own-chk.record"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_allow "an own-unit push after a declared line naming git (control)" \
+  "$DECLARED --with git && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own-chk.record")
+assert_allow "a declared line also declared as a check command still partners" \
+  "$DECLARED --with git && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The declarations resolve from the payload cwd, so after a `cd` a declared
 # line's relative args would name other files than the ones declared.
 # Regression-only here: this catalog's relative step already fails to resolve

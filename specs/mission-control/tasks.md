@@ -1,7 +1,7 @@
 # Mission control — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -9,6 +9,10 @@ Tasks in dependency order, which is presentation; the `Dependencies:` lines
 carry the graph. Tasks 6, 12 and 14 are routed work (amendments to owner
 bundles, and pending notes for follow-on bundles) and depend on nothing
 here, so they can run first.
+
+Task 31 was delivered by PR #851, squash-merged without a
+`Planwright-Task:` trailer; the commit adding this paragraph carries the
+trailer so the status render counts the task complete.
 
 ## Tasks
 
@@ -572,6 +576,11 @@ with its no-record and no-branch denials, the mission-control-tier deny of
 the kickoff's branch, the worker-tier parity case and the relay's
 fixed-string check.)*
 
+*(Amended at Amendment 21, 2026-11-22: the worker-tier parity case keeps
+its decision for every push except the clean base-merge push REQ-I1.11
+admits onto a spec-branch pull request's branch, which Task 148 builds and
+tests.)*
+
 ### Task 20 — The posture check and one pre-approval list
 
 - **Deliverables:** A posture script reading each loaded settings layer by
@@ -926,6 +935,11 @@ fixed-string check.)*
 - **Citations:** D-45, D-25, D-33 · REQ-D1.13, REQ-D1.14
 - **Estimated effort:** 1 day
 
+*(Amended at Amendment 21, 2026-11-22: PR #1142, a flight with no task
+trailer, added the legacy-bundle exception REQ-D1.18 now states, reading
+the base from the local remote-tracking ref; Task 149 moves that read to
+the pull request's base commit.)*
+
 ### Task 36 — Tower-front-door amendment: the router list and the flight's spec edit (routed)
 
 - **Deliverables:** A routed amendment of the `tower-front-door` bundle,
@@ -944,6 +958,10 @@ fixed-string check.)*
 - **Citations:** D-45, D-22 · REQ-D1.13
 - **Estimated effort:** half day
 
+*(Amended at Amendment 21, 2026-11-22: REQ-D1.18 supersedes the cited
+REQ-D1.13 with its drift rule unchanged; this task builds against
+REQ-D1.18.)*
+
 ### Task 37 — Skill, guide and doctrine for goals and spec drift
 
 - **Deliverables:** The skill's prose for setting a goal with its check and
@@ -958,6 +976,10 @@ fixed-string check.)*
 - **Dependencies:** 34, 35
 - **Citations:** D-21, D-44, D-45 · REQ-N1.1, REQ-N1.2, REQ-D1.13
 - **Estimated effort:** half day
+
+*(Amended at Amendment 21, 2026-11-22: REQ-D1.18 supersedes the cited
+REQ-D1.13; the guide's spec-drift section also says a bundle finished
+before kickoff reads as signed off, as REQ-D1.18 defines it.)*
 
 ### Task 38 — The plugin hook approves mission control's prompt-answer calls
 
@@ -1423,6 +1445,39 @@ fixed-string check.)*
 - **Citations:** D-69 · REQ-P1.13, REQ-P1.14
 - **Estimated effort:** 1 day
 
+### Task 148 — A spec-branch pull request's worker pushes its clean base merges
+
+- **Deliverables:** the landing of PR #1140 (a worker whose session record
+  names a sign-off branch merges and pushes clean merges of main) and PR
+  #1155 (every other agent push to an amendment or spec-rework branch
+  refused), plus the same merge-and-push pair for amendment and spec-rework
+  branches, which inverts #1155's denies of a clean base-merge push for the
+  branch the record names: in `scripts/policy-guard.sh`, with
+  `scripts/worker-session-record.sh`, `scripts/mission-control-launch.sh`,
+  `docs/permission-matcher-model.md` and `docs/options-reference.md`
+  updated; cases in `tests/test-policy-guard-spec-merge-push.sh` and
+  `tests/test-policy-guard-spec-branch-push.sh`. The edit of
+  `doctrine/human-gates.md`'s composition row #1140 carries belongs to the
+  human-gates batch amendment. These builds stay draft until that batch
+  amendment and this bundle's Amendment 21 are both signed.
+- **Done when:** The REQ-I1.11 test-spec entry's fixtures pass.
+- **Dependencies:** none
+- **Citations:** D-114 · REQ-I1.11
+- **Estimated effort:** 1 day
+
+### Task 149 — Readiness reads a legacy bundle's base at the pull request's base commit
+
+- **Deliverables:** in `scripts/mc-readiness.sh`, the pull request's base
+  commit as the forge reports it (`baseRefOid`) carried in the collected
+  evidence, and the legacy-bundle check reading the base's kickoff brief
+  and `requirements.md` at that commit, never from a local ref; cases in
+  `tests/test-mc-readiness-legacy-done.sh`.
+- **Done when:** The REQ-D1.18 test-spec entry's legacy fixtures pass, the
+  stale-local-ref rename case included.
+- **Dependencies:** 35
+- **Citations:** D-45 · REQ-D1.18
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.
@@ -1435,6 +1490,10 @@ fixed-string check.)*
 
 - **Task 30** — superseded by Task 33 (2026-11-07): an attended session
   hands over beside itself rather than compacting (D-43, REQ-L1.9).
+- **Task 51** — carried by control-plane Tasks 5.1 to 5.3 (2026-11-20):
+  control-plane's request ledger builds the intake rows, the turn-end check
+  and the handover self-check, holding a turn's first stop once
+  (control-plane D-22, D-25; REQ-F1.26 supersedes REQ-F1.19).
 
 - The review desk, spec currency, the environment broker, the night shift
   and the state-source adapters as duties in this bundle: follow-on bundles

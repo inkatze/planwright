@@ -12,12 +12,19 @@
 #       exit status and stderr are shown, and that attempt never turns the
 #       timeout into a success.
 #   p7: pid_gone holds only once every named process has exited.
+#   p8: --while-alive keeps waiting while the named process lives, counts an
+#       event it records just before exiting, gives up soon after it exits
+#       (or at once when it is already gone) without one, the message saying
+#       the process exited first, and still gives up at the deadline while it
+#       lives.
 set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 unset POLL_UNTIL_DEFAULT_DEADLINE
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
@@ -81,7 +88,8 @@ poll_until --deadline 30 --interval 0.1 -- second_call 2>/dev/null \
 for args in '--deadline x -- true' '--deadline -1 -- true' '--interval -- true' \
   '--bogus -- true' '--deadline 5 --' '' '--deadline' '--interval 0 -- true' \
   '--interval 0.0 -- true' '--interval .5 -- true' '--interval 5. -- true' \
-  '--interval 1.2.3 -- true'; do
+  '--interval 1.2.3 -- true' '--while-alive x -- true' '--while-alive 0 -- true' \
+  '--while-alive -1 -- true' '--while-alive -- true' '--while-alive'; do
   rc=0
   # shellcheck disable=SC2086 # each case is a word list
   poll_until $args 2>"$tmp/p4.err" || rc=$?
@@ -120,13 +128,64 @@ poll_until --deadline 0 --interval 1.1 -- past_deadline 2>/dev/null || rc=$?
 # --- p7 ---------------------------------------------------------------------
 sleep 30 &
 live=$!
-sh -c 'exit 0' &
-dead=$!
-wait "$dead"
+dead=$(dead_owner_pid) || fail "p7: dead_owner_pid found a process at its PID"
 pid_gone "$dead" || fail "p7: an exited process must count as gone"
 pid_gone "$dead" "$live" && fail "p7: a live process must keep pid_gone false"
-kill "$live"
+# KILL, not TERM: until the child has exec'd sleep it is a copy of this shell
+# holding the EXIT trap, and when bash runs the suite (the test runner does) a
+# TERM there runs that trap, removing $tmp under every later case.
+kill -KILL "$live"
 wait "$live" 2>/dev/null
-pid_gone "$live" || fail "p7: a killed process must count as gone"
+pid_gone "$live" || fail "p7: a killed process must count as gone" # hermetic-exempt: the case is the process it just killed; a PID reused in that instant fails loudly, never passes
+
+# --- p8 ---------------------------------------------------------------------
+# Each process is a grandchild the intermediate shell leaves behind, so no
+# zombie of this shell's own stands in for a live process.
+late=$(sh -c '(sleep 2 && : >"$1/p8-late" && sleep 1) >/dev/null 2>&1 & echo $!' _ "$tmp")
+poll_until --deadline 30 --while-alive "$late" --what 'the late event' -- test -e "$tmp/p8-late" 2>"$tmp/p8a.err" \
+  || fail "p8: an event a live process records late must pass, got: $(cat "$tmp/p8a.err")"
+# The first check returns false only once the process has written its event
+# and exited, so the wait sees the exit after a failed check and must look
+# again before giving up.
+last=$(sh -c '(sleep 1 && : >"$1/p8-last") >/dev/null 2>&1 & echo $!' _ "$tmp")
+p8_calls=0
+p8_last() {
+  p8_calls=$((p8_calls + 1))
+  if [ "$p8_calls" = 1 ]; then
+    p8_n=0
+    while ! pid_gone "$last" && [ "$p8_n" -lt 300 ]; do
+      sleep 0.1
+      p8_n=$((p8_n + 1))
+    done
+    return 1
+  fi
+  test -e "$tmp/p8-last"
+}
+poll_until --deadline 30 --while-alive "$last" --what 'the last event' -- p8_last 2>"$tmp/p8b.err" \
+  || fail "p8: an event recorded just before the process exits must pass, got: $(cat "$tmp/p8b.err")"
+[ "$p8_calls" = 2 ] || fail "p8: the exit must be followed by exactly one more check, ran $p8_calls"
+quiet=$(sh -c 'sleep 1 >/dev/null 2>&1 & echo $!')
+rc=0
+poll_until --deadline 60 --while-alive "$quiet" --what 'the missing event' -- test -e "$tmp/p8-never" 2>"$tmp/p8c.err" || rc=$?
+[ "$rc" = 1 ] || fail "p8: an event that never comes must fail once the process exits, got $rc"
+[ "$POLL_UNTIL_ELAPSED" -lt 30 ] \
+  || fail "p8: the wait must give up soon after the process exits, not at the deadline, took ${POLL_UNTIL_ELAPSED}s"
+case $(cat "$tmp/p8c.err") in
+  *"the missing event"*"process $quiet exited first"*"deadline 60s"*) ;;
+  *) fail "p8: the message must name the label, the exited process and the deadline, got: $(cat "$tmp/p8c.err")" ;;
+esac
+rc=0
+poll_until --deadline 60 --while-alive "$dead" --what 'the gone event' -- test -e "$tmp/p8-never" 2>"$tmp/p8d.err" || rc=$?
+[ "$rc" = 1 ] || fail "p8: a process gone before the wait must fail it, got $rc"
+[ "$POLL_UNTIL_ELAPSED" -lt 30 ] || fail "p8: a process gone before the wait must end it at once, took ${POLL_UNTIL_ELAPSED}s"
+grep -q "process $dead exited first" "$tmp/p8d.err" || fail "p8: the early end must say the process exited, got: $(cat "$tmp/p8d.err")"
+# A live process that never brings the event about still meets the deadline.
+stuck=$(sh -c 'sleep 30 >/dev/null 2>&1 & echo $!')
+rc=0
+poll_until --deadline 1 --while-alive "$stuck" --what 'the stuck event' -- test -e "$tmp/p8-never" 2>"$tmp/p8e.err" || rc=$?
+kill "$stuck" 2>/dev/null
+[ "$rc" = 1 ] || fail "p8: a live process past the deadline must fail the wait, got $rc"
+grep -q "the stuck event did not hold within 1s" "$tmp/p8e.err" \
+  || fail "p8: a deadline reached while the process lives must say so, got: $(cat "$tmp/p8e.err")"
 
 echo "PASS: poll-until"

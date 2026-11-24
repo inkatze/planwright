@@ -662,9 +662,8 @@ lint_block="$(job_block lint)"
 # 14. The macOS and Alpine suites run sharded like the test job, and `check`
 #     joins them: a failed, cancelled, or skipped shard on either platform,
 #     or the macOS install smoke, fails it. macOS takes the count the plan
-#     job's runner choice gives (a fixed small one on GitHub's scarce hosted
-#     runners, one shard on the self-hosted Mac); Alpine takes the planned
-#     list.
+#     job's choice (four shards on either runner kind); Alpine takes the
+#     planned list.
 # ---------------------------------------------------------------------------
 macos_block="$(job_block macos-suite)"
 smoke_block="$(job_block macos-smoke)"
@@ -682,8 +681,8 @@ alpine_block="$(job_block alpine-suite)"
     'shard: ${{ fromJSON(needs.plan.outputs.mac_shards) }}'
   assert_contains "the plan job hands on the macOS runner and its shards" "$plan_block" \
     'mac_shards: ${{ steps.mac.outputs.shards }}'
-  assert_contains "the self-hosted runner takes a single shard" "$plan_block" \
-    "if [ \"\$runner\" = self-hosted ]; then shards='[1]'; else shards='[1, 2, 3, 4]'; fi"
+  assert_contains "both runner kinds take the same four shards" "$plan_block" \
+    "shards='[1, 2, 3, 4]'"
   assert_contains "only this repository's pull requests reach the self-hosted runner" "$plan_block" \
     '[ "$EVENT" = pull_request ] && [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]'
   assert_contains "the self-hosted runner is opt-in by repository variable" "$plan_block" \

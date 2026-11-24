@@ -4,8 +4,9 @@
 # decision, the reason where it matters, and the policy reads it made. This
 # file covers jurisdiction, the pull-request acts and the base-merge git acts;
 # tests/test-policy-guard-rewrites.sh covers the rewrites, pushes, protected
-# set and fail-closed reads, tests/test-policy-guard-kickoff.sh the kickoff
-# sign-off push, and tests/test-policy-guard-gh-api.sh gh api. The harness
+# set and fail-closed reads, tests/test-policy-guard-kickoff.sh and its -run,
+# -shapes and -gitconfig companions the kickoff sign-off push, and
+# tests/test-policy-guard-gh-api.sh gh api. The harness
 # explains the stubs and the repositories; tests/lib/policy-guard-clones.sh
 # builds the other-branch, pushed, no-upstream and failed-refresh siblings.
 # The guard only ever sees fixture commands.

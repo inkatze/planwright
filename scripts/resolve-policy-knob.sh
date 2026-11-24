@@ -82,6 +82,22 @@ case "$knob" in
     exec /bin/sh "$rck" --key "$knob" --type enum --values 'allow deny' \
       --fallback deny --degrade deny
     ;;
+  draft_rewrite)
+    # The core, adopter, and machine-local layers only: a committed
+    # repo-tracked line never enables it, and neither does a core-defaults or
+    # machine-local file named in the environment. The machine-local file is
+    # the repository root's own (PLANWRIGHT_REPO_ROOT, else this checkout's).
+    dr_root=${PLANWRIGHT_REPO_ROOT:-}
+    case $dr_root in
+      '' | none) dr_root=$(git rev-parse --show-toplevel 2>/dev/null) || dr_root='' ;;
+    esac
+    dr_local=''
+    [ -z "$dr_root" ] || dr_local=$dr_root/.claude/planwright.local.yml
+    unset PLANWRIGHT_CONFIG_DEFAULTS
+    PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG=$dr_local \
+      exec /bin/sh "$rck" --key "$knob" --type enum --values 'allow deny' \
+      --fallback deny --degrade deny
+    ;;
   ready_guard_behind_base)
     PLANWRIGHT_REPO_ROOT=none PLANWRIGHT_LOCAL_CONFIG='' \
       exec /bin/sh "$rck" --key "$knob" --type enum --values 'refuse conflict-only checks' \
