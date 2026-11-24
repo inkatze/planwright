@@ -60,7 +60,13 @@
 # editor's own script writes (sed's w, ed's or vi's :w to another name); a file
 # a tool writes under a default name in the working directory (wget, curl -O,
 # an unpack with no -C or -d); writers the screen does not parse (find
-# -fprint, patch, sponge and the like); and a runner it does not list. Its flip,
+# -fprint, patch, sponge and the like); and a runner it does not list. The
+# runner and here-string reading is a text reading that fails closed: it
+# refuses an editor's name opening a here-string beside a shell or runner even
+# where a script reads it as data, and it misses a here-string a shell reads
+# from a later line (cat <<< '...' |, then bash), a compound closer that follows
+# a word or carries no space before a redirect (echo a ) <<<, }2>&1 <<<), and a
+# pipe between a closer and its here-string. Its flip,
 # for a PR of the repository it runs in or of a program-listed one it names
 # with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency

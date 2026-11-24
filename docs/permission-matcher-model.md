@@ -923,6 +923,26 @@ fast-forward ones (a squash, a strategy or strategy option, unrelated
 histories, `--no-commit`, `--autostash`), an abbreviated option or an expanded
 one refuses.
 
+## Mission control's repository writes in Bash
+
+The `mission-control` tier of `scripts/policy-guard.sh` refuses a Bash write
+into any git work tree or bare repository with the same refusal its file
+surface gives an Edit or Write there ("mission control edits no repository"):
+every write target the settings screen already reads (redirects, `tee`, `dd
+of=`, the copy verbs and the output options) and every file an in-place editor
+rewrites (`sed -i`, `perl -i`, `ruby -i`, `awk` with the inplace extension,
+`ed`, `ex` and `vi`), each read as written and followed on disk. An in-place
+editor run behind another command, in a here-document or here-string a shell
+reads, or in text the guard cannot parse is refused fail closed, from a text
+reading of the command rather than a parse.
+
+That text reading has known gaps and one known over-refusal, named with the
+rest of the accepted residual in the guard's header comment: it misses
+writers and runners it does not list, a here-string a shell reads from a
+later line, and some spellings of a compound command's closer before a
+here-string, and it refuses an editor's name opening a here-string that a
+script beside a shell only reads as data.
+
 ## Changing any of this
 
 1. Change the deny list and the fixture table in the same commit. The test's
