@@ -564,7 +564,8 @@ not, whichever spelling reaches it (`sh`, `bash`, a direct path, a symlinked
 folder, a `..` walk, inside `fish -c`, `bash -c` or a loop, behind an
 assignment or `timeout`), and so does `bats` on a folder; one the base
 gained counts once the worker merges the base. A record with no `pr_base`,
-or a base with no commit in common, trusts no file in the worktree. The check reads the file as it is before the command
+or a base with no commit in common, trusts no file in the worktree. The
+check reads the file as it is before the command
 runs, so a command that relies on it and also makes a write the own-branch
 arm admits defers as a whole (`cp f scripts/ok.sh && sh scripts/ok.sh`, and
 equally `touch build/x && bash tests/ok.sh`); staging and committing change
