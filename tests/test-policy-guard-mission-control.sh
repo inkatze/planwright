@@ -56,6 +56,9 @@ ln -s "$FIXHOME/.mcp.json" "$KB/lk-mcp"
 mkdir -p "$KB/sub" "$SCRATCH/x"
 # A plain file whose name is a link in kb, for a copy into kb.
 : >"$SCRATCH/x/lk-file"
+# A plain directory holding a link to a work tree, for a write through it.
+mkdir -p "$SCRATCH/rl"
+ln -s "$UNIT" "$SCRATCH/rl/unit"
 TAB=$(printf '\t')
 NL=$'\n'
 
@@ -147,6 +150,16 @@ pg mission-control "cd $KB && echo x >> lk-plain" "$UNIT"
 expect defer "[mission-control] a relative write through a link to a plain file is permitted"
 pg_payload mission-control bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"echo x >> real.md"}, cwd:7}')"
 expect deny "[mission-control] a relative write under a cwd the guard cannot read is refused"
+
+echo "# an in-place editor or write the screen reads only as text, into a repository"
+pg mission-control "bash <<'EOF'${NL}perl -pi -e s/a/b/ $SCRATCH/kb/real.md${NL}EOF"
+expect deny "[mission-control] an in-place editor in a here-document a shell reads is refused"
+reason_has 'edits no repository' "[mission-control] the here-document in-place refusal names the repository rule"
+pg mission-control "cd $KB && cat > notes.md <<'EOF'${NL}text${NL}EOF"
+expect defer "[mission-control] a store heredoc after the one cd, from a repository cwd, is permitted"
+TMPDIR=$UNIT pg mission-control 'S=$(mktemp -d); echo x > "$S/x"'
+expect deny "[mission-control] a write under a fresh mktemp -d directory is refused when TMPDIR lies in a repository"
+reason_has 'edits no repository' "[mission-control] the mktemp-in-repository refusal names the repository rule"
 for c in 'echo x >&2' 'echo x >&-' '(echo x >&2)' 'echo x >&2-' 'echo x 2>&1'; do
   pg mission-control "$c" "$FIXHOME/.claude/agents"
   expect defer "[mission-control] a descriptor duplication opens no file, even from a posture directory: $c"

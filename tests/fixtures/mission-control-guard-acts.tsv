@@ -133,6 +133,106 @@ deny	settings-write	bash	-	settings or configuration file	printf 'ready_flip_pol
 deny	repo-write	file	-	edits no repository	Write @UNIT@/README.md
 deny	repo-write	file	-	edits no repository	Edit @UNIT@/new-dir/notes.md
 deny	repo-write	file	-	edits no repository	Write @SCRATCH@/bare.git/hooks/pre-commit
+deny	repo-write	bash	-	edits no repository	sed -i s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sed -i.bak s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sed --in-place s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sed -n -i -e s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -pi -e s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -i.bak -pe s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -pie s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -i -p script.pl @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	awk -i inplace {print} @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -i inplace -v x=1 {print} @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk --include=inplace {print} @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -iinplace -f prog.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x | tee @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x | tee -a @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x > @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x >> @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x >| @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x &> @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x > @UNIT@/.git/hooks/pre-push
+deny	repo-write	bash	-	edits no repository	cp @SCRATCH@/kb/real.md @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	cp @SCRATCH@/kb/real.md @UNIT@
+deny	repo-write	bash	-	edits no repository	cp -t @UNIT@ @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	mv @SCRATCH@/kb/real.md @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	mv @UNIT@/README.md @SCRATCH@/kb/moved.md
+deny	repo-write	bash	-	edits no repository	install @SCRATCH@/kb/real.md @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	rsync @SCRATCH@/kb/real.md @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sort -o @UNIT@/sorted.md @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	dd if=@SCRATCH@/kb/real.md of=@UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	printf '1d\nw\nq\n' | ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ed -p '*' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ex -sc '1d|x' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vim -es -c '1d|x' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	truncate -s 0 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; sed -i s/a/b/ "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; perl -pi -e s/a/b/ "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; awk -i inplace {print} "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; echo x | tee "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; echo x > $f
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; cp @SCRATCH@/kb/real.md "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; mv @SCRATCH@/kb/real.md "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; dd if=@SCRATCH@/kb/real.md of="$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; ed -s "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; ex -sc '1d|x' "$f"
+deny	repo-write	bash	-	edits no repository	f=@UNIT@/README.md; truncate -s 0 "$f"
+deny	repo-write	bash	-	edits no repository	d=@UNIT@; sed -i s/a/b/ $d/README.md
+deny	repo-write	bash	-	edits no repository	echo x > README.md
+deny	repo-write	bash	-	edits no repository	sed -i s/a/b/ specs/demo/requirements.md
+deny	repo-write	bash	-	edits no repository	cd @UNIT@ && echo x > notes.md
+deny	repo-write	bash	-	edits no repository	echo x > @SCRATCH@/bare.git/hooks/pre-commit
+deny	repo-write	bash	-	edits no repository	echo x > @SCRATCH@/rl/unit/README.md
+deny	repo-write	bash	-	edits no repository	sed -i s/a/b/ @SCRATCH@/rl/unit/README.md
+deny	repo-write	bash	-	edits no repository	env perl -pi -e s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	timeout 5 sed -i s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	nice ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	find @UNIT@ -name '*.md' -exec perl -pi -e s/a/b/ {} +
+deny	repo-write	bash	-	edits no repository	xargs perl -pi -e s/a/b/ < @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	bash -c "awk -i inplace 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	sh -c 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	perl -pi -e s/a/b/ $(echo @UNIT@/README.md)
+deny	repo-write	bash	-	edits no repository	ed -s $(echo @UNIT@/README.md)
+deny	repo-write	bash	-	edits no repository	echo "$(ed -s @UNIT@/README.md)"
+deny	repo-write	bash	-	edits no repository	sed -i -e s/a/b/ -- @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sed --expression=s/a/b/ -i @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vim -w @UNIT@/keys.log @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	dd if=@SCRATCH@/kb/real.md of=README.md
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb; echo x > notes.md
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb || echo x > notes.md
+deny	repo-write	bash	-	edits no repository	cd @SCRATCH@/kb && cd @UNIT@ && echo x > notes.md
+deny	repo-write	bash	-	edits no repository	curl -o out.html https://example.invalid
+deny	repo-write	bash	-	edits no repository	curl --output-dir @UNIT@ -o out.html https://example.invalid
+deny	repo-write	bash	-	edits no repository	ln -s @SCRATCH@/kb/real.md
+defer	read	bash	-	-	cd @SCRATCH@/kb && sed -i s/a/b/ real.md
+defer	read	bash	-	-	cd @SCRATCH@/kb && perl -pi -e s/a/b/ real.md | cat
+defer	read	bash	-	-	curl --output-dir @SCRATCH@/kb -o out.html https://example.invalid
+defer	read	bash	-	-	cd @SCRATCH@/kb && ln -s @UNIT@/README.md
+defer	read	bash	-	-	awk -v x=1 -i inplace {print} y=2 @SCRATCH@/kb/real.md
+defer	read	bash	-	-	perl -i -pe 1 -- @SCRATCH@/kb/real.md
+defer	read	bash	-	-	vim -es -u NONE -c wq @SCRATCH@/kb/real.md
+defer	read	bash	-	-	dd if=@UNIT@/README.md of=@SCRATCH@/kb/out.md 2>&1
+defer	read	bash	-	-	perl -pi -e s/a/b/ @SCRATCH@/kb/real.md
+defer	read	bash	-	-	awk -i inplace {print} @SCRATCH@/kb/real.md
+defer	read	bash	-	-	ed -s @SCRATCH@/kb/real.md
+defer	read	bash	-	-	ex -sc '1d|x' @SCRATCH@/kb/real.md
+defer	read	bash	-	-	sed -i s/a/b/ @SCRATCH@/kb/real.md
+defer	read	bash	-	-	truncate -s 0 @SCRATCH@/kb/real.md
+defer	read	bash	-	-	truncate --size 0 @SCRATCH@/kb/real.md
+defer	read	bash	-	-	truncate -r @UNIT@/README.md @SCRATCH@/kb/real.md
+defer	read	bash	-	-	dd if=@UNIT@/README.md of=@SCRATCH@/kb/out.md
+defer	read	bash	-	-	dd if=@UNIT@/README.md of=@SCRATCH@/kb/out.md bs=1M count=1
+defer	read	bash	-	-	cp @UNIT@/README.md @SCRATCH@/kb/copy2.md
+defer	read	bash	-	-	cat @UNIT@/README.md > @SCRATCH@/kb/out2.md
+defer	read	bash	-	-	tee @SCRATCH@/kb/t.md < @UNIT@/README.md
+defer	read	bash	-	-	sort -o @SCRATCH@/kb/sorted.md @UNIT@/README.md
+defer	read	bash	-	-	sed -n 1p @UNIT@/README.md
+defer	read	bash	-	-	awk {print} @UNIT@/README.md
+defer	read	bash	-	-	gawk -i ./lib.awk {print} @UNIT@/README.md
+defer	read	bash	-	-	perl -ne print @UNIT@/README.md
+defer	read	bash	-	-	perl -Mstrict -e 1 @UNIT@/README.md
+defer	read	bash	-	-	grep -n x @UNIT@/README.md > @SCRATCH@/kb/hits.md
 ask	flip-human	bash	ready_flip_policy: human	your request to mark.*ready_flip_policy in .*planwright config \(planwright\.yml	gh pr ready 42
 ask	flip-human	bash	ready_flip_policy: human	unit-owner.*Bash\(gh pr ready:\*\)	gh pr ready 42 --undo=false
 deny	flip-other-repo	bash	-	names a repository	gh pr ready 42 --repo employer/widgets
