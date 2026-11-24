@@ -226,25 +226,43 @@ rgit() (
 # except where a worker session record is set. There the worktree the record
 # names is held to the merge base of HEAD and the record's pr_base
 # remote-tracking ref, read literally by show-ref --verify, since the worker
-# can commit on its own branch; a repository nested in that worktree, a record
-# naming no worktree or no usable base, and a base with no commit in common
-# print nothing and return 1.
+# can commit on its own branch; a repository nested in that worktree, a
+# missing or repeated pr_base, and a base with no commit in common print
+# nothing and return 1. A record that is unreadable or names no single
+# worktree leaves the unit's own worktree, where the worker can still commit,
+# trusting nothing, and a checkout elsewhere held to HEAD.
 trusted_commit() {
-  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' oid rev
+  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' n_wt=0 n_base=0 oid rev
   if [ -z "$rec" ]; then
     printf HEAD
     return 0
   fi
-  [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case $line in
-      worktree_root=*) [ -z "$r_wt" ] && r_wt=${line#worktree_root=} || return 1 ;;
-      pr_base=*) [ -z "$r_base" ] && r_base=${line#pr_base=} || return 1 ;;
-    esac
-  done <"$rec"
+  if [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case $line in
+        worktree_root=*)
+          r_wt=${line#worktree_root=}
+          n_wt=$((n_wt + 1))
+          ;;
+        pr_base=*)
+          r_base=${line#pr_base=}
+          n_base=$((n_base + 1))
+          ;;
+      esac
+    done <"$rec"
+  fi
+  [ "$n_wt" -eq 1 ] || r_wt=''
+  [ "$n_base" -eq 1 ] || r_base=''
   case $r_wt in
     /?*) ;;
-    *) return 1 ;;
+    *)
+      [ "$1" != "$worktree" ] || return 1
+      case $1/ in
+        "$worktree"/*) return 1 ;;
+      esac
+      printf HEAD
+      return 0
+      ;;
   esac
   if [ "$1" != "$r_wt" ]; then
     case $1/ in

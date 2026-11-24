@@ -432,6 +432,8 @@ verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
 printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
 loc_refused "$lw/tools/mark.sh"
 verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
+loc_ran "$tmp/other/tools/kept.sh"
+verdict $? "under a record repeating worktree_root, another checkout keeps HEAD" "$(loc_out)"
 LOC_REC=''
 loc_ran "$lw/tools/mark.sh"
 verdict $? "with no record, the location is held to HEAD again" "$(loc_out)"

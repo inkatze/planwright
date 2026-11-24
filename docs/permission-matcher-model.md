@@ -590,9 +590,11 @@ What still runs code a worker wrote without a prompt:
   record the guard cannot tell the worktree or its base, so it holds a
   repository script to HEAD, which the profile's static `git commit` allow
   lets the worker move. A launcher whose record write fails launches the
-  worker this way. A record that is set but names no usable worktree (a
-  repeated or non-canonical `worktree_root`, a record inside the worktree)
-  trusts nothing instead.
+  worker this way. Where a record is set but names no usable worktree (a
+  repeated or non-canonical `worktree_root`, a record inside the worktree),
+  the repository the session sits in, which its static commit allow reaches,
+  trusts nothing instead, and a checkout elsewhere keeps HEAD, so an
+  installed planwright root that is a checkout still runs its scripts.
 - **A write that lands while a trusted script runs.** The guard checks a
   script's bytes before the command runs, and a shell reads a script as it
   goes, so a write running in the background (an own-branch write the worker

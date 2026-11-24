@@ -774,18 +774,27 @@ canon_under() {
 # --verify, which takes the full name literally: git's ordinary lookup falls
 # through to a local branch named refs/remotes/<base> once the real ref is
 # deleted, and the profile statically allows both acts. A repository nested in
-# the worktree, which the worker can give any refs, trusts nothing, and so
-# does a session whose record is set but names no usable worktree, since the
-# worker there can still commit through the static allows. Called outside a
+# the worktree, which the worker can give any refs, trusts nothing. Where the
+# record is set but names no usable worktree, the repository the session sits
+# in (and any nested in it) trusts nothing, since the static allows still let
+# the worker commit there; a checkout elsewhere keeps HEAD. Called outside a
 # command substitution, so the per-root cache survives the hook call.
 TRUSTED_REV_ROOT=''
 TRUSTED_REV=''
 TRUSTED_REV_OUT=''
 trusted_rev() {
-  local oid rev
+  local oid rev cwd_root
   TRUSTED_REV_OUT=''
   if [ -z "$REC_WT" ]; then
-    [ -z "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ] || return 1
+    if [ -n "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ]; then
+      [ -n "${HOOK_PAYLOAD_CWD:-}" ] || return 1
+      if cwd_root=$(repo_root_of "$HOOK_PAYLOAD_CWD"); then
+        [ "$1" != "$cwd_root" ] || return 1
+        case $1/ in
+          "$cwd_root"/*) return 1 ;;
+        esac
+      fi
+    fi
     TRUSTED_REV_OUT=HEAD
     return 0
   fi

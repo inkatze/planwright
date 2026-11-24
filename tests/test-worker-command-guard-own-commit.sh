@@ -235,6 +235,14 @@ printf '#!/bin/sh\ngh pr merge 1\n' >"$C/scripts/planted.sh"
 HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
 assert_allow "a root checkout's committed script" "bash $C/scripts/plug.sh" Bash "$WT"
 assert_defer "a script planted in that root" "bash $C/scripts/planted.sh" Bash "$WT"
+# A record naming no usable worktree distrusts only the repository the session
+# sits in, the one its static commit allow reaches.
+under "$DUP"
+HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
+assert_allow "a repeated worktree_root: a root checkout elsewhere keeps HEAD" \
+  "bash $C/scripts/plug.sh" Bash "$WT"
+assert_defer "a repeated worktree_root: the session's own repository trusts nothing" \
+  "bash scripts/ok.sh" Bash "$WT"
 # A planwright root that is the recorded worktree itself is held to the base.
 under "$REC"
 HOOK_ENV+=("PLANWRIGHT_ROOT=$WT")
