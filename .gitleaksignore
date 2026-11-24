@@ -18,3 +18,5 @@ ad7bb3d9914bc72e781d1943114516f31f989298:tests/test-inception-scaffold.sh:generi
 # Tower-queue review mission-control session tokens (fake tokens the binding test compares).
 a7875222cacef3bd790f0558b018c7996f3ab476:tests/test-tower-queue-review.sh:generic-api-key:90
 a7875222cacef3bd790f0558b018c7996f3ab476:tests/test-tower-queue-review.sh:generic-api-key:153
+# Run-record token-shape scrub fixture (a GitHub-shaped token the record must scrub).
+7a1d198024dfe8cfaa750d886875a0b2c03d3955:tests/test-run-record.sh:github-pat:418
