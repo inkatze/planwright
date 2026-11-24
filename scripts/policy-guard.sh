@@ -7616,10 +7616,10 @@ mc_settings_screen() {
     *'<<'*)
       while IFS= read -r w; do
         case $w in *'<<'*) ;; *) continue ;; esac
-        # A compound command's closer (}, ), done, fi, esac) hands the
-        # here-string on its line to a shell or runner the compound holds on
-        # an earlier line.
-        re='(^|[;&|[:space:]])([})]|done|fi|esac)([[:space:]][^;&|]*)?<<<'
+        # A compound command's closer (}, ), done, fi, esac) opening a
+        # statement hands the here-string on its line, past any redirects, to
+        # a shell or runner the compound holds on an earlier line.
+        re='(^|[;&|])[[:space:]]*([})]|done|fi|esac)([[:space:]&<>][^;|]*)?<<<'
         if [[ $w =~ $RE_MC_INTERPRETER || $w =~ $RE_MC_RUNNER_CMD ]]; then
           shopt -s nocasematch
           k=1

@@ -165,9 +165,14 @@ pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"
 expect deny "[mission-control] a group's closing here-string reaches the shell the group holds"
 reason_has 'edits no repository' "[mission-control] the group here-string refusal names the repository rule"
 for c in "( bash${NL}) <<< 'vi $UNIT/README.md'" "while true; do${NL}bash${NL}done <<< 'vi $UNIT/README.md'" \
-  "if true; then bash${NL}fi <<< 'vi $UNIT/README.md'" "{ bash${NL}echo; } <<< 'vi $UNIT/README.md'"; do
+  "if true; then bash${NL}fi <<< 'vi $UNIT/README.md'" "{ bash${NL}echo; } <<< 'vi $UNIT/README.md'" \
+  "{ bash${NL}} 2>&1 <<< 'vi $UNIT/README.md'" "while true; do bash${NL}x; done <<< 'vi $UNIT/README.md'"; do
   pg mission-control "$c" "$SCRATCH"
   expect deny "[mission-control] a compound's closing here-string reaches the shell it holds: ${c%%"$NL"*}"
+done
+for c in "bash -c true${NL}echo done <<< 'vi $UNIT/README.md'" "bash -c true${NL}grep esac <<< 'vi $UNIT/README.md'"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect defer "[mission-control] a closer word that is only an argument hands its here-string to nothing: ${c#*"$NL"}"
 done
 pg mission-control "{ echo a${NL}} <<< vi" "$SCRATCH"
 expect defer "[mission-control] a compound's closing here-string with no shell or runner in the command is data"
