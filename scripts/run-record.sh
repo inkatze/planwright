@@ -160,12 +160,13 @@ cmd_record() {
   [ -z "$(tail -c 1 <"$result")" ] || die "missing source: result (unterminated row)" 3
   row=$(sed -n '1p' <"$result")
   # cut passes a line without its delimiter through whole, so a truncated row
-  # would read as its own fields; the fleet writes at least three fields for
-  # an exit row and four for a result row.
+  # would read as its own fields. Every row carries at least kind, its second
+  # field and the epoch; a result row's is_error is absent on older rows and
+  # reads as false (the row format fleet-streamjson.sh documents).
   tab=$(printf '\t')
   case $row in
-    result"$tab"*"$tab"*"$tab"* | exit"$tab"*"$tab"*) ;;
-    result* | exit*) die "missing source: result (a truncated result row)" 3 ;;
+    result"$tab"*"$tab"* | exit"$tab"*"$tab"*) ;;
+    result | result"$tab"* | exit | exit"$tab"*) die "missing source: result (a truncated result row)" 3 ;;
   esac
   kind=$(printf '%s' "$row" | cut -f1)
   second=$(printf '%s' "$row" | cut -f2)

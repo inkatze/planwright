@@ -387,7 +387,7 @@ printf '%s\n' '{"type":"assistant","message":{"id":"mn","content":[{"type":"tool
   '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tn","is_error":true,"content":[{"type":"text","text":{"a":1}}]}]}}' >>"$tmp/n/events.jsonl"
 rec "$tmp/n" "$tmp/n.json" 2>"$tmp/n.err" || fail "e1: a numeric skill name or an object text block must not abort the record"
 [ "$(jq -r .polish_rounds "$tmp/n.json")" = 1 ] || fail "e1: a numeric skill name is not a polish round"
-for row in 'result' 'exit' 'result\tsuccess' 'result\terror\t1700000000' 'exit\t1' 'bogus\ta\tb\tc'; do
+for row in 'result' 'exit' 'result\tsuccess' 'exit\t1' 'bogus\ta\tb\tc'; do
   mk_run "$tmp/n" today
   printf '%b\n' "$row" >"$tmp/n/result"
   rc=0
@@ -397,6 +397,7 @@ done
 o_case 'exit\t1\t1700000000' crashed
 o_case 'exit\t0\t1700000000' completed
 o_case 'result\terror\t1700000000\ttrue' crashed
+o_case 'result\tsuccess\t1700000000' completed
 pass "e1: non-string frame fields are tolerated; short result rows are refused"
 
 # ---- e2: counting rules ----------------------------------------------------
