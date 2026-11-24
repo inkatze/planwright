@@ -6479,7 +6479,8 @@ classify_verb() {
 # before them (verify_simple). Running one runs repository code, the same
 # trust the guard gives the repository's scripts/. That trust stops at a
 # config loader: a declared markdownlint or mise run still passes the screen
-# the undeclared command does (check_loader_ok).
+# the undeclared command does (check_loader_ok). Nor does it reach a step
+# script, whose hand-timed records stay at the prompt (check_names_step).
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6683,10 +6684,28 @@ check_command_ok() {
   for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
     [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
     check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
-    # The loader verdict reads only the words, so no other declaration
-    # could turn it.
+    # The step-script and loader verdicts read only the words, so no other
+    # declaration could turn them.
+    ! check_names_step || return 1
     check_loader_ok
     return
+  done
+  return 1
+}
+
+# check_names_step: 0 when a word of the current simple command (`sw` /
+# `swn`), whole or after its last `=`, is a step script as step_script_kind
+# reads one. Under a runner prefix or a spelling verify_known_simple never
+# reads as a step-script call, a declaration would otherwise approve a
+# hand-timed record without the prompt REQ-F1.12 keeps for it.
+check_names_step() {
+  local i w
+  for ((i = 0; i < swn; i++)); do
+    w=${sw[i]}
+    step_script_kind "$w" && return 0
+    case $w in
+      *=*) step_script_kind "${w##*=}" && return 0 ;;
+    esac
   done
   return 1
 }

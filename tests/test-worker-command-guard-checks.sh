@@ -266,6 +266,54 @@ for r in "mise exec -- GIT status" "RM build.txt" "make check SHELL=bash" "make 
   assert_defer "F1.11: declared $r before the own push" \
     "$r && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 done
+
+echo "### REQ-F1.12 — a declaration naming a step script is never a check command"
+# The step-script rules, and the prompt they keep for a hand-timed record,
+# hold over any declaration: under any runner prefix or path spelling, in any
+# letter case, or through a link of the installed copy under another name.
+T=2026-11-22T10:00:00Z
+SREC=$REPO_ROOT/scripts/step-record.sh
+SRUN=$REPO_ROOT/scripts/step-run.sh
+mkdir -p "$WT/bin"
+ln -s "$SREC" "$WT/bin/sr"
+SARGS='write --run <word> --point <word> --step <word> --start <word> --outcome <word>'
+SDECLS="scripts/step-record.sh $SARGS; ./scripts/step-record.sh $SARGS"
+SDECLS="$SDECLS; mise exec -- scripts/step-record.sh $SARGS; mise exec -- $SREC $SARGS"
+SDECLS="$SDECLS; $SREC $SARGS; SCRIPTS/STEP-RECORD.SH $SARGS; mise exec -- Scripts/Step-Record.sh $SARGS"
+SDECLS="$SDECLS; mise exec -- ./scripts/step-record.sh $SARGS; mise exec -- step-record.sh $SARGS"
+SDECLS="$SDECLS; bin/sr $SARGS; make check SCRIPT=scripts/step-record.sh"
+SDECLS="$SDECLS; mise exec -- scripts/step-run.sh <word>...; mise exec -- $SRUN <word>..."
+SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>"
+# No word of it is one the partner scan refuses, so only the step-script
+# reading keeps it from the own push.
+SW="write --run 000001 --point pre-pr --step lint --start $T --outcome passed"
+STEPPED=(
+  "scripts/step-record.sh $SW"
+  "./scripts/step-record.sh $SW"
+  "mise exec -- scripts/step-record.sh $SW"
+  "mise exec -- $SREC $SW"
+  "$SREC $SW"
+  "SCRIPTS/STEP-RECORD.SH $SW"
+  "mise exec -- Scripts/Step-Record.sh $SW"
+  "bin/sr $SW"
+  "mise exec -- ./scripts/step-record.sh $SW"
+  "mise exec -- step-record.sh $SW"
+  "make check SCRIPT=scripts/step-record.sh"
+  "mise exec -- scripts/step-run.sh frobnicate"
+  "mise exec -- $SRUN frobnicate"
+)
+for col in 1 4; do
+  under "$(with_checks "stepped.$col" "$col" "$SDECLS")"
+  assert_allow "F1.12 [$col]: a read-only check command still partners the own push" \
+    "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_allow "F1.12 [$col]: a runner-prefixed check command still partners the own push" \
+    "mise exec -- mix credo strict && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  for s in "${STEPPED[@]}"; do
+    assert_defer "F1.12 [$col]: declared $s, alone" "$s" Bash "$WT"
+    assert_defer "F1.12 [$col]: declared $s before the own push" \
+      "$s && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  done
+done
 under "$REC"
 
 echo "### REQ-A1.18 — a malformed declaration drops alone"
