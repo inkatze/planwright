@@ -1,7 +1,9 @@
 #!/bin/bash
 # Tests for scripts/worker-command-guard.sh: a repository script, a bats file,
 # and a script under a planwright root that is a git checkout are trusted only
-# when HEAD commits them with the same bytes (committed_blob). A worker can
+# when a commit holds them with the same bytes (committed_blob): the PR base
+# inside the recorded worktree (tests/test-worker-command-guard-own-commit.sh
+# covers what the worker commits itself), HEAD elsewhere. A worker can
 # Write any file under scripts/ or tests/, so a script it wrote or edited and
 # has not committed prompts, through every invocation form and every path
 # spelling that reaches it, while committed, unmodified scripts keep their
@@ -23,7 +25,7 @@ printf '#!/bin/sh\nprintf ok\\n\n' >"$R/scripts/caf$(printf '\303\251').sh"
 printf '@test x { true; }\n' >"$R/tests/clean.bats"
 printf '@test x { true; }\n' >"$R/tests/edited.bats"
 chmod +x "$R/scripts/clean.sh" "$R/tests/clean.sh"
-fixture_commit "$R" scripts tests sub || exit 1
+fixture_commit "$R" scripts tests sub && fixture_base "$R" || exit 1
 # What a worker's Write leaves behind: new files, edits to committed ones, a
 # copy of a committed script under a new name, a staged but uncommitted file.
 pw='#!/bin/sh\nprintf pwned\\n > lefthook.yml\n'
@@ -108,7 +110,9 @@ echo "### the edit is undone or committed"
 cp "$R/scripts/clean.sh" "$R/scripts/edited.sh"
 assert_allow "an edit put back byte for byte" "bash scripts/edited.sh" Bash "$R"
 fixture_commit "$R" scripts/new.sh || exit 1
-assert_allow "a script HEAD commits" "bash scripts/new.sh" Bash "$R"
+assert_defer "a script HEAD commits but the base does not" "bash scripts/new.sh" Bash "$R"
+fixture_base "$R" || exit 1
+assert_allow "a script the base commits" "bash scripts/new.sh" Bash "$R"
 rm -f "$R/scripts/clean.sh"
 mkdir "$R/scripts/clean.sh"
 assert_defer "a directory where HEAD has the file" "bash scripts/clean.sh" Bash "$R"

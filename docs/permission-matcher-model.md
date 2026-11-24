@@ -551,14 +551,20 @@ overlays are not protected at all.
 The Write tool reaches `scripts/` and `tests/`, so where a script sits proves
 nothing about who wrote it. The command guard approves a repository script
 (a `.sh` under `scripts/` or `tests/`), a `bats` file, and a script under a
-planwright root that is a git checkout only when the checkout's HEAD commits
-it with the same bytes (`scripts/worker-command-guard.sh`, `committed_blob`),
-and so is a declared command step whose location lies in a git checkout, the
-repository or another (`declared_location_ok`); an install copy, which is no
-checkout of its own, is trusted by location. A script a worker wrote or edited and has not
-committed prompts, whichever spelling reaches it (`sh`, `bash`, a direct
-path, a symlinked folder, a `..` walk, inside `fish -c` or a loop), and so
-does `bats` on a folder. The check reads the file as it is before the command
+planwright root that is a git checkout only when a commit holds it with the
+same bytes (`scripts/worker-command-guard.sh`, `committed_blob`), and so is a
+declared command step whose location lies in a git checkout, the repository
+or another (`declared_location_ok`); an install copy, which is no checkout of
+its own, is trusted by location. Inside the worktree the session record
+names, that commit is the PR base: the merge base of HEAD and the record's
+`pr_base` remote-tracking ref (`trusted_rev`), since the worker can commit
+there and the guard never sees what a script runs. Elsewhere it is the
+checkout's HEAD. A script a worker wrote or edited prompts, committed or
+not, whichever spelling reaches it (`sh`, `bash`, a direct path, a symlinked
+folder, a `..` walk, inside `fish -c`, `bash -c` or a loop, behind an
+assignment or `timeout`), and so does `bats` on a folder; one the base
+gained counts once the worker merges the base. A record with no `pr_base`,
+or a base with no commit in common, trusts no file in the worktree. The check reads the file as it is before the command
 runs, so a command that relies on it and also makes a write the own-branch
 arm admits defers as a whole (`cp f scripts/ok.sh && sh scripts/ok.sh`, and
 equally `touch build/x && bash tests/ok.sh`); staging and committing change
@@ -570,30 +576,33 @@ record, the session records.
 
 What still runs code a worker wrote without a prompt:
 
-- **A script it committed, or one HEAD holds on another branch.** The
-  own-branch arm approves a commit, after which HEAD holds the script, and the
-  static allows for `git checkout` and `git switch` let the worktree move
-  HEAD. A commit sits on a branch and, on the unit branch, in its PR, where
-  review sees it.
+- **A script it committed, in a session with no record.** Without a session
+  record the guard cannot tell the worktree or its base, so it holds a
+  repository script to HEAD, which the profile's static `git commit` allow
+  lets the worker move. A launcher whose record write fails launches the
+  worker this way.
 - **The repository's tasks, hooks and check commands.** `mise run <task>`,
   `lefthook run <hook>` and a check command the repository declares in
   `worker_check_commands` run config the path denies protect, and whatever
   that config or a check command's `<path>` names, the test files a worker
   wrote among them: the gate has to run what the worker wrote. A file a
   declaration names in its literal words (`scripts/check.sh <word>`, `bash
-  check.sh`) is held to the HEAD of the checkout it lies in, like a declared
-  step's location (a file in no checkout keeps the declaration's trust, and a
-  symlink defers). A bare first word is exempt, since the shell looks it up
-  on PATH. The check cannot tell a script from a runner argument, so a word
-  such as `make test`'s `test` prompts while a file of that name sits
-  uncommitted in the working directory. A declaration whose `<path>` is the
+  check.sh`) is held to the commit of the checkout it lies in, the PR base
+  inside the worktree, like a declared step's location (a file in no
+  checkout keeps the declaration's trust, and a symlink defers). A bare first
+  word is exempt, since the shell looks it up on PATH. The check cannot tell
+  a script from a runner argument, so a word such as `make test`'s `test`
+  prompts while a file of that name sits in the working directory and not in
+  the base. A declaration whose `<path>` is the
   script it runs (`bash <path>`) admits any file in the worktree, committed or
   not, so it is the repository's own choice to make.
 - **What a committed script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
-  globs, any of which a worker may have written or edited. A declared step
-  run through `scripts/step-run.sh` is held to HEAD by the runner itself (see
-  the next section).
+  globs, any of which a worker may have written or edited.
+- **A declared step's location the worker committed, run by the step
+  runner.** A declared step run through `scripts/step-run.sh` is held to HEAD
+  by the runner itself (see the next section), not to the PR base, so a
+  location the worker edited and committed runs as declared.
 - **An install copy outside `~/.claude`.** Under `~/.claude` a file-tool write
   prompts (MB-8); elsewhere the file tools reach an install copy, which is
   trusted by location (see the residual above).

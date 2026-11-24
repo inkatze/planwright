@@ -82,8 +82,10 @@
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository and HEAD commits the file unchanged
-# (committed_blob; a `bats` directory defers), and an INSTALLED planwright root's
+# path canonicalizes INSIDE the repository and the commit it is held to holds
+# the file unchanged (committed_blob: the PR base inside the recorded
+# worktree, where the worker commits, HEAD elsewhere; a `bats` directory
+# defers), and an INSTALLED planwright root's
 # `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
 # for itself, held to that root's HEAD the same way when the root is a git
 # checkout (REQ-A1.10; see is_planwright_script — the reason this needs no
@@ -765,9 +767,10 @@ canon_under() {
 
 # committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
 # <rel> under the work tree <root>) is a regular file whose bytes are exactly
-# the blob HEAD records for <rel>, as a plain or executable file. Where a file
-# sits proves nothing about who wrote it, since a worker may Write it, so a
-# file the guard trusts by its content is trusted only as a commit holds it.
+# the blob the trusted commit (trusted_rev) records for <rel>, as a plain or
+# executable file. Where a file sits proves nothing about who wrote it, since a
+# worker may Write it, so a file the guard trusts by its content is trusted
+# only as a commit holds it.
 # Plumbing only, so no index refresh (no write, no index.lock race with a
 # concurrent commit) and no filter or textconv driver runs. A verdict is kept
 # per path for the rest of the hook call, since a loop re-checks its body.
@@ -780,7 +783,7 @@ canon_under() {
 COMMITTED_OK=''
 COMMITTED_USED=0
 committed_blob() {
-  local root=$1 rel=$2 full=$3 key line meta path want have
+  local root=$1 rel=$2 full=$3 key line meta path want have rev
   key=$'\n'"$full"$'\n'
   case $COMMITTED_OK in
     *"$key"*)
@@ -789,7 +792,8 @@ committed_blob() {
       ;;
   esac
   [ -f "$full" ] && [ ! -L "$full" ] || return 1
-  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
+  rev=$(trusted_rev "$root") || return 1
+  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree "$rev" -- "$rel" 2>/dev/null) || return 1
   case $line in
     *$'\n'*) return 1 ;;
   esac
@@ -805,6 +809,41 @@ committed_blob() {
   COMMITTED_OK=$COMMITTED_OK$key
   committed_used "$full"
   return 0
+}
+
+# trusted_rev <root>: print the commit a file under the work tree <root> is
+# held to. HEAD, except at or under the recorded worktree: the own-branch arm
+# and the profile's static allows let the worker commit there, so HEAD may hold
+# a script it wrote, and the guard never sees what that script runs. There it
+# is the merge base of HEAD and the record's pr_base as a remote-tracking ref,
+# spelled in full so a local branch of the same short name cannot stand in;
+# no base, or none in common, trusts nothing. A repository nested in the
+# worktree carries no such ref, so it trusts nothing either.
+TRUSTED_REV_ROOT=''
+TRUSTED_REV=''
+trusted_rev() {
+  local rev
+  if [ -z "$REC_WT" ]; then
+    printf HEAD
+    return 0
+  fi
+  case $1/ in
+    "$REC_WT"/*) ;;
+    *)
+      printf HEAD
+      return 0
+      ;;
+  esac
+  if [ "$TRUSTED_REV_ROOT" != "$1" ]; then
+    [ -n "$REC_BASE" ] || return 1
+    rev=$(git_plain -C "$1" merge-base HEAD "refs/remotes/$REC_BASE" 2>/dev/null) || return 1
+    case $rev in
+      '' | *[!0-9a-f]*) return 1 ;;
+    esac
+    TRUSTED_REV_ROOT=$1
+    TRUSTED_REV=$rev
+  fi
+  printf '%s' "$TRUSTED_REV"
 }
 
 # committed_used <full>: note a committed check the approval leans on, when the
@@ -834,7 +873,7 @@ committed_in_checkout() {
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
 # tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10)
-# and matches what HEAD commits there (committed_blob).
+# and matches what its trusted commit holds there (committed_blob).
 is_repo_script() {
   local p=$1 cwd=$2 full rel root
   case $p in
@@ -1127,7 +1166,7 @@ step_excerpt_ok() {
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# and is a file HEAD commits there unchanged (used for `bats <file>`, which need
+# and is a file its trusted commit holds unchanged (used for `bats <file>`, which need
 # not sit under scripts/ or tests/, and which stays REPO-scoped — an install
 # ships no test files to run). A directory operand fails, since bats would run
 # whatever files it holds.
@@ -4094,7 +4133,7 @@ mdlint_configs_ok() {
 
 guard_bashsh() {
   # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code HEAD commits unchanged or an installed planwright root's scripts/
+  # code its trusted commit holds unchanged or an installed planwright root's scripts/
   # (is_trusted_script); any option (notably -c /
   # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
@@ -4128,7 +4167,7 @@ guard_fish() {
 
 guard_bats() {
   # `bats [safe-flags] <file...>`: each file operand must resolve inside the
-  # repo (REQ-A1.10) to a file HEAD commits unchanged (a directory defers), and
+  # repo (REQ-A1.10) to a file its trusted commit holds unchanged (a directory defers), and
   # ONLY no-value display/selection flags are allowed.
   # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
   # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
@@ -6503,7 +6542,7 @@ classify_verb() {
 # declarations come from the session record, read by the launcher at the
 # primary checkout, never from a file the worker can write; the floor is read
 # before them (verify_simple). Running one runs repository code: a script its
-# literal words name is held to HEAD as the repository's scripts/ are
+# literal words name is held to its trusted commit as the repository's scripts/ are
 # (check_literals_committed), and whatever a `<path>` names runs as declared.
 # That trust stops at a config loader: a declared markdownlint or mise run
 # still passes the screen the undeclared command does (check_loader_ok).
@@ -6721,7 +6760,7 @@ check_command_ok() {
 
 # check_literals_committed <declaration> <canonical-cwd>: every literal word
 # of the declaration that names an existing file, from the working directory
-# or by its absolute path, is held to what HEAD commits, as a declared step's
+# or by its absolute path, is held to what its trusted commit holds, as a declared step's
 # location is (declared_location_ok): the declaration names the file, not its
 # content, and the worker can Write it. A bare first word is looked up on PATH,
 # never in the working directory, and a `<path>` placeholder is the declarer's
@@ -6864,7 +6903,7 @@ check_loader_screen() {
 # after any leading context assignments in the runner's form. The declaration
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
-# scripts/, which holds a location inside the repository to what HEAD commits
+# scripts/, which holds a location inside the repository to what its trusted commit holds
 # there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
@@ -7198,7 +7237,7 @@ declared_line_ok() {
 
 # declared_location_ok <abs-path>: a declared step's location in a git checkout
 # (the session's repository, or another such as the primary) is held to what
-# that checkout's HEAD commits, as a script run by its path is: the declaration
+# that checkout's trusted commit holds (trusted_rev), as a script run by its path is: the declaration
 # names the file, not its content, and the worker can Write the file. A
 # location spelled inside the session's repository counts as in it even when a
 # symlinked folder resolves it elsewhere, and so defers. A location in no

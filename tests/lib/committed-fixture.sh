@@ -25,3 +25,10 @@ fixture_commit() {
   fixture_git init -q "$fc_repo" || return 1
   fixture_git -C "$fc_repo" add -- "$@" && fixture_git -C "$fc_repo" commit -q -m fixture
 }
+
+# fixture_base <repo>: point <repo>'s refs/remotes/origin/main at its HEAD, so
+# a session record naming <repo> as its worktree with pr_base=origin/main finds
+# what HEAD commits in the base, the only commit the guard trusts there.
+fixture_base() {
+  fixture_git -C "$1" update-ref refs/remotes/origin/main HEAD
+}
