@@ -115,7 +115,7 @@ fixture_base "$R" || exit 1
 assert_allow "a script the base commits" "bash scripts/new.sh" Bash "$R"
 rm -f "$R/scripts/clean.sh"
 mkdir "$R/scripts/clean.sh"
-assert_defer "a directory where HEAD has the file" "bash scripts/clean.sh" Bash "$R"
+assert_defer "a directory where the base has the file" "bash scripts/clean.sh" Bash "$R"
 
 echo "### a repository with no commit trusts no script"
 E=$(cd "$SANDBOX" && pwd -P)/empty
