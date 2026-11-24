@@ -254,6 +254,20 @@ defer	read	bash	-	-	mv --suffix .bak @SCRATCH@/kb/real.md @SCRATCH@/kb/b2.md
 defer	read	bash	-	-	mv -bS .bak @SCRATCH@/kb/real.md @SCRATCH@/kb/b3.md
 defer	read	bash	-	-	cd @SCRATCH@/kb && echo x > a#1.md
 defer	read	bash	-	-	ssh host grep -n x notes.md
+deny	repo-write	bash	-	edits no repository	env -S'perl -pi -e 1 @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	env -iS'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	ssh -o 'ProxyCommand=perl -pi -e 1 @UNIT@/README.md' host
+deny	repo-write	bash	-	edits no repository	bash <<< 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	bash -c 'flock /tmp/x ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	find @SCRATCH@/kb -exec ionice perl -pi -e 1 @UNIT@/README.md ;
+deny	repo-write	bash	-	edits no repository	eval ionice perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	numactl -C 0 perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	prlimit --nofile=10 ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	doas -u x ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env time -f %e perl -pi -e 1 @UNIT@/README.md
+defer	read	bash	-	-	ssh host perl -e 1 notes.md
+defer	read	bash	-	-	gsed -n 1,20p /home/u/dev/p/.claude/planwright.local.yml
+defer	read	bash	-	-	grep x <<< ed
 defer	read	bash	-	-	timeout 5 grep ex @SCRATCH@/kb/real.md
 defer	read	bash	-	-	find @SCRATCH@/kb -name vi
 defer	read	bash	-	-	echo "$(date) vi"

@@ -50,15 +50,17 @@
 # every file ed, ex or vi (under any of vim's names) edits, each option value
 # read as its tool reads it, a variable the command assigned a plain literal
 # read as that literal. An in-place editor behind xargs, find -exec, a shell's
-# command string or eval, in a here-document a shell reads, or in text the
-# guard cannot parse denies too. A relative target counts from the directory
+# command string or eval, in a here-document or here-string a shell reads, or
+# in text the guard cannot parse denies too, and so does one named at any word
+# after a runner whose command sits among its words (ionice, flock, ssh and the
+# like, RE_MC_OPAQUE_NAMES). A relative target counts from the directory
 # the command starts in and every one it changes to, unless it opens with its
 # only cd, joined to every later statement by &&. Not read, the accepted
 # residual: rm, touch and mkdir; a program an interpreter runs, and a file an
 # editor's own script writes (sed's w, ed's or vi's :w to another name); a file
 # a tool writes under a default name in the working directory (wget, curl -O,
-# an unpack with no -C or -d); and writers the screen does not parse (find
-# -fprint, patch, sponge and the like). Its flip,
+# an unpack with no -C or -d); writers the screen does not parse (find
+# -fprint, patch, sponge and the like); and a runner it does not list. Its flip,
 # for a PR of the repository it runs in or of a program-listed one it names
 # with --repo,
 # follows ready_flip_policy: unit-owner defers to the ready-guard's currency
@@ -5759,7 +5761,7 @@ RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/])(cp|mv|install|ln|link|tee|dd|rsync|t
 MC_UNPARSED_DENY='mission control writes no settings or configuration file, and this command runs a write verb or writer in text the guard cannot parse (a command substitution, say), so it cannot read the target - refusing (fail closed). Run the write in a command of its own, with no substitution.'
 MC_WRAPPED_DENY='mission control writes no settings or configuration file, and this command hands a write verb to another command (behind a wrapper, xargs, a shell or find) whose targets the guard cannot read - refusing (fail closed). Run the write verb on its own with its target spelled out.'
 MC_REPO_DENY='mission control edits no repository, and this command writes a path that lies inside one (read as written and followed on disk, from every directory the command may run in); every change goes through a session it dispatches.'
-MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs an in-place editor (perl -i, ruby -i, awk with the inplace extension, ed, ex or vi) behind another command (xargs, find, a shell or eval), in a here-document a shell reads, or in text the guard cannot parse, so it cannot read the files it rewrites - refusing (fail closed). Run the editor as its own command with its files spelled out; every repository change goes through a session it dispatches.'
+MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs an in-place editor (perl -i, ruby -i, awk with the inplace extension, ed, ex or vi) behind another command (xargs, find, a shell, eval, or a runner such as flock or ssh), in a here-document or here-string a shell reads, or in text the guard cannot parse, so it cannot read the files it rewrites - refusing (fail closed). Run the editor as its own command with its files spelled out; every repository change goes through a session it dispatches.'
 # An in-place editor run in text: its name opening a statement (past
 # assignments, keywords, a wrapper and its options, and a directory prefix),
 # so a word that is only an argument (grep ex, find -name vi) is none. perl or
@@ -5767,7 +5769,9 @@ MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs
 # including the inplace extension, and the line editors and vi, whose every
 # file operand is opened for writing. The name is matched in any letter case,
 # perl's and ruby's i in their own (it is no I). A closing parenthesis or
-# backquote opens no statement, so the word after one is an argument.
+# backquote opens no statement, so the word after one is an argument, save in
+# text holding a case statement (mc_inplace_text). An opaque runner opening a
+# statement puts the tool at any of its later words (RE_MC_INPLACE_OPAQUE).
 # shellcheck disable=SC2016 # a regex; the backquote is literal
 RE_MC_INPLACE_LEAD='(^|[;&|({]|'$'\n''|(^|[[:space:]=])`|[[:space:]]-(exec|execdir|ok|okdir)[[:space:]])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|then|do|else|elif|if|while|until|!|eval|env|nice|nohup|timeout|stdbuf|setsid|sudo|doas|exec|command|builtin|time|xargs|busybox|-[^[:space:]]*|[0-9][^[:space:]]*)[[:space:]]+)*([^[:space:];&|()]*/)?'
 # The tool as any word, for the words a runner may run as a command whose
@@ -5780,11 +5784,16 @@ RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([[:space:
 # The same tools named anywhere, as a word: the screen's opening test, which
 # only decides whether a command is parsed at all (a shell's command string
 # runs a tool its own words never put in command position).
-RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-])((perl|ruby)[0-9.]*|g?awk|g?sed|r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([^[:alnum:]_-]|$)'
+RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|g?awk|g?sed|r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([^[:alnum:]_-]|$)'
 # Runners that run their later words as a command, past options and values the
 # guard does not read (mc_unwrap reads RE_MC_WRAPPER's); the shells, the
-# interpreters, find, xargs and eval are read their own ways.
-RE_MC_OPAQUE_RUNNER='^(ionice|gtimeout|chronic|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|script|ssh|tmux|screen|taskset|chrt|su|runuser|setpriv|nsenter|bwrap|sg|entr|rlwrap|pkexec|at|batch)$'
+# interpreters, find, xargs and eval are read their own ways. A runner listed
+# here and in no other set (numactl and on) enters the runner check for it.
+RE_MC_OPAQUE_NAMES='ionice|gtimeout|chronic|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|script|ssh|tmux|screen|taskset|chrt|su|runuser|setpriv|nsenter|bwrap|sg|entr|rlwrap|pkexec|at|batch|numactl|prlimit|setarch|linux32|linux64|faketime|xvfb-run|dbus-run-session|firejail|cpulimit|cgexec|choom|runcon|sshpass'
+RE_MC_OPAQUE_RUNNER='^('$RE_MC_OPAQUE_NAMES')$'
+# An opaque runner opening a statement, past its words: the tool after it may
+# be any of them.
+RE_MC_INPLACE_OPAQUE='('$RE_MC_OPAQUE_NAMES')[[:space:]]+([^;&|]*[[:space:]])?([^[:space:]]*/)?'
 # The hop bound for one link chain.
 readonly MC_HOP_MAX=40
 
@@ -6213,7 +6222,11 @@ mc_reaches_repo() {
 # there it opens one.
 mc_inplace_text() {
   local t=${1//[\"\'\\]/} rc=1 lead=$RE_MC_INPLACE_LEAD re
-  [ "${2:-}" != word ] || lead=$RE_MC_INPLACE_WORD_LEAD
+  if [ "${2:-}" = word ]; then
+    lead=$RE_MC_INPLACE_WORD_LEAD
+  else
+    lead="$lead($RE_MC_INPLACE_OPAQUE)?"
+  fi
   re='(^|[;&|(){}[:space:]])case[[:space:]]'
   [[ $t =~ $re ]] && t=${t//[)]/;}
   re=$lead$RE_MC_INPLACE_PERL_TOOL
@@ -6955,7 +6968,7 @@ mc_unwrap() {
       case $wrap:${SW[$i]} in
         env:-u | env:-C | env:-S | env:--unset | env:--chdir | env:--split-string) i=$((i + 2)) ;;
         nice:-n | timeout:-s | timeout:-k | stdbuf:-[ioe] | exec:-a) i=$((i + 2)) ;;
-        sudo:-[ugCpUhrt] | xargs:-[ILnPdEas]) i=$((i + 2)) ;;
+        sudo:-[ugCpUhrt] | xargs:-[ILnPdEas] | doas:-[uC] | time:-[fo]) i=$((i + 2)) ;;
         *:-* | env:*=* | sudo:*=*) i=$((i + 1)) ;;
         *) break ;;
       esac
@@ -7507,7 +7520,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -7604,7 +7617,8 @@ mc_settings_screen() {
         [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
         shopt -u nocasematch
         [ "$k" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
-        ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        # A here-string's text is the reader's command as well.
+        ! mc_inplace_text "${t//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
       done <<XEOF_RUN
 $t
 XEOF_RUN
@@ -7743,7 +7757,7 @@ XEOF_RUN
     # that command operands the guard never sees, so it refuses too.
     lc "${SW[0]//[\"\'\\]/}"
     runner=${LC##*/}
-    if [ "$vi" -gt 0 ] || [[ $runner =~ $RE_MC_RUNNER ]]; then
+    if [ "$vi" -gt 0 ] || [[ $runner =~ $RE_MC_RUNNER ]] || [[ $runner =~ $RE_MC_OPAQUE_RUNNER ]]; then
       k=0
       c=''
       ci=''
@@ -7769,8 +7783,10 @@ XEOF_RUN
         case $w in
           *[[:space:]\;\&\|\(\)\`]*)
             ! mc_inplace_text "$w" || emit_deny "$MC_REPO_WRAPPED_DENY"
-            # A long option's command string (env --split-string=...).
-            case $w in -*=*) ! mc_inplace_text "${w#*=}" || emit_deny "$MC_REPO_WRAPPED_DENY" ;; esac
+            # An option's or a setting's command string: env -S<string> and
+            # --split-string=<string>, ssh's ProxyCommand=<string>.
+            case $w in *=*) ! mc_inplace_text "${w#*=}" || emit_deny "$MC_REPO_WRAPPED_DENY" ;; esac
+            case $w in -S* | -[!-]*S*) ! mc_inplace_text "${w#*S}" || emit_deny "$MC_REPO_WRAPPED_DENY" ;; esac
             ;;
         esac
         k=$((k + 1))
@@ -7794,18 +7810,18 @@ XEOF_RUN
       ! mc_inplace_text "$ci" || emit_deny "$MC_REPO_WRAPPED_DENY"
       if [ "$vi" -lt "${#SW[@]}" ]; then
         lc "${SW[$vi]//[\"\'\\]/}"
-        m=''
+        rmode=''
         # eval's words are one command; an opaque runner's command sits
         # somewhere among its words.
         if [ "${LC##*/}" = eval ]; then
-          m=lead
+          rmode=lead
         elif [[ ${LC##*/} =~ $RE_MC_OPAQUE_RUNNER ]]; then
-          m=word
+          rmode=word
         fi
-        if [ -n "$m" ]; then
+        if [ -n "$rmode" ]; then
           c=''
           for w in "${SW[@]:$((vi + 1))}"; do c="$c${w//[\"\'\\]/} "; done
-          ! mc_inplace_text "$c" "$m" || emit_deny "$MC_REPO_WRAPPED_DENY"
+          ! mc_inplace_text "$c" "$rmode" || emit_deny "$MC_REPO_WRAPPED_DENY"
         fi
       fi
     fi
