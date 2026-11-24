@@ -157,6 +157,8 @@ expect deny "[mission-control] an in-place editor in a here-document a shell rea
 reason_has 'edits no repository' "[mission-control] the here-document in-place refusal names the repository rule"
 pg mission-control "bash <<'EOF'${NL}echo ed vi ex${NL}EOF"
 expect defer "[mission-control] editor names a here-document only prints are no editor run"
+pg mission-control "bash -c \"ssh h true${NL}grep -n ed notes.md\"" "$SCRATCH"
+expect defer "[mission-control] a runner's reach ends at its line: an editor name on the next line is an argument"
 pg mission-control "cd${NL}x=1 && echo hi > README.md"
 expect deny "[mission-control] a bare cd ending its line keeps the starting directory a write base"
 pg mission-control "cd $KB && cat > notes.md <<'EOF'${NL}text${NL}EOF"

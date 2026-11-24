@@ -268,6 +268,16 @@ deny	repo-write	bash	-	edits no repository	env time -f %e perl -pi -e 1 @UNIT@/R
 defer	read	bash	-	-	ssh host perl -e 1 notes.md
 defer	read	bash	-	-	gsed -n 1,20p /home/u/dev/p/.claude/planwright.local.yml
 defer	read	bash	-	-	grep x <<< ed
+deny	repo-write	bash	-	edits no repository	time -f %e perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env time -o @SCRATCH@/kb/t.log perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	doas -C /etc/doas.conf ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env -iSed\ -s @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	env -S'sed -i s/a/b/ @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	at now <<< 'ed -s @UNIT@/README.md'
+defer	read	bash	-	-	python3 parse.py <<< vi
+defer	read	bash	-	-	bash run.sh <<< ex
+defer	read	bash	-	-	bash -c 'read -r a <<< ex; echo $a'
+defer	read	bash	-	-	doas -u x cp @SCRATCH@/kb/real.md @SCRATCH@/kb/d.md
 defer	read	bash	-	-	timeout 5 grep ex @SCRATCH@/kb/real.md
 defer	read	bash	-	-	find @SCRATCH@/kb -name vi
 defer	read	bash	-	-	echo "$(date) vi"

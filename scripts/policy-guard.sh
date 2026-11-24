@@ -5777,8 +5777,11 @@ RE_MC_INPLACE_LEAD='(^|[;&|({]|'$'\n''|(^|[[:space:]=])`|[[:space:]]-(exec|execd
 # The tool as any word, for the words a runner may run as a command whose
 # place among them the guard cannot tell (flock <lock> <command>, ssh <host>).
 RE_MC_INPLACE_WORD_LEAD='(^|[[:space:]])([^[:space:]]*/)?'
-RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:space:]]+([^;&|]*[[:space:]])?-[0-9acnpsStTuUvwWXhl]*i'
-RE_MC_INPLACE_AWK_TOOL='g?awk[[:space:]]+([^;&|]*[[:space:]])?(-i[[:space:]]*|--i[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk)?([[:space:];&|)]|$)'
+# The words between a tool and its in-place switch, within one statement (a
+# line break ends one).
+RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
+RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*'$RE_MC_INPLACE_SPAN'-[0-9acnpsStTuUvwWXhl]*i'
+RE_MC_INPLACE_AWK_TOOL='g?awk'$RE_MC_INPLACE_SPAN'(-i[[:space:]]*|--i[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk)?([[:space:];&|)]|$)'
 # shellcheck disable=SC2016 # a regex; the backquote is literal
 RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([[:space:];&|)`}]|$)'
 # The same tools named anywhere, as a word: the screen's opening test, which
@@ -5787,13 +5790,13 @@ RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([[:space:
 RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|g?awk|g?sed|r?ed|ex|vi|g?vim|nvim|r?view|rvim|vimdiff)([^[:alnum:]_-]|$)'
 # Runners that run their later words as a command, past options and values the
 # guard does not read (mc_unwrap reads RE_MC_WRAPPER's); the shells, the
-# interpreters, find, xargs and eval are read their own ways. A runner listed
-# here and in no other set (numactl and on) enters the runner check for it.
+# interpreters, find, xargs and eval are read their own ways. Every name here
+# enters the runner check, RE_MC_RUNNER listing it or not.
 RE_MC_OPAQUE_NAMES='ionice|gtimeout|chronic|watch|flock|unbuffer|caffeinate|strace|ltrace|chroot|unshare|systemd-run|fakeroot|parallel|script|ssh|tmux|screen|taskset|chrt|su|runuser|setpriv|nsenter|bwrap|sg|entr|rlwrap|pkexec|at|batch|numactl|prlimit|setarch|linux32|linux64|faketime|xvfb-run|dbus-run-session|firejail|cpulimit|cgexec|choom|runcon|sshpass'
 RE_MC_OPAQUE_RUNNER='^('$RE_MC_OPAQUE_NAMES')$'
 # An opaque runner opening a statement, past its words: the tool after it may
 # be any of them.
-RE_MC_INPLACE_OPAQUE='('$RE_MC_OPAQUE_NAMES')[[:space:]]+([^;&|]*[[:space:]])?([^[:space:]]*/)?'
+RE_MC_INPLACE_OPAQUE='('$RE_MC_OPAQUE_NAMES')'$RE_MC_INPLACE_SPAN'([^[:space:]]*/)?'
 # The hop bound for one link chain.
 readonly MC_HOP_MAX=40
 
@@ -6952,8 +6955,10 @@ mc_unwrap() {
   local i=0 n=${#SW[@]} wrap
   MC_XARGS=0
   while [ "$i" -lt "$n" ]; do
+    # exec's -a takes a name; after a dropped time, GNU time's -f and -o take
+    # a format and a file.
     case ${SW[$i]} in
-      -a) i=$((i + 2)) ;;
+      -a | -f | -o) i=$((i + 2)) ;;
       -*) i=$((i + 1)) ;;
       *) break ;;
     esac
@@ -7617,8 +7622,13 @@ mc_settings_screen() {
         [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
         shopt -u nocasematch
         [ "$k" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
-        # A here-string's text is the reader's command as well.
-        ! mc_inplace_text "${t//<<</ ; }" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        # A here-string a shell with no script operand (or at, batch) reads
+        # is its command.
+        re='(^|[;&|(]|'$NL')[[:space:]]*([^[:space:];&|()]*/)?((bash|sh|zsh|dash|ksh|mksh|fish)([[:blank:]]+[-+][^[:space:]]*)*|(at|batch)([[:blank:]]+[^;&|<'$NL']*)?)[[:blank:]]*<<<[[:blank:]]*([^'$NL']*)'
+        if [[ ${w//[\"\'\\]/} =~ $re ]]; then
+          ! mc_inplace_text "${BASH_REMATCH[8]}" || emit_deny "$MC_REPO_WRAPPED_DENY"
+        fi
       done <<XEOF_RUN
 $t
 XEOF_RUN
@@ -7786,7 +7796,15 @@ XEOF_RUN
             # An option's or a setting's command string: env -S<string> and
             # --split-string=<string>, ssh's ProxyCommand=<string>.
             case $w in *=*) ! mc_inplace_text "${w#*=}" || emit_deny "$MC_REPO_WRAPPED_DENY" ;; esac
-            case $w in -S* | -[!-]*S*) ! mc_inplace_text "${w#*S}" || emit_deny "$MC_REPO_WRAPPED_DENY" ;; esac
+            case $w in
+              -S* | -[!-]*S*)
+                ! mc_inplace_text "${w#*S}" || emit_deny "$MC_REPO_WRAPPED_DENY"
+                # The glued string hides a write verb from the word scan below.
+                shopt -s nocasematch
+                [[ " ${w#*S} " =~ $RE_MC_RUNNER_WORDS ]] && emit_deny "$MC_WRAPPED_DENY"
+                shopt -u nocasematch
+                ;;
+            esac
             ;;
         esac
         k=$((k + 1))
