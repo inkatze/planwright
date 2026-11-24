@@ -276,14 +276,15 @@ SREC=$REPO_ROOT/scripts/step-record.sh
 SRUN=$REPO_ROOT/scripts/step-run.sh
 # bin/sr and bin/sn are the installed step scripts under other names; as a
 # declaration's literal words they also fail the committed-file rule. Given
-# as a `<word>`, which that rule leaves to the declarer, `rec` reaches only the
-# link reading, and `ok`, a link of a non-step installed script, shows the
-# link reading does not over-match. The worktree's own (empty)
+# as a `<word>`, which that rule leaves to the declarer, `rec` and `run` reach
+# only the link reading, and `ok`, a link of a non-step installed script,
+# shows the link reading does not over-match. The worktree's own (empty)
 # scripts/step-record.sh lets the <path> rows below name an existing file.
 mkdir -p "$WT/bin"
 ln -s "$SREC" "$WT/bin/sr"
 ln -s "$SRUN" "$WT/bin/sn"
 ln -s "$SREC" "$WT/rec"
+ln -s "$SRUN" "$WT/run"
 ln -s "$REPO_ROOT/scripts/resolve-steps.sh" "$WT/ok"
 : >"$WT/scripts/step-record.sh"
 # Every STEPPED and CONTROLS row below needs its declaration here: an
@@ -322,6 +323,7 @@ STEPPED=(
   # Every word is read, so a step script given only as an argument defers too.
   "bin/lint scripts/step-record.sh"
   "bin/lint rec"
+  "bin/lint run"
   # A word the partner scan refuses leaves a match that is approved only
   # alone; naming a step script, it must still defer.
   "make check SHELL=bash SCRIPT=scripts/step-record.sh"
