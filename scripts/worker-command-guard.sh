@@ -6521,6 +6521,7 @@ CHECK_DECLS=()
 CHECK_FIRST=()
 CHECK_CWD_FOR=''
 CHECK_CWD=''
+HAZARD_NAME=''
 
 # check_word_ok <word>: the `<word>` placeholder. A leading `=` is refused
 # because zsh expands `=name` to a command's absolute path.
@@ -6745,6 +6746,73 @@ check_literals_committed() {
     declared_location_ok "$full" || return 1
   done
   return 0
+}
+
+# check_may_partner: 0 when the matched check command (`sw` / `swn`) may be a
+# chain partner of an own-unit act: no word is one check_hazard_word refuses,
+# and no `run` follows a `go`. Every word is read, a placeholder's included,
+# so a runner prefix or a wrapper cannot carry one past the check; only a
+# leading `mise exec` is skipped. A repository task runner (`mix`, `npm`,
+# `make`) names none and partners.
+check_may_partner() {
+  local i=0 go=0
+  [ "${sw[0]}" != mise ] || [ "${sw[1]-}" != exec ] || i=2
+  for (( ; i < swn; i++)); do
+    ! check_hazard_word "${sw[i]}" || return 1
+    case $HAZARD_NAME in
+      go) go=1 ;;
+      run) [ "$go" = 0 ] || return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# check_hazard_word <word>: 0 when the word names a program check_hazard_name
+# lists, read lowercased (a case-insensitive filesystem runs `GIT` as git), by
+# its last path component, whole or after its last `=` (`--cmd=rm`,
+# `SHELL=bash`). The whole word's lowercased last component is left in
+# HAZARD_NAME.
+check_hazard_word() {
+  local w=$1
+  case $w in
+    *[A-Z]*)
+      lower "$w"
+      w=$LOWER
+      ;;
+  esac
+  HAZARD_NAME=${w##*/}
+  check_hazard_name "$HAZARD_NAME" && return 0
+  case $w in
+    *=*)
+      w=${w##*=}
+      check_hazard_name "${w##*/}"
+      return
+      ;;
+  esac
+  return 1
+}
+
+# check_hazard_name <lowercase name>: 0 for a program that writes files, acts
+# on git, runs another program, or interprets code, its GNU `g`-prefixed name
+# (`gsed`, `gtouch`) included. Subcommand words that fetch and run a package
+# (`npm exec`, `pnpm dlx`, `npm x`) are listed too. The list fails open for a
+# program it does not name.
+check_hazard_name() {
+  case $1 in
+    # git and gh, and the programs the guard approves only as a write or
+    # screens for a write or exec vector.
+    git | gh | mise | tee | mkdir | rm | touch | cp | mv | mktemp | sed | awk | find | sort | uniq | date | file | yq | shfmt | rg | fd | jq | gitleaks | markdownlint | markdownlint-cli2 | lefthook | bats) return 0 ;;
+    # Other writers, archivers and editors.
+    mawk | nawk | ln | link | chmod | chown | chgrp | dd | install | truncate | shred | unlink | rmdir | rename | mkfifo | mknod | xxd | ditto | rsync | scp | sftp | curl | wget | tar | bsdtar | unzip | zip | gzip | bzip2 | xz | zstd | lz4 | 7z | 7za | cpio | sponge | split | patch | ed | ex | vi | vim | nvim | nano | emacs | sqlite3 | psql | crontab) return 0 ;;
+    # Shells and programs that run another program.
+    bash | sh | fish | zsh | dash | ksh | ash | csh | tcsh | mksh | rbash | env | command | builtin | exec | x | eval | xargs | sudo | doas | su | ssh | nc | socat | docker | podman | tmux | screen | script | at | systemd-run | chroot | unshare | nsenter | xvfb-run | nohup | setsid | timeout | nice | ionice | time | stdbuf | flock | watch | parallel | strace | busybox) return 0 ;;
+    # Interpreters, compilers and fetch-and-run launchers.
+    perl | perl[0-9]* | python | python[0-9]* | node | nodejs | ruby | ruby[0-9]* | irb | php | php[0-9]* | deno | bun | bunx | npx | pnpx | uvx | pipx | dlx | osascript | lua | lua[0-9]* | luajit | r | rscript | tclsh | pwsh | powershell | elixir | iex | erl | escript | java | javac | jshell | julia | groovy | cc | gcc | clang | rustc) return 0 ;;
+  esac
+  case $1 in
+    g?*) check_hazard_name "${1#g}" ;;
+    *) return 1 ;;
+  esac
 }
 
 # check_loader_ok: 0 unless the current simple command (`sw` / `swn`) runs a
@@ -7188,8 +7256,17 @@ verify_simple() {
     [ -z "${csub[i]-}" ] || return 1
   done
   # A declared check command or command step is a trusted repository task:
-  # a chain partner before an own-unit act.
-  check_command_ok || declared_line_ok || return 1
+  # a chain partner before an own-unit act. A check command check_may_partner
+  # refuses, unless a step declares the same line, is approved alone but keeps
+  # every own-unit act in its command from being approved.
+  if check_command_ok; then
+    check_may_partner || declared_line_ok || {
+      ARM_ACT=1
+      return 0
+    }
+  else
+    declared_line_ok || return 1
+  fi
   OU_PARTNER=1
 }
 

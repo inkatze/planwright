@@ -180,6 +180,92 @@ assert_defer "F1.11: a check command chained with a file write" \
   "mix test test && touch build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.11: a check command chained with a fetch" \
   "mix test test && git fetch origin && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+
+echo "### REQ-F1.11 — a declared check command that writes or acts on git never partners"
+# Column 1 has no write arm, so only the declaration approves each of these
+# alone; column 4 adds both arms, whose own writes refuse the act anyway.
+WDECLS='mix test <path>...; mise exec -- mix credo <word>; git commit -m <word>'
+WDECLS="$WDECLS; git push origin <word>; git config user.name <word>; rm <path>; rm -rf <path>"
+WDECLS="$WDECLS; tee <path>; cp <path> <path>; sed -i <word> <path>; mise exec -- rm <path>"
+WDECLS="$WDECLS; ln -s <path> <path>; env mix test <path>; mise use <word>"
+WDECLS="$WDECLS; npm test; python3 -m pytest <path>; node <path>; npx <word>; pnpm dlx <word>"
+WDECLS="$WDECLS; osascript <path>; php -r <word>; /bin/rm <path>; mise exec -- <word>..."
+: >"$WT/build.txt"
+# Each row: a declared command that writes, acts on git or runs arbitrary
+# code. It is approved alone (column 1), and never before the own push.
+WRITERS=(
+  "git config user.name x"
+  "rm build.txt"
+  "rm -rf build.txt"
+  "tee build.txt"
+  "cp build.txt test/c.txt"
+  "sed -i 1d build.txt"
+  "mise exec -- rm build.txt"
+  "ln -s build.txt test/l.txt"
+  "env mix test test"
+  "mise use node"
+  "python3 -m pytest test"
+  "node build.txt"
+  "npx cowsay"
+  "pnpm dlx cowsay"
+  "osascript build.txt"
+  "php -r exit"
+  "/bin/rm build.txt"
+  "mise exec -- git status"
+)
+for col in 1 4; do
+  under "$(with_checks "writes.$col" "$col" "$WDECLS")"
+  assert_allow "F1.11 [$col]: a read-only check command still partners the own push" \
+    "mix test test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_allow "F1.11 [$col]: a runner-prefixed check command still partners the own push" \
+    "mise exec -- mix credo strict && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_allow "F1.11 [$col]: a repository task runner still partners the own push" \
+    "npm test && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  for w in "${WRITERS[@]}"; do
+    [ "$col" != 1 ] || assert_allow "F1.11 [$col]: declared $w, alone as before" "$w" Bash "$WT"
+    assert_defer "F1.11 [$col]: declared $w before the own push" \
+      "$w && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  done
+  # The own-branch arm's own commit is a partner by design (column 4).
+  if [ "$col" = 1 ]; then
+    assert_allow "F1.11 [$col]: a declared git commit alone, as before" "git commit -m wip" Bash "$WT"
+    assert_defer "F1.11 [$col]: a declared git commit before the own push" \
+      "git commit -m wip && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  fi
+  assert_defer "F1.11 [$col]: the floor wins over a declared push of another branch" \
+    "git push origin other" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared push of another branch before the own push" \
+    "git push origin other && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  [ "$col" != 1 ] || assert_defer "F1.11 [$col]: a check command's write redirect defers alone" \
+    "mix test test > build.txt" Bash "$WT"
+  assert_defer "F1.11 [$col]: a check command with a write redirect before the own push" \
+    "mix test test > build.txt && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  assert_defer "F1.11 [$col]: a declared rm after the own push" \
+    "git push origin $CORPUS_UNIT_BRANCH && rm build.txt" Bash "$WT"
+done
+
+echo "### REQ-F1.11 — the write scan reads any case, the text after =, and more tools"
+RDECLS='make <word>...; cargo test; go test <path>; go run <path>; pytest <path>'
+RDECLS="$RDECLS; mise exec -- <word>...; elixir -e <word>; gsed -i <word> <path>; RM <path>"
+RDECLS="$RDECLS; java <word>; vim <path>; sponge <path>; gzip <path>; sqlite3 <path>; ssh <word>"
+RDECLS="$RDECLS; docker <word>...; flock <path> <word>; perl5.34 <path>"
+RDECLS="$RDECLS; GO run <path>; go -C <path> run <path>; mix lint --cmd=rm; gtouch <path>"
+RDECLS="$RDECLS; tcsh <path>; zstd <path>; tmux <word>; julia <path>; gcc <path>"
+under "$(with_checks scan 1 "$RDECLS")"
+for r in "make check" "cargo test" "go test test" "pytest test" "mise exec -- pytest test"; do
+  assert_allow "F1.11: declared $r still partners the own push" \
+    "$r && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+done
+for r in "mise exec -- GIT status" "RM build.txt" "make check SHELL=bash" "make check X=rm" \
+  "go run test" "elixir -e exit" "gsed -i 1d build.txt" "java Main" "vim build.txt" \
+  "sponge build.txt" "gzip build.txt" "sqlite3 build.txt" "ssh host" "docker run img" \
+  "flock build.txt make" "perl5.34 build.txt" "GO run test" "go -C test run test" \
+  "mix lint --cmd=rm" "gtouch build.txt" "tcsh build.txt" "zstd build.txt" "tmux new" \
+  "julia build.txt" "gcc build.txt"; do
+  assert_allow "F1.11: declared $r, alone as before" "$r" Bash "$WT"
+  assert_defer "F1.11: declared $r before the own push" \
+    "$r && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+done
 under "$REC"
 
 echo "### REQ-A1.18 — a malformed declaration drops alone"
