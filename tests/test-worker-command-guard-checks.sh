@@ -295,6 +295,7 @@ SDECLS="$SDECLS; mise exec -- scripts/step-run.sh <word>...; mise exec -- $SRUN 
 SDECLS="$SDECLS; make check SCRIPT=scripts/step-run.sh; make check A=B=scripts/step-record.sh"
 SDECLS="$SDECLS; bin/sn <word>...; bin/lint <path>...; make check SCRIPT=scripts/ok.sh"
 SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>; bin/ok <word>..."
+SDECLS="$SDECLS; make check SHELL=bash SCRIPT=scripts/step-record.sh"
 # No word of these write arguments is one the partner scan refuses, so only
 # the step-script reading keeps the rows below from the own push.
 SW="write --run 000001 --point pre-pr --step lint --start $T --outcome passed"
@@ -317,6 +318,9 @@ STEPPED=(
   "bin/sn frobnicate"
   # Every word is read, so a step script given only as an argument defers too.
   "bin/lint scripts/step-record.sh"
+  # A word the partner scan refuses leaves a match that is approved only
+  # alone; naming a step script, it must still defer.
+  "make check SHELL=bash SCRIPT=scripts/step-record.sh"
 )
 # Each control: a declared read-only command naming no step script, which
 # still runs alone and partners the own push.
