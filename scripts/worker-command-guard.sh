@@ -6694,9 +6694,10 @@ check_command_ok() {
 
 # check_names_step: 0 when a word of the current simple command (`sw` /
 # `swn`), whole or after its last `=`, is a step script as step_script_kind
-# reads one. Under a runner prefix or a spelling verify_known_simple never
-# reads as a step-script call, a declaration would otherwise approve a
-# hand-timed record without the prompt REQ-F1.12 keeps for it.
+# reads one. Every word is read, not just the first: a runner prefix, a path
+# spelling verify_known_simple never reads as a step-script call, or a `VAR=`
+# word would otherwise carry a hand-timed record past its prompt on a
+# declaration alone.
 check_names_step() {
   local i w
   for ((i = 0; i < swn; i++)); do
