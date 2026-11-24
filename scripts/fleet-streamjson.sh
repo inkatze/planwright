@@ -324,7 +324,8 @@
 #       with exit 4, a failed resume with exit 5 (a launch opt-in record the
 #       resume cannot trust among them: launch the worker fresh) — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
-#       tower and other workers continue).
+#       tower and other workers continue). A launch opt-in record the resume
+#       cannot trust refuses the recover with exit 7: launch the worker fresh.
 #   fleet-streamjson.sh relaunch <worker> [--grace <secs>]
 #       Move a LIVE worker onto the profile and config installed now: a plain
 #       `stop` (the scratch root stays), then `recover --cwd` with the
