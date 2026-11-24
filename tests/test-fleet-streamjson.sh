@@ -1017,7 +1017,8 @@ q_recover
 q_clear
 printf 'mission-control\n' >"$q_dir/launcher"
 q_recover
-{ [ -s "$rec/argv" ] && ! grep -q '^launcher=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+q_record=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ [ -s "$rec/argv" ] && [ -s "$q_record" ] && ! grep -q '^launcher=' "$q_record"; } \
   || fail "c9q: an old launcher file must be ignored, neither honoured nor refused (rc $q_rc)"
 q_clear
 echo "ok: c9q an opt-in is read only from its own exact, unaltered entry"
