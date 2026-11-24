@@ -984,7 +984,7 @@ is_trusted_script() {
 # A call is read as the script path, at most one two-word `--worktree <dir>`,
 # then the verb; every word must be the literal the script will see.
 
-# step_script_kind <path>: 0 when the trusted script <path> is a step script,
+# step_script_kind <path>: 0 when <path> is a step script,
 # its kind left in STEP_KIND (`record` or `run`): by name under any casing a
 # case-insensitive filesystem runs, or as a link of a trusted root's copy.
 step_script_kind() {
@@ -6506,7 +6506,9 @@ classify_verb() {
 # literal words name is held to HEAD as the repository's scripts/ are
 # (check_literals_committed), and whatever a `<path>` names runs as declared.
 # That trust stops at a config loader: a declared markdownlint or mise run
-# still passes the screen the undeclared command does (check_loader_ok).
+# still passes the screen the undeclared command does (check_loader_ok). Nor
+# does it reach a step script, whose hand-timed records stay at the prompt
+# (names_step_script).
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6715,6 +6717,24 @@ check_command_ok() {
     # could turn it.
     check_loader_ok
     return
+  done
+  return 1
+}
+
+# names_step_script: 0 when a word of the current simple command (`sw` /
+# `swn`), whole or after its last `=`, is a step script as step_script_kind
+# reads one. Every word is read, not just the first: a runner prefix, a path
+# spelling verify_known_simple never reads as a step-script call, or a `VAR=`
+# word would otherwise carry a hand-timed record past its prompt on a
+# declaration alone.
+names_step_script() {
+  local i w
+  for ((i = 0; i < swn; i++)); do
+    w=${sw[i]}
+    step_script_kind "$w" && return 0
+    case $w in
+      *=*) step_script_kind "${w##*=}" && return 0 ;;
+    esac
   done
   return 1
 }
@@ -7259,14 +7279,21 @@ verify_simple() {
   # a chain partner before an own-unit act. A check command check_may_partner
   # refuses, unless a step declares the same line, is approved alone but keeps
   # every own-unit act in its command from being approved.
+  local partner=1
   if check_command_ok; then
-    check_may_partner || declared_line_ok || {
-      ARM_ACT=1
-      return 0
-    }
+    check_may_partner || declared_line_ok || partner=0
   else
     declared_line_ok || return 1
   fi
+  # A matched line naming a step script in a spelling verify_known_simple
+  # does not read as a call defers, as undeclared, on either path below. It
+  # is read only after a match, so a command no declaration names never pays
+  # for the root lookup.
+  ! names_step_script || return 1
+  [ "$partner" = 1 ] || {
+    ARM_ACT=1
+    return 0
+  }
   OU_PARTNER=1
 }
 
