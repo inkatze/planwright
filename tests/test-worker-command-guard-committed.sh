@@ -5,8 +5,8 @@
 # inside the recorded worktree (tests/test-worker-command-guard-own-commit.sh
 # covers what the worker commits itself), HEAD elsewhere. A worker can
 # Write any file under scripts/ or tests/, so a script it wrote or edited and
-# has not committed prompts, through every invocation form and every path
-# spelling that reaches it, while committed, unmodified scripts keep their
+# the base does not hold prompts, through every invocation form and every path
+# spelling that reaches it, while scripts the base holds unmodified keep their
 # approval.
 set -u
 unset CDPATH
@@ -40,14 +40,14 @@ cp "$R/scripts/clean.sh" "$R/scripts/copy.sh"
 printf '%b' "$pw" >"$R/scripts/staged.sh"
 fixture_git -C "$R" add scripts/staged.sh
 # A directory symlink inside the repository resolves to scripts/, so the
-# canonical path, not the spelling, is what HEAD is asked about.
+# canonical path, not the spelling, is what the base is asked about.
 ln -s scripts "$R/via"
 # A `cd` is followed only into the worktree the session record names.
 write_record "$SANDBOX/committed.record" "$R" || exit 1
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1"
   "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/committed.record")
 
-echo "### a committed, unmodified repository script keeps its approval"
+echo "### a repository script the base holds unmodified keeps its approval"
 for f in scripts/clean.sh tests/clean.sh sub/scripts/clean.sh; do
   assert_allow "sh $f" "sh $f" Bash "$R"
   assert_allow "bash $f" "bash $f" Bash "$R"

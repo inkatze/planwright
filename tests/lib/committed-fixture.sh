@@ -1,7 +1,9 @@
 # shellcheck shell=sh
 # committed-fixture.sh — sourced, never executed. The worker command guard
-# trusts a repository script only as the checkout's HEAD commits it, so a
-# fixture repository whose scripts a suite expects approved commits them.
+# trusts a repository script only as a commit holds it (the base, in the
+# worktree a session record names; HEAD elsewhere), so a fixture repository
+# whose scripts a suite expects approved commits them, and points its base at
+# that commit when a record names it (fixture_base).
 #
 # fixture_git <args>: git with the host's config out of reach, so a signing or
 # hook setting on the machine running the suite cannot fail a fixture commit,

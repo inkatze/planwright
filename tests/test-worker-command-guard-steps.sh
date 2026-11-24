@@ -168,6 +168,17 @@ printf 'printf pwned\n' >>"$DECLARED"
 assert_defer "a declared location edited since HEAD deferred" "$DECLARED --mode strict" Bash "$FXC"
 cp "$FX/declared.orig" "$DECLARED"
 assert_allow "the declared location put back approved again" "$DECLARED --mode strict" Bash "$FXC"
+# Under a record naming the repository, an edit the worker commits is still
+# its own: the location is held to the base, which has not moved.
+printf 'printf pwned\n' >>"$DECLARED"
+fixture_commit "$FX/repo" tools/declared.sh || exit 1
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_defer "a declared location the worker edited and committed, under a record, deferred" \
+  "$DECLARED --mode strict" Bash "$FXC"
+cp "$FX/declared.orig" "$DECLARED"
+fixture_commit "$FX/repo" tools/declared.sh || exit 1
+assert_allow "the base's bytes committed back, under a record, approved" "$DECLARED --mode strict" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 assert_defer "a declared location behind a symlinked repository folder deferred" \
   "$FX/repo/linked/declared.sh --mode strict" Bash "$FXC"
 assert_defer "declared line behind a non-context assignment deferred" \
@@ -323,7 +334,7 @@ assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARE
 # absolute path as a declared step names it (REQ-F1.5); the read-only form
 # of the same program still approves, so the refusal is the floor's.
 cp "$DECLARED" "$FX/repo/tools/gh"
-fixture_commit "$FX/repo" tools/gh && fixture_base "$FX/repo" || exit 1
+fixture_commit "$FX/repo" tools/gh || exit 1
 stub_reserved() {
   stub_scripts "$1"
   cat >"$1/scripts/resolve-steps.sh" <<STUB

@@ -309,7 +309,7 @@ else
 fi
 HOOK_ENV=()
 
-echo "### a script a declaration names is held to what HEAD commits"
+echo "### a script a declaration names is held to what the base commits"
 # scripts/ok.sh is committed in the corpus base; tests/run.sh is not.
 printf '#!/bin/sh\n' >"$WT/tests/run.sh"
 mkdir -p "$WT/tools"
@@ -329,7 +329,7 @@ assert_allow "a bare first word stays a PATH lookup, a file of its name aside" "
 assert_defer "a symlink a declaration names by a bare word" "bash linked.sh" Bash "$WT"
 cp "$WT/scripts/ok.sh" "$STATE/ok.orig"
 printf 'printf pwned\n' >>"$WT/scripts/ok.sh"
-assert_defer "a named script edited since HEAD" "scripts/ok.sh lint" Bash "$WT"
+assert_defer "a named script edited since the base" "scripts/ok.sh lint" Bash "$WT"
 cp "$STATE/ok.orig" "$WT/scripts/ok.sh"
 assert_allow "the named script put back" "scripts/ok.sh lint" Bash "$WT"
 # The check reads the file before the command runs, so a write beside the run
