@@ -77,8 +77,8 @@
 #           without running it, and so does a location in a git checkout
 #           that is not as its trusted commit holds it
 #           (committed_location), here and at begin. A re-fire must name a
-#           step whose row
-#           declares refire post-pr that this run has not re-fired. In its
+#           step whose row declares refire post-pr that this run has not
+#           re-fired. In its
 #           own group the check has no terminal: one that reads /dev/tty
 #           under a controlling terminal stops, as any background job does.
 # begin     the same up to the run, for a session-hosted (in-session or
@@ -223,18 +223,20 @@ rgit() (
 )
 
 # trusted_commit <root>: print the commit a location in the git checkout
-# <root> is held to. It mirrors the worker command guard's trusted_rev and
-# its session_record_load checks, which change together with it: HEAD with no
-# worker session record; under a record, its worktree is held to the merge
-# base of HEAD and the record's pr_base remote-tracking ref (read by show-ref
-# --verify, a symbolic ref refused), a repository nested in it trusts nothing,
-# and a checkout elsewhere keeps HEAD. A record that is unusable (not an
-# absolute path to this user's own regular file of at most 4096 bytes, inside
-# the worktree it names, or naming no single canonical checkout) trusts
-# nothing anywhere, since the worker may still commit and nothing places
-# where. Returns 1, printing nothing, wherever nothing is trusted.
+# <root> is held to. It mirrors the worker command guard's trusted_rev and the
+# record checks in its session_record_load, and changes together with them:
+# HEAD with no worker session record; under a record, its worktree is held to
+# the merge base of HEAD and the record's pr_base remote-tracking ref (read by
+# show-ref --verify, a symbolic ref refused), a repository nested in it trusts
+# nothing, and a checkout outside it keeps HEAD. An unusable record trusts
+# nothing anywhere, since the worker may still commit and the runner cannot
+# tell where: one that is not an absolute path to this user's own regular
+# file of at most 4096 bytes; one stored inside the worktree or the scratch
+# root it names; one naming no single canonical checkout. Unlike the guard it
+# keeps no exception for a planwright root. Returns 1, printing nothing,
+# wherever nothing is trusted.
 trusted_commit() {
-  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' n_wt=0 n_base=0 size rdir oid rev
+  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' r_sc='' n_wt=0 n_base=0 n_sc=0 size rdir sc oid rev
   if [ -z "$rec" ]; then
     printf HEAD
     return 0
@@ -256,6 +258,10 @@ trusted_commit() {
         r_base=${line#pr_base=}
         n_base=$((n_base + 1))
         ;;
+      scratch_root=*)
+        r_sc=${line#scratch_root=}
+        n_sc=$((n_sc + 1))
+        ;;
     esac
   done <"$rec"
   [ "$n_wt" -eq 1 ] || return 1
@@ -268,10 +274,16 @@ trusted_commit() {
     *[[:cntrl:]]*) return 1 ;;
   esac
   [ -d "$r_wt" ] && [ -e "$r_wt/.git" ] && [ "$(cd "$r_wt" 2>/dev/null && pwd -P)" = "$r_wt" ] || return 1
-  rdir=$(cd "$(dirname "$rec")" 2>/dev/null && pwd -P) || return 1
+  rdir=$(cd "${rec%/*}/" 2>/dev/null && pwd -P) || return 1
   case $rdir/ in
     "$r_wt"/*) return 1 ;;
   esac
+  # Any scratch root it names, which the worker writes, must not hold it.
+  if [ "$n_sc" -ge 1 ] && [ "${r_sc#/}" != "$r_sc" ] && sc=$(cd "$r_sc" 2>/dev/null && pwd -P); then
+    case $rdir/ in
+      "$sc"/*) return 1 ;;
+    esac
+  fi
   if [ "$1" != "$r_wt" ]; then
     case $1/ in
       "$r_wt"/*) return 1 ;;
@@ -311,15 +323,32 @@ trusted_commit() {
 # any folder above it (an installed tool) keeps the declaration's trust; any
 # other is held to the checkout that entry marks, so a git that cannot answer
 # for it (a broken or foreign `.git`, a location inside a checkout's git
-# folder) refuses rather than trusts. LOC_NO_TRUST says the refusal was
-# trusted_commit's, so the message names no edit as the remedy.
+# folder) refuses rather than trusts. A location in a repository nested in the
+# worktree is refused whatever it holds. LOC_NO_TRUST says the refusal was for
+# want of any trusted commit, so the message names no edit as the remedy.
 LOC_NO_TRUST=0
 committed_location() {
-  local loc=$1 d full root line meta want have rev
+  local loc=$1 d full root line meta want have rev r
+  LOC_NO_TRUST=0
   d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
   full="$d/$(basename -- "$loc")"
   case $loc in
-    "$worktree"/*) root=$worktree ;;
+    "$worktree"/*)
+      root=$worktree
+      case $d/ in
+        "$worktree"/*)
+          r=$d
+          while [ "$r" != "$worktree" ]; do
+            if [ -e "$r/.git" ] || [ -L "$r/.git" ]; then
+              LOC_NO_TRUST=1
+              return 1
+            fi
+            r=${r%/*}
+            [ -n "$r" ] || break
+          done
+          ;;
+      esac
+      ;;
     *)
       root=$d
       while [ ! -e "$root/.git" ] && [ ! -L "$root/.git" ]; do
@@ -866,7 +895,7 @@ render_line() {
   fi
   if ! committed_location "$ROW_LOCATION"; then
     if [ "$LOC_NO_TRUST" = 1 ]; then
-      printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record names no usable worktree or base, or the checkout is nested in that worktree); no edit makes it runnable here\n' \
+      printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record names no usable worktree or base, the base ref is missing, symbolic or shares no commit with HEAD, or the checkout is nested in that worktree); no edit to the location makes it runnable here, though fetching a missing base ref may\n' \
         "$STEP" "$ROW_LOCATION" >"$work/loc.err"
     else
       printf 'step-run: step %s not run: its location %s is in a git checkout, but not as its trusted commit holds it (HEAD, or the base in the worktree a worker session record names), or git cannot answer for that checkout; put it back, or outside that worktree commit it\n' \

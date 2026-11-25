@@ -355,9 +355,14 @@ srun_loc() {
   fi
 }
 loc_ran() { loc_run "$1" && [ -s "$tmp/ran" ] && grep -q '^passed' "$tmp/loc.out"; }
+# loc_refused <location> [<phrase>]: the step fails without running, and its
+# refusal reads <phrase>: by default the one that names an edit as the remedy;
+# NO_TRUST for the one given where no commit is trusted at all.
+EDIT='not as its trusted commit holds it'
+NO_TRUST='trusts no commit of'
 loc_refused() {
   ! loc_run "$1" && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
-    && grep -q 'not run: its location' "$tmp/loc.err"
+    && grep -q "${2:-$EDIT}" "$tmp/loc.err"
 }
 loc_ran "$lw/tools/mark.sh"
 verdict $? "a committed, unmodified location runs" "$(loc_out)"
@@ -423,46 +428,64 @@ loc_ran "$tmp/other/tools/kept.sh"
 verdict $? "under a record, another checkout is still held to its HEAD" "$(loc_out)"
 git -C "$lw" branch -q -d -r origin/main
 git -C "$lw" branch refs/remotes/origin/main HEAD
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record, a local branch standing in for the deleted base ref is refused" "$(loc_out)"
 git -C "$lw" branch -q -D refs/remotes/origin/main
 git -C "$lw" update-ref refs/remotes/origin/main HEAD
 printf 'worktree_root=%s\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
 printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
 # An unusable record trusts nothing anywhere: the worker may still commit, and
-# nothing places where.
-loc_refused "$tmp/other/tools/kept.sh"
+# the runner cannot tell where.
+loc_refused "$tmp/other/tools/kept.sh" "$NO_TRUST"
 verdict $? "under a record repeating worktree_root, another checkout is refused too" "$(loc_out)"
-grep -q 'trusts no commit of' "$tmp/loc.err"
-verdict $? "the refusal names no edit as its remedy" "$(loc_out)"
-for spec in "$lwp/|trailing slash" "$tmp/gone|a missing directory"; do
+for spec in "$lwp/|trailing slash" "$tmp/gone|a missing directory" "$tmp/elsewhere|a directory that is no checkout"; do
   printf 'worktree_root=%s\npr_base=origin/main\n' "${spec%%|*}" >"$tmp/loc.record"
-  loc_refused "$lw/tools/mark.sh"
-  verdict $? "under a record whose worktree_root is not canonical (${spec#*|}), a location is refused" "$(loc_out)"
+  loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+  verdict $? "under a record whose worktree_root is not a canonical checkout (${spec#*|}), a location is refused" "$(loc_out)"
 done
 printf 'worktree_root=%s\npr_base=origin/main\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record repeating pr_base, a location is refused" "$(loc_out)"
+git -C "$lw" update-ref refs/remotes/o+x/main HEAD
+printf 'worktree_root=%s\npr_base=o+x/main\n' "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record whose pr_base names a remote outside its grammar, a location is refused" "$(loc_out)"
+git -C "$lw" update-ref -d refs/remotes/o+x/main
+{
+  printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp"
+  awk 'BEGIN { for (i = 0; i < 100; i++) printf "pad=%050d\n", i }'
+} >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record past the size bound, a location is refused" "$(loc_out)"
 printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$lw/inside.record"
 LOC_REC=$lw/inside.record
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record stored inside the worktree it names, a location is refused" "$(loc_out)"
 rm -f "$lw/inside.record"
+mkdir -p "$tmp/scr"
+printf 'worktree_root=%s\npr_base=origin/main\nscratch_root=%s\n' "$lwp" "$tmp/scr" >"$tmp/scr/in.record"
+LOC_REC=$tmp/scr/in.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record stored inside the scratch root it names, a location is refused" "$(loc_out)"
 LOC_REC=$tmp/missing.record
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record path that does not exist, a location is refused" "$(loc_out)"
+# A relative record path would resolve from the worktree the runner enters.
 printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+LOC_REC=../loc.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a relative record path, a location is refused" "$(loc_out)"
 ln -sf "$tmp/loc.record" "$tmp/link.record"
 LOC_REC=$tmp/link.record
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record that is a symbolic link, a location is refused" "$(loc_out)"
 LOC_REC=$tmp/loc.record
 git -C "$lw" symbolic-ref refs/remotes/origin/main "refs/heads/$(git -C "$lw" symbolic-ref --short HEAD)"
-loc_refused "$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record, the base's name as a symbolic ref is refused" "$(loc_out)"
 git -C "$lw" symbolic-ref --delete refs/remotes/origin/main
 git -C "$lw" update-ref refs/remotes/origin/main HEAD
@@ -475,8 +498,15 @@ git -C "$lw/sub/n" add tools
 git -C "$lw/sub/n" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
   -c core.hooksPath=/dev/null commit -q -m "chore: nested"
 git -C "$lw/sub/n" update-ref refs/remotes/origin/main HEAD
-loc_refused "$lw/sub/n/tools/n.sh"
+loc_refused "$lw/sub/n/tools/n.sh" "$NO_TRUST"
 verdict $? "under a record, a repository nested in its worktree is refused" "$(loc_out)"
+ln -s "$lw/sub/n/tools" "$tmp/nlink"
+loc_refused "$tmp/nlink/n.sh" "$NO_TRUST"
+verdict $? "under a record, that repository reached through a link outside the worktree is refused" "$(loc_out)"
+LOC_REC=''
+loc_refused "$lw/sub/n/tools/n.sh" "$NO_TRUST"
+verdict $? "with no record, a repository nested in the worktree is refused still" "$(loc_out)"
+LOC_REC=$tmp/loc.record
 loc_ran "$lw/tools/mark.sh"
 verdict $? "under the usable record again, the base's location runs" "$(loc_out)"
 LOC_REC=''
