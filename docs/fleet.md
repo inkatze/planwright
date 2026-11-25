@@ -1035,7 +1035,7 @@ the act, and any file write, other git act or non-step plugin script in the
 command keep it prompting. `docs/options-reference.md`
 (`worker_self_approval`) has the full conditions.
 
-Four more routine classes need no policy arm. The operator's installed
+Three more routine classes need no policy arm. The operator's installed
 `review-state.sh` (matched by its literal absolute path under the hook's
 `HOME`) runs its `ledger`, `lock`, `register`, `unregister` and `sessions`
 verbs, never `evidence run`, `inbox` or `loop`. A reply to, or a resolve of, a
