@@ -230,9 +230,9 @@ rgit() (
 # show-ref --verify, a symbolic ref refused), a repository nested in it trusts
 # nothing, and a checkout outside it keeps HEAD. An unusable record trusts
 # nothing anywhere, since the worker may still commit and the runner cannot
-# tell where: one that is not an absolute path to this user's own regular
-# file of at most 4096 bytes; one stored inside the worktree or the scratch
-# root it names; one naming no single canonical checkout. Unlike the guard it
+# tell where; docs/permission-matcher-model.md lists each such record, as
+# the checks below and the guard's session_record_load apply them. Unlike the
+# guard it
 # keeps no exception for a planwright root. Returns 1, printing nothing,
 # wherever nothing is trusted.
 trusted_commit() {
