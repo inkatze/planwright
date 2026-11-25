@@ -530,7 +530,9 @@ fi
 # carry the tower one exactly, and never the orchestrate (bare) one.
 tower_spelling='scripts/tower-session.sh activate tower'
 runs_tower_spelling() { printf '%s' "$1" | grep -qF -- "$tower_spelling"; }
-runs_bare_spelling() { printf '%s' "$1" | grep -qE 'tower-session\.sh activate([^ a-z]|$)|tower-session\.sh activate [^t]|tower-session\.sh activate tower[a-z]'; }
+# runs_bare_spelling <text>: an activate left over once every whole tower
+# spelling is masked out.
+runs_bare_spelling() { printf '%s' "$1" | sed -E 's/tower-session\.sh activate tower([^A-Za-z0-9_-]|$)/tower-session.sh TOWER\1/g' | grep -q 'tower-session\.sh activate'; }
 if runs_tower_spelling "$flat"; then
   ok "the skill runs the tower handshake spelling"
 else
