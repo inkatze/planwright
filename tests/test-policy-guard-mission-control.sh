@@ -159,6 +159,13 @@ pg mission-control "bash <<'EOF'${NL}echo ed vi ex${NL}EOF"
 expect defer "[mission-control] editor names a here-document only prints are no editor run"
 pg mission-control "bash -c \"ssh h true${NL}grep -n ed notes.md\"" "$SCRATCH"
 expect defer "[mission-control] a runner's reach ends at its line: an editor name on the next line is an argument"
+for c in "# it's a note${NL}echo x > $UNIT/f.md" "echo a # don't${NL}echo y > $UNIT/f.md" \
+  "cat <<EOF${NL}don't${NL}EOF${NL}echo x > $UNIT/f.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] an apostrophe in a comment or here-document hides no later redirect into a repository: ${c%%"$NL"*}"
+done
+pg mission-control "echo \$(date) \"Checked over ssh.${NL}View the log afterwards.\" > $SCRATCH/kb/o.md" "$SCRATCH"
+expect defer "[mission-control] a quoted prose line starting with an editor's name is no editor run"
 pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"
 expect defer "[mission-control] a here-string is read as a command only on a shell's or runner's own line"
 pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"

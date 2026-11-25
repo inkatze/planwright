@@ -302,6 +302,49 @@ defer	read	bash	-	-	awk '$1 > 5' @SCRATCH@/kb/real.md
 defer	read	bash	-	-	python3 -c 'print(1 > 2)'
 defer	read	bash	-	-	sed -i '' -e s/a/b/ @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	mv -t@UNIT@/DOCS @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	echo $'it\'s'; echo x > @UNIT@/f.md
+deny	repo-write	bash	-	edits no repository	echo "$(echo x > @UNIT@/f.md)"
+deny	repo-write	bash	-	edits no repository	x="$(cat > @UNIT@/f.md)"
+deny	repo-write	bash	-	edits no repository	trap 'echo x > @UNIT@/f.md' EXIT
+deny	repo-write	bash	-	edits no repository	gawk -l inplace -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk --load inplace -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -W include=inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk5 -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -E inplace.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk --source='@include "inplace"' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby -C @UNIT@ -pi -e 1 README.md
+deny	repo-write	bash	-	edits no repository	ruby -X@UNIT@ -pi -e 1 README.md
+deny	repo-write	bash	-	edits no repository	F=-i; sed $F s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	F=-pi; perl $F -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gcp @SCRATCH@/kb/real.md @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x | gtee @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	nvim @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	rview @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	rgvim @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	rgview @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	eview @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gvim @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gvimx @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	red -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	vim --startuptime @UNIT@/t.log -es -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	vim --log @UNIT@/l.log -es -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	vim -W @UNIT@/s.vim -es -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	vim -w@UNIT@/s2.vim -es -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	vim -i@UNIT@/v.viminfo -es -c q @SCRATCH@/kb/real.md
+deny	repo-write	bash	-	edits no repository	sed --in-place=.bak s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sed --in s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sed -ni s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo x | tee @SCRATCH@/kb/a.md @UNIT@/b.md
+deny	repo-write	bash	-	edits no repository	truncate -s0 @SCRATCH@/kb/a.md @UNIT@/b.md
+defer	read	bash	-	-	echo a | xargs review
+defer	read	bash	-	-	bash -c "review x"
+defer	read	bash	-	-	echo a | xargs vi.basic
+defer	read	bash	-	-	x=$(./review.sh)
+defer	read	bash	-	-	bash -c 'scripts/review.sh'
+defer	read	bash	-	-	perl script.pl -i $(echo a)
+defer	read	bash	-	-	ruby script.rb -i $(echo a)
+defer	read	bash	-	-	vim -es -i NONE -c q @SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo $(date) "Checked over ssh; view the log" > @SCRATCH@/kb/o.md
 deny	repo-write	bash	-	edits no repository	vim -es -i @UNIT@/x.viminfo -c q @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	vim -V9@UNIT@/vlog -es -c q @SCRATCH@/kb/real.md
 deny	repo-write	bash	-	edits no repository	vim.basic -es -c wq @UNIT@/README.md

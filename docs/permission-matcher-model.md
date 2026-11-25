@@ -939,7 +939,10 @@ command rather than a parse. Other writers the settings screen reads
 `tar` and `unzip`) pass that screen alone, so these writes into a repository
 go unscreened and are accepted residual: an unpack into one (`tar -x ... -C
 <repository>`, `unzip -d <repository>`), an `mv` whose source sits in one, a
-copy's source, `rsync --remove-source-files` and `tar --remove-files`.
+copy's source, `rsync --remove-source-files` and `tar --remove-files`. The
+guard's header comment names the rest of that residual, among it `rm`,
+`touch` and `mkdir`, a program an interpreter runs, and a script a shell
+reads from a pipe or a substitution.
 
 That text reading has known gaps and one known over-refusal, named with the
 rest of the accepted residual in the guard's header comment: it misses
