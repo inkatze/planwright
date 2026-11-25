@@ -278,10 +278,23 @@ trusted_commit() {
   case $rdir/ in
     "$r_wt"/*) return 1 ;;
   esac
-  # Any scratch root it names, which the worker writes, must not hold it.
-  if [ "$n_sc" -ge 1 ] && [ "${r_sc#/}" != "$r_sc" ] && sc=$(cd "$r_sc" 2>/dev/null && pwd -P); then
-    case $rdir/ in
-      "$sc"/*) return 1 ;;
+  # The scratch root it names, which the worker writes, must not hold it; the
+  # root counts on the guard's terms (named once, this user's own canonical
+  # directory, apart from the worktree).
+  if [ "$n_sc" -eq 1 ] && [ "${r_sc#/}" != "$r_sc" ] && [ -d "$r_sc" ] && [ -O "$r_sc" ] \
+    && sc=$(cd "$r_sc" 2>/dev/null && pwd -P) && [ "$sc" = "$r_sc" ]; then
+    case $sc/ in
+      "$r_wt"/*) ;;
+      *)
+        case $r_wt/ in
+          "$sc"/*) ;;
+          *)
+            case $rdir/ in
+              "$sc"/*) return 1 ;;
+            esac
+            ;;
+        esac
+        ;;
     esac
   fi
   if [ "$1" != "$r_wt" ]; then
@@ -323,8 +336,9 @@ trusted_commit() {
 # any folder above it (an installed tool) keeps the declaration's trust; any
 # other is held to the checkout that entry marks, so a git that cannot answer
 # for it (a broken or foreign `.git`, a location inside a checkout's git
-# folder) refuses rather than trusts. A location in a repository nested in the
-# worktree is refused whatever it holds. LOC_NO_TRUST says the refusal was for
+# folder) refuses rather than trusts. Under a worker session record, a
+# location in a repository nested in the worktree is refused whatever it
+# holds, however it is spelled. LOC_NO_TRUST says the refusal was for
 # want of any trusted commit, so the message names no edit as the remedy.
 LOC_NO_TRUST=0
 committed_location() {
@@ -335,8 +349,10 @@ committed_location() {
   case $loc in
     "$worktree"/*)
       root=$worktree
-      case $d/ in
-        "$worktree"/*)
+      # Under a record, as the guard does, a repository nested in the
+      # worktree trusts nothing; with none, the outer HEAD answers.
+      case ${PLANWRIGHT_WORKER_SESSION_RECORD:+set}:$d/ in
+        set:"$worktree"/*)
           r=$d
           while [ "$r" != "$worktree" ]; do
             if [ -e "$r/.git" ] || [ -L "$r/.git" ]; then

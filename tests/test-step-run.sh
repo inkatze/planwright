@@ -503,9 +503,14 @@ verdict $? "under a record, a repository nested in its worktree is refused" "$(l
 ln -s "$lw/sub/n/tools" "$tmp/nlink"
 loc_refused "$tmp/nlink/n.sh" "$NO_TRUST"
 verdict $? "under a record, that repository reached through a link outside the worktree is refused" "$(loc_out)"
+# With no record, as in the guard, the outer HEAD answers for a location
+# spelled inside the worktree, and a nested repository reached another way is
+# held to its own HEAD: the no-record residual.
 LOC_REC=''
-loc_refused "$lw/sub/n/tools/n.sh" "$NO_TRUST"
-verdict $? "with no record, a repository nested in the worktree is refused still" "$(loc_out)"
+loc_refused "$lw/sub/n/tools/n.sh"
+verdict $? "with no record, a nested location spelled in the worktree is held to the outer HEAD" "$(loc_out)"
+loc_ran "$tmp/nlink/n.sh"
+verdict $? "with no record, a nested repository reached through a link is held to its own HEAD" "$(loc_out)"
 LOC_REC=$tmp/loc.record
 loc_ran "$lw/tools/mark.sh"
 verdict $? "under the usable record again, the base's location runs" "$(loc_out)"
