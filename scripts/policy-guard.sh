@@ -8146,9 +8146,7 @@ XEOF_RUN
       w[g]et) outflag='OPoa --output-document --directory-prefix --output-file --append-output --save-cookies --rejected-log' ;;
       tar) outflag='Cfg --directory --file --one-top-level= --listed-incremental --index-file --volno-file' ;;
       unzip) outflag='d' ;;
-      sed | gsed)
-        # gsed is GNU sed under its other name; the scan below reads it as sed.
-        verb='sed'
+      sed)
         # The files an in-place run rewrites, read as sed's own parser reads
         # them; the operand scan below stays the posture screen's.
         if mc_inplace_targets sed "$((vi + 1))"; then
@@ -8212,12 +8210,28 @@ XEOF_RUN
         opsr[${#opsr[@]}]=0
         continue
       fi
+      # A copy verb's backup suffix is a value, never an operand: GNU's
+      # parser permutes, so a suffix after the destination (cp a dest -S .bak)
+      # would otherwise read as the destination. It passes the posture screen
+      # as a word the verb only reads.
+      if [ "$k" = 4 ]; then
+        k=0
+        ! mc_write_word_refused "$w" 2 || emit_deny "$MC_REFUSAL"
+        continue
+      fi
       # truncate's size and reference file are values.
       case $verb:$w in
         truncate:--?*) ! mc_long_is "$w" 3 --size --reference || k=3 ;;
         truncate:-[!-]*)
           c=${w#-}
           case $c in *[rs]*) [ -n "${c#*[rs]}" ] || k=3 ;; esac
+          ;;
+        cp:--?* | mv:--?* | install:--?*) ! mc_long_is "$w" 4 --suffix || k=4 ;;
+        cp:-* | mv:-* | install:-*)
+          # S takes the rest of its cluster or, ending it, the next word; a t
+          # before it takes the rest itself.
+          c=${w#-}
+          case $c in -* | *t*S*) ;; *S) k=4 ;; esac
           ;;
       esac
       case $w in

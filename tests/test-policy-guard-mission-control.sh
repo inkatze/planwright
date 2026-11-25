@@ -166,6 +166,13 @@ for c in "# it's a note${NL}echo x > $UNIT/f.md" "echo a # don't${NL}echo y > $U
 done
 pg mission-control "echo \$(date) \"Checked over ssh.${NL}View the log afterwards.\" > $SCRATCH/kb/o.md" "$SCRATCH"
 expect defer "[mission-control] a quoted prose line starting with an editor's name is no editor run"
+for c in "cp $KB/real.md $UNIT/README.md -S .bak" "mv $KB/real.md $UNIT/README.md --suffix .bak" \
+  "cp $KB/real.md $UNIT/README.md -bS .bak"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a backup suffix after the destination is no destination: ${c##*/README.md }"
+done
+pg mission-control "cp -S .bak $KB/real.md $KB/s2.md" "$SCRATCH"
+expect defer "[mission-control] a backup suffix is a value, read as no repository write"
 pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"
 expect defer "[mission-control] a here-string is read as a command only on a shell's or runner's own line"
 pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"
