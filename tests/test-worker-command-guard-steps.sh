@@ -44,8 +44,9 @@ ln -s "$REPO_ROOT/scripts/step-run.sh" "$FX/repo/tools/sn"
 printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/STEP-RECORD.SH"
 chmod +x "$FX/repo/tools/STEP-RECORD.SH"
 STEP_WRITE='write --run 000001 --point pre-pr --step lint --start 2026-11-22T10:00:00Z --outcome passed'
-# A declared location inside the repository is held to what HEAD commits.
-fixture_commit "$FX/repo" tools || exit 1
+# A declared location inside the repository is held to what its commit holds:
+# HEAD, or the PR base where a session record names the repository.
+fixture_commit "$FX/repo" tools && fixture_base "$FX/repo" || exit 1
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
 # The sandbox is itself a checkout, and a declared location in one is held to
@@ -189,6 +190,17 @@ printf 'printf pwned\n' >>"$DECLARED"
 assert_defer "a declared location edited since HEAD deferred" "$DECLARED --mode strict" Bash "$FXC"
 cp "$FX/declared.orig" "$DECLARED"
 assert_allow "the declared location put back approved again" "$DECLARED --mode strict" Bash "$FXC"
+# Under a record naming the repository, an edit the worker commits is still
+# its own: the location is held to the base, which has not moved.
+printf 'printf pwned\n' >>"$DECLARED"
+fixture_commit "$FX/repo" tools/declared.sh || exit 1
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_defer "a declared location the worker edited and committed, under a record, deferred" \
+  "$DECLARED --mode strict" Bash "$FXC"
+cp "$FX/declared.orig" "$DECLARED"
+fixture_commit "$FX/repo" tools/declared.sh || exit 1
+assert_allow "the base's bytes committed back, under a record, approved" "$DECLARED --mode strict" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 assert_defer "a declared location behind a symlinked repository folder deferred" \
   "$FX/repo/linked/declared.sh --mode strict" Bash "$FXC"
 assert_defer "declared line behind a non-context assignment deferred" \

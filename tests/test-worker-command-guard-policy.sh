@@ -216,7 +216,7 @@ done
 assert_allow "F1.6: editing a repo script stays approvable" "echo 'echo hi' >> scripts/ok.sh" Bash "$WT"
 assert_allow "F1.6: then running it" "bash scripts/ok.sh" Bash "$WT"
 # The hook judges a command before any of it runs, so a committed script is
-# what HEAD holds only until a write in the same command lands. Any write the
+# what the base holds only until a write in the same command lands. Any write the
 # arm admits turns off the committed-script trust for that whole command,
 # whichever segment comes first.
 for c in "cp f scripts/ok.sh && sh scripts/ok.sh" "echo x > scripts/ok.sh && sh scripts/ok.sh" \

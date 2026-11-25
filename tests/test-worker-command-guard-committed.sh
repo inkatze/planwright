@@ -1,10 +1,13 @@
 #!/bin/bash
 # Tests for scripts/worker-command-guard.sh: a repository script, a bats file,
 # and a script under a planwright root that is a git checkout are trusted only
-# when HEAD commits them with the same bytes (committed_blob). A worker can
+# when a commit holds them with the same bytes (committed_blob): the PR base
+# inside the recorded worktree (tests/test-worker-command-guard-own-commit.sh
+# covers what the worker commits itself and the cases trusting nothing), HEAD
+# in a checkout outside it. A worker can
 # Write any file under scripts/ or tests/, so a script it wrote or edited and
-# has not committed prompts, through every invocation form and every path
-# spelling that reaches it, while committed, unmodified scripts keep their
+# the base does not hold prompts, through every invocation form and every path
+# spelling that reaches it, while scripts the base holds unmodified keep their
 # approval.
 set -u
 unset CDPATH
@@ -23,7 +26,7 @@ printf '#!/bin/sh\nprintf ok\\n\n' >"$R/scripts/caf$(printf '\303\251').sh"
 printf '@test x { true; }\n' >"$R/tests/clean.bats"
 printf '@test x { true; }\n' >"$R/tests/edited.bats"
 chmod +x "$R/scripts/clean.sh" "$R/tests/clean.sh"
-fixture_commit "$R" scripts tests sub || exit 1
+fixture_commit "$R" scripts tests sub && fixture_base "$R" || exit 1
 # What a worker's Write leaves behind: new files, edits to committed ones, a
 # copy of a committed script under a new name, a staged but uncommitted file.
 pw='#!/bin/sh\nprintf pwned\\n > lefthook.yml\n'
@@ -38,14 +41,14 @@ cp "$R/scripts/clean.sh" "$R/scripts/copy.sh"
 printf '%b' "$pw" >"$R/scripts/staged.sh"
 fixture_git -C "$R" add scripts/staged.sh
 # A directory symlink inside the repository resolves to scripts/, so the
-# canonical path, not the spelling, is what HEAD is asked about.
+# canonical path, not the spelling, is what the base is asked about.
 ln -s scripts "$R/via"
 # A `cd` is followed only into the worktree the session record names.
 write_record "$SANDBOX/committed.record" "$R" || exit 1
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1"
   "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/committed.record")
 
-echo "### a committed, unmodified repository script keeps its approval"
+echo "### a repository script the base holds unmodified keeps its approval"
 for f in scripts/clean.sh tests/clean.sh sub/scripts/clean.sh; do
   assert_allow "sh $f" "sh $f" Bash "$R"
   assert_allow "bash $f" "bash $f" Bash "$R"
@@ -108,10 +111,12 @@ echo "### the edit is undone or committed"
 cp "$R/scripts/clean.sh" "$R/scripts/edited.sh"
 assert_allow "an edit put back byte for byte" "bash scripts/edited.sh" Bash "$R"
 fixture_commit "$R" scripts/new.sh || exit 1
-assert_allow "a script HEAD commits" "bash scripts/new.sh" Bash "$R"
+assert_defer "a script HEAD commits but the base does not" "bash scripts/new.sh" Bash "$R"
+fixture_base "$R" || exit 1
+assert_allow "a script the base commits" "bash scripts/new.sh" Bash "$R"
 rm -f "$R/scripts/clean.sh"
 mkdir "$R/scripts/clean.sh"
-assert_defer "a directory where HEAD has the file" "bash scripts/clean.sh" Bash "$R"
+assert_defer "a directory where the base has the file" "bash scripts/clean.sh" Bash "$R"
 
 echo "### a repository with no commit trusts no script"
 E=$(cd "$SANDBOX" && pwd -P)/empty

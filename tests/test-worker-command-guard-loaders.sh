@@ -244,6 +244,7 @@ DECLS="$DECLS; mise run --cd <path> <word>; mise run --env <word> <word>; mise t
 DECLS="$DECLS; mise exec -- mix credo <word>; bin/check <word>; MarkdownLint-CLI2 <path>..."
 DECLS="$DECLS; markdownlint-cli2 --fix <path>...; markdownlint-cli2-fix <path>...; mise -C <path> run <word>"
 DECLS="$DECLS; mise t <word>; mise task run --cd <path> <word>; mise exec -- mise run <word>; mise exec -- mise r <word>"
+fixture_base "$R" || exit 1
 write_record "$BOX/cc.record" "$R" '' || exit 1
 printf 'check_commands=%s\n' "$DECLS" >>"$BOX/cc.record"
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$BOX/cc.record")

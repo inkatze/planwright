@@ -98,7 +98,8 @@ corpus_sandbox() {
   # branch sits on a base that resolves as origin/main. The other branch and
   # the sibling repository exist so rows naming them are judged on a real
   # target rather than a missing one. The base commits the repository scripts
-  # and bats file the rows run, since the guard trusts only what HEAD commits.
+  # and bats file the rows run, since the guard trusts only what origin/main
+  # commits in the recorded worktree.
   {
     corpus_git_env init -q --bare "$box/origin.git" \
       && corpus_git_env init -q "$main" \

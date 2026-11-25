@@ -1056,7 +1056,10 @@ caller supplies prompts.
 Before spawning a worker-profile session, `launch` proves the auto-approve
 hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
 root the dispatch-env wrapper exports, run through that wrapper so it sees the
-worker's environment) will approve the worker's opening move — the
+worker's environment, with no session record, since the launcher's own is not
+the worker's and the worker's holds every root outside its worktree to HEAD
+as no record does)
+will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`

@@ -182,7 +182,10 @@ values to a command step.
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
 A location in a git checkout is run, or its line printed, only as that
-checkout's HEAD commits it, and the step is recorded `failed` otherwise or
+checkout's trusted commit holds it (the base in the worktree a worker session
+record names, HEAD in a checkout outside it, nothing in a repository nested in
+it or anywhere under a record naming no usable worktree), and the step is
+recorded `failed` otherwise or
 when git cannot answer for the checkout: the declaration names a file, not
 its content, and a worker can write the file. A location with no `.git`
 entry above it, an installed tool, keeps the declaration's trust.
@@ -447,9 +450,12 @@ pipeline-entry: execute-task orchestrate drain spec-draft spec-kickoff offload t
 human-owned layers: core and adopter sit outside the worktree and a
 dispatched worker's write set; repo-tracked and machine-local sit inside it,
 inheriting the guard's trusted-repository-code posture for `scripts/`, which
-trusts a file in a git checkout, a declared location included, only as that
-checkout's HEAD commits it; the
-worker profile is unchanged (REQ-G1.2). The worker command guard
+trusts a file in a git checkout, a declared location included, only as the
+merge base with the session record's base holds it inside the worker's
+worktree (nothing there when the record names no base) and as HEAD holds it
+in a checkout outside that worktree, and nothing anywhere under a record
+naming no usable worktree but the guard's own root while the session sits
+outside it; the worker profile is unchanged (REQ-G1.2). The worker command guard
 auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a
 well-formed entry's location as printed on the guard's host, then its `args`,

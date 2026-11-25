@@ -109,7 +109,10 @@ runs there; otherwise, or when the host is unreachable, busy or the tree has
 uncommitted changes, it runs here as written. The guard approves the form
 only when the command after `--` is one it approves on its own, and a kind
 flag only beside the command the router maps to it (`--check` with
-`mise run check`); a router run any other way prompts.
+`mise run check`); a router run any other way prompts. A test file the base
+does not hold, one the worker added or edited, is not one the guard approves
+on its own, so every run of it prompts: `mise run` and a declared check
+command stay the unprompted routes.
 
 ## Invoke by the shebang
 
