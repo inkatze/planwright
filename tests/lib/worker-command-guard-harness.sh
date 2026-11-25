@@ -23,7 +23,7 @@ LC_ALL=C
 export LC_ALL
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOOK="$REPO_ROOT/scripts/worker-command-guard.sh"
+HOOK="${WCG_HOOK:-$REPO_ROOT/scripts/worker-command-guard.sh}"
 
 failures=0
 passes=0

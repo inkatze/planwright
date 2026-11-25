@@ -61,6 +61,7 @@ printf 'notes\n' >"$WT/notes.txt"
 gitq "$WT" add -A
 gitq "$WT" commit -q -m init
 gitq "$WT" branch -M main
+fixture_base "$WT" || exit 1
 FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
   "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
   "PLANWRIGHT_ADOPTER_OVERLAY=" "PLANWRIGHT_REPO_ROOT=$WT"

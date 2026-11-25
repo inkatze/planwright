@@ -1,7 +1,11 @@
 # shellcheck shell=sh
 # committed-fixture.sh — sourced, never executed. The worker command guard
-# trusts a repository script only as the checkout's HEAD commits it, so a
-# fixture repository whose scripts a suite expects approved commits them.
+# trusts a repository script only as a commit holds it (the base, in the
+# worktree a session record names; HEAD in a checkout outside it; the cases
+# trusting nothing are tests/test-worker-command-guard-own-commit.sh's), so a
+# fixture repository
+# whose scripts a suite expects approved commits them, and points its base at
+# that commit when a record names it (fixture_base).
 #
 # fixture_git <args>: git with the host's config out of reach, so a signing or
 # hook setting on the machine running the suite cannot fail a fixture commit,
@@ -24,4 +28,11 @@ fixture_commit() {
   [ -d "$fc_repo/.git" ] || rm -f "$fc_repo/.git"
   fixture_git init -q "$fc_repo" || return 1
   fixture_git -C "$fc_repo" add -- "$@" && fixture_git -C "$fc_repo" commit -q -m fixture
+}
+
+# fixture_base <repo>: point <repo>'s refs/remotes/origin/main at its HEAD, so
+# a session record naming <repo> as its worktree with pr_base=origin/main finds
+# what HEAD commits in the base, the only commit the guard trusts there.
+fixture_base() {
+  fixture_git -C "$1" update-ref refs/remotes/origin/main HEAD
 }

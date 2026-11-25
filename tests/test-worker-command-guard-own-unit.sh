@@ -351,8 +351,8 @@ mkdir -p "$WT/scripts" "$WT/tests"
 : >"$WT/scripts/check.sh"
 : >"$WT/tests/x.sh"
 : >"$WT/f"
-# Repository code is trusted only as HEAD commits it.
-fixture_git -C "$WT" add scripts/check.sh tests/x.sh && fixture_git -C "$WT" commit -q -m fixture || exit 1
+# Repository code is trusted only as the PR base commits it.
+fixture_git -C "$WT" add scripts/check.sh tests/x.sh && fixture_git -C "$WT" commit -q -m fixture && fixture_base "$WT" || exit 1
 assert_allow "a mise task alone (control)" "mise run check" Bash "$WT"
 assert_allow "a repo test alone (control)" "bash tests/x.sh" Bash "$WT"
 assert_allow "a repo script alone (control)" "scripts/check.sh" Bash "$WT"
@@ -372,7 +372,7 @@ assert_defer "a gate after ||" "git status || mise run check && git push origin 
 assert_defer "a gate chain over a line break" "mise run check &&
 git push origin $B" Bash "$WT"
 : >"$WT/tests/x.bats"
-fixture_git -C "$WT" add tests/x.bats && fixture_git -C "$WT" commit -q -m fixture || exit 1
+fixture_git -C "$WT" add tests/x.bats && fixture_git -C "$WT" commit -q -m fixture && fixture_base "$WT" || exit 1
 assert_allow "a push after lefthook run" "lefthook run pre-commit && git push origin $B" Bash "$WT"
 assert_allow "a push after bats" "bats tests/x.bats && git push origin $B" Bash "$WT"
 assert_allow "a push after a repo test run by sh" "sh tests/x.sh && git push origin $B" Bash "$WT"
@@ -387,7 +387,7 @@ assert_defer "a plugin script after the push" "git push origin $B && $PLUGIN_ROO
 CR=$PLUGIN_ROOT/scripts/compute-route.sh
 # The router routes only a tests/test-*.sh suite.
 : >"$WT/tests/test-x.sh"
-fixture_git -C "$WT" add tests/test-x.sh && fixture_git -C "$WT" commit -q -m fixture || exit 1
+fixture_git -C "$WT" add tests/test-x.sh && fixture_git -C "$WT" commit -q -m fixture && fixture_base "$WT" || exit 1
 assert_allow "a routed gate alone (control)" "$CR --check -- mise run check" Bash "$WT"
 assert_allow "a routed test gate alone (control)" "$CR --test tests/test-x.sh -- bash tests/test-x.sh" Bash "$WT"
 assert_defer "a push after a routed check gate" "$CR --check -- mise run check && git push origin $B" Bash "$WT"

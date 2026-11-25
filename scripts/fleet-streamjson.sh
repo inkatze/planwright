@@ -1977,7 +1977,11 @@ guard_preflight() {
     gp_cmd="$gp_root/scripts/resolve-rule-doc.sh spec-format"
     gp_payload=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' \
       "$(printf '%s' "$gp_cmd" | json_escape)" "$(printf '%s' "$gp_cwd" | json_escape)")
-    gp_out=$(printf '%s\n' "$gp_payload" | "$gp_env" "$gp_guard" 2>/dev/null) || gp_out=''
+    # Proved with no session record: the launcher's own, which the worker
+    # never runs under, could leave a root that is a checkout trusting
+    # nothing, and the worker's holds every root outside its worktree to
+    # HEAD, as no record does.
+    gp_out=$(printf '%s\n' "$gp_payload" | env -u PLANWRIGHT_WORKER_SESSION_RECORD "$gp_env" "$gp_guard" 2>/dev/null) || gp_out=''
     case $gp_out in
       *'"permissionDecision":"allow"'*) printf 'ok\n' ;;
       *) printf 'failed %s\n' "$gp_root" ;;
