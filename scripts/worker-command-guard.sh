@@ -19,9 +19,10 @@
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
 #     hook skip, squash, or `gh` write), defers, declared check commands and
-#     steps' lines included, save the own-unit acts (see own_unit_act): a push of the
-#     recorded unit branch to origin, a body edit of its own open pull
-#     request, and a reply to or resolve of a bot-only review thread on it. The guard reads the deny block itself rather than trusting
+#     steps' lines included, save the own-unit acts (see own_unit_act): a push of
+#     the recorded unit branch to origin, a body edit of its own open pull
+#     request, and a reply to or resolve of a bot-only review thread on it.
+#     The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared check commands and steps, the
@@ -1861,7 +1862,7 @@ own_thread_ok() {
   local i w method='' ep='' nf=0 expect=0 thread repo_slug pr_num
   local -a fk=() fv=()
   # An assignment earlier in the command (GH_HOST, GH_TOKEN, PATH) could point
-  # the call at another host or program than the one the reads above checked.
+  # the call at another host or program than the one the reads below check.
   [ "$VAR_C" -eq 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
     [ "${cw[i]}" = "${sw[i]}" ] && [ -z "${csub[i]-}" ] || return 1
@@ -2120,6 +2121,8 @@ mix_run_ok() {
   # The tree is read as it is now, so an earlier segment of this command that
   # writes or runs repository code could change what mix then executes.
   [ "$ARM_ACT" = 0 ] && [ "$OB_WROTE" = 0 ] && [ "$OB_LINKY" = 0 ] && [ "$OB_TOUCH" = 0 ] && [ "$RUN_SEEN" = 0 ] || return 1
+  # A tracked assignment (MIX_EXS, ERL_AFLAGS) could point mix at other code.
+  [ "$VAR_C" -eq 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] && [ "${cw[i]}" = "${sw[i]}" ] || return 1
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1

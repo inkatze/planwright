@@ -213,6 +213,8 @@ assert_allow "mix test with two line suffixes" "mix test test/a_test.exs:3:4" Ba
 assert_defer "mix test of an absolute path" "mix test /etc/x_test.exs" Bash "$WT"
 assert_defer "mix test with an option-looking path" "mix test -- -x" Bash "$WT"
 assert_defer "an environment prefix" "MIX_ENV=test mix test" Bash "$WT"
+assert_defer "a tracked assignment before mix" "MIX_EXS=/tmp/x.exs; mix test" Bash "$WT"
+assert_defer "a tracked assignment joined by &&" "MIX_EXS=/tmp/x.exs && mix test" Bash "$WT"
 assert_defer "mix inside a substitution" "echo \$(mix test)" Bash "$WT"
 assert_defer "a path-prefixed mix" "$WT/mix test" Bash "$WT"
 assert_defer "a variable argument" "mix test \$F" Bash "$WT"
