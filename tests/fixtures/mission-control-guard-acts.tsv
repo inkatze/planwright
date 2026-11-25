@@ -368,6 +368,17 @@ deny	repo-write	bash	-	settings or configuration file	echo $(env -S'sed -i s/a/b
 deny	repo-write	bash	-	edits no repository	echo $(env -Sperl -pi -e1 @UNIT@/README.md)
 defer	read	bash	-	-	env -Sls @UNIT@/README.md
 defer	read	bash	-	-	ls -lSd @UNIT@
+deny	repo-write	bash	-	edits no repository	sudo --user root perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	sudo -Hu root perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	timeout --signal KILL 5 perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	nice --adjustment 5 gawk -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	stdbuf --output L ed -s @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	/usr/bin/time --output @SCRATCH@/log perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env --argv0 x perl -pi -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	xargs --delimiter x perl -pi -e 1 @UNIT@/README.md
+defer	read	bash	-	-	sudo -u root perl -pi -e 1 @SCRATCH@/kb/a.md
+defer	read	bash	-	-	sudo -Hu root cat @UNIT@/README.md
+defer	read	bash	-	-	timeout --signal KILL 5 perl -ne 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); gawk -W load=inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'ed -s @UNIT@/README.md'

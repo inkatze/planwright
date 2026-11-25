@@ -7097,13 +7097,66 @@ XEOF_DOC
   MC_NODOC=$out
 }
 
+# mc_wrap_opt_value <wrapper> <option word> — 0 when the wrapper's option
+# takes the next word as its value: a long one with no = (in any prefix
+# getopt_long takes), or a short cluster whose first value letter ends it.
+mc_wrap_opt_value() {
+  local c vl pre
+  case $2 in
+    *=*) return 1 ;;
+    --?*)
+      c=$2
+      case $1 in
+        sudo)
+          mc_long_is "$c" 3 --user --group --type --other-user ||
+            mc_long_is "$c" 4 --host --close-from --role --command-timeout ||
+            mc_long_is "$c" 5 --prompt --chdir --chroot ||
+            mc_long_is "$c" 8 --login-class
+          ;;
+        env) mc_long_is "$c" 3 --unset --chdir --split-string --argv0 ;;
+        timeout) mc_long_is "$c" 3 --signal --kill-after ;;
+        nice) mc_long_is "$c" 3 --adjustment ;;
+        stdbuf) mc_long_is "$c" 3 --input --output --error ;;
+        time) mc_long_is "$c" 3 --format --output ;;
+        xargs)
+          mc_long_is "$c" 3 --arg-file --delimiter --process-slot-var ||
+            mc_long_is "$c" 7 --max-args --max-procs --max-chars
+          ;;
+        *) return 1 ;;
+      esac
+      ;;
+    -?*)
+      case $1 in
+        env) vl=uCSa ;;
+        nice) vl=n ;;
+        timeout) vl=sk ;;
+        stdbuf) vl=ioe ;;
+        exec) vl=a ;;
+        sudo) vl=ugCpUhrtDRTc ;;
+        xargs) vl=ILnPdEas ;;
+        doas) vl=uCa ;;
+        time) vl=fo ;;
+        *) return 1 ;;
+      esac
+      c=${2#-}
+      # shellcheck disable=SC2295 # the bracket is a pattern of letters
+      pre=${c%%[$vl]*}
+      [ "$((${#pre} + 1))" = "${#c}" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # mc_unwrap — in MC_VI, the index in SW of the command a segment runs, past
 # any wrapper words (RE_MC_WRAPPER) with their options, option values, env
 # assignments and timeout's duration, and past the options segment_words
 # leaves when it drops a leading command or exec. MC_XARGS=1 when xargs is
-# among the wrappers.
+# among the wrappers. With `exact`, each wrapper option is read as getopt
+# reads it (a cluster's value letter, a long option's value in the next
+# word); without it, as the posture screen always has, whose refusals rest
+# on that reading.
 mc_unwrap() {
-  local i=0 n=${#SW[@]} wrap
+  local i=0 n=${#SW[@]} wrap exact=${1:-}
   MC_XARGS=0
   while [ "$i" -lt "$n" ]; do
     # exec's -a takes a name; after a dropped time, GNU time's -f and -o take
@@ -7121,6 +7174,15 @@ mc_unwrap() {
     [ "$wrap" != xargs ] || MC_XARGS=1
     i=$((i + 1))
     while [ "$i" -lt "$n" ]; do
+      if [ "$exact" = exact ]; then
+        case ${SW[$i]} in
+          -?*)
+            ! mc_wrap_opt_value "$wrap" "${SW[$i]}" || i=$((i + 1))
+            i=$((i + 1))
+            continue
+            ;;
+        esac
+      fi
       case $wrap:${SW[$i]} in
         env:-u | env:-C | env:-S | env:--unset | env:--chdir | env:--split-string) i=$((i + 2)) ;;
         nice:-n | timeout:-s | timeout:-k | stdbuf:-[ioe] | exec:-a) i=$((i + 2)) ;;
@@ -7744,7 +7806,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -8008,6 +8070,8 @@ XEOF_RUN
       esac
       continue
     fi
+    mc_unwrap exact
+    vx=$MC_VI
     mc_unwrap
     vi=$MC_VI
     # A runner (a wrapper, xargs, a shell, find and the like) hands text to
@@ -8030,10 +8094,12 @@ XEOF_RUN
         # An in-place editor found here is vetted the same way, the runner
         # itself among them (perl and awk run text too). xargs's command and
         # the command after a find -exec open a statement; a word holding a
-        # command string (a shell's -c text) is read as one of its own.
+        # command string (a shell's -c text) is read as one of its own. So
+        # does the command an exact reading of the wrapper options finds where
+        # it is not mc_unwrap's (a value read as the command).
         if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ]; then
           ci="$ci CMD "
-        elif [ "$k" = "$vi" ]; then
+        elif [ "$k" = "$vi" ] || [ "$k" = "$vx" ]; then
           ci="$ci ; $w "
         else
           ci="$ci $w "
