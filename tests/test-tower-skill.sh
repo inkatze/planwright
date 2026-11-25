@@ -546,10 +546,17 @@ if runs_tower_spelling 'run scripts/tower-session.sh activate'; then
 else
   ok "probe: the bare spelling is not the tower one"
 fi
-if runs_bare_spelling 'run scripts/tower-session.sh activate`.'; then
-  ok "probe: a bare spelling is caught"
+for probe in 'run scripts/tower-session.sh activate`.' 'run scripts/tower-session.sh activate the session' 'run scripts/tower-session.sh activate towers'; do
+  if runs_bare_spelling "$probe"; then
+    ok "probe: a bare spelling is caught: $probe"
+  else
+    fail "probe: a bare spelling is missed: $probe"
+  fi
+done
+if runs_bare_spelling 'run `scripts/tower-session.sh activate tower` here'; then
+  fail "probe: the tower spelling is taken for a bare one"
 else
-  fail "probe: a bare spelling is missed"
+  ok "probe: the tower spelling is not taken for a bare one"
 fi
 
 # --- self-check: the vacuity probes --------------------------------------------

@@ -184,14 +184,16 @@ if [ "$rc" = 3 ] && printf '%s' "$out" | grep -q 'NOT ACTIVE'; then
 else
   fail "the handshake's body exited $rc: $out"
 fi
-mv "$S/policy-guard.sh" "$S/policy-guard.sh.off"
-ts_bash "$FRESH" "$ACTIVATE"
-reason_has 'NOT ACTIVE: the policy guard' "the handshake is NOT ACTIVE when the policy guard beside it is missing"
-mv "$S/policy-guard.sh.off" "$S/policy-guard.sh"
-chmod 770 "$STORE"
-ts_bash "$FRESH" "$ACTIVATE"
-reason_has 'NOT ACTIVE: this session could not be marked' "the handshake is NOT ACTIVE over a store that is not owner-only"
-reset_store
+for act in "$ACTIVATE" "$ACTIVATE_TOWER"; do
+  mv "$S/policy-guard.sh" "$S/policy-guard.sh.off"
+  ts_bash "$FRESH" "$act"
+  reason_has 'NOT ACTIVE: the policy guard' "the handshake is NOT ACTIVE when the policy guard beside it is missing: $act"
+  mv "$S/policy-guard.sh.off" "$S/policy-guard.sh"
+  chmod 770 "$STORE"
+  ts_bash "$FRESH" "$act"
+  reason_has 'NOT ACTIVE: this session could not be marked' "the handshake is NOT ACTIVE over a store that is not owner-only: $act"
+  reset_store
+done
 
 echo "# the mark records its kind; tower is sticky (fleet-hardening REQ-I1.4, REQ-I1.5)"
 # kind_field <sid> — the mark's fourth field, empty for a kindless mark.
@@ -503,9 +505,11 @@ expect deny "a crash after the prefilter finds a marked id, before the payload i
 TS=$CRASH_GUARD ts_bash "$MARKED" 'ls'
 expect deny "a crash in a marked session's guard denies"
 reason_has 'stopped before reaching a decision' "the crash refusal is the internal one"
-TS=$CRASH_ACTIVATE ts_bash "$FRESH" "\"$CRASH_ACTIVATE\" activate"
-expect deny "a crash in the activation handshake denies"
-reason_has 'stopped before reaching a decision' "the handshake crash refusal is the internal one"
+for spelling in activate 'activate tower'; do
+  TS=$CRASH_ACTIVATE ts_bash "$FRESH" "\"$CRASH_ACTIVATE\" $spelling"
+  expect deny "a crash in the activation handshake denies: $spelling"
+  reason_has 'stopped before reaching a decision' "the handshake crash refusal is the internal one: $spelling"
+done
 TS=$CRASH_GUARD ts_bash "$OTHER" 'ls'
 expect defer "the fault never reached in an unmarked session leaves it deferring"
 ts_bash "$MARKED" 'ls'
