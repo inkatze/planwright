@@ -39,7 +39,7 @@ case "$*" in
     # pull request 27, which is another one.
     n=$(grep -o 'pulls/[0-9]*/comments' "$GH_LOG" | tail -1 | tr -dc 0-9)
     [ "$n" != 27 ] || n=21
-    printf '%s\n' "{\"url\":\"https://github.com/o/r/pull/$n\",\"headRefName\":\"$UNIT_BRANCH\",\"isCrossRepository\":false,\"state\":\"OPEN\"}" ;;
+    printf '%s\n' "{\"url\":\"https://github.com/o/r/pull/$n\",\"headRefName\":\"$UNIT_BRANCH\",\"isCrossRepository\":false,\"state\":\"${UNIT_STATE:-OPEN}\"}" ;;
   "api user") printf '%s\n' '{"login":"me"}' ;;
   "api --paginate repos/o/r/pulls/21/comments")
     printf '%s\n' '[{"id":1001,"in_reply_to_id":null,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"}}]'
@@ -130,6 +130,14 @@ mkdir -p "$WT/inner/.claude/scripts"
 assert_defer "a HOME inside the worktree" "$WT/inner/.claude/scripts/review-state.sh sessions" Bash "$WT"
 HOOK_ENV=("${HOOK_ENV[@]}" "HOME=relative-home")
 assert_defer "a relative HOME" "relative-home/.claude/scripts/review-state.sh sessions" Bash "$WT"
+HOOK_ENV=("${HOOK_ENV[@]}" "HOME=")
+assert_defer "an empty HOME" "/.claude/scripts/review-state.sh sessions" Bash "$WT"
+printf '%s\n' "policy=" "unit_branch=$B" "worktree_root=$HOME_DIR/.claude" "pr_base=origin/main" \
+  "worker_base_merge=allow" "audit_log_home=$(cd -P -- "$REC.audit" && pwd -P)" >"$REC.home"
+fixture_git init -q -b main "$HOME_DIR/.claude"
+HOOK_ENV=("${HOOK_ENV[@]}" "HOME=$HOME_DIR" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC.home")
+assert_defer "the script lies inside the recorded worktree" "$RS sessions" Bash "$SANDBOX"
+HOOK_ENV=("${HOOK_ENV[@]}" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC")
 # shellcheck disable=SC2088 # the unexpanded tilde is the case under test
 assert_defer "a tilde path" "~/.claude/scripts/review-state.sh sessions" Bash "$WT"
 assert_defer "a bare name a worker could shadow" "review-state.sh sessions" Bash "$WT"
@@ -157,12 +165,15 @@ assert_defer "a write that is no completion" "$SREC write --run 000001 --point p
 echo "### class 3: replies to and resolves of review threads only a bot has spoken in"
 : >"$GH_LOG"
 REPLY="gh api -X POST repos/o/r/pulls/21/comments/1001/replies -f body='Fixed in abc123, thanks.'"
-assert_allow "a reply to a bot-only thread" "$REPLY" Bash "$WT"
+assert_allow "a reply in a thread only a bot and the operator spoke in" "$REPLY" Bash "$WT"
 assert_allow "a reply with --method POST" "gh api --method POST repos/o/r/pulls/21/comments/1001/replies -f body=ok" Bash "$WT"
 assert_allow "a reply in a thread holding the operator's own earlier reply" "gh api -X POST repos/o/r/pulls/21/comments/1002/replies -f body=ok" Bash "$WT"
 # shellcheck disable=SC2016 # GraphQL variables, not shell ones
 RES='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
-assert_allow "a resolve of a bot-only thread" "gh api graphql -f query='$RES' -f id=PRRT_bot" Bash "$WT"
+assert_allow "a resolve of a thread only a bot and the operator spoke in" "gh api graphql -f query='$RES' -f id=PRRT_bot" Bash "$WT"
+HOOK_ENV=("${HOOK_ENV[@]}" "UNIT_STATE=MERGED")
+assert_defer "a bot-only thread on a pull request that is no longer open" "$REPLY" Bash "$WT"
+HOOK_ENV=("${HOOK_ENV[@]}" "UNIT_STATE=OPEN")
 assert_defer "a bot-only thread on a pull request that is not the unit's" "gh api -X POST repos/o/r/pulls/27/comments/1601/replies -f body=ok" Bash "$WT"
 assert_defer "a reply where a human has replied" "gh api -X POST repos/o/r/pulls/22/comments/1101/replies -f body=ok" Bash "$WT"
 assert_defer "a reply to a human's comment" "gh api -X POST repos/o/r/pulls/23/comments/1201/replies -f body=ok" Bash "$WT"
@@ -305,6 +316,7 @@ assert_defer "a text file the base evaluates is code" "mix test" Bash "$WT"
 mkwt mix-image
 printf 'png\n' >"$WT/logo.png"
 assert_allow "an untracked image" "mix test" Bash "$WT"
+assert_defer "an image handed to mix as an operand" "mix test logo.png" Bash "$WT"
 mkwt mix-assume
 fixture_git -C "$WT" update-index --assume-unchanged lib/a.ex
 printf 'IO.puts(1)\n' >>"$WT/lib/a.ex"

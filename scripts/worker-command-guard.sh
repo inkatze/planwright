@@ -1992,8 +1992,9 @@ review_state_call_ok() {
   # A tracked assignment (REVIEW_STATE_ROOT, HOME) could move the state it keeps.
   [ "$VAR_C" -eq 0 ] || return 1
   if [ -n "$REC_WT" ]; then
-    case $h/ in
+    case $h/:${cw[0]} in
       "$REC_WT"/*) return 1 ;;
+      *:"$REC_WT"/*) return 1 ;;
     esac
   fi
   for ((i = 0; i < cwn; i++)); do
@@ -2101,6 +2102,8 @@ mix_operand_ok() {
   local p=$1 d
   [[ $p =~ ^[A-Za-z0-9_@+-][A-Za-z0-9_./@+-]*(:[0-9]+)*$ ]] || return 1
   p=${p%%:*}
+  # An image the diff check lets through is not a file to hand mix to run.
+  ! mix_path_inert "$p" || return 1
   case /$p/ in
     */../* | */./* | *//*) return 1 ;;
   esac
