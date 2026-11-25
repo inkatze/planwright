@@ -584,8 +584,12 @@ and plain (letters, digits, `/`, `.`, `_`, `-`), and a path target's
 location must carry no `.`, `..`, or empty segment and name an existing
 executable file. A segment that shares only the first word, spells the bare
 target instead of its resolved location, adds, drops, or changes an arg, or
-carries any other prefix defers. The approval is allow-only, like the rest
-of the hook.
+carries any other prefix defers. So does a line any of whose words names a
+planwright step script (`step-record.sh` or `step-run.sh` by name in any
+letter case, or a link of a trusted planwright root's copy under another
+name): the
+step-script rules judge it as if undeclared, so a hand-timed step record
+still prompts. The approval is allow-only, like the rest of the hook.
 
 **Trust posture.** Step catalogs and point lists are read only from the
 human-owned layers. The core and adopter layers sit outside the worktree and

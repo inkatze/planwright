@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.83.0](https://github.com/inkatze/planwright/compare/v0.82.1...v0.83.0) (2026-11-24)
+
+
+### Features
+
+* add the run-record measurement kit ([#1049](https://github.com/inkatze/planwright/issues/1049)) ([7b34a2c](https://github.com/inkatze/planwright/commit/7b34a2cd61ba0db714440c55638323e83750aa97))
+
+
+### Bug Fixes
+
+* a declared check command or command step never approves a step-script call ([#1176](https://github.com/inkatze/planwright/issues/1176)) ([2c6810a](https://github.com/inkatze/planwright/commit/2c6810a13188a20e87922fbd3e1de9c5103006f5))
+* correct the recover exit code in the fleet-streamjson usage comment ([#1173](https://github.com/inkatze/planwright/issues/1173)) ([c47da7b](https://github.com/inkatze/planwright/commit/c47da7bcf6f7a68f85df9600ab895a1953213973))
+
+## [0.82.1](https://github.com/inkatze/planwright/compare/v0.82.0...v0.82.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* a declared check command that writes or runs code never partners a worker's own push ([#1172](https://github.com/inkatze/planwright/issues/1172)) ([ea8913b](https://github.com/inkatze/planwright/commit/ea8913b93faa1b6f65516f9ee79bd2cb1943d82b))
+* hold a declared markdownlint or mise run to the screen the undeclared one passes ([#1160](https://github.com/inkatze/planwright/issues/1160)) ([4f5c6e8](https://github.com/inkatze/planwright/commit/4f5c6e807a77061fcdee072e5b81870ff4c67431))
+* readiness gates a rename by its old path as well as its new one ([#1170](https://github.com/inkatze/planwright/issues/1170)) ([4c17fc2](https://github.com/inkatze/planwright/commit/4c17fc2a0b64761277073152133b673a04237049))
+* step-record write refuses a head that names no commit ([#1169](https://github.com/inkatze/planwright/issues/1169)) ([a493add](https://github.com/inkatze/planwright/commit/a493addf6af81b6b6450aa9dc56b71bc225c405a))
+
 ## [0.82.0](https://github.com/inkatze/planwright/compare/v0.81.0...v0.82.0) (2026-11-23)
 
 

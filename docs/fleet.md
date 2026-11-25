@@ -2880,12 +2880,15 @@ block is read first, so no declaration lifts it, and a malformed declaration
 is dropped alone. A declared check command that names git, a file writer, a
 wrapper or an interpreter (`git commit`, `rm`, `env`, `python`) still runs
 alone, but never in the same command as a worker's own push or pull request
-body edit. The launcher reads the knob at the primary checkout into the
-session record, so an edit inside the worker's own worktree changes nothing
-and a change reaches a worker only by relaunch. Running a declared command
-runs the repository's own code, the trust the guard already gives its
-`scripts/`, except that a declared markdownlint or `mise run` still passes
-the config-loader screen the undeclared command does. The full rules are in
+body edit. A command naming a planwright step script (`step-record.sh`,
+`step-run.sh`) is never approved by a declaration at all: the step-script rules
+judge it as if undeclared, so a hand-timed step record still prompts. The
+launcher reads the knob at the primary checkout into the session record, so
+an edit inside the worker's own worktree changes nothing and a change reaches
+a worker only by relaunch. Running a declared command runs the repository's
+own code, the trust the guard already gives its `scripts/`, except that a
+declared markdownlint or `mise run` still passes the config-loader screen the
+undeclared command does. The full rules are in
 [the options reference](options-reference.md).
 
 The launcher's `retire <name>` closes what it launched from its registry row.
