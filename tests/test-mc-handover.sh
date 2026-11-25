@@ -45,10 +45,10 @@ printf '%s\n' "item q-1" >"$tmp/picture-short"
 # REQ-L1.3, REQ-L1.5: each trigger source fires from its fixture; the
 # compaction ceiling fires whatever the other two read.
 # ---------------------------------------------------------------------------
-ho due --program alpha --context 70 --wakes 0 --compactions 0
-[ "$OUT" = "due${tab}context at 70%" ] && ok "context at the threshold triggers the handover" || fail "context at 70: $OUT $ERR"
-ho due --program alpha --context 69 --wakes 999 --compactions 0
-[ "$OUT" = not-due ] && ok "a context reading below the threshold is not due, whatever the wakes" || fail "context at 69: $OUT"
+ho due --program alpha --context 40 --wakes 0 --compactions 0
+[ "$OUT" = "due${tab}context at 40%" ] && ok "context at the threshold triggers the handover" || fail "context at 40: $OUT $ERR"
+ho due --program alpha --context 39 --wakes 999 --compactions 0
+[ "$OUT" = not-due ] && ok "a context reading below the threshold is not due, whatever the wakes" || fail "context at 39: $OUT"
 ho due --program alpha --context - --wakes 150 --compactions 0
 [ "$OUT" = "due${tab}150 wakes" ] && ok "with no context reading the wake count triggers it" || fail "150 wakes: $OUT $ERR"
 ho due --program alpha --context - --wakes 149 --compactions 1
@@ -451,6 +451,64 @@ ho take --program alpha --session "$r2" --window 1s --exit-wait 1s
 [ ! -f "$(rowfile "$r1")" ] && ok "its registry row is still retired" || fail "the running registry predecessor's row stayed"
 holder_is "the name rests with the successor" "$r2"
 kill "$pr" 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# A successor keeps the program's context: launched from a worker's
+# worktree, it starts in the program's repository with the caller's adopter
+# overlay, where the program block lives; an explicit --cwd still decides.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/worker-wt" "$tmp/chosen"
+RUN_CWD="$tmp/worker-wt" ho launch --program alpha --brief "$tmp/brief.md" --asked
+c1=$(col successor 2)
+[ "$RC" = 0 ] && [ -n "$c1" ] || fail "the launch from a worker's worktree exited $RC: $OUT $ERR"
+wait_done "$c1"
+[ "$(cat "$tmp/shim/$c1.cwd" 2>&1)" = "$repo" ] \
+  && ok "a successor launched from a worker's worktree starts in the program's repository" \
+  || fail "the successor started in '$(cat "$tmp/shim/$c1.cwd" 2>&1)', not $repo"
+[ "$(cat "$tmp/shim/$c1.overlay" 2>&1)" = "$adopter" ] \
+  && ok "the successor is handed the caller's adopter overlay" \
+  || fail "the successor's adopter overlay is '$(cat "$tmp/shim/$c1.overlay" 2>&1)', not $adopter"
+run mission-control-launch.sh retire "$c1"
+rm -f "$fleet/mission-control/alpha/successor"
+
+RUN_CWD="$tmp/worker-wt" ho launch --program alpha --brief "$tmp/brief.md" --asked --cwd "$tmp/chosen"
+c2=$(col successor 2)
+[ "$RC" = 0 ] && [ -n "$c2" ] || fail "the --cwd launch exited $RC: $OUT $ERR"
+wait_done "$c2"
+[ "$(cat "$tmp/shim/$c2.cwd" 2>&1)" = "$tmp/chosen" ] \
+  && ok "an explicit --cwd still names where the successor starts" \
+  || fail "the --cwd launch started in '$(cat "$tmp/shim/$c2.cwd" 2>&1)', not $tmp/chosen"
+run mission-control-launch.sh retire "$c2"
+rm -f "$fleet/mission-control/alpha/successor"
+
+# The first repository present wins, and an overlay named relative to the
+# caller still names the same directory from where the successor starts.
+cp "$tracked" "$tmp/tracked.keep"
+awk -v gone="$tmp/gone" -v r="$repo" '/^program_alpha_repositories:/ { print "program_alpha_repositories: [" gone ", " r "]"; next } { print }' \
+  "$tmp/tracked.keep" >"$tracked"
+RUN_CWD="$tmp/worker-wt" RUN_OVERLAY=../adopter ho launch --program alpha --brief "$tmp/brief.md" --asked
+c3=$(col successor 2)
+[ "$RC" = 0 ] && [ -n "$c3" ] || fail "the launch over a missing first repository exited $RC: $OUT $ERR"
+wait_done "$c3"
+[ "$(cat "$tmp/shim/$c3.cwd" 2>&1)" = "$repo" ] \
+  && ok "a missing first repository is passed over for the next one present" \
+  || fail "with a missing first repository the successor started in '$(cat "$tmp/shim/$c3.cwd" 2>&1)'"
+c3_ov=$(cat "$tmp/shim/$c3.overlay" 2>&1)
+case $c3_ov in /*) [ "$(cd "$c3_ov" 2>&1 && pwd -P)" = "$adopter" ] ;; *) false ;; esac \
+  && ok "a relative adopter overlay reaches the successor as an absolute path to the same directory" \
+  || fail "the relative overlay reached the successor as '$c3_ov'"
+run mission-control-launch.sh retire "$c3"
+rm -f "$fleet/mission-control/alpha/successor"
+
+awk -v gone="$tmp/gone" '/^program_alpha_repositories:/ { print "program_alpha_repositories: [" gone "]"; next } { print }' \
+  "$tmp/tracked.keep" >"$tracked"
+RUN_CWD="$tmp/worker-wt" ho launch --program alpha --brief "$tmp/brief.md" --asked
+[ "$RC" = 1 ] && [ -z "$(col successor 2)" ] && case $ERR in *"no repository of program alpha"*--cwd*) true ;; *) false ;; esac \
+  && ok "with no repository of the program on this machine the launch refuses, naming --cwd" \
+  || fail "the launch with no repository exited $RC: $OUT $ERR"
+[ ! -f "$fleet/mission-control/alpha/successor" ] && ok "and reserves nothing" \
+  || fail "the refused launch left a successor record: $(cat "$fleet/mission-control/alpha/successor")"
+cp "$tmp/tracked.keep" "$tracked"
 
 echo
 if [ "$failures" -gt 0 ]; then

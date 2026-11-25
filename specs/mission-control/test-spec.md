@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -376,6 +376,7 @@ steps, a fixture touching only the reserved accumulators has none to hold,
 and a fixture that also changes one non-spec file is audited for the
 cadence. This shipped with PR #852's tests.
 *(Amended at Amendment 6, 2026-11-09: the operator-visible preview condition is tested under REQ-F1.18.)*
+*(Amended at Amendment 21, 2026-11-22: a legacy bundle on the spec-only path is tested under REQ-D1.18.)*
 
 ### REQ-D1.10 — Launch worktrees [test]
 
@@ -436,6 +437,26 @@ edit with a matching re-signed anchor, passes; a status-only spec touch
 is not an edit; a task pull request delivering its own task's file
 passes; a missing statement is checked as covering nothing; a spec edit with a stale anchor refuses; an
 unlisted change passes; a check that cannot run refuses with its reason.
+
+### REQ-D1.18 — Spec drift refused at readiness, finished pre-kickoff bundles excepted [test]
+
+The REQ-D1.13 entry's cases, unchanged, plus
+`tests/test-mc-readiness-legacy-done.sh` (PR #1142, extended by Task 149).
+A bundle `Done` at the head with no brief, which the base holds with no
+brief as `Done` or with no Status line, reads signed with its row naming it
+legacy, on the spec-only path and on the code path. Each of these refuses
+with its reason, on the spec-only path (the one function deciding both
+paths) and, for the brief deletion, on the code path too: a Draft, Ready or
+Active bundle with no brief, a bundle the pull request adds, one the base
+holds at another status, a pull request that deletes its brief, a base
+that holds a brief the head lacks, a pull request naming no base, and a
+base commit that cannot be read; a brief that exists is anchor-checked as
+before. The stale-ref case (Task 149): with the evidence carrying the
+forge's base commit, a fixture whose local remote-tracking ref for the base
+predates a base commit that adds the bundle's brief, and whose pull
+request renames that brief away (listed as a rename, not a deletion),
+refuses because the base commit holds the brief; the same fixture with a
+current ref refuses the same way.
 
 ### REQ-D1.15 — Direct dispatch for units that need no holder [test]
 
@@ -672,6 +693,16 @@ done-condition is refused at add; the handover self-check fails naming an
 open intake row and passes once none is open; a message arriving while the
 turn is ending is stored first, never lost.
 
+### REQ-F1.26 — Asks are recorded in the request ledger; work taken on is an item [test]
+
+`tests/test-mc-kb.sh` (Task 50): an item with no done-condition is refused
+at add, naming the missing field; a done-condition outside the grammar is
+refused. Capture of each arrival, closing with checked evidence, the hold on
+a turn's first stop and the handover's refusal are verified by
+control-plane's REQ-J1.1 to REQ-J1.7 test entries (control-plane Tasks 5.1
+to 5.3, Sources). This entry carries the normative text for the
+supersession of REQ-F1.19.
+
 ### REQ-F1.20 — Overdue items lead the status [test]
 
 `tests/test-mc-panel.sh` (Task 52): fixture items overdue by date and by
@@ -872,6 +903,27 @@ configured ready flip without a prompt; force forms, deletions, another
 spec branch, a task branch and `main` are denied with the guard's reason; no
 launch record means every push is denied; mission control's own tier
 denies the push.
+*(Amended at Amendment 21, 2026-11-22: a worker's clean base-merge push onto a spec-branch pull request is tested under REQ-I1.11.)*
+
+### REQ-I1.11 — A spec-branch pull request's worker pushes only clean base merges [test]
+
+`tests/test-policy-guard-spec-merge-push.sh` and
+`tests/test-policy-guard-spec-branch-push.sh` (Task 148), each case run for
+a worker whose session record names a sign-off branch, an amendment branch
+and a spec-rework branch: merging the base, alone in the command, in the
+worktree holding the branch is admitted, and refused under
+`worker_base_merge: deny`; a push adding one clean merge of the base, two
+in a row, or nothing is admitted; each of these is refused with the
+guard's reason: the push or the merge run from another checkout of the
+branch, a merge whose tree differs from the clean merge of its parents (a
+bundle file's edit or mode change included, and another file's), a commit
+that is not a merge of the base, a merge line not starting at the pull
+request's head, a push that does not fast-forward that head, a force or
+deletion spelling, another branch, a base or head the remote cannot
+report, and each local-state override REQ-I1.11 names (a rewritten
+transport, a merge driver, an attributes file, a replace ref, a graft, a
+shallow clone, a git older than 2.40); on the sign-off branch only, a
+`protected_branches` addition matching it.
 
 ## REQ-J — Knobs
 

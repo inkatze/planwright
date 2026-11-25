@@ -35,8 +35,13 @@ unset CDPATH
 here=$(cd "$(dirname "$0")" && pwd)
 SJ="$here/../scripts/fleet-streamjson.sh"
 RELAY="$here/../scripts/orchestrate-relay.sh"
+# Nearly every wait here is on a detached supervisor's record, and a loaded
+# macOS runner has taken past the helper's 60s default to reach one.
+POLL_UNTIL_DEFAULT_DEADLINE=${POLL_UNTIL_DEFAULT_DEADLINE:-300}
 # shellcheck source=tests/lib/fixture-procs.sh
 . "$here/lib/fixture-procs.sh"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -251,11 +256,16 @@ sr_in=$(lines_of "$rec/stdin")
 # A read-only file stops only a non-root writer.
 if [ "$(id -u)" != 0 ]; then
   chmod 444 "$home/mission-control/retasks.log"
-  senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
-  sr_rc=$?
-  chmod 644 "$home/mission-control/retasks.log"
-  [ "$sr_rc" = 2 ] || fail "s1r: an override that could not be logged must be refused with exit 2, got $sr_rc"
-  [ "$(lines_of "$rec/stdin")" = "$sr_in" ] || fail "s1r: an unloggable override reached the worker"
+  if hermetic_access_denied w "$home/mission-control/retasks.log"; then
+    senv "$home" "$rec" -- steer sjs1 --message-file "$tmp/steer-skill" --retask "operator asked" >/dev/null 2>&1
+    sr_rc=$?
+    chmod 644 "$home/mission-control/retasks.log"
+    [ "$sr_rc" = 2 ] || fail "s1r: an override that could not be logged must be refused with exit 2, got $sr_rc"
+    [ "$(lines_of "$rec/stdin")" = "$sr_in" ] || fail "s1r: an unloggable override reached the worker"
+  else
+    chmod 644 "$home/mission-control/retasks.log"
+    echo "skip: s1r unloggable override: the read-only log is still writable here"
+  fi
 fi
 echo "ok: s1r a registered tower is not bound, a plain --retask logs nothing, an unloggable override is refused unsent"
 
@@ -398,8 +408,8 @@ done
 mkdir -p "$tmp/cwd5"
 printf 'from a dashed file\n' >"$tmp/cwd5/-n"
 before=$(lines_of "$tmp/r1/stdin")
-out=$(cd "$tmp/cwd5" && senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file -n 2>&1) \
-  || fail "s5: a dash-leading message path must be read as a file, got: $out"
+out=$(cd "$tmp/cwd5" && senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file -n 2>"$tmp/s5.err") \
+  || fail "s5: a dash-leading message path must be read as a file, got: $out $(cat "$tmp/s5.err")"
 [ "$out" = "steered sjs1 $(wc -c <"$tmp/cwd5/-n" | tr -d ' ')" ] \
   || fail "s5: the dash-named file must be measured as a file, not parsed as an option: $out"
 poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt "$before" \
@@ -409,10 +419,13 @@ tail -n 1 "$tmp/r1/stdin" | jq -r '.message.content[0].text' | grep -q 'from a d
 # Control bytes in the message reach the worker as data, never as terminal
 # output: nothing steer prints carries one.
 printf 'clear\033[2J\007 me\n' >"$tmp/steer5"
-out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>&1) \
-  || fail "s5: a control-byte message should still deliver, got: $out"
-[ "$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\037\177')" = "$out" ] \
-  || fail "s5: steer echoed a control byte"
+out=$(senv "$tmp/h1" "$tmp/r1" -- steer sjs1 --message-file "$tmp/steer5" 2>"$tmp/s5c.err") \
+  || fail "s5: a control-byte message should still deliver, got: $out $(cat "$tmp/s5c.err")"
+err=$(cat "$tmp/s5c.err")
+for s5_stream in "$out" "$err"; do
+  [ "$(printf '%s' "$s5_stream" | LC_ALL=C tr -d '\000-\037\177')" = "$s5_stream" ] \
+    || fail "s5: steer echoed a control byte"
+done
 poll_until --what 'the stdin line count' -- lines_cmp "$tmp/r1/stdin" -gt $((before + 1)) \
   || fail "s5: the control-byte message never arrived"
 tail -n 1 "$tmp/r1/stdin" | jq -e . >/dev/null 2>&1 \

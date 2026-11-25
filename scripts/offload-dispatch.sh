@@ -16,7 +16,7 @@
 # Usage:
 #   offload-dispatch.sh dispatch <backend> <prompt-file> [--unit <id>]
 #       [--key <selection-key>] [--strict-tier] [--profile <kind>]
-#       [--name <name>] [--scope <scope>]
+#       [--name <name>] [--scope <scope>] [--keep-config-env]
 #       Dispatch the petition in <prompt-file> to <backend> and emit the
 #       report. Drivable rungs:
 #         tmux   — `tmux new-window -d` running an interactive `claude` worker
@@ -56,6 +56,12 @@
 #                    start the session with Remote Control under <name>, in the
 #                    stream-json-persistent handle grammar; any other profile
 #                    refuses it (exit 2)
+#         --keep-config-env  (tmux only) hand the window those of this
+#                    process's config overlays that are set
+#                    (PLANWRIGHT_LOCAL_CONFIG, PLANWRIGHT_CONFIG_DEFAULTS,
+#                    PLANWRIGHT_ADOPTER_OVERLAY, PLANWRIGHT_CONFIG_STRICT_OVERLAYS),
+#                    on its command line, since a window starts from the tmux
+#                    server's environment
 #         --scope <scope>  (tmux only) the worker scope a worker-profile
 #                    session's identity carries beside --name (default
 #                    offload); the wrapper is pinned to this install's root
@@ -82,6 +88,8 @@
 #   status    dispatched | prepared | reported | failed
 #   backend   <name>
 #   handle    <handle>  (or the no-process fact for `print`)
+#   server    <pid>.<start time> of the tmux server that issued the window
+#             id (tmux dispatch only, when tmux reported it)
 #   observe   <read command, or the no-observe-surface fact>
 #   attach    <attach hint, or the not-attachable fact>
 #   launch    <exact command>            (print only)
@@ -145,6 +153,13 @@ if [ ! -r "$ladder" ]; then
 fi
 # shellcheck source=scripts/allocation-ladder.sh
 . "$ladder"
+tmux_identity="$script_dir/tmux-identity-lib.sh"
+if [ ! -r "$tmux_identity" ]; then
+  printf '%s\n' "$me: required helper $tmux_identity missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$tmux_identity"
 
 # od_in_roster <value> <space-separated roster>: 0 when the value is a member,
 # or the `inherit` sentinel — which is not a tier but a legal plan row meaning
@@ -175,7 +190,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 usage() {
-  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] | report <backend> <handle> | launch-backend>" >&2
+  printf '%s\n' "$me: usage: $me <dispatch <backend> <prompt-file> [--unit <id>] [--key <selection-key>] [--strict-tier] [--profile <kind>] [--mc-token <token>] [--name <name>] [--scope <scope>] [--keep-config-env] | report <backend> <handle> | launch-backend>" >&2
 }
 
 # --------------------------------------------------------------------------
@@ -199,6 +214,7 @@ D_NAME=''
 D_REMOTE_CONTROL=''
 D_SCOPE=offload
 D_SCOPE_SET=0
+D_KEEP_ENV=0
 
 resolve_tier() {
   # $1 backend, $2 unit
@@ -489,8 +505,8 @@ cmd_dispatch() {
     exit 2
   fi
 
-  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ]; }; then
-    printf '%s\n' "$me: dispatch: --profile, --name, --scope and --remote-control apply to the tmux rung only" >&2
+  if [ "$backend" = print ] && { [ -n "$D_PROFILE" ] || [ -n "$D_NAME" ] || [ "$D_SCOPE_SET" = 1 ] || [ -n "$D_REMOTE_CONTROL" ] || [ "$D_KEEP_ENV" = 1 ]; }; then
+    printf '%s\n' "$me: dispatch: --profile, --name, --scope, --remote-control and --keep-config-env apply to the tmux rung only" >&2
     exit 2
   fi
   if [ -n "$D_REMOTE_CONTROL" ] && [ "$D_PROFILE" != mission-control ]; then
@@ -575,11 +591,21 @@ cmd_dispatch() {
   win_name="offload-$$"
   [ -z "$D_NAME" ] || win_name=$D_NAME
   set -- offload-worker "$promptfile"
+  # The same four the launcher scrubs (mission-control-launch.sh); keep the
+  # two lists in step.
+  if [ "$D_KEEP_ENV" = 1 ]; then
+    set -- "$@" env
+    [ -z "${PLANWRIGHT_LOCAL_CONFIG+x}" ] || set -- "$@" "PLANWRIGHT_LOCAL_CONFIG=$PLANWRIGHT_LOCAL_CONFIG"
+    [ -z "${PLANWRIGHT_CONFIG_DEFAULTS+x}" ] || set -- "$@" "PLANWRIGHT_CONFIG_DEFAULTS=$PLANWRIGHT_CONFIG_DEFAULTS"
+    [ -z "${PLANWRIGHT_ADOPTER_OVERLAY+x}" ] || set -- "$@" "PLANWRIGHT_ADOPTER_OVERLAY=$PLANWRIGHT_ADOPTER_OVERLAY"
+    [ -z "${PLANWRIGHT_CONFIG_STRICT_OVERLAYS+x}" ] || set -- "$@" "PLANWRIGHT_CONFIG_STRICT_OVERLAYS=$PLANWRIGHT_CONFIG_STRICT_OVERLAYS"
+  fi
   if [ -n "$launch_env" ]; then
     # The wrapper keeps an identity the tmux server's environment carries,
     # so a session that is no worker has it dropped here.
     [ "$D_PROFILE" = worker ] \
-      || set -- "$@" env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_WORKER_LAUNCH_TOKEN
+      || set -- "$@" env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_WORKER_LAUNCH_TOKEN \
+        -u PLANWRIGHT_SESSION_HANDLE
     set -- "$@" "$launch_env" --root "$launch_root" --inbound accept
     # Only a worker carries the worker identity its hooks key on.
     [ "$D_PROFILE" != worker ] || [ -z "$D_NAME" ] || set -- "$@" --identity "$D_NAME" "$D_SCOPE"
@@ -603,10 +629,27 @@ cmd_dispatch() {
   # shellcheck disable=SC2016 # single quotes are deliberate: $1/$@ expand in
   # the SPAWNED shell (argv-passed prompt path and launch words), never here —
   # no content splicing.
-  handle=$(tmux new-window -d -P -F '#{window_id}' -n "$win_name" -c "$cwd" \
+  # The id comes back with the server that issued it and the name the window
+  # got, so every record of it is pinned to both: a restarted tmux server
+  # reissues ids from @0.
+  created=$(tmux new-window -d -P -F "#{window_id} $TMUX_SERVER_FORMAT #{window_name}" -n "$win_name" -c "$cwd" \
     /bin/sh -c 'p=$(cat -- "$1") || exit 1; shift; exec "$@" -- "$p"' \
     "$@" 2>"$tmux_err")
   rc=$?
+  # Anything but `<id> <server> <name>` is taken whole, so an unusable
+  # reply still fails the id check below.
+  handle=$created server='' tname=''
+  case $created in
+    *' '*' '*)
+      c_rest=${created#* }
+      if tmux_valid_server "${c_rest%% *}"; then
+        handle=${created%% *}
+        if [ "${c_rest#* }" = "$win_name" ] && tmux_valid_name "$win_name"; then
+          server=${c_rest%% *} tname=$win_name
+        fi
+      fi
+      ;;
+  esac
   err_text=$(cat "$tmux_err" 2>/dev/null)
   rm -f "$tmux_err"
   if [ "$rc" -ne 0 ]; then
@@ -650,10 +693,12 @@ cmd_dispatch() {
     }
   done
   [ -n "$sess" ] && death="tmux-window $sess $handle"
+  [ -z "$death" ] || [ -z "$server" ] || death="$death $server $tname"
   register_dispatch "$handle" tmux "$death"
   printf 'status\tdispatched\n'
   printf 'backend\ttmux\n'
   printf 'handle\t%s\n' "$handle"
+  [ -z "$server" ] || printf 'server\t%s\n' "$server"
   emit_hints tmux "$handle"
 }
 
@@ -699,6 +744,10 @@ case "$sub" in
           ;;
         --strict-tier)
           D_STRICT=1
+          shift
+          ;;
+        --keep-config-env)
+          D_KEEP_ENV=1
           shift
           ;;
         --mc-token)

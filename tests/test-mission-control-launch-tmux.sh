@@ -41,6 +41,25 @@ pane_name=$(field name)
 pane_handle=$(awk -F "$TAB" '$1 == "handle" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
 grep -q 'PLANWRIGHT_MC_TOKEN=' "$tmp/tmux/argv-$pane_handle" && fail "a tmux ad-hoc session was handed a mission-control token" \
   || ok "a tmux session of another kind holds no mission-control token"
+# The row records the server the window was opened on, so the stall pass can
+# tell a lost server from windows closed one by one.
+pane_server=$(awk -F "$TAB" '$1 == "server" { print $2; exit }' "$fleet/mission-control/sessions/$pane_name")
+[ "$pane_server" = 4242.1700000000 ] && ok "a tmux launch records its server's pid and start time in the row" \
+  || fail "the tmux row records server '$pane_server', not the stub server's 4242.1700000000"
+printf '%s\n' not-an-identity >"$tmp/tmux/server"
+ml launch --program alpha --kind ad-hoc --scope server-garbled --brief "$tmp/brief.md" --backend tmux
+rm -f "$tmp/tmux/server"
+# The rung refuses a window it cannot pin to a readable server, so no row
+# ever records a garbled identity.
+garbled_rows=$(grep -rl 'not-an-identity' "$fleet/mission-control/sessions" 2>/dev/null)
+case $RC:$ERR in
+  0:*) fail "a garbled server identity launched: $OUT" ;;
+  *'unusable window id'*'did not start'*)
+    [ -z "$garbled_rows" ] && ok "an unreadable server identity refuses the launch and no row records it" \
+      || fail "a row records the garbled server identity: $garbled_rows"
+    ;;
+  *) fail "a garbled server identity: exit $RC, not the unusable-window refusal: $ERR" ;;
+esac
 ml launch --program alpha --kind mission-control --scope tmux-token --brief "$tmp/brief.md" --backend tmux
 [ "$RC" = 0 ] || fail "the tmux mission-control launch exited $RC: $ERR"
 mt_warns=$(printf '%s\n' "$ERR" | grep -c 'overrides mission_control_launch_backend')
@@ -94,8 +113,39 @@ ml launch --program alpha --kind ad-hoc --scope mise-yes --brief "$tmp/brief.md"
 [ "$RC" = 0 ] || fail "the stream-json launch with --mise-task-edit exited $RC: $ERR"
 mise_yes=$(field name)
 wait_done "$mise_yes"
-[ "$(cat "$fleet/streamjson/$mise_yes/mise-task-edit" 2>/dev/null)" = 1 ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
+# Every mission-control launch also records its launcher in the same record.
+[ "$(find "$fleet/streamjson/$mise_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = "mise_task_edit=1
+launcher=mission-control" ] && ok "an accepted --mise-task-edit launch reaches the stream-json launcher, which records the opt-in" \
   || fail "the opt-in did not reach the stream-json launcher for $mise_yes"
+# The lefthook config opt-in has the same shape: worker profile, stream-json
+# rung, off by default.
+: >"$tmp/tmux/calls"
+ml launch --program alpha --kind ad-hoc --scope lh-tmux --brief "$tmp/brief.md" --backend tmux --lefthook-edit
+case $ERR in
+  *'needs the stream-json rung'*) [ "$RC" = 2 ] && ! grep -q '^new-window' "$tmp/tmux/calls" && ok "--lefthook-edit on the tmux rung is refused before a window opens" \
+    || fail "--lefthook-edit on the tmux rung: exit $RC, calls: $(cat "$tmp/tmux/calls")" ;;
+  *) fail "--lefthook-edit on the tmux rung was not refused for the rung: exit $RC, $ERR" ;;
+esac
+ml launch --program alpha --kind mission-control --scope lh-mc --brief "$tmp/brief.md" --backend stream-json --lefthook-edit
+case $ERR in
+  *'worker-profile session only'*) [ "$RC" = 2 ] && ok "--lefthook-edit on a mission-control session is refused" \
+    || fail "--lefthook-edit on a mission-control session: exit $RC, not 2" ;;
+  *) fail "--lefthook-edit on a mission-control session was not refused for its profile: exit $RC, $ERR" ;;
+esac
+ml launch --program alpha --kind ad-hoc --scope lh-yes --brief "$tmp/brief.md" --backend stream-json --lefthook-edit
+[ "$RC" = 0 ] || fail "the stream-json launch with --lefthook-edit exited $RC: $ERR"
+lh_yes=$(field name)
+wait_done "$lh_yes"
+[ "$(find "$fleet/streamjson/$lh_yes" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = "lefthook_edit=1
+launcher=mission-control" ] \
+  && ok "an accepted --lefthook-edit launch reaches the stream-json launcher, which records the lefthook opt-in alone" \
+  || fail "the lefthook opt-in did not reach the stream-json launcher for $lh_yes"
+ml launch --program alpha --kind ad-hoc --scope lh-none --brief "$tmp/brief.md" --backend stream-json
+[ "$RC" = 0 ] || fail "the stream-json launch without --lefthook-edit exited $RC: $ERR"
+lh_none=$(field name)
+wait_done "$lh_none"
+[ "$(find "$fleet/streamjson/$lh_none" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +)" = launcher=mission-control ] && ok "a launch without --lefthook-edit records no lefthook opt-in" \
+  || fail "a launch without --lefthook-edit recorded the opt-in for $lh_none"
 ml launch --program alpha --kind mission-control --scope rc-hostile --brief "$tmp/brief.md" --backend tmux --remote-control 'mc;rm'
 [ "$RC" = 2 ] && ! grep -q 'rc-hostile' "$tmp/tmux/calls" && ok "a --remote-control name outside the session-name grammar is refused before a window opens" \
   || fail "a hostile --remote-control name: exit $RC, calls: $(cat "$tmp/tmux/calls")"

@@ -71,6 +71,8 @@ FDE="$REPO_ROOT/scripts/fleet-dispatch-env.sh"
 GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
 # shellcheck source=tests/lib/emitter-lint.sh
 . "$REPO_ROOT/tests/lib/emitter-lint.sh"
+# shellcheck source=tests/lib/committed-fixture.sh
+. "$REPO_ROOT/tests/lib/committed-fixture.sh"
 VAR=CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION
 
 failures=0
@@ -335,9 +337,13 @@ c8() {
   #     still auto-approved by the guard (cwd = that repo).
   aporepo="$tmp/O'Connor/repo"
   mkdir -p "$aporepo/scripts"
-  : >"$aporepo/.git"
   cp "$FDE" "$aporepo/scripts/fleet-dispatch-env.sh"
   chmod +x "$aporepo/scripts/fleet-dispatch-env.sh"
+  fixture_commit "$aporepo" scripts || {
+    fail "c8: cannot commit the fixture repository"
+    rm -rf "$tmp"
+    return
+  }
   fde2="$aporepo/scripts/fleet-dispatch-env.sh"
   emitted=$(/bin/sh "$fde2" --emit-launch claude --worktree task-5) || {
     fail "c8: emit from an apostrophe wrapper path failed"

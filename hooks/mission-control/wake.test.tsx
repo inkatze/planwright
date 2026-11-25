@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { BAND, boot, digestText, done, PANE, ran, SESSION, turn, WAKE, world } from './fixture'
+import { BAND, boot, digestText, done, PANE, ran, recordFor, SESSION, turn, WAKE, world } from './fixture'
 
 // Minutes of mock clock at the redraw cadence: the default 5 s budget is
 // real time, which a loaded runner can spend.
@@ -290,6 +290,74 @@ test('the presence marker keeps its lease under a slow redraw cadence', SLOW, as
   const first = refreshes()
   await w.clock.advance(240_000)
   expect(refreshes()).toBe(first + 4)
+})
+
+// A worker launched from a mission-control duty inherits the program
+// variable, and with no target variable its default is the program's own
+// name: the wakes of that program-named target must never reach it.
+const WORKER = 'mc-alpha-worker-0123456789'
+
+test('a worker session that inherited the program variable takes no wake', async ($, on) => {
+  const w = world(on, { env: { PLANWRIGHT_MC_PROGRAM: 'alpha', PLANWRIGHT_WORKER_HANDLE: WORKER } })
+  await boot($, w)
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(60_000)
+  expect(w.submitted).toEqual([])
+  expect(ran(w, 'mc-wake.sh', 'compose')).toEqual([])
+  expect(ran(w, 'mc-wake.sh', 'target')).toEqual([])
+  expect(ran(w, 'mc-panel.sh', 'activate')).toEqual([])
+  expect(ran(w, 'mc-panel.sh', 'presence')).toEqual([])
+})
+
+test('a worker session never activates from a record, on the timer or at a turn or prompt', async ($, on) => {
+  const w = world(on, {
+    env: { PLANWRIGHT_WORKER_HANDLE: WORKER },
+    records: { [SESSION]: recordFor('alpha') },
+    digest: digestText({ pending: 1 }),
+    wake: WAKE,
+  })
+  await boot($, w)
+  await w.clock.advance(60_000)
+  await $.prompt.submit({ text: 'next', origin: { kind: 'composer' }, wait: false })
+  await $.turn.start(turn('t1'))
+  await $.turn.complete(done('t1'))
+  await w.clock.settle()
+  expect(w.submitted).toEqual(['next'])
+  expect(ran(w, 'mc-panel.sh', 'lookup')).toEqual([])
+  expect(ran(w, 'mc-panel.sh', 'digest')).toEqual([])
+  expect(ran(w, 'mc-panel.sh', 'ack')).toEqual([])
+})
+
+test('a worker session reloading a panel it carried stands it down without touching the target', async ($, on) => {
+  const w = world(on)
+  await boot($, w)
+  const claims = ran(w, 'mc-wake.sh', 'target').length
+  w.set({ env: { PLANWRIGHT_MC_PROGRAM: 'alpha', PLANWRIGHT_WORKER_HANDLE: WORKER } })
+  await boot($, w)
+  const composed = ran(w, 'mc-wake.sh', 'compose').length
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(60_000)
+  expect(w.submitted).toEqual([])
+  expect(ran(w, 'mc-wake.sh', 'compose')).toHaveLength(composed)
+  expect(ran(w, 'mc-wake.sh', 'target')).toHaveLength(claims)
+  expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
+})
+
+test('an empty worker identity is no worker', async ($, on) => {
+  const w = world(on, { env: { PLANWRIGHT_MC_PROGRAM: 'alpha', PLANWRIGHT_WORKER_HANDLE: '' } })
+  await boot($, w)
+  w.set({ digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(10_000)
+  expect(w.submitted[0]).toBe('mission control (alpha): 1 event(s) pending.\n- pr-ready pr-7')
+})
+
+test('a session that activated the program-named target from its record still takes its wake', async ($, on) => {
+  const w = world(on, { env: {} })
+  await boot($, w)
+  w.set({ records: { [SESSION]: recordFor('alpha') }, digest: digestText({ pending: 1 }), wake: WAKE })
+  await w.clock.advance(20_000)
+  expect(w.submitted[0]).toBe('mission control (alpha): 1 event(s) pending.\n- pr-ready pr-7')
+  expect(ran(w, 'mc-wake.sh', 'compose')[0]).toEqual(expect.arrayContaining(['--program', 'alpha', 'alpha']))
 })
 
 test('a reload finds the program and target in the view once the variables are cleared', async ($, on) => {

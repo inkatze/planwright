@@ -43,6 +43,11 @@ deny	git-mutation	bash	-	runs no git mutation	git update-ref refs/heads/x HEAD
 deny	git-mutation	bash	-	runs no git mutation	git stash list --output=.git/HEAD
 deny	git-mutation	bash	-	runs no git mutation	git log --output out.txt
 deny	git-mutation	bash	-	runs no git mutation	git diff --ext-diff
+deny	git-mutation	bash	-	runs no git mutation	git diff --e
+deny	git-mutation	bash	-	runs no git mutation	git log -p --ex
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git diff --e'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git log -p --ex HEAD'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	timeout 30 git diff --ex
 deny	git-mutation	bash	-	runs no git mutation	git show --textconv HEAD
 deny	git-mutation	bash	-	runs no git mutation	git grep -Orm x
 deny	git-mutation	bash	-	runs no git mutation	git grep -rO x
@@ -52,6 +57,9 @@ deny	git-mutation	bash	-	runs no git mutation	git ls-remote --upload-pack=/tmp/x
 deny	git-mutation	bash	-	runs no git mutation	git ls-remote --upl=/tmp/x.sh .
 deny	git-mutation	bash	-	runs no git mutation	git --exec-path=/tmp/x ls-remote https://example.invalid/r.git
 deny	git-mutation	bash	-	runs no git mutation	git cat-file --filters HEAD:README.md
+deny	git-mutation	bash	-	runs no git mutation	git cat-file --fi HEAD:README.md
+deny	git-mutation	bash	-	runs no git mutation	git cat-file --t HEAD:README.md
+deny	git-mutation	bash	-	runs no git mutation	git cat-file --tex HEAD:README.md
 deny	git-mutation	bash	-	runs no git mutation	git grep --open-files-in-pager=/tmp/x.sh foo
 deny	git-mutation	bash	-	runs no git mutation	git -c core.fsmonitor=/tmp/x.sh status
 deny	git-mutation	bash	-	runs no git mutation	git -c diff.external=/tmp/x.sh diff
@@ -182,6 +190,8 @@ defer	scratch-write	file	-	-	Write @SCRATCH@/relay-message.txt
 defer	scratch-write	file	-	-	Write @HOME@/.claude/projects/proj/memory/note.md
 deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git ls-remote --u=/tmp/x.sh .'
 deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git cat-file --fil HEAD:x'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git cat-file --fi HEAD:x'
+deny	git-mutation	bash	-	reserved act|runs no git mutation	sh -c 'git cat-file --te HEAD:x'
 deny	git-mutation	bash	-	runs no git mutation	git ls-remote --u=/tmp/x.sh .
 defer	read	bash	-	-	timeout 30 git log --until=yesterday
 defer	read	bash	-	-	timeout 30 git rev-list --filter=blob:none HEAD
@@ -278,3 +288,326 @@ deny	settings-write	bash	-	settings or configuration file	find /home/u/dev/p -na
 deny	settings-write	bash	-	settings or configuration file	find /home/u/dev/p -name planwright.yml -delete
 deny	settings-write	bash	-	settings or configuration file	sort -o /home/u/dev/p/.claude/planwright.yml /home/u/x
 deny	settings-write	bash	-	settings or configuration file	gh pr comment 226 --body-file /home/u/dev/p/.claude/planwright.yml
+# Writes through a link into posture: the links under @SCRATCH@/kb and @HOME@
+# are made in tests/test-policy-guard-mission-control.sh's setup, which names
+# where each leads.
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-dslash
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-dotdot
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-rel
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-tilde
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-chain
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-overlay
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-dangling
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb//lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/./lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/../kb/lk-overlay
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-dir/agents/../agents/x.md
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-agents/x.md
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-agents/
+deny	settings-write	bash	-	leads to one on disk	printf x > @SCRATCH@/kb/lk-dir/commands
+deny	settings-write	bash	-	leads to one on disk	cd @SCRATCH@/kb && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	cd @SCRATCH@/kb; echo x >> lk-agents/x.md
+deny	settings-write	bash	-	leads to one on disk	tee -a @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-agents
+deny	settings-write	bash	-	leads to one on disk	cp -t @SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	cp --target-directory=@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	settings or configuration file	cp --target-directory=@HOME@/.claude/agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	mv /tmp/hooks @HOME@/.claude
+deny	settings-write	bash	-	leads to one on disk	sed -i s/a/b/ @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	dd of=@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	mv @SCRATCH@/kb/lk-file @SCRATCH@/kb/moved.md
+deny	settings-write	bash	-	leads to one on disk	L=@SCRATCH@/kb/lk-file; echo x >> $L
+deny	settings-write	bash	-	leads to one on disk	echo x >> ~/notes.md
+deny	settings-write	bash	-	leads to one on disk	echo x >> ~/.claude/projects/p/memory/lk-mem
+deny	settings-write	bash	-	settings or configuration file	echo x >> $HOME/.claude/projects/p/memory/lk-mem
+deny	settings-write	bash	-	leads to one on disk	echo x >> ~nobody/notes.md
+# A write in a subshell or group.
+deny	settings-write	bash	-	leads to one on disk	(echo x > @SCRATCH@/kb/lk-file)
+deny	settings-write	bash	-	leads to one on disk	( echo x >> @SCRATCH@/kb/lk-file )
+deny	settings-write	bash	-	leads to one on disk	(cd @SCRATCH@/kb && echo x > lk-file)
+deny	settings-write	bash	-	leads to one on disk	(echo x)>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	{ echo x > @SCRATCH@/kb/lk-file; }
+deny	settings-write	bash	-	leads to one on disk	echo a; (echo x >> @SCRATCH@/kb/lk-agents/x.md)
+deny	settings-write	bash	-	settings or configuration file	(echo x > @HOME@/.claude/agents)
+deny	settings-write	bash	-	makes a link	(link @SCRATCH@/kb/lk-file @SCRATCH@/kb/h; echo x >> @SCRATCH@/kb/h)
+# A link made in the same command, then written through.
+deny	settings-write	bash	-	leads to one on disk	ln -s @HOME@/.claude @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	leads to one on disk	ln -s @HOME@/.claude @SCRATCH@/kb/c; echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	names one	ln -s @HOME@/.claude/agents @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/x.md
+deny	settings-write	bash	-	leads to one on disk	ln -sfn @HOME@/.claude/ @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	leads to one on disk	ln -s @SCRATCH@/kb/lk-dir @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	leads to one on disk	ln -sf @SCRATCH@/kb/lk-file @SCRATCH@/kb/s.md && echo x >> @SCRATCH@/kb/s.md
+deny	settings-write	bash	-	names one	ln -s ../../fixhome/.claude @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	ln -s @HOME@/.mcp.json @SCRATCH@/kb/m && echo x >> @SCRATCH@/kb/m
+deny	settings-write	bash	-	leads to one on disk	cp -s @SCRATCH@/kb/lk-file @SCRATCH@/kb/s.md && echo x >> @SCRATCH@/kb/s.md
+deny	settings-write	bash	-	leads to one on disk	link @SCRATCH@/kb/lk-file @SCRATCH@/kb/h && echo x >> @SCRATCH@/kb/h
+deny	settings-write	bash	-	leads to one on disk	cd @SCRATCH@/kb && ln -s lk-dir c && echo x >> c/agents/x.md
+# The fd-duplicating spellings aimed at a file.
+deny	settings-write	bash	-	leads to one on disk	echo x >&@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x >& @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x &>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x &>>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x 1>&@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x >|@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x >&"@SCRATCH@/kb/lk-file"
+deny	settings-write	bash	-	leads to one on disk	exec 3<>@SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	echo x >&@HOME@/.claude/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >|@HOME@/.claude/agents/x.md
+# Exposure: an expansion or a dot-dot that could reach posture stays refused.
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-f*
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-?ile
+deny	settings-write	bash	-	settings or configuration file	echo x >> $(echo @SCRATCH@/kb/lk-file)
+deny	settings-write	bash	-	settings or configuration file	echo x >> "$L"
+deny	settings-write	bash	-	settings or configuration file	echo x >&$L
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/../../fixhome/.claude/settings.json
+deny	settings-write	bash	-	settings or configuration file	echo x >> @SCRATCH@/kb/lk-dir/../.claude/agents/x.md
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/nope/../kb/real.md
+# Plain writes, and writes through a link to a plain file, stay permitted.
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/lk-plain
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/new.md
+defer	read	bash	-	-	cd @SCRATCH@/kb && echo x >> real.md
+defer	read	bash	-	-	(echo x > @SCRATCH@/kb/real.md)
+defer	read	bash	-	-	echo x >&2
+defer	read	bash	-	-	echo x >& 2
+defer	read	bash	-	-	echo x >&-
+defer	read	bash	-	-	echo x 2>&1 >> @SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo x &>@SCRATCH@/kb/real.md
+defer	read	bash	-	-	echo x >|@SCRATCH@/kb/real.md
+defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/copy.md
+# A link made in the same command is refused as a write target even when it
+# leads to a plain file.
+deny	settings-write	bash	-	leads to one on disk	ln -s @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-new && echo x >> @SCRATCH@/kb/lk-new
+# A home-relative write to a plain file stays permitted.
+defer	read	bash	-	-	echo x >> ~/notes-plain.md
+# A target spelled with a space, a spliced quote, a doubled slash or a dot
+# below a missing directory, a dangling link above the leaf, or a glued
+# descriptor redirect.
+deny	settings-write	bash	-	leads to one on disk	echo x > "@SCRATCH@/kb/a b"
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/a\ b
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-fi"le"
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/lk-dir/"agents"/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >> @HOME@/.c"laude"/agents/x.md
+deny	settings-write	bash	-	settings or configuration file	echo x >@HOME@/.claude/agents"/x.md"
+deny	settings-write	bash	-	leads to one on disk	install -D @SCRATCH@/kb/real.md @HOME@/.claude//hooks/pre.sh
+deny	settings-write	bash	-	leads to one on disk	echo x > @SCRATCH@/kb/lk-dir//hooks/h.sh
+deny	settings-write	bash	-	leads to one on disk	echo x > @SCRATCH@/kb/lk-dir/./hooks/h.sh
+deny	settings-write	bash	-	leads to one on disk	mkdir -p @HOME@/.claude/hooks && echo x > @SCRATCH@/kb/ld/pre.sh
+deny	settings-write	bash	-	leads to one on disk	echo x >@SCRATCH@/kb/lk1>/dev/null
+deny	settings-write	bash	-	leads to one on disk	{ echo x >&3; } 3>@SCRATCH@/kb/lk1>&2
+deny	settings-write	bash	-	leads to one on disk	echo x >> @SCRATCH@/kb/loop
+deny	settings-write	bash	-	leads to one on disk	echo x > @SCRATCH@/kb/lk-agents/..
+# A copy, move, link or unpack in the same command could turn a path not there
+# yet into a link.
+deny	settings-write	bash	-	leads to one on disk	cp -r @SCRATCH@/kb @SCRATCH@/copy && echo x >> @SCRATCH@/copy/lk-file
+deny	settings-write	bash	-	leads to one on disk	mv @SCRATCH@/kb @SCRATCH@/moved && echo x >> @SCRATCH@/moved/lk-file
+deny	settings-write	bash	-	leads to one on disk	ln -s @SCRATCH@/kb @SCRATCH@/kbl && echo x >> @SCRATCH@/kbl/lk-file
+deny	settings-write	bash	-	leads to one on disk	rsync -a @SCRATCH@/kb/ @SCRATCH@/copy3/ && echo x >> @SCRATCH@/copy3/lk-file
+deny	settings-write	bash	-	leads to one on disk	tar -xf @SCRATCH@/a.tar -C @SCRATCH@/t && echo x >> @SCRATCH@/t/lk2/agents/x.md
+deny	settings-write	bash	-	leads to one on disk	rm -rf @SCRATCH@/kb2 && mv @SCRATCH@/kb @SCRATCH@/kb2 && echo x >> @SCRATCH@/kb2/lk-file
+defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/new2.md
+# A write verb behind a wrapper, and writers with an output operand.
+deny	settings-write	bash	-	leads to one on disk	env tee -a @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	env -i tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	nohup tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	timeout 5 cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	settings or configuration file	env cp @SCRATCH@/kb/real.md @HOME@/.claude/agents/x.md
+deny	settings-write	bash	-	settings or configuration file|makes a link	env ln -s @HOME@/.claude @SCRATCH@/kb/c && echo x >> @SCRATCH@/kb/c/agents/x.md
+deny	settings-write	bash	-	names one|makes a link	busybox ln -s @HOME@/.claude/agents @SCRATCH@/kb/c
+deny	settings-write	bash	-	behind a wrapper	echo @SCRATCH@/kb/lk-file | xargs tee
+deny	settings-write	bash	-	leads to one on disk	truncate -s0 @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	sort -o @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	settings or configuration file	sort -o@HOME@/.claude/agents/x.md @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl -o @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget -O @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar -xf @SCRATCH@/a.tar -C @SCRATCH@/kb/lk-agents
+deny	settings-write	bash	-	leads to one on disk	unzip @SCRATCH@/a.zip -d @SCRATCH@/kb/lk-dir
+defer	read	bash	-	-	timeout 30 grep -n x @SCRATCH@/kb/real.md
+defer	read	bash	-	-	sort -o @SCRATCH@/kb/sorted.md @SCRATCH@/kb/real.md
+defer	read	bash	-	-	env FOO=1 printf x
+# A command that rebinds HOME or TMPDIR, reads /proc, or changes directory in a
+# way the guard reads differently from the shell.
+deny	settings-write	bash	-	names one|leads to one on disk	TMPDIR=@HOME@/.claude/agents; echo x > $TMPDIR/x.md
+deny	settings-write	bash	-	leads to one on disk	export TMPDIR=@HOME@/.claude/agents; echo x > "$TMPDIR/x.md"
+deny	settings-write	bash	-	leads to one on disk	TMPDIR=@HOME@/.claude/skills; D=$(mktemp -d); echo x > $D/SKILL.md
+deny	settings-write	bash	-	leads to one on disk	HOME=@HOME@/.claude; echo x >> ~/agents/x.md
+deny	settings-write	bash	-	leads to one on disk	HOME=@HOME@/.claude; cd && echo x > agents/x.md
+deny	settings-write	bash	-	leads to one on disk	cd @HOME@/.claude/agents && echo x > /proc/self/cwd/x.md
+deny	settings-write	bash	-	leads to one on disk	exec 3<@SCRATCH@/kb/lk-file; echo x >> /dev/fd/3
+deny	settings-write	bash	-	leads to one on disk	cd @SCRATCH@/kb/lk-dir/.. && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	"cd" @HOME@/.claude/agents && echo x > x.md
+deny	settings-write	bash	-	leads to one on disk	cd "@SCRATCH@/kb" && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	cd -- @SCRATCH@/kb && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	cd -P @SCRATCH@/kb && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	pushd @SCRATCH@/kb && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	pushd /tmp; popd; echo x >> real.md
+deny	settings-write	bash	-	leads to one on disk	cd @SCRATCH@/k? && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	cd </dev/null @SCRATCH@/kb && echo x >> lk-file
+deny	settings-write	bash	-	leads to one on disk	env -C @SCRATCH@/kb tee lk-file
+deny	settings-write	bash	-	leads to one on disk	env --chdir=@SCRATCH@/kb tee -a lk-file
+defer	read	bash	-	-	cd "@SCRATCH@/kb" && echo x > notes.md
+defer	read	bash	-	-	cd -- @SCRATCH@/kb && echo x >> real.md
+defer	read	bash	-	-	echo x > "@SCRATCH@/kb/my file.md"
+defer	read	bash	-	-	echo x > /dev/stderr
+defer	read	bash	-	-	echo x >> @SCRATCH@/kb/real.md 2>/dev/null
+# A link maker's operand alone: no write through it in the same command.
+deny	settings-write	bash	-	makes a link	ln -s lk-agents @SCRATCH@/kb/c2
+deny	settings-write	bash	-	makes a link	ln -s @HOME@/.claude/projects @SCRATCH@/kb/pj
+deny	settings-write	bash	-	makes a link	ln -s @SCRATCH@/kb/lk-projects @SCRATCH@/kb/pj
+deny	settings-write	bash	-	makes a link	link @SCRATCH@/kb/lk-projects @SCRATCH@/kb/h
+deny	settings-write	bash	-	makes a link	cp -s @SCRATCH@/kb/lk-projects @SCRATCH@/kb/s
+deny	settings-write	bash	-	makes a link	cp -l @SCRATCH@/kb/lk-projects @SCRATCH@/kb/s
+deny	settings-write	bash	-	makes a link	cp -sf @SCRATCH@/kb/lk-projects @SCRATCH@/kb/s
+# An attached -t target directory reached through a link.
+deny	settings-write	bash	-	leads to one on disk	cp -t@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	ln -t@SCRATCH@/kb/lk-dir @SCRATCH@/kb/real.md
+defer	read	bash	-	-	ln -s ../kb/real.md @SCRATCH@/kb/newlk
+defer	read	bash	-	-	ln -s @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-new2
+deny	settings-write	bash	-	leads to one on disk	ln -s @SCRATCH@/kb/lk-mcp @SCRATCH@/kb/m2
+deny	settings-write	bash	-	makes a link	ln -s lk-agents @SCRATCH@/kb
+deny	settings-write	bash	-	makes a link	cp --symbolic-link @SCRATCH@/kb/lk-projects @SCRATCH@/kb/s
+# A verb spelled with escapes, quotes or capitals, or behind command -p.
+deny	settings-write	bash	-	leads to one on disk	echo x | t\ee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x | t''ee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	echo x | TEE @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	c\p @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	command -p tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	command -- tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	exec -a x tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	T=tee; echo x | $T @SCRATCH@/kb/lk-file
+# Every runner: a wrapper, a shell, find; its write verb refuses, while a
+# wrapped writer whose output is a plain file passes.
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	sudo tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	command tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	time cp @SCRATCH@/kb/real.md @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	nice -n 5 tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	nice --adjustment 5 tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	ionice -c3 tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	flock /tmp/l tee @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	parallel tee ::: @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	echo x | env -S 'tee @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	bash -c 'echo x | tee @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	find @SCRATCH@/kb -name real.md -exec cp {} @SCRATCH@/kb/lk-file ;
+deny	settings-write	bash	-	behind a wrapper	echo x | xargs -I{} cp {} out
+defer	read	bash	-	-	env -u FOO sort -o @SCRATCH@/kb/sorted.md @SCRATCH@/kb/real.md
+defer	read	bash	-	-	timeout 5 sort -o @SCRATCH@/kb/sorted.md @SCRATCH@/kb/real.md
+# Accepted fail-closed: a write verb's name behind a runner refuses even as an
+# argument.
+deny	settings-write	bash	-	behind a wrapper	timeout 30 grep -c sort @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	behind a wrapper	env FOO=1 grep -r tar @SCRATCH@/kb > @SCRATCH@/kb/out.txt
+# Output options in every spelling.
+deny	settings-write	bash	-	leads to one on disk	curl -sSo @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	curl --output=@SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	curl --output-dir @SCRATCH@/kb -o lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	sort -uo @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	wget -qO @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget -P @SCRATCH@/kb/lk-agents https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar -xzC @SCRATCH@/kb/lk-agents -f @SCRATCH@/a.tgz
+deny	settings-write	bash	-	leads to one on disk	tar -xf @SCRATCH@/a.tar --directory=@SCRATCH@/kb/lk-agents
+deny	settings-write	bash	-	leads to one on disk	tar -cf @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	tar --one-top-level=@SCRATCH@/kb/lk-agents -xf @SCRATCH@/a.tar
+deny	settings-write	bash	-	leads to one on disk	tar xCf @SCRATCH@/kb/lk-dir @SCRATCH@/a.tar
+deny	settings-write	bash	-	leads to one on disk	unzip -qd @SCRATCH@/kb/lk-agents @SCRATCH@/a.zip
+deny	settings-write	bash	-	cannot parse	x=$(date); sort -o @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	cannot parse	echo $(date) | tar -C @SCRATCH@/kb/lk-dir -xf @SCRATCH@/a.tar
+# cp and rsync into a directory write under each source's name.
+deny	settings-write	bash	-	leads to one on disk	cp @SCRATCH@/x/lk-file @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	cp -t @SCRATCH@/kb @SCRATCH@/x/lk-file
+deny	settings-write	bash	-	leads to one on disk	rsync --inplace @SCRATCH@/x/lk-file @SCRATCH@/kb/
+# An extended glob in a target is an expansion.
+deny	settings-write	bash	-	names one|leads to one on disk	echo x >@SCRATCH@/kb/lk-fil@(e)
+# Copies that cannot make a link leave a later write alone; a move of a
+# source the guard cannot place, or a link-preserving copy, does not. Then
+# cd flags, device files, and HOME use that rebinds nothing.
+defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/b.md && echo x >> @SCRATCH@/kb/b.md
+defer	read	bash	-	-	cp @SCRATCH@/kb/real.md @SCRATCH@/kb/sub/ && echo x > @SCRATCH@/kb/sub/new.md
+defer	read	bash	-	-	jq -r .x @SCRATCH@/kb/real.md > @SCRATCH@/kb/out.json && mv @SCRATCH@/kb/out.json @SCRATCH@/kb/final.json
+deny	settings-write	bash	-	leads to one on disk	mv @SCRATCH@/kb/nope @SCRATCH@/kb/b2 && echo x > @SCRATCH@/kb/b2
+deny	settings-write	bash	-	leads to one on disk	cp -a @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b3 && echo x > @SCRATCH@/kb/b3
+defer	read	bash	-	-	cd -P @SCRATCH@/kb && echo x >> real.md
+defer	read	bash	-	-	cd -L @SCRATCH@/kb && echo x >> real.md
+defer	read	bash	-	-	cp @SCRATCH@/nodir/a.md @SCRATCH@/kb/x2.md && echo x >> @SCRATCH@/kb/y.md
+defer	read	bash	-	-	echo x > /dev/stdout
+defer	read	bash	-	-	echo x > /dev/tty
+defer	read	bash	-	-	cd /tmp >/dev/null; echo hi > @SCRATCH@/kb/out.txt
+defer	read	bash	-	-	export PATH=$HOME/bin:$PATH; echo x > ~/notes-plain.md
+deny	settings-write	bash	-	leads to one on disk	read -r HOME; echo x >> ~/notes.md
+deny	settings-write	bash	-	leads to one on disk	cd sub && echo x > f.txt
+# A substitution inside double quotes runs, so its redirect counts.
+deny	settings-write	bash	-	names one|leads to one on disk	echo "$(echo x > @SCRATCH@/kb/lk-file)"
+deny	settings-write	bash	-	names one|leads to one on disk	echo "`echo x > @SCRATCH@/kb/lk-file`"
+# Runners that store or run quoted text, and wrappers outside RE_MC_WRAPPER.
+deny	settings-write	bash	-	leads to one on disk	watch 'echo x > @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	leads to one on disk|behind a wrapper	trap 'echo x > @SCRATCH@/kb/lk-file' EXIT
+deny	settings-write	bash	-	behind a wrapper	trap 'cp /x @SCRATCH@/kb/lk-file' EXIT
+deny	settings-write	bash	-	behind a wrapper	alias w='cp /x @SCRATCH@/kb/lk-file'; w
+deny	settings-write	bash	-	behind a wrapper	mapfile -C 'cp /x @SCRATCH@/kb/lk-file' -c 1 < /etc/hostname
+deny	settings-write	bash	-	behind a wrapper	complete -C 'cp /x @SCRATCH@/kb/lk-file' foo
+deny	settings-write	bash	-	behind a wrapper	nsenter cp /x @SCRATCH@/kb/lk-file
+deny	settings-write	bash	-	behind a wrapper	setpriv --reuid 1 cp /x @SCRATCH@/kb/lk-file
+# A nameref can alias HOME.
+deny	settings-write	bash	-	leads to one on disk	declare -n h=HOME; h=@HOME@/.claude; echo x > ~/agents/new.md
+# Long options in any abbreviation getopt_long accepts, and side outputs.
+deny	settings-write	bash	-	leads to one on disk	sort --out=@SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl --out @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget --output-doc=@SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar --dir=@SCRATCH@/kb/lk-agents -xf @SCRATCH@/a.tar
+deny	settings-write	bash	-	leads to one on disk	cp --target=@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl -D @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	curl -c @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	curl --trace @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget -o @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar -g @SCRATCH@/kb/lk-file -cf /tmp/x.tar @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	rsync --log-file=@SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md /tmp/y
+deny	settings-write	bash	-	leads to one on disk	rsync --write-batch @SCRATCH@/kb/lk-file @SCRATCH@/kb/real.md /tmp/y
+deny	settings-write	bash	-	names one	tar --one-top-level -C @HOME@/.claude/agents -xf @SCRATCH@/a.tar
+# A clustered -t, and a recursive copy into a tree already there.
+deny	settings-write	bash	-	leads to one on disk	cp -rt @SCRATCH@/x2 @SCRATCH@/kb && echo x >> @SCRATCH@/x2/kb/lk-file
+deny	settings-write	bash	-	leads to one on disk	cp -a @SCRATCH@/x/. @SCRATCH@/kb/
+deny	settings-write	bash	-	leads to one on disk	cp -r @SCRATCH@/kb @SCRATCH@/
+deny	settings-write	bash	-	leads to one on disk	rsync --inplace -r @SCRATCH@/x/ @SCRATCH@/kb/
+# Link-preserving copies, then a write to the result.
+deny	settings-write	bash	-	leads to one on disk	cp --archive @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	cp --no-dereference @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	cp --recursive @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	cp --preserve=links @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b6 && echo x > @SCRATCH@/kb/b6
+deny	settings-write	bash	-	leads to one on disk	rsync --links @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b5 && echo x > @SCRATCH@/kb/b5
+deny	settings-write	bash	-	leads to one on disk	rsync -a @SCRATCH@/kb/lk-plain @SCRATCH@/kb/b5 && echo x > @SCRATCH@/kb/b5
+# Narrowed permits: a package manager's install, a script named after a verb
+# (the $HOME/... command word and .claude/worktrees links are in the suite).
+# The shapes beside each stay refused.
+defer	read	bash	-	-	make install
+defer	read	bash	-	-	env FOO=1 npm install
+defer	read	bash	-	-	fish -c "npm install"
+defer	read	bash	-	-	timeout 30 pip install -r requirements.txt
+defer	read	bash	-	-	bash scripts/install.sh
+defer	read	bash	-	-	python3 scripts/sort.py
+deny	settings-write	bash	-	behind a wrapper	bash -c 'install /x @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	fish -c "cp /x @SCRATCH@/kb/lk-file"
+deny	settings-write	bash	-	behind a wrapper	make install; bash -c 'tee @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	fish -c "npm install; cp /x @SCRATCH@/kb/lk-file"
+deny	settings-write	bash	-	behind a wrapper	find @SCRATCH@/kb -name go -exec install /x @SCRATCH@/kb/lk-file ;
+# The final pass's shapes: path-qualified verbs behind a runner, a prefixed
+# runner, a substitution with its own quotes, cp -T and -f, rsync directories,
+# more side outputs, a here-document a shell reads.
+deny	settings-write	bash	-	behind a wrapper	sh -c 'true; /bin/cp /x @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	behind a wrapper	find @SCRATCH@/kb -exec /usr/bin/tee @SCRATCH@/kb/lk-file ;
+deny	settings-write	bash	-	leads to one on disk	X=1 watch 'echo x > @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	leads to one on disk	if true; then trap 'echo x > @SCRATCH@/kb/lk-file' EXIT; fi
+deny	settings-write	bash	-	leads to one on disk	/usr/bin/watch 'echo x > @SCRATCH@/kb/lk-file'
+deny	settings-write	bash	-	names one|leads to one on disk	echo "$(echo "x" > @SCRATCH@/kb/lk-file)"
+deny	settings-write	bash	-	leads to one on disk	cp -rT @SCRATCH@/x @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	cp --recursive --no-target-directory @SCRATCH@/x @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	cp -f @SCRATCH@/x/lk-file @SCRATCH@/kb
+deny	settings-write	bash	-	leads to one on disk	rsync --backup-dir=@SCRATCH@/kb/lk-agents -b @SCRATCH@/kb/real.md /tmp/y
+deny	settings-write	bash	-	leads to one on disk	curl --etag-save @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget --rejected-log=@SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar --volno-file=@SCRATCH@/kb/lk-file -cf /tmp/x.tar @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	curl --dump-header @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	wget -a @SCRATCH@/kb/lk-file https://example.invalid
+deny	settings-write	bash	-	leads to one on disk	tar --listed-incremental=@SCRATCH@/kb/lk-file -cf /tmp/x.tar @SCRATCH@/kb/real.md
+deny	settings-write	bash	-	leads to one on disk	ln --target-dir=@SCRATCH@/kb/lk-agents @SCRATCH@/kb/real.md
+defer	read	bash	-	-	curl -sS --cookie sid=1 https://example.invalid
+defer	read	bash	-	-	echo "the source file" > $TMPDIR/x.txt

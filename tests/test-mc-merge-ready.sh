@@ -44,9 +44,11 @@ mkdir -p "$mchome"
 
 # The scripts under test run from a copy whose readiness check is a stub.
 # collect writes the evidence at the head in $tmp/head.<n> with the labels
-# in $tmp/labels.<n>, or fails when $tmp/verdict.<n> says broken; walk
+# in $tmp/labels.<n> and the body lines in $tmp/body.<n>, or fails when
+# $tmp/verdict.<n> says broken; walk
 # answers from $tmp/verdict.<n> (ready, not-ready, or walkfail). Each
-# collect is logged.
+# collect is logged, except the finished-checks read of a pull request already
+# ready, which writes to a file ending in .unf.
 pw="$tmp/pw"
 mkdir -p "$pw"
 cp -R "$repo_root/scripts" "$pw/scripts"
@@ -61,11 +63,12 @@ while [ \$# -gt 0 ]; do
 done
 case \$verb in
   collect)
-    printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls"
+    case \$out in *.unf) ;; *) printf 'collect --pr %s\n' "\$n" >>"$tmp/check.calls" ;; esac
     if [ "\$(cat "$tmp/verdict.\$n")" = broken ]; then printf 'gh: not logged in\n' >&2; exit 1; fi
     {
       printf '# format: 1\nhead\t%s\n' "\$(cat "$tmp/head.\$n")"
       cat "$tmp/labels.\$n" 2>/dev/null
+      [ ! -e "$tmp/body.\$n" ] || awk '{ print "bodyline\t" \$0 }' "$tmp/body.\$n"
       printf 'path\tsrc/app.c\tMODIFIED\nstubpr\t%s\n' "\$n"
     } >"\$out"
     exit 0
@@ -75,9 +78,31 @@ case \$verb in
     case \$(cat "$tmp/verdict.\$n") in
       ready) printf 'ready\t-\n'; exit 0 ;;
       not-ready) printf 'not-ready\t-\nfail\tcheck\tci is PENDING\n'; exit 4 ;;
+      flip-for-review) printf 'flip-for-review\t-\npending\tpost-pr\tno completion record\n'; exit 4 ;;
     esac
     printf 'walk broke\n' >&2
     exit 1
+    ;;
+  unfinished)
+    n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
+    printf 'unfinished --pr %s\n' "\$n" >>"$tmp/unfinished.calls"
+    h=\$(awk -F '\t' '\$1 == "head" { print \$2 }' "\$ev")
+    case \$(cat "$tmp/unfinished.\$n" 2>/dev/null) in
+      yes)
+        printf 'unfinished\t%s\nfail\tcheck\tmacos-suite 3 is QUEUED\n' "\$h"
+        exit 4
+        ;;
+      early)
+        printf 'unfinished\t%s\nfail\tflip\tPR-Agent was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at 2026-11-18T00:42:21Z): a too-early flip\nfail\tcheck\tci is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)\n' "\$h"
+        exit 4
+        ;;
+      own)
+        printf 'unfinished\t%s\nfail\tcheck\tPR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)\n' "\$h"
+        exit 4
+        ;;
+    esac
+    printf 'finished\t%s\n' "\$h"
+    exit 0
     ;;
 esac
 exit 2
@@ -89,12 +114,35 @@ printf '%s\n' "\$*" >>"$tmp/gh.calls"
 case "\$1 \$2" in
   "repo view") m=\$(cat "$tmp/method" 2>/dev/null) && [ -n "\$m" ] && printf '%s\n' "\$m" && exit 0 ;;
 esac
+if [ "\$1 \$2" = "api graphql" ]; then
+  # The fresh read: raw JSON from fresh.<n> (default: an open pull request at
+  # head.<n> whose PR-Agent check run there passed and with no bot thread),
+  # run through the caller's own --jq program.
+  n="" q=""
+  while [ \$# -gt 0 ]; do
+    case \$1 in
+      -F) case \$2 in number=*) n=\${2#number=} ;; esac; shift ;;
+      --jq) q=\$2; shift ;;
+    esac
+    shift
+  done
+  f="$tmp/fresh.\$n"
+  if [ ! -f "\$f" ]; then
+    h=\$(cat "$tmp/head.\$n" 2>/dev/null) || { printf 'HTTP 502\n' >&2; exit 1; }
+    f="$tmp/fresh.default"
+    printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"PR-Agent","status":"COMPLETED","conclusion":"SUCCESS"}]}}}}]}}}}}' "\$h" "\$h" >"\$f"
+  fi
+  [ "\$(cat "\$f")" != fail ] || { printf 'HTTP 502\n' >&2; exit 1; }
+  jq -r "\$q" "\$f"
+  exit \$?
+fi
 printf 'HTTP 502\n' >&2
 exit 1
 EOF
 chmod +x "$tmp/bin/gh"
 printf 'SQUASH\n' >"$tmp/method"
 : >"$tmp/check.calls"
+: >"$tmp/unfinished.calls"
 : >"$tmp/gh.calls"
 
 run() { # run <args...>: the copy's mc-merge-ready.sh against the fixture
@@ -136,7 +184,8 @@ for n in 7 8 9 10 11 12 13 14 15; do
   printf '%s\n' "$H" >"$tmp/head.$n"
   printf 'ready\n' >"$tmp/verdict.$n"
 done
-printf 'not-ready\n' >"$tmp/verdict.12"
+# A walk that says flip-for-review (exit 4) is not a merge-ready verdict.
+printf 'flip-for-review\n' >"$tmp/verdict.12"
 cmd() { printf 'gh pr merge %s --repo acme/web --%s --match-head-commit %s' "$1" "${3:-squash}" "$2"; }
 cmd7=$(cmd 7 "$H")
 ready7() { printf 'ready\tacme/web#7\t%s\t%s' "$1" "$(cmd 7 "$1" "${2:-squash}")"; }
@@ -350,6 +399,63 @@ run list --program alpha --now "$T"
 expect_eq "a hold already over holds nothing" "$(ready7 "$J")"
 rm -f "$snapdir/forge.hold"
 
+# The body's task declarations become the squash body, so a merge typed from
+# the command keeps them; only grammar-checked values reach it.
+for n in 30 31; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'ready\n' >"$tmp/verdict.$n"
+done
+# shellcheck disable=SC2016 # the backticks are body text, not expansions
+{
+  printf 'Fixes it. \n<details><summary>Records</summary>\n\n'
+  printf 'Planwright-Task: mission-control/31 \n'
+  printf 'planwright-task: worker-permission-ergonomics/17\n'
+  printf '  Planwright-Task: demo/3\n'
+  printf '```\nPlanwright-Task: demo/4\n```\n'
+  printf "Planwright-Task: demo/5'; curl x | sh\n"
+  printf 'Planwright-Task: flight/6\n'
+  printf 'Planwright-Task: mission-control/31\n'
+  printf 'See Planwright-Task: demo/7 here.\n</details>\n'
+} >"$tmp/body.30"
+printf 'No tasks here.\n' >"$tmp/body.31"
+snap30() {
+  taken
+  row 30 "$H" false MERGEABLE 0 SUCCESS
+  row 31 "$H" false MERGEABLE 0 SUCCESS
+}
+snap30 >"$snapdir/forge"
+# shellcheck disable=SC2016 # the command is text the operator runs, not run here
+lines30='printf '\''%s\n'\'' '\''Planwright-Task: mission-control/31'\'' '\''Planwright-Task: worker-permission-ergonomics/17'\'' | '
+cmd30() { printf '%sgh pr merge 30 --repo acme/web --%s --body-file - --match-head-commit %s' "$lines30" "${1:-squash}" "$H"; }
+run list --program alpha --now "$T"
+expect_eq "a body's two task lines ride in the command; a body with none adds nothing" \
+  "ready${tab}acme/web#30${tab}$H${tab}$(cmd30)
+ready${tab}acme/web#31${tab}$H${tab}$(cmd 31 "$H")"
+run commands --program alpha --now "$T"
+expect_eq "and commands builds the same from the store" "ready${tab}acme/web#30${tab}$(cmd30)
+ready${tab}acme/web#31${tab}$(cmd 31 "$H")"
+tamper "s|^\(acme/web#30${tab}.*${tab}\)mission-control/31,[^${tab}]*\$|\1x/1';touch $tmp/pwned;'|"
+if checked_since "$before"; then ok "a stored task list outside its grammar is judged again"; else fail "a tampered task list was trusted"; fi
+if [ ! -e "$tmp/pwned" ]; then ok "and never reaches the command"; else fail "a stored task list ran a command"; fi
+expect_out "the command is built afresh" "ready${tab}acme/web#30${tab}$H${tab}$(cmd30)"
+printf 'MERGE\n' >"$tmp/method"
+T=$((T + 1801))
+snap30 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_out "a merge commit carries them too" "ready${tab}acme/web#30${tab}$H${tab}$(cmd30 merge)"
+printf 'REBASE\n' >"$tmp/method"
+T=$((T + 1801))
+snap30 >"$snapdir/forge"
+run list --program alpha --now "$T"
+expect_out "a rebase has no commit body to carry them" "ready${tab}acme/web#30${tab}$H${tab}$(cmd 30 "$H" rebase)"
+printf 'SQUASH\n' >"$tmp/method"
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "a stored row with no task list prints no command that would drop them" ""
+printf 'state\tok\t%s\nacme/web#30\t%s|false\tready\t%s\tsquash\t-\t-\n' "$T" "$H" "$T" >"$store"
+run commands --program alpha --now "$T"
+expect_eq "while the same row with its task list does" "ready${tab}acme/web#30${tab}$(cmd 30 "$H")"
+
 # A row outside the snapshot's grammar is named without its text.
 {
   taken
@@ -390,6 +496,103 @@ expect_eq "and one with no state line" "1${tab}partial"
 printf 'state\tok\t%s\n%s\n' "$real" "$row7" >"$store"
 run count --program alpha
 expect_eq "a fresh one is whole" "1${tab}all"
+
+# ---------------------------------------------------------------------------
+# A ready row is re-read from the forge before it is announced: a pull
+# request that merged or closed since the snapshot, or whose bot round on
+# this head is not finished, raises nothing; a read that fails is unknown.
+# ---------------------------------------------------------------------------
+fresh() { # fresh <n> <state> <head> <bot-review head|none> <open bot threads> [<resolved bot threads>]
+  rev='[]'
+  [ "$4" = none ] || rev="[{\"author\":{\"__typename\":\"Bot\",\"login\":\"pr-agent[bot]\"},\"commit\":{\"oid\":\"$4\"}},{\"author\":{\"__typename\":\"User\",\"login\":\"alice\"},\"commit\":{\"oid\":\"$3\"}}]"
+  thr='[]'
+  [ "$5" -eq 0 ] || thr='[{"id":"t1","isResolved":false,"comments":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"}}]}}]'
+  [ "${6:-0}" -eq 0 ] || thr='[{"id":"t2","isResolved":true,"comments":{"nodes":[{"author":{"__typename":"Bot","login":"pr-agent[bot]"}}]}}]'
+  printf '{"data":{"repository":{"pullRequest":{"state":"%s","headRefOid":"%s","reviews":{"nodes":%s},"reviewThreads":{"nodes":%s}}}}}' "$2" "$3" "$rev" "$thr" >"$tmp/fresh.$1"
+}
+{
+  taken
+  for n in 30 31 32 33 34 35 36 37; do row "$n" "$H" false MERGEABLE 0 SUCCESS; done
+} >"$snapdir/forge"
+for n in 30 31 32 33 34 35 36 37; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'ready\n' >"$tmp/verdict.$n"
+done
+fresh 30 OPEN "$H" "$H" 0
+fresh 31 MERGED "$H" "$H" 0
+fresh 32 CLOSED "$H" "$H" 0
+fresh 33 OPEN "$H" none 0
+fresh 34 OPEN "$H" "$H" 1
+fresh 35 OPEN "$H" "$J" 0
+printf 'fail\n' >"$tmp/fresh.36"
+fresh 37 OPEN "$H" "$H" 0 1
+run watch --program alpha --now "$T"
+expect_rc "a failed fresh read fails the watcher run" 1
+expect_eq "only an open pull request with a bot review of its head and no open bot thread is announced" "announced${tab}merge-ready${tab}acme:web:30
+announced${tab}merge-ready${tab}acme:web:37"
+expect_err "a failed read is named unknown" "unknown: acme/web#36: its state could not be read from the forge: HTTP 502"
+mc_run mc-event.sh list --program alpha
+case $OUT in
+  *acme:web:31* | *acme:web:32* | *acme:web:33* | *acme:web:34* | *acme:web:35* | *acme:web:36*) fail "a stale or unfinished pull request was announced: $OUT" ;;
+  *) ok "merged, closed, no bot review, an open bot thread, an older bot review and a failed read emit nothing" ;;
+esac
+fresh 33 OPEN "$H" "$H" 0
+run watch --program alpha --now "$T"
+expect_eq "the head is announced once its bot round completes" "announced${tab}merge-ready${tab}acme:web:33"
+reads30() { awk '/api graphql/ && / number=30( |$)/ { n++ } END { print n + 0 }' "$tmp/gh.calls"; }
+before=$(reads30)
+[ "$before" -gt 0 ] || fail "the forge reads of #30 are not in the call log, so the next check measures nothing"
+run watch --program alpha --now "$T"
+expect_eq "an announced head raises nothing more" ""
+if [ "$(reads30)" = "$before" ]; then
+  ok "and is not read from the forge again"
+else
+  fail "an announced head was read again: $(reads30) reads, $before before"
+fi
+run fresh --program alpha --repo acme/web --pr 31 --head "$H"
+expect_rc "the fresh verb says a merged pull request is stale" 4
+run fresh --program alpha --repo acme/web --pr 30 --head "$H"
+expect_rc "and a live one is live" 0
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"pageInfo":{"hasPreviousPage":true},"nodes":[]},"reviewThreads":{"nodes":[]}}}}}' "$H" >"$tmp/fresh.38"
+run fresh --program alpha --repo acme/web --pr 38 --head "$H"
+expect_rc "no bot review on a truncated review page is unknown, never pending" 1
+# PR-Agent posts comments, never a review: its check run at the head stands
+# for the bot review.
+pragent() { # pragent <n> <head> <check's commit> <status> <conclusion|null>
+  printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"CheckRun","name":"PR-Agent","status":"%s","conclusion":%s}]}}}}]}}}}}' "$2" "$3" "$4" "$5" >"$tmp/fresh.$1"
+}
+pragent 39 "$H" "$H" COMPLETED '"SUCCESS"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a finished PR-Agent run at the head is the bot review" 0
+pragent 39 "$H" "$H" IN_PROGRESS null
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a PR-Agent run still going is pending" 5
+pragent 39 "$H" "$J" COMPLETED '"SUCCESS"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a PR-Agent run on another commit is pending" 5
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"commits":{"nodes":[{"commit":{"oid":"%s","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":true},"nodes":[]}}}}]}}}}}' "$H" "$H" >"$tmp/fresh.39"
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "no PR-Agent run on a truncated check page is unknown, never pending" 1
+pragent 39 "$H" "$H" COMPLETED '"SKIPPED"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a skipped PR-Agent run, its opt-out, is the bot review" 0
+pragent 39 "$H" "$H" COMPLETED '"FAILURE"'
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a failed PR-Agent run is not" 5
+fresh 39 OPEN "$J" "$J" 0
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a pull request whose head moved is stale" 4
+expect_eq "and says where it went" "stale${tab}its head moved to $J"
+printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","headRefOid":"%s","reviews":{"nodes":[]},"reviewThreads":{"pageInfo":{"hasNextPage":true},"nodes":[]}}}}}' "$H" >"$tmp/fresh.39"
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "review threads past the first page are unknown" 1
+fresh 39 LOCKED "$H" "$H" 0
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a state outside open, merged and closed is unknown, never stale" 1
+printf '{"data":{"repository":{"pullRequest":null}}}' >"$tmp/fresh.39"
+run fresh --program alpha --repo acme/web --pr 39 --head "$H"
+expect_rc "a pull request the forge does not return is unknown" 1
+rm -f "$tmp"/fresh.3? "$store"
 
 # ---------------------------------------------------------------------------
 # Every program on the host hears of it: another program whose repositories
@@ -491,6 +694,57 @@ before=$(calls)
 run list --program alpha --now "$T"
 expect_eq "a fresh snapshot again" "$(ready7 "$J")"
 if checked_since "$before"; then fail "a stale spell threw the verdicts away"; else ok "and the kept verdict stands, unwalked"; fi
+
+# ---------------------------------------------------------------------------
+# A pull request already marked ready whose head still has an unfinished check
+# is said, so a flip that slipped through is seen on the next pass; one with
+# every check finished (red or not), or still a draft, is not.
+# ---------------------------------------------------------------------------
+{
+  taken
+  row 7 "$J" false MERGEABLE 0 SUCCESS
+  row 20 "$H" false MERGEABLE 0 PENDING
+  row 21 "$H" false MERGEABLE 0 FAILURE
+  row 22 "$H" true MERGEABLE 0 PENDING
+  row 23 "$H" false MERGEABLE 0 PENDING
+} >"$snapdir/forge"
+for n in 20 21 22 23; do
+  printf '%s\n' "$H" >"$tmp/head.$n"
+  printf 'not-ready\n' >"$tmp/verdict.$n"
+done
+printf 'yes\n' >"$tmp/unfinished.20"
+printf 'no\n' >"$tmp/unfinished.21"
+printf 'yes\n' >"$tmp/unfinished.22"
+printf 'no\n' >"$tmp/unfinished.23"
+: >"$tmp/unfinished.calls"
+run list --program alpha --now "$T"
+expect_rc "an unfinished check on a ready pull request is no failure of the read" 0
+expect_eq "a ready pull request with a queued check is named with the check, one that finished is not" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}macos-suite 3 is QUEUED"
+checked=$(awk '{ print $NF }' "$tmp/unfinished.calls" | sort -n | tr '\n' ' ')
+if [ "$checked" = "20 21 23 " ]; then
+  ok "only a ready pull request whose checks are not all green is read: not a draft, not an all-green one"
+else
+  fail "unfinished read for: $checked"
+fi
+run list --program alpha --now "$T" --as-status
+expect_out "the status form says it as a decision" "decision${tab}Marked ready with unfinished checks: acme/web#20 at $(printf '%s' "$H" | cut -c1-12): macos-suite 3 is QUEUED"
+printf 'no\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "once its checks finish it is quiet" "$(ready7 "$J")"
+printf 'own\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "the runs the flip itself fired are named as the flip's own, not as a too-early flip" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}PR-Agent is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)"
+printf 'early\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_eq "a run that predates the flip and was still running is named a too-early flip" "$(ready7 "$J")
+unfinished${tab}acme/web#20${tab}$H${tab}PR-Agent was still running at the flip (run created 2026-11-18T00:40:10Z, before the flip at 2026-11-18T00:42:21Z): a too-early flip, ci is PENDING (run created 2026-11-18T00:42:23Z, after the flip at 2026-11-18T00:42:21Z: the run the flip started, wait for it)"
+printf 'broken\n' >"$tmp/verdict.20"
+printf 'yes\n' >"$tmp/unfinished.20"
+run list --program alpha --now "$T"
+expect_rc "a pull request whose evidence cannot be collected is skipped, not a failure of the read" 0
+expect_eq "and no unfinished line is made up for it" "$(ready7 "$J")"
 
 printf 'format\t1\nsource\tforge\ntaken\tsoon\n' >"$snapdir/forge"
 run list --program alpha --now "$T"

@@ -278,7 +278,7 @@ liveness() {
   set -- $1
   case ${1:-} in
     process) [ $# -eq 2 ] || return 0 ;;
-    tmux-window) [ $# -eq 3 ] || return 0 ;;
+    tmux-window) [ $# -eq 3 ] || [ $# -eq 5 ] || return 0 ;;
     *) return 0 ;;
   esac
   /bin/sh "$FDE" "$@" >/dev/null 2>&1 </dev/null
@@ -329,11 +329,6 @@ read_registry() {
       registry=''
       registry_state=unavailable
     }
-    # The store's own read exits 0 on a file it cannot read.
-    if [ -e "$fleet_home/registry" ] && [ ! -r "$fleet_home/registry" ]; then
-      registry=''
-      registry_state=unavailable
-    fi
   fi
 }
 

@@ -142,6 +142,9 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT
+# The liveness oracle (fleet-liveness.sh) would ask the installed CLI for the
+# operator's own sessions; it stays absent here, as on a host without one.
+export PLANWRIGHT_ORACLE_CLAUDE="$tmp/no-claude"
 tab=$(printf '\t')
 
 # A fleet home per case, so one case's records never leak into another's.
@@ -719,7 +722,7 @@ if command -v git >/dev/null 2>&1; then
 case "\$1" in
   new-session)
     while [ \$# -gt 0 ]; do
-      [ "\$1" = -s ] && { printf '%s\t@42\n' "\$2"; exit 0; }
+      [ "\$1" = -s ] && { printf '@42 4242.1700000000 %s:%s\n' "\$2" "\$2"; exit 0; }
       shift
     done
     ;;
@@ -747,11 +750,11 @@ EOF
     # One record, written once the session exists.
     n5=$(wc -l <"$h/registry" | tr -d ' ')
     [ "$n5" = 1 ] || fail "c5: expected one record written after the session exists, got $n5"
-    [ -n "$sess5" ] && [ "$(col "$h" 7)" = "tmux-window $sess5 @42" ] \
+    [ -n "$sess5" ] && [ "$(col "$h" 7)" = "tmux-window $sess5 @42 4242.1700000000 $sess5" ] \
       || fail "c5: the death handle is not the creation output, got '$(col "$h" 7)'"
     grep -q 'decoy-session' "$h/registry" \
       && fail "c5: a pane sitting in the worktree was taken for the worker's"
-    ok c5 "the worktree seam registers once, with the death handle new-session printed"
+    ok c5 "the worktree seam registers once, with the death handle new-session printed, pinned to its server and window name"
   else
     fail "c5: the stubbed launch must report started-unconfirmed (exit 14) and register, got $st: $out"
   fi

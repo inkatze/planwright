@@ -100,7 +100,7 @@ The `review_sequence` config key is gone: rename it to `steps_convergence`
 in every layer that sets it, keeping the value as an inline flow list
 (`[polish]`, not a bare `polish`, and no empty entries). Both specless work
 and spec tasks converge through that list. Its ids name entries in the
-`steps` catalog; the core catalog seeds `polish` and `self-review` with
+`steps` catalog; the core catalog seeds `polish`, `self-review` and `pr-agent-pr` with
 `--nested`, so a list naming them runs what it ran before. A layer still
 setting the old key is ignored, with a warning naming the layer on every
 resolution. The new list also admits steps planwright does not ship (your
@@ -325,8 +325,10 @@ policy and the altitude split behind it live in the doctrine.
 2. **You merge the release PR.** The merge *is* the release approval, and it
    stays a human act in GitHub's UI (or, under `merge_policy: on-approval`,
    your enabling auto-merge) under every `merge_policy` value: the policy class
-   admits only task branches, so a release PR is never a class admission and no
-   planwright command merges it. Merging
+   admits only task branches, so a release PR merges only through the `release`
+   class in `auto_merge_classes`, otherwise only by a human. The class is your
+   standing authorization and is empty by default; with it off, no planwright
+   command merges the release PR. Merging
    lands the version bump on `main` and opens the **untagged window**.
 3. **The untagged window is locked by a required CI check.** This is the
    [release-tagging policy](../doctrine/release-tagging.md)'s forcing function:

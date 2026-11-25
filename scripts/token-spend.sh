@@ -5,7 +5,7 @@
 # `token-spend.sh --help` prints the contract. Read-only over every input;
 # operator-local (it reads the host's transcripts), so it never runs in CI.
 #
-# Usage: token-spend.sh rows [--since <YYYY-MM-DD>] [<transcript.jsonl>...]
+# Usage: token-spend.sh rows [--since <YYYY-MM-DD>] [--asks] [<transcript.jsonl>...]
 #        token-spend.sh report [--prices <tsv>] [--idle <seconds>]
 #            [--context-cap <tokens>] [--top <n>] <rows-file>
 set -u
@@ -18,7 +18,7 @@ here=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 usage() {
   cat >&2 <<'EOF'
-usage: token-spend.sh rows [--since <YYYY-MM-DD>] [<transcript.jsonl>...]
+usage: token-spend.sh rows [--since <YYYY-MM-DD>] [--asks] [<transcript.jsonl>...]
        token-spend.sh report [--prices <tsv>] [--idle <seconds>]
            [--context-cap <tokens>] [--top <n>] <rows-file>
 EOF
@@ -29,10 +29,11 @@ help_text() {
   cat <<'EOF'
 token-spend.sh: where a host's Claude tokens go.
 
-rows    Prints one tab-separated line per assistant message and at most one
-        per transcript file, reading each file alone (grep, then jq) so a
-        sweep never holds more than one transcript. With no files it walks
-        every *.jsonl under $CLAUDE_CONFIG_DIR/projects (default
+rows    Prints one tab-separated line per assistant message, at most one s
+        line per transcript file and, with --asks, one a line per use of a
+        tool that reaches the operator, reading each file alone (grep, then
+        jq) so a sweep never holds more than one transcript. With no files
+        it walks every *.jsonl under $CLAUDE_CONFIG_DIR/projects (default
         ~/.claude/projects), sub-agent transcripts included; --since (walk
         only) skips files last written at or before local midnight of that
         date, so a file written since still contributes its older messages.
@@ -42,6 +43,13 @@ rows    Prints one tab-separated line per assistant message and at most one
             <cache-read> <output> <cwd> <branch> <agent-id>
           s <session> main|sub <agent-id> <prompt-chars> <rules-chars>
             <prompt-head>
+          a <tool-use-id> <session> main|sub <timestamp> <tool>
+        An a line, printed only with --asks, is one use of a tool that
+        reaches the operator (AskUserQuestion or PushNotification); a use
+        written on several lines prints per line, its id `-` when absent. A
+        file whose tool uses cannot be parsed is named on stderr and its a
+        lines are left out (its m and s lines still print), and rows then
+        exits 1.
         The s line is the file's first user prompt that is not a system or
         local-command message, from its first eight user lines. A message the
         transcript writes on several lines (one per content block) is printed
@@ -65,7 +73,8 @@ report  Reads rows output and prints totals by token class, model, day,
         a model missing from it is priced at zero and named on stderr.
         Control bytes in transcript text are dropped before printing.
 
-Exit: 0 printed; 1 rows skipped a file it could not read or list;
+Exit: 0 printed; 1 rows skipped a file it could not read or list, or left
+      out a file's tool uses it could not parse (--asks);
       2 usage, a missing tool or transcript directory, an unreadable rows
       file, or an unreadable or malformed price table.
 EOF
@@ -124,7 +133,17 @@ select(($t | length) > 0 and ($t | test("^<(local-command|system-reminder)") | n
  ($t | length), (if $b != null and $e != null and $e > $b then $e - $b else 0 end),
  ($t[0:160])] | @tsv'
 
+# shellcheck disable=SC2016 # jq program, not shell
+ASKS_JQ='
+fromjson? | select(type == "object" and .type == "assistant") | . as $e |
+($e.message.content? | if type == "array" then .[] else empty end) |
+select(type == "object" and .type == "tool_use"
+  and (.name == "AskUserQuestion" or .name == "PushNotification")) |
+["a", (if (.id | type) == "string" and .id != "" then .id else "-" end), ($e.sessionId // ""),
+ (if $e.isSidechain == true then "sub" else "main" end), ($e.timestamp // ""), .name] | @tsv'
+
 skipped=0
+asks=0
 
 # rows_of <file>: the file's rows. The fast parse stops at a malformed line
 # (a live transcript's torn tail), so its output is kept only when it parsed
@@ -142,6 +161,23 @@ rows_of() {
     grep -F -e '"type":"assistant"' -- "$rf" | jq -Rr "fromjson? | $ROWS_JQ" 2>/dev/null
   fi
   grep -m 8 -F -e '"type":"user"' -- "$rf" | jq -Rr "$PROMPT_JQ" 2>/dev/null | head -n 1
+  [ "$asks" -eq 1 ] || return 0
+  hits=$(grep -F -e '"name":"AskUserQuestion"' -e '"name":"PushNotification"' -- "$rf")
+  case $? in
+    0) ;;
+    1) return 0 ;;
+    *)
+      printf '%s: unreadable, skipped: %s\n' "$prog" "$(clean "$rf")" >&2
+      skipped=1
+      return 0
+      ;;
+  esac
+  if out=$(printf '%s\n' "$hits" | jq -Rr "$ASKS_JQ" 2>/dev/null); then
+    [ -z "$out" ] || printf '%s\n' "$out"
+  else
+    printf '%s: tool uses unparsed, skipped: %s\n' "$prog" "$(clean "$rf")" >&2
+    skipped=1
+  fi
 }
 
 cmd_rows() {
@@ -152,6 +188,10 @@ cmd_rows() {
         [ $# -ge 2 ] || usage
         since=$2
         shift 2
+        ;;
+      --asks)
+        asks=1
+        shift
         ;;
       --)
         shift
