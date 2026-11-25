@@ -454,8 +454,8 @@ trusts a file in a git checkout, a declared location included, only as the
 merge base with the session record's base holds it inside the worker's
 worktree (nothing there when the record names no base) and as HEAD holds it
 in a checkout outside that worktree, and nothing anywhere under a record
-naming no usable worktree but the guard's own root; the worker profile is
-unchanged (REQ-G1.2). The worker command guard
+naming no usable worktree but the guard's own root while the session sits
+outside it; the worker profile is unchanged (REQ-G1.2). The worker command guard
 auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a
 well-formed entry's location as printed on the guard's host, then its `args`,

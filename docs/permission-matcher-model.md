@@ -593,13 +593,17 @@ What still runs code a worker wrote without a prompt:
   repository script to HEAD, which the profile's static `git commit` allow
   lets the worker move. A launcher whose record write fails launches the
   worker this way. A record that is set but names no usable worktree (a
-  missing or relative record path, a repeated or non-canonical
-  `worktree_root`, a record inside the worktree) trusts nothing instead,
-  wherever the file lies: the static allows still let the worker commit, and
-  the guard cannot tell which checkout it committed in. The one exception is
-  the guard's own planwright root, held to HEAD while the session sits
-  outside it, since it holds the guard itself; a session sitting inside it
-  gets no exception, since it could commit there.
+  missing, relative or oversized record path, one that is not this user's
+  own regular file, a record inside the worktree or the scratch root it
+  names, a repeated, non-canonical or non-checkout `worktree_root`) trusts
+  nothing instead, wherever the file lies: the static allows still let the
+  worker commit, and the guard cannot tell which checkout it committed in.
+  The one exception is the guard's own planwright root, held to HEAD while
+  the session's canonical directory is outside it, since it holds the guard
+  itself; a session sitting inside it gets no exception, since it could
+  commit there. One that committed there and then left would keep it, which
+  needs the root inside its working directories (a vendored root) for the
+  move to go unprompted.
 - **A write that lands while a trusted script runs.** The guard checks a
   script's bytes before the command runs, and a shell reads a script as it
   goes, so a write running in the background (an own-branch write the worker

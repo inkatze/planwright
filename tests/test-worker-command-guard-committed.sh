@@ -3,7 +3,8 @@
 # and a script under a planwright root that is a git checkout are trusted only
 # when a commit holds them with the same bytes (committed_blob): the PR base
 # inside the recorded worktree (tests/test-worker-command-guard-own-commit.sh
-# covers what the worker commits itself), HEAD elsewhere. A worker can
+# covers what the worker commits itself and the cases trusting nothing), HEAD
+# in a checkout outside it. A worker can
 # Write any file under scripts/ or tests/, so a script it wrote or edited and
 # the base does not hold prompts, through every invocation form and every path
 # spelling that reaches it, while scripts the base holds unmodified keep their
