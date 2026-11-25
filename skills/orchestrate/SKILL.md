@@ -489,13 +489,11 @@ These hold at every step, each list rule labelled with its
 
 ## Observations
 
-When something outside the current step's scope surfaces — a selection-policy gap,
-a backend rough edge, a config-model wrinkle, a drift in a shared script — record
-it through the shared helper: `scripts/obs-record.sh --slug <topic> --scope
+When something outside the current step's scope surfaces, record it through the
+shared helper: `scripts/obs-record.sh --slug <topic> --scope
 <repo> --text '<observation>'`. Commit the fragment within the step that produced
 it so the tree returns to clean; surface a non-zero exit rather than dropping it.
-Do not act on observations during the step; they are seed material for
-`/spec-draft`.
+Do not act on observations during the step; they seed `/spec-draft`.
 
 ## Maintenance
 

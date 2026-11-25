@@ -1,6 +1,6 @@
 #!/bin/bash
 # Structural guard over skills/orchestrate/SKILL.md's use of the session
-# mark's activation handshake (fleet-hardening Task 15; D-18; REQ-I1.4): the
+# mark's activation handshake (fleet-hardening REQ-I1.4): the
 # skill runs the orchestrate spelling, the original `activate`, and never the
 # tower one, since a /tower mark is sticky and an orchestrate run must not
 # claim the front door. The tower skill's counterpart is
