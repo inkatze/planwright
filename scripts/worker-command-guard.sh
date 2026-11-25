@@ -1859,6 +1859,9 @@ THREAD_READ_Q='query($id:ID!){node(id:$id){...on PullRequestReviewThread{comment
 own_thread_ok() {
   local i w method='' ep='' nf=0 expect=0 thread repo_slug pr_num
   local -a fk=() fv=()
+  # An assignment earlier in the command (GH_HOST, GH_TOKEN, PATH) could point
+  # the call at another host or program than the one the reads above checked.
+  [ "$VAR_C" -eq 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
     [ "${cw[i]}" = "${sw[i]}" ] && [ -z "${csub[i]-}" ] || return 1
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
