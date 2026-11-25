@@ -214,9 +214,6 @@ printf 'pr_base=origin/main\n' >>"$DUPBASE"
 under "$DUPBASE"
 assert_defer "a repeated pr_base" "bash scripts/ok.sh" Bash "$WT"
 
-DUP=$(record_with dup)
-printf 'worktree_root=%s\n' "$WT" >>"$DUP"
-
 echo "### a repository nested in the worktree answers to no base"
 N=$WT/sub/nested
 mkdir -p "$N/scripts"
@@ -253,10 +250,12 @@ assert_allow "the worktree as a planwright root: a base script" \
 
 echo "### a record set but naming no usable worktree trusts nothing but the hook's own root"
 # Such a session can still commit through the static allows, and the guard
-# cannot place where: a shell sitting in a repository nested in the one it
-# committed in would make the outer one look like a checkout elsewhere.
-# The harness sandbox is itself a checkout enclosing the corpus, so a folder in
-# no checkout at all is made apart from it.
+# cannot tell which checkout it committed in: a shell sitting in a repository
+# nested in the one it committed in would make the outer one look like a
+# checkout elsewhere. The harness sandbox is itself a checkout enclosing the
+# corpus, so a folder in no checkout at all is made apart from it.
+DUP=$(record_with dup)
+printf 'worktree_root=%s\n' "$WT" >>"$DUP"
 NOWHERE=$(mktemp -d /tmp/own-commit-nowhere.XXXXXX) || exit 1
 trap 'rm -rf "$SANDBOX" "$NOWHERE"' EXIT
 NOWHERE=$(cd "$NOWHERE" && pwd -P)
@@ -281,6 +280,14 @@ if [ "$(fixture_git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$
     "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$WT"
   assert_defer "the hook's own root, with the session sitting in it, trusts nothing" \
     "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$REPO_ROOT"
+  # The directory is judged canonically: no spelling of a link reads as outside.
+  ln -s "$REPO_ROOT" "$NOWHERE/rootlink"
+  assert_defer "the hook's own root, the session in it through a symlinked spelling" \
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$NOWHERE/rootlink/scripts"
+  assert_defer "the hook's own root, the session in it through a dot segment" \
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$NOWHERE/../${REPO_ROOT#/}"
+  assert_defer "the hook's own root, a relative session directory" \
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "."
 else
   fail "the suite must run from a git checkout to show the hook's own root is held to HEAD"
 fi

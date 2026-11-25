@@ -785,7 +785,10 @@ canon_under() {
 # elsewhere). The one exception is the hook's own root, held to HEAD while the
 # session sits outside it: that root holds this guard, so a worker able to
 # rewrite it has already beaten the guard, and its scripts keep running. A
-# session sitting inside it could commit there, so it gets no exception.
+# session sitting inside it, judged by its canonical directory so no spelling
+# of a link reads as outside, could commit there, so it gets no exception; one
+# that committed there and left would keep it, which needs the root inside its
+# working directories (a vendored root) for that move to go unprompted.
 #
 # The recorded worktree's base is resolved once per hook call; trusted_rev is
 # called outside a command substitution so that the cache survives.
@@ -796,12 +799,17 @@ TRUSTED_REV_ROOT=''
 TRUSTED_REV=''
 TRUSTED_REV_OUT=''
 trusted_rev() {
-  local oid rev
+  local oid rev pc
   TRUSTED_REV_OUT=''
   if [ -z "$REC_WT" ]; then
     if [ -n "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ]; then
       [ -n "${HOOK_SELF_ROOT:-}" ] && [ "$1" = "$HOOK_SELF_ROOT" ] || return 1
-      case ${HOOK_PAYLOAD_CWD:-/}/ in
+      case ${HOOK_PAYLOAD_CWD:-} in
+        /*) ;;
+        *) return 1 ;;
+      esac
+      pc=$(cd "$HOOK_PAYLOAD_CWD" 2>/dev/null && pwd -P) || return 1
+      case $pc/ in
         "$HOOK_SELF_ROOT"/*) return 1 ;;
       esac
     fi
@@ -1347,7 +1355,8 @@ guard_mkdir() {
 # branch neither the own-branch arm nor a `cd` approves anything, and without
 # the scratch root the scratch arm approves nothing; without the PR base no
 # file in the worktree is trusted by its content, and without the worktree
-# root no file anywhere is, the hook's own root aside (trusted_rev). The
+# root no file anywhere is, the hook's own root aside while the session sits
+# outside it (trusted_rev). The
 # scratch root must be this user's own canonical directory, apart from the
 # worktree in both directions. A record that is unreadable, not this user's
 # own regular file, or inside the worktree or the scratch root it describes
