@@ -5725,8 +5725,11 @@ RE_MC_DATA_SCRATCHVAR='^\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)
 RE_MC_DATA_MEMORY='^(~|\$HOME|\$\{HOME\}|/[^$`*?[{]*)/\.c[l]aude/(projects/[^/$`*?[{]+/memory|tasks)/'
 # A word that runs the text it is handed, so quoted text stays in view.
 RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|python3?|perl|ruby|node|xargs|ssh)([^[:alnum:]_-]|$)'
+# A cluster ending in env's -S, whose string runs as a command: the word glued
+# to it (-Scp, -iS'tee f') opens that command, so it bounds a verb's name.
+RE_MC_SPLIT_S='-[A-Za-z]*S'
 # A write verb in unparsed text; sed counts only with an in-place flag.
-RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
+RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
 RE_MC_REBIND='(^|[^[:alnum:]_])(eval|printf[[:space:]]+-v|declare|typeset|local|read|mapfile|readarray|unset|source|export[[:space:]]+-n)([^[:alnum:]_]|$)|\$\{!'
 MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'
@@ -5768,11 +5771,11 @@ RE_MC_RUNNER_CMD='(^|[;&|(){}!]|'$'\n'')[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[
 # dispatch: a verb missing here is screened bare but not behind a runner. The
 # in-place editors (mc_inplace_targets) have their own text form,
 # RE_MC_INPLACE_*, kept in step with that parser's verbs.
-RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-])(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate)|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([^[:alnum:]_-]|$)'
+RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate)|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([^[:alnum:]_-]|$)'
 # The same verbs as whole words among a runner's text: a script or file named
 # after a verb (install.sh, sort.py) is no verb.
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/])(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate)|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([[:space:];&|)`}]|$)'
+RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate)|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([[:space:];&|)`}]|$)'
 MC_UNPARSED_DENY='mission control writes no settings or configuration file, and this command runs a write verb or writer in text the guard cannot parse (a command substitution, say), so it cannot read the target - refusing (fail closed). Run the write in a command of its own, with no substitution.'
 MC_WRAPPED_DENY='mission control writes no settings or configuration file, and this command hands a write verb to another command (behind a wrapper, xargs, a shell or find) whose targets the guard cannot read - refusing (fail closed). Run the write verb on its own with its target spelled out.'
 MC_REPO_DENY='mission control edits no repository, and this command writes a path that lies inside one (read as written and followed on disk, from every directory the command may run in); every change goes through a session it dispatches.'
@@ -5813,7 +5816,7 @@ RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|'$RE_MC_VIM_NAMES')([[:space:];&|)`}]|$)'
 # The same tools named anywhere, as a word: the screen's opening test, which
 # only decides whether a command is parsed at all (a shell's command string
 # runs a tool its own words never put in command position).
-RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|awk|gawk[0-9.-]*|g?sed|r?ed|ex|'$RE_MC_VIM_NAMES')([^[:alnum:]_-]|$)'
+RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')((perl|ruby)[0-9.]*|awk|gawk[0-9.-]*|g?sed|r?ed|ex|'$RE_MC_VIM_NAMES')([^[:alnum:]_-]|$)'
 # Runners that run their later words as a command, past options and values the
 # guard does not read (mc_unwrap reads RE_MC_WRAPPER's); the shells, the
 # interpreters, find, xargs and eval are read their own ways. Every name here
@@ -6372,6 +6375,12 @@ mc_inplace_text() {
   fi
   re='(^|[;&|(){}[:space:]])case[[:space:]]'
   [[ $t =~ $re ]] && t=${t//[)]/;}
+  # env's -S string, glued to its cluster, is a word of its own. This test
+  # stays in its letter case: a lowercase s is no -S.
+  re='(^|[[:space:]])('$RE_MC_SPLIT_S')([^[:space:]])'
+  while [[ $t =~ $re ]]; do
+    t=${t/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}${BASH_REMATCH[2]} ${BASH_REMATCH[3]}"}
+  done
   re=$lead$RE_MC_INPLACE_PERL_TOOL
   [[ $t =~ $re ]] && return 0
   shopt -s nocasematch
@@ -7868,7 +7877,7 @@ XEOF_RUN
       case $t in *'#'* | *'<<'* | *"\$'"* | *\\* | *'`'* | *'$('*) ;; *) rsh=0 ;; esac
       ;;
   esac
-  re='(^|[^[:alnum:]_.-])(bash|sh|zsh|dash|ksh|mksh|fish|eval|source|trap|su|runuser|ssh|script|watch|tmux|screen)([^[:alnum:]_-]|$)|split-string|(^|[[:space:]])-[A-Za-z]*S'
+  re='(^|[^[:alnum:]_.-])(bash|sh|zsh|dash|ksh|mksh|fish|eval|source|trap|su|runuser|ssh|script|watch|tmux|screen)([^[:alnum:]_-]|$)|split-string|(^|[[:space:]])'$RE_MC_SPLIT_S
   [ "$rsh" = 1 ] || ! [[ ${t//[\"\'\\]/} =~ $re ]] || rsh=1
   MC_QS=''
   re='>+([|&]?)[[:space:]]*(([^[:space:];|&<>"'\''\\]|\\.|"[^"]*"|'\''[^'\'']*'\'')+)'

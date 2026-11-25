@@ -356,6 +356,18 @@ deny	repo-write	bash	-	edits no repository	bash -c "gawk '1; @include \"inplace\
 deny	repo-write	bash	-	edits no repository	bash -c "gawk --file=inplace.awk @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	bash -c "gawk -e '@load \"inplace\"' @UNIT@/README.md"
 defer	read	bash	-	-	bash -c "gawk '@include \"lib\"; 1' @UNIT@/README.md"
+deny	repo-write	bash	-	behind a wrapper	env -S'cp a @UNIT@/README.md'
+deny	repo-write	bash	-	behind a wrapper	env -Stee @UNIT@/README.md
+deny	repo-write	bash	-	behind a wrapper	env -Sdd of=@UNIT@/README.md
+deny	repo-write	bash	-	behind a wrapper	env -iS'mv a @UNIT@/README.md'
+deny	repo-write	bash	-	behind a wrapper	env -Ssed -i s/a/b/ @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env -Sperl -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	flock @SCRATCH@/l env -Sperl -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	settings or configuration file	echo $(env -Struncate -s0 @UNIT@/README.md)
+deny	repo-write	bash	-	settings or configuration file	echo $(env -S'sed -i s/a/b/ @UNIT@/README.md')
+deny	repo-write	bash	-	edits no repository	echo $(env -Sperl -pi -e1 @UNIT@/README.md)
+defer	read	bash	-	-	env -Sls @UNIT@/README.md
+defer	read	bash	-	-	ls -lSd @UNIT@
 deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); gawk -W load=inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'ed -s @UNIT@/README.md'
