@@ -7724,7 +7724,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -8196,8 +8196,7 @@ XEOF_RUN
       # verb writes beside its operands, 3 when it is an option's value kept
       # among the operands, which the verb opens for no write, 4 when it is an
       # option's value the verb only reads and is no operand (a copy verb's
-      # backup suffix, install's mode, owner and group). After --, every word
-      # is an operand (oend).
+      # backup suffix, install's mode, owner and group).
       if [ "$k" = 1 ]; then
         k=0
         tdir=$w
@@ -8214,15 +8213,17 @@ XEOF_RUN
         opsr[${#opsr[@]}]=0
         continue
       fi
-      # A copy verb's backup suffix is a value, never an operand: GNU's
-      # parser permutes, so a suffix after the destination (cp a dest -S .bak)
-      # would otherwise read as the destination. It passes the posture screen
-      # as a word the verb only reads.
+      # A copy verb's value-only option (a backup suffix, install's mode,
+      # owner or group) is never an operand: GNU's parser permutes, so a
+      # suffix after the destination (cp a dest -S .bak) would otherwise read
+      # as the destination. It passes the posture screen as a word the verb
+      # only reads.
       if [ "$k" = 4 ]; then
         k=0
         ! mc_write_word_refused "$w" 2 || emit_deny "$MC_REFUSAL"
         continue
       fi
+      # After --, every word is an operand, an option's spelling included.
       if [ "$oend" = 0 ] && [ "$w" = -- ]; then
         oend=1
         continue
@@ -8247,11 +8248,11 @@ XEOF_RUN
             # target directory (below), S a backup suffix and install's m, o
             # and g their values (read, k=4).
             c=${w#-}
-            case $verb in install) m='Smog' ;; *) m='S' ;; esac
+            case $verb in install) vl='Smog' ;; *) vl='S' ;; esac
             # shellcheck disable=SC2295 # the bracket is a pattern of letters
-            m=${c%%[t$m]*}
-            if [ "${#m}" -lt "${#c}" ] && [ "${c:${#m}:1}" != t ]; then
-              [ -n "${c:$((${#m} + 1))}" ] || k=4
+            pre=${c%%[t$vl]*}
+            if [ "${#pre}" -lt "${#c}" ] && [ "${c:${#pre}:1}" != t ]; then
+              [ -n "${c:$((${#pre} + 1))}" ] || k=4
               continue
             fi
             ;;

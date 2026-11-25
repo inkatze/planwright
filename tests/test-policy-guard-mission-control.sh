@@ -171,10 +171,15 @@ for c in "cp $KB/real.md $UNIT/README.md -S .bak" "mv $KB/real.md $UNIT/README.m
   "cp -bS.attic $KB/real.md $UNIT/README.md" "cp -St $KB/real.md $UNIT/README.md" \
   "cp -- $KB/real.md -S $UNIT/README.md" "mv -- $KB/real.md --suffix $UNIT/README.md"; do
   pg mission-control "$c" "$SCRATCH"
-  expect deny "[mission-control] a backup suffix is no destination: ${c%% "$KB"*}"
+  l=${c//"$KB"\//}
+  expect deny "[mission-control] a backup suffix is no destination: ${l//"$UNIT"\//<repo>/}"
 done
-pg mission-control "cp -S .bak $KB/real.md $KB/s2.md" "$SCRATCH"
-expect defer "[mission-control] a backup suffix is a value, read as no repository write"
+for c in "cp -S .bak $KB/real.md $KB/s2.md" "cp -S.tmp $KB/real.md $KB/s3.md" "cp -bS.attic $KB/real.md $KB/s4.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect defer "[mission-control] a backup suffix is a value, read as no repository write: ${c%% "$KB"*}"
+done
+pg mission-control "sed -i -- s/a/b/ $UNIT/README.md" "$SCRATCH"
+expect deny "[mission-control] after --, sed's first word is still its script and the file is read"
 pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"
 expect defer "[mission-control] a here-string is read as a command only on a shell's or runner's own line"
 pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"
