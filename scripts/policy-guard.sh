@@ -5751,7 +5751,7 @@ MC_HOME_REBOUND=0
 MC_TMP_REBOUND=0
 # Verbs that copy, move, link or unpack: in their command, a path that does
 # not exist yet may become a link before a write lands on it.
-RE_MC_COPYISH='(^|[^[:alnum:]_.-])(g?(cp|mv|ln|link|rsync)|tar|bsdtar|unzip|cpio|pax)([^[:alnum:]_-]|$)'
+RE_MC_COPYISH='(^|[^[:alnum:]_.-])(g?(cp|mv|ln|link|rsync|tar)|bsdtar|unzip|cpio|pax)([^[:alnum:]_-]|$)'
 # Command words that run the next word as the command, whose options
 # mc_unwrap can skip.
 RE_MC_WRAPPER='^(env|nice|nohup|setsid|timeout|stdbuf|time|command|builtin|exec|sudo|doas|busybox|xargs)$'
@@ -5795,7 +5795,9 @@ RE_MC_INPLACE_WORD_LEAD='(^|[[:space:]])([^[:space:]]*/)?'
 # line break ends one).
 RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # perl's and ruby's switches end at their first other word, so a run whose
-# first word is no switch (perl script.pl -i) is no in-place run.
+# first word is no switch (perl script.pl -i) is no in-place run; past a first
+# switch any words may stand before the i cluster, since a switch's value
+# (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
 RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acnpsStTuUvwWXhl]*i'
 RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[il][[:space:]]*|--(i|lo)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*(include|load)=|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
 # vim's names: the g, r and e prefixes, the diff and x suffixes, and a
@@ -6334,14 +6336,17 @@ mc_inplace_unparsed() {
   [ "$rc" = 0 ] || return 1
   mc_runnable_text "$1"
   # A shell or runner the shell itself runs may run the quoted text too: the
-  # whole text is read, and so is each quoted span as a command of its own
-  # (sh -c 'ed file').
+  # whole text is read, and so is each quoted span of more than one word as a
+  # command of its own (sh -c 'ed file'). The match is copied out first, since
+  # mc_inplace_text's own tests overwrite BASH_REMATCH.
   if [[ $MC_RT =~ $RE_MC_INTERPRETER || $MC_RT =~ $RE_MC_RUNNER_CMD ]]; then
     mc_inplace_text "$1" && return 0
-    local s=$1 re="'([^']*)'|\"([^\"]*)\""
+    local s=$1 re="'([^']*)'|\"([^\"]*)\"" m span
     while [[ $s =~ $re ]]; do
-      mc_inplace_text "${BASH_REMATCH[1]}${BASH_REMATCH[2]}" && return 0
-      s=${s#*"${BASH_REMATCH[0]}"}
+      m=${BASH_REMATCH[0]}
+      span=${BASH_REMATCH[1]}${BASH_REMATCH[2]}
+      s=${s#*"$m"}
+      case $span in *[[:space:]]*) ! mc_inplace_text "$span" || return 0 ;; esac
     done
     return 1
   fi
