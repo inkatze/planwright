@@ -300,6 +300,8 @@ tokenize() {
           if [ "$dc" = "\\" ]; then
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
+            # bash drops a backslash-newline whole, joining the word's halves.
+            [ "$dn" = "$NL" ] && return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
             k="$k$dn"
             j=$((j + 2))
@@ -558,7 +560,7 @@ repo_root_of() {
 # (an already-canonical root); returns non-zero (DEFER) otherwise — including
 # when <base> is empty, the path's directory cannot be resolved, or the final
 # component is a symlink (which could point OUT of <base>). Mirrors the worker
-# guard's canon_contained, generalized to an arbitrary containment root.
+# guard's canon_under.
 canon_under() {
   local p=$1 cwd=$2 base=$3 d b cd full
   [ -n "$base" ] || return 1
@@ -604,7 +606,10 @@ is_force_push_file() {
 # marketplace/writer install). The chain's other arms are not trusted: that is
 # the tower's own, tighter policy. `tests/` is deliberately NOT
 # a trusted script directory for the tower (that is a worker-only shape), so the
-# tower set stays distinct from and tighter than the worker set (REQ-C1.2).
+# tower set stays distinct from and tighter than the worker set (REQ-C1.2),
+# with one exception: the worker guard also requires HEAD to commit a checkout
+# script unchanged, which this guard does not, since a tower session carries no
+# file-tool denies for such a script to get around.
 # Under the mission-control profile (`tower-command-guard.sh mission-control`)
 # only the script verbs config/mission-control-verbs.txt lists are approved,
 # read from this guard's own root and never from an overlay; every other
@@ -1382,26 +1387,104 @@ guard_setsid() {
   is_planwright_script "${cw[i]}" "$HOOK_CWD"
 }
 
+# ci_has <word> <glob>...: whether the word matches any glob, ignoring case.
+# nocasematch rather than ${w,,}, which bash 3.2 (the macOS /bin/bash) lacks.
+ci_has() {
+  local w=$1 p hit=1 had=1
+  shift
+  shopt -q nocasematch && had=0
+  shopt -s nocasematch
+  for p in "$@"; do
+    # shellcheck disable=SC2254  # the glob is the argument, deliberately unquoted
+    case $w in $p) hit=0 ;; esac
+  done
+  [ "$had" -eq 0 ] || shopt -u nocasematch
+  return "$hit"
+}
+
+# gh_jq_ok: 0 unless a jq filter or Go template (`--jq`, `-q`, `--template`,
+# `-t`) mentions `env`: gojq's `env` and `$ENV` print the session's
+# environment, tokens included, through any read verb that takes the flag. A
+# short word holding q or t is screened whole, since an attached value can
+# itself end in q or t (`-qenv|test`); one ending in q or t may also hand its
+# value to the next word, so that word is screened too.
+gh_jq_ok() {
+  local i jqv=0
+  for ((i = 2; i < cwn; i++)); do
+    if [ "$jqv" = 1 ]; then
+      ci_has "${cw[i]}" '*env*' && return 1
+      jqv=0
+    fi
+    case ${cw[i]} in
+      --jq | --template) jqv=1 ;;
+      --jq=* | --template=*) ci_has "${cw[i]}" '*env*' && return 1 ;;
+      -[qt]* | -[!-]*[qt]*)
+        ci_has "${cw[i]}" '*env*' && return 1
+        case ${cw[i]} in
+          *[qt]) jqv=1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+# gh_no_web: 0 unless a `--web`/`-w` flag is present. These read verbs print
+# to stdout, but `--web` instead launches $BROWSER, an arbitrary program when
+# inherited.
+gh_no_web() {
+  local i
+  for ((i = 2; i < cwn; i++)); do
+    case ${cw[i]} in
+      --) break ;;
+      --web | --web=*) return 1 ;;
+      --*) ;;
+      -?*) short_flag_hit "${cw[i]}" 'w' 'Hqpt' && return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# gh_no_token: 0 unless `gh auth status` carries `--show-token` or its `-t`,
+# alone or in a short bundle, which prints the token. A `t` read as part of
+# another flag's value only over-refuses.
+gh_no_token() {
+  local i
+  for ((i = 3; i < cwn; i++)); do
+    case ${cw[i]} in
+      --show* | -t* | -[!-]*t*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
 # gh: read-only gh only. A leading flag, or any non-enumerated group/sub pair,
 # defers — notably `gh pr merge` / `gh pr ready` are absent and so defer (the
-# deny block denies them regardless; the guard simply never allows them).
+# deny block denies them regardless; the guard simply never allows them). The
+# flag screens are the worker guard's, kept byte-identical.
 guard_gh() {
   case ${cw[1]-} in
     -*) return 1 ;;
   esac
   local g=${cw[1]-} s=${cw[2]-}
+  gh_jq_ok || return 1
   case $g in
     pr)
       case $s in
-        view | list | status | diff | checks) return 0 ;;
+        view | list | status | diff | checks) gh_no_web || return 1 ;;
         *) return 1 ;;
       esac
+      return 0
       ;;
     auth)
-      [ "$s" = status ] && return 0 || return 1
+      [ "$s" = status ] || return 1
+      gh_no_token || return 1
+      return 0
       ;;
     repo)
-      [ "$s" = view ] && return 0 || return 1
+      [ "$s" = view ] || return 1
+      gh_no_web || return 1
+      return 0
       ;;
     *) return 1 ;;
   esac
@@ -1747,8 +1830,8 @@ guard_rm() {
 }
 
 # mise: `mise run <task>` / `mise tasks` (and its read-only leaves) only. Any
-# pre-subcommand flag, a `--shell`/`-s` interpreter override, or another
-# subcommand defers.
+# pre-subcommand flag, a run option that changes what the task runs
+# (mise_run_args_ok), or another subcommand defers.
 guard_mise() {
   local sub=''
   local i a j leaf
@@ -1776,23 +1859,93 @@ guard_mise() {
       done
       case $leaf in
         '' | ls | info | deps) return 0 ;;
-        run) i=$j ;; # fall through to the shell-override guard on the run args
+        run) ;; # screened below from the words after `tasks`, a global option before `run` included
         *) return 1 ;;
       esac
       ;;
-    run) ;; # fall through to the shell-override guard below
+    run) ;; # fall through to the run-option screen below
     *) return 1 ;;
   esac
   # A task runs whatever its body says, a release among them, so under the
   # mission-control mode a task run reaches the prompt.
   [ "$GUARD_MODE" != mission-control ] || return 1
-  for (( ; i < cwn; i++)); do
+  mise_run_args_ok "$((i + 1))"
+}
+
+# mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
+# that changes what a task runs, turning the trusted repo-task runner into an
+# arbitrary-command runner: --shell runs the task through any
+# command, --cd takes it from another directory's config, --env loads a
+# mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
+# reads no abbreviation of a long option, but a short-flag cluster can carry
+# any of the letters (`-nC`), so a cluster holding one defers.
+mise_run_args_ok() {
+  local i
+  for ((i = $1; i < cwn; i++)); do
     case ${cw[i]} in
-      --shell | --shell=*) return 1 ;;
-      -[!-]*s* | -s*) return 1 ;;
+      --shell | --shell=* | --cd | --cd=* | --env | --env=* | --tool | --tool=*) return 1 ;;
+      -[sCEt]* | -[!-]*[sCEt]*) return 1 ;;
     esac
   done
   return 0
+}
+
+# git_driver_opt <verb> <word>: whether git can read <word> as an option that
+# runs a configured driver (`--ext-diff`, `--textconv`, `--filters`). git takes
+# any unambiguous prefix of a long option and the `--opt=value` spelling, so any
+# prefix of one matches, failing closed. `--text` and `--filter` name other
+# options exactly, except on cat-file: it has no `--text`, and git before its
+# own `--filter` reads that word as `--filters`.
+git_driver_opt() {
+  local n=${2%%=*}
+  case $n in
+    --?*) n=${n#--} ;;
+    *) return 1 ;;
+  esac
+  case $n in
+    text | filter) [ "$1" = cat-file ] || return 1 ;;
+  esac
+  [[ ext-diff == "$n"* || textconv == "$n"* || filters == "$n"* ]]
+}
+
+# git_config_write_opt <word>: whether git config can read <word> as an option
+# that writes config or opens an editor on it. git takes any unambiguous prefix
+# of a long option (`--remove-sec`), so any prefix of one matches, the
+# ambiguous ones git refuses (`--u`, `--re`, `--e`) included; a short cluster
+# carrying `e` is `-e` (`-ze`), a `-t` value holding an e included. `--comment`
+# applies only to a write, and its value can be a read flag: `git config
+# --comment --list a.b v` sets a.b.
+git_config_write_opt() {
+  local n o
+  case $1 in
+    --?*)
+      n=${1%%=*}
+      n=${n#--}
+      ;;
+    -*e*) return 0 ;;
+    *) return 1 ;;
+  esac
+  for o in add unset unset-all replace-all rename-section remove-section edit comment; do
+    [[ $o == "$n"* ]] && return 0
+  done
+  return 1
+}
+
+# git_help_req <verb>: whether the git line in cw asks for help, which opens the
+# man page through a pager or a browser, and a pager runs commands (`!cmd` in
+# less). git opens it for the `help` verb and an exact `--help` right after
+# the verb, but any word git could read as --help or --help-all, wherever it
+# sits and abbreviated or not, counts, failing closed.
+git_help_req() {
+  local i n
+  [ "$1" = help ] && return 0
+  for ((i = 1; i < cwn; i++)); do
+    n=${cw[i]%%=*}
+    case $n in
+      --?*) [[ help-all == "${n#--}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
 }
 
 # git: read-only subcommands only, no pre-subcommand global option (which can
@@ -1813,14 +1966,27 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  git_help_req "$sub" && return 1
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       for ((i = subidx + 1; i < cwn; i++)); do
         case ${cw[i]} in
-          -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
-          -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
-          --ext-diff | --textconv | --filters) return 1 ;;
+          # git takes any unambiguous prefix of a long option (`--op=<cmd>`).
+          -o | --ou* | -O | -O* | --op*) return 1 ;;
+          # `-nO<cmd>` is -n then -O with <cmd> as its value. Any O in a short
+          # cluster defers, a value holding one (`log -SOops`) included.
+          -[!-]*O*) return 1 ;;
         esac
+        git_driver_opt "$sub" "${cw[i]}" && return 1
       done
       return 0
       ;;
@@ -1839,17 +2005,37 @@ guard_git() {
       return 0
       ;;
     config)
-      local writes=0 positional=0 read_flag=0
-      for ((i = subidx + 1; i < cwn; i++)); do
+      local positional=0 read_flag=0 operands=0 first=$((subidx + 1))
+      # git reads a subcommand only as the word right after `config`; `list`
+      # takes its own options after it.
+      case ${cw[first]-} in
+        set | unset | rename-section | remove-section | edit) return 1 ;;
+        list) first=$((first + 1)) ;;
+      esac
+      for ((i = first; i < cwn; i++)); do
         a=${cw[i]}
+        git_config_write_opt "$a" && return 1
+        # git stops reading options at the first operand, `--` or
+        # `--end-of-options`, so a dashed word after it is an operand:
+        # `git config core.hooksPath -x` sets it.
+        if [ "$operands" = 1 ]; then
+          positional=$((positional + 1))
+          continue
+        fi
         case $a in
-          --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool | --name-only) read_flag=1 ;;
-          --add | --unset | --unset-all | --replace-all | --rename-section | --remove-section | -e | --edit | --set) writes=1 ;;
-          -*) ;; # scope/format flags (--global/--type/…) are read-safe
-          *) positional=$((positional + 1)) ;;
+          # Actions only: a display option such as --name-only is negatable
+          # (`--name-only --no-name-only a.b v` sets a.b).
+          --get | --get-all | --get-regexp | --get-urlmatch | --list | -l | --get-color | --get-colorbool) read_flag=1 ;;
+          # Another file parsed as config prints its `key = value` lines.
+          -f* | -[!-]*f* | --fil* | --bl*) return 1 ;;
+          -- | --end-of-options) operands=1 ;;
+          -?*) ;; # scope/format flags (--global/--type/…) are read-safe
+          *)
+            operands=1
+            positional=$((positional + 1))
+            ;;
         esac
       done
-      [ "$writes" = 1 ] && return 1
       [ "$read_flag" = 1 ] && return 0
       [ "$positional" -ge 2 ] && return 1 # `git config key value` sets
       return 0
@@ -1879,10 +2065,8 @@ guard_git() {
       return 0
       ;;
     stash)
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`.
+      return 1
       ;;
     symbolic-ref)
       local positional=0
@@ -1898,8 +2082,9 @@ guard_git() {
       return 0
       ;;
     reflog)
+      # `reflog show` arrives above as `log`.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;

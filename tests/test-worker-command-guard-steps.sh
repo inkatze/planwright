@@ -34,8 +34,24 @@ for t in declared.sh other.sh undeclared.sh pooled.sh; do
   printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/$t"
   chmod +x "$FX/repo/tools/$t"
 done
+# A declared command step naming a step script, by a link of the guard's own
+# installed copy outside scripts/ or by name in another case, with a
+# hand-timed write as its args (custom-steps REQ-G1.3 against REQ-F1.12).
+# Committed with the rest of tools/, so only the step-script reading, never
+# the committed-location rule, can refuse the upper-case one.
+ln -s "$REPO_ROOT/scripts/step-record.sh" "$FX/repo/tools/sr"
+ln -s "$REPO_ROOT/scripts/step-run.sh" "$FX/repo/tools/sn"
+printf '#!/bin/sh\nexit 0\n' >"$FX/repo/tools/STEP-RECORD.SH"
+chmod +x "$FX/repo/tools/STEP-RECORD.SH"
+STEP_WRITE='write --run 000001 --point pre-pr --step lint --start 2026-11-22T10:00:00Z --outcome passed'
+# A declared location inside the repository is held to what its commit holds:
+# HEAD, or the PR base where a session record names the repository.
+fixture_commit "$FX/repo" tools && fixture_base "$FX/repo" || exit 1
 printf '#!/bin/sh\nexit 0\n' >"$FX/bin/fixture-tool"
 chmod +x "$FX/bin/fixture-tool"
+# The sandbox is itself a checkout, and a declared location in one is held to
+# its HEAD.
+fixture_commit "$SANDBOX" "${FX#"$(cd "$SANDBOX" && pwd -P)"/}/bin" || exit 1
 DECLARED="$FX/repo/tools/declared.sh"
 OTHER="$FX/repo/tools/other.sh"
 POOLED="$FX/repo/tools/pooled.sh"
@@ -68,8 +84,35 @@ steps:
   - id: reserved
     kind: command
     target: $FX/repo/tools/gh
+  - id: linked
+    kind: command
+    target: $FX/repo/linked/declared.sh
+    args: --mode strict
+  - id: tooled
+    kind: command
+    target: $DECLARED
+    args: --with git
+  - id: stepped-link
+    kind: command
+    target: $FX/repo/tools/sr
+    args: $STEP_WRITE
+  - id: stepped-name
+    kind: command
+    target: $FX/repo/tools/STEP-RECORD.SH
+    args: $STEP_WRITE
+  - id: stepped-run
+    kind: command
+    target: $FX/repo/tools/sn
+    args: frobnicate
 YAML
-printf 'steps_pre_ci: [declared, bare, rel, pooled]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+printf 'steps_pre_ci: [declared, bare, rel, pooled, linked, tooled, stepped-link, stepped-name, stepped-run]\nsteps_post_pr: [noargs]\n' >"$FX/repo/.claude/planwright.yml"
+# A folder of the repository linked to one outside it, whose script the
+# sandbox checkout commits: spelled inside the repository, it is held to the
+# repository's HEAD, which never holds a file reached through a link.
+mkdir -p "$FX/outside"
+cp "$DECLARED" "$FX/outside/declared.sh"
+ln -s "$FX/outside" "$FX/repo/linked"
+fixture_commit "$SANDBOX" "${FX#"$(cd "$SANDBOX" && pwd -P)"/}/outside" || exit 1
 cat >"$FX/adopter/catalogs/steps.yaml" <<YAML
 steps:
   - id: traversal
@@ -101,6 +144,29 @@ assert_allow "bare target's resolved location approved" "$FX/bin/fixture-tool --
 assert_allow "declared line with no args approved" "$OTHER" Bash "$FXC"
 assert_allow "declared line chained with a known-safe segment approved" \
   "$DECLARED --mode strict && git status" Bash "$FXC"
+# A declared command-step line is a chain partner: it may come before an
+# own-unit push joined only by `&&`, never after it or by `;`.
+OU_B=planwright/flight/demo-0123abcd
+write_record "$FX/own.record" "$FXC" '' "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_allow "the own-unit push alone under a record (control)" "git push origin $OU_B" Bash "$FXC"
+assert_allow "an own-unit push after a declared line" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+assert_defer "a declared line after an own-unit push" "git push origin $OU_B && $DECLARED --mode strict" Bash "$FXC"
+assert_defer "a declared line joined to an own-unit push by ;" "$DECLARED --mode strict; git push origin $OU_B" Bash "$FXC"
+write_record "$FX/own-arm.record" "$FXC" own-branch "$OU_B"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own-arm.record")
+assert_allow "an own-unit push after a declared line under the own-branch arm" "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+# A declared step line stays a partner when a check command declares the same
+# words, even one naming a program the check-command write scan refuses.
+write_record "$FX/own-chk.record" "$FXC" '' "$OU_B"
+printf 'check_commands=%s\n' "$DECLARED --with git" >>"$FX/own-chk.record"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_allow "an own-unit push after a declared line naming git (control)" \
+  "$DECLARED --with git && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own-chk.record")
+assert_allow "a declared line also declared as a check command still partners" \
+  "$DECLARED --with git && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The declarations resolve from the payload cwd, so after a `cd` a declared
 # line's relative args would name other files than the ones declared.
 # Regression-only here: this catalog's relative step already fails to resolve
@@ -117,6 +183,26 @@ assert_defer "path target with a traversal segment deferred" \
 assert_defer "declared line chained with an unsafe segment deferred" \
   "$DECLARED --mode strict; rm -rf x" Bash "$FXC"
 assert_defer "declared line with a write redirect deferred" "$DECLARED --mode strict > out" Bash "$FXC"
+# The declaration names a file, not its content: an edit the worker has not
+# committed takes the line back to a prompt, and putting it back restores it.
+cp "$DECLARED" "$FX/declared.orig"
+printf 'printf pwned\n' >>"$DECLARED"
+assert_defer "a declared location edited since HEAD deferred" "$DECLARED --mode strict" Bash "$FXC"
+cp "$FX/declared.orig" "$DECLARED"
+assert_allow "the declared location put back approved again" "$DECLARED --mode strict" Bash "$FXC"
+# Under a record naming the repository, an edit the worker commits is still
+# its own: the location is held to the base, which has not moved.
+printf 'printf pwned\n' >>"$DECLARED"
+fixture_commit "$FX/repo" tools/declared.sh || exit 1
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_defer "a declared location the worker edited and committed, under a record, deferred" \
+  "$DECLARED --mode strict" Bash "$FXC"
+cp "$FX/declared.orig" "$DECLARED"
+fixture_commit "$FX/repo" tools/declared.sh || exit 1
+assert_allow "the base's bytes committed back, under a record, approved" "$DECLARED --mode strict" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
+assert_defer "a declared location behind a symlinked repository folder deferred" \
+  "$FX/repo/linked/declared.sh --mode strict" Bash "$FXC"
 assert_defer "declared line behind a non-context assignment deferred" \
   "LD_PRELOAD=/x.so $DECLARED --mode strict" Bash "$FXC"
 assert_defer "declared line behind a context assignment carrying an expansion deferred" \
@@ -160,6 +246,22 @@ assert_defer "a context prefix with a non-hex head deferred" \
   "$(ctx_prefix task 7 12 post-pr "$(printf 'g%.0s' $(seq 1 40))" '') $DECLARED --mode strict" Bash "$FXC"
 assert_defer "the ten-field prefix without the head fields deferred" \
   "$(ctx_prefix task 7 12 pre-ci | sed "s/ PLANWRIGHT_STEP_PREV_HEAD='' PLANWRIGHT_STEP_NEW_HEAD=''//") $DECLARED --mode strict" Bash "$FXC"
+# A declared step line naming a step script falls to the step-script rules, so
+# its hand-timed write prompts however the declaration spells it.
+assert_defer "F1.12: a declared step through a link of the installed step-record.sh" \
+  "$FX/repo/tools/sr $STEP_WRITE" Bash "$FXC"
+assert_defer "F1.12: the same step behind the full context prefix" \
+  "$(ctx_prefix task 7 12 pre-ci) $FX/repo/tools/sr $STEP_WRITE" Bash "$FXC"
+assert_defer "F1.12: a declared step naming step-record.sh in upper case" \
+  "$FX/repo/tools/STEP-RECORD.SH $STEP_WRITE" Bash "$FXC"
+assert_defer "F1.12: a declared step through a link of the installed step-run.sh" \
+  "$FX/repo/tools/sn frobnicate" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60" "PLANWRIGHT_WORKER_SESSION_RECORD=$FX/own.record")
+assert_defer "F1.12: a declared step through the link before an own-unit push" \
+  "$FX/repo/tools/sr $STEP_WRITE && git push origin $OU_B" Bash "$FXC"
+assert_allow "F1.12: a declared line naming no step script still partners (control)" \
+  "$DECLARED --mode strict && git push origin $OU_B" Bash "$FXC"
+HOOK_ENV=("${FX_ENV[@]}" "PLANWRIGHT_GUARD_STEPS_DEADLINE=60")
 # The hold mark: one optional trailing assignment after the twelve, as the
 # resolver renders it for a pooled step, and only for the pool that step
 # declares.
@@ -270,6 +372,7 @@ assert_defer "REQ-A1.11: a declared line a deny rule matches deferred" "$DECLARE
 # absolute path as a declared step names it (REQ-F1.5); the read-only form
 # of the same program still approves, so the refusal is the floor's.
 cp "$DECLARED" "$FX/repo/tools/gh"
+fixture_commit "$FX/repo" tools/gh || exit 1
 stub_reserved() {
   stub_scripts "$1"
   cat >"$1/scripts/resolve-steps.sh" <<STUB

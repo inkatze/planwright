@@ -17,7 +17,8 @@
 #   4. Seed the manifest with your last released version.
 #   5. Wire your signed publish step: after merge, the release is published by
 #      your human-gated `scripts/release-publish.sh` (planwright core), never
-#      by CI. This workflow is PROPOSAL-ONLY.
+#      by CI. This workflow is PROPOSAL-ONLY. Merging the release PR stays a
+#      human act unless you enable the `release` class in `auto_merge_classes`.
 #
 # This template assumes GitHub Actions as the forge. release-please computes
 # the next SemVer from conventional commits and maintains ONE standing release

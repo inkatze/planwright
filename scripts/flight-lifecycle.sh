@@ -282,9 +282,11 @@ cmd_push() {
 }
 
 # registry_death <handle> — the death handle of the handle's latest registry
-# record, empty when it has none (the registry writes `-` for an absent one).
+# record, empty when it has none (the registry writes `-` for an absent one);
+# 1 when the registry cannot be read.
 registry_death() {
-  /bin/sh "$STATE" registry 2>/dev/null </dev/null | awk -F "$TAB" -v h="$1" '
+  _rd_reg=$(/bin/sh "$STATE" registry 2>/dev/null </dev/null) || return 1
+  printf '%s\n' "$_rd_reg" | awk -F "$TAB" -v h="$1" '
     $2 == h { last = $7 } END { if (last != "-") print last }'
 }
 
@@ -422,7 +424,10 @@ supervise_one() {
     printf 'failed\t%s\t%s\n' "$id" "no private flight directory under the fleet home"
     return 0
   fi
-  death=$(registry_death "$handle")
+  if ! death=$(registry_death "$handle"); then
+    printf 'failed\t%s\t%s\n' "$id" "the registry could not be read to count the crash by"
+    return 0
+  fi
   if [ -z "$death" ] || has_ctl "$death"; then
     printf 'failed\t%s\t%s\n' "$id" "the registry holds no death handle to count the crash by"
     return 0

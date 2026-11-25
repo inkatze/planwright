@@ -161,6 +161,21 @@ else
   fail "a POSIX sh source left PLANWRIGHT_ROOT='$out'"
 fi
 
+# 5b. A launched worker's session variables are on the cleared list: a suite
+#     run inside a headless worker otherwise sees the dispatch seam refuse
+#     tmux and the worker guard allow a bare mktemp.
+for v in PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_BACKEND \
+  PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_MESSAGING_INBOUND \
+  PLANWRIGHT_SESSION_HANDLE; do
+  # shellcheck disable=SC2016
+  out=$(env "$v=/decoy" /bin/bash -c '. "$1/lib/hermetic-env.sh"; eval "printf %s \"\${$2-unset}\""' _ "$here" "$v")
+  if [ "$out" = unset ]; then
+    pass "sourcing clears the inherited worker session variable $v"
+  else
+    fail "sourcing left the worker session variable $v='$out'"
+  fi
+done
+
 # 6. The names are the cleared and pinned lists, once each.
 # shellcheck disable=SC2016
 out=$(/bin/bash -c '. "$1/lib/hermetic-env.sh"; hermetic_env_names' _ "$here")

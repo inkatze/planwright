@@ -47,7 +47,8 @@ Usage:
 repositories, proved from that repository's own git directory, never from
 the worktree's .git file alone. This script's git calls on the worktree
 name that git directory, and every git call that reads the worktree, the
-removal's included, runs with core.fsmonitor and hooks off. The
+removal's included, runs with the worktree's fsmonitor, hooks, filters,
+diff and merge drivers and signature programs off. The
 predicate's arms, each refusing on its own:
   live-user      a process the reclaim can see has its working directory
                  in the worktree, or the process table will not show even
@@ -148,9 +149,10 @@ refuse() { # refuse <arm> <detail>
 }
 
 # g <args...>: git against the proved worktree, with the repository's git
-# directory named and the worktree-steerable exec hooks off.
+# directory named and the worktree's own exec hooks, filters, diff drivers and
+# signature programs off.
 g() {
-  git --git-dir="$GITDIR" --work-tree="$WT" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
+  (mc_untrusted_git_env "$GITDIR" && git --git-dir="$GITDIR" --work-tree="$WT" "$@")
 }
 
 # parse_paths <raw>: an inline list of worktree-relative paths, one per
@@ -478,9 +480,7 @@ trap '' HUP INT TERM
 CREATED='' MADE=''
 set -- worktree "$WT" "mission-control reclaim" "program $PROGRAM: $PR_STATE PR #$PR_NUM, $n audit file(s) backed up"
 [ -z "$MERGED_PR" ] || set -- "$@" --merged-pr "$MERGED_PR"
-fc_err=$(cd "$MAIN" && GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
-  GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null \
-  /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
+fc_err=$(cd "$MAIN" && /bin/sh "$script_dir/fleet-cleanup.sh" "$@" 2>&1 >/dev/null </dev/null)
 fc_rc=$?
 if [ "$fc_rc" != 0 ] && [ "$fc_rc" != 6 ]; then
   refuse removal "fleet-cleanup exit $fc_rc, copies kept: $(printf '%s' "$fc_err" | tail -n 1)"

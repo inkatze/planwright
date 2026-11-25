@@ -1,7 +1,7 @@
 # Human gates — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-05
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -89,6 +89,14 @@ authorization (the operator's merge of the release PR, or an enabled release
 class) with its Human gate kind, and the composition-contract row naming the
 release tool and the relayed release session, failing on a fixture copy
 without them (Task 20).
+
+### REQ-A1.11 — The draft-rewrite policy row [test]
+
+The doctrine test's kind check passes with a Policy row naming
+`draft_rewrite`, its `deny` default, and the REQ-F1.8 helper, the
+force-push row naming it as the one exception, and the floor sentence
+naming it, each by fixed string, failing on a fixture copy without them
+(Task 21).
 
 ## REQ-B — Sign-off at the approval act
 
@@ -360,7 +368,7 @@ local-main mutation (Task 6, Task 10).
 
 ## REQ-F — History rewriting
 
-### REQ-F1.1 — Never-pushed rewrite [test]
+### REQ-F1.1 — Never-pushed rewrite [test] (superseded by REQ-F1.6)
 
 The guard admits an amend of a commit no remote-tracking ref contains on
 the unit branch under `allow` and denies it under `deny`; it denies one a
@@ -368,14 +376,14 @@ remote ref contains, one whose upstream refresh fails, and one on a branch
 with no upstream; off-branch attempts deny, including an amend of an
 unpushed commit on a `planwright/*/spec` branch (Task 4, Task 6).
 
-### REQ-F1.2 — Operator-requested force-push [manual + test]
+### REQ-F1.2 — Operator-requested force-push [manual + test] (superseded by REQ-F1.7)
 
 The tower-queue tests refuse a standing decision covering a force-push and
 refuse main, protected, and spec targets; the confirmation passes
 `check-confirmation.sh`; one recorded live run shows the warning, the yes,
 and the push (Task 11).
 
-### REQ-F1.3 — The repair path named [test + manual]
+### REQ-F1.3 — The repair path named [test + manual] (superseded by REQ-F1.10)
 
 A CI grep fixture asserts the reporting skill's gate-failure handoff names
 the tower reword path; the on-demand `eval:skill` run, recorded by the
@@ -397,6 +405,83 @@ naming only a feature branch leaving `main` still refused, a
 matching a two-segment middle, a malformed value denying the act, and no
 host call in the guard's stubbed call log (Task 4, Task 5, Task 6).
 
+### REQ-F1.6 — Reshaping pushed commits on a draft branch [test]
+
+With the session record's `draft_rewrite` absent or `deny`, every REQ-F1.1
+case holds unchanged (Task 4, Task 6). With `allow`, the guard admits an
+amend, squash, fixup, rebase, or `git pull --rebase` of a range holding a
+pushed commit on the own unit branch, and refuses it on main, `master`, a
+spec branch, a `protected_branches` entry, another unit's branch, a record
+naming another launcher, a range holding a commit another remote ref
+contains, a rebase onto a branch other than the PR base or the branch's
+own remote branch (the record's `pr_base`), a mixed range under
+`unpushed_rewrite: deny`, with no upstream, and on a failed refresh; an
+allowing record an environment variable names does not stand in for the
+one at the worktree's own path; a repo-tracked or environment value
+leaves the recorded value `deny`, an adopter or machine-local one records
+`allow`; the stubbed call log shows no host call (Task 21).
+
+### REQ-F1.7 — Force-push paths [manual + test + design-level]
+
+Every REQ-F1.2 case holds unchanged (Task 11). The cross-copy fixture keeps
+every raw force-push spelling and `+` refspec denied for every tier
+(Task 21). That the operator's own instructions narrow either path is a
+precedence statement no guard reads [design-level].
+
+### REQ-F1.8 — The leased draft-branch push [test]
+
+A fixture worker whose record carries `draft_rewrite=allow` and mission
+control as launcher, with one open same-repository draft PR, pushes its
+rewritten unit branch through the helper with the pre-rewrite lease and
+`--force-if-includes`, printing the replaced commits and appending the
+audit line. The helper refuses, pushing nothing, under `deny`, for a
+record naming another launcher or none, an unreadable or malformed
+record, an environment variable naming another record, a ready PR, no PR,
+two PRs, a cross-repository PR, a PR based on the branch, a failed or
+unreadable host read, a `GH_REPO` or config override in the environment,
+an unrecorded or protected branch, a lease naming another branch, a lease
+that is not a full commit id or that the branch's reflog never recorded,
+a missing reflog, a missing `--force-if-includes`, any remote, refspec,
+`+` form, or extra option, a replaced commit by another author, a branch
+another worktree or session holds, and a dirty tree; a remote moved past
+the lease yields the shared report and no second push. The policy guard
+admits only the installed copy in its literal grammar, and denies the
+worker's deletion of its own unit branch on the remote by `:<branch>`,
+`--delete`, `-d`, and the `gh api` REST and GraphQL `deleteRef` forms
+(Task 21).
+
+### REQ-F1.9 — The refusal names the setting [test + design-level]
+
+A refusal only for want of the knob carries the act, the repository, the
+exact `draft_rewrite: allow` line, the REQ-F1.11 command, and the
+next-launch effect; a refusal for any other reason carries no enable
+line; the launch brief fixture tells the worker to report it as an
+operator item (Task 22). Deduplication, the recorded "no", and the
+bring-up and doctor listing are mission control's, by the routed Deferred
+bullet [design-level].
+
+### REQ-F1.10 — The repair path that applies [test + manual]
+
+The CI grep fixture asserts the reporting skill's gate-failure handoff
+names the draft-branch path while the PR is a draft and the record
+allows, and the tower path otherwise, and that the helper's handoff names
+a re-identified legacy checklist item; the on-demand `eval:skill` run,
+recorded by the executing worker, shows a range-lint failure handoff
+naming one (Task 21).
+
+### REQ-F1.11 — The one-repository enable command [test]
+
+In a fixture repository the command adds the line to an absent and an
+existing file, replaces an existing `draft_rewrite` line, keeps every
+other line byte for byte and the file's mode, appends the audit line, and
+refuses, writing nothing, an unparseable file, a linked worktree, a
+non-repository, a symlink in the path, a file another user owns, and an
+unignored target, and writes no other layer; the policy guard denies it,
+and a Bash write of a `draft_rewrite` line, for the worker, tower, and
+kickoff tiers, through a `cd` prefix and a wrapper too; the worker command
+guard defers it (Task 22). Mission control's admission is the routed
+amendment's to test.
+
 ## REQ-G — Guards and profiles
 
 ### REQ-G1.1 — One spelling list, every copy [test] (superseded by REQ-G1.10)
@@ -417,7 +502,7 @@ spelling; an unresolvable knob denies; the merge helper's flip call is
 admitted under every flip value; a session with no tier profile gets defer
 on every policy spelling (Task 6).
 
-### REQ-G1.3 — The floor stays in the profiles [test]
+### REQ-G1.3 — The floor stays in the profiles [test] (superseded by REQ-G1.14)
 
 The wiring tests assert every profile-expressible floor entry (main,
 `master`, spec-branch mutation, direct PR-merge spellings, force-push, the
@@ -534,6 +619,15 @@ name the cross-copy floor-line cases for the kickoff tier's spec-branch
 push and the release tier's fast-forward [design-level]; the unchanged
 REQ-G1.10 cases keep passing in `mise run check` [test] (the existing
 cross-copy suite).
+
+### REQ-G1.14 — The floor stays whole beside the helper's push [test]
+
+Every REQ-G1.3 case holds unchanged (Task 6, Task 9). The wiring tests
+assert the force-push deny is still present in every profile after Task
+21 and that the worker command guard approves the installed helper; the
+helper's own suite pins its fail-closed re-read of the record's
+`draft_rewrite` and its refusal of an unreadable or malformed record; the
+guard suite pins the deletion deny (Task 21).
 
 ## REQ-H — Prose surfaces
 

@@ -57,6 +57,17 @@ assert_allow "reads piped into jq" "gh pr view 5 --json state | jq -r .state" Ba
 TMPC=$(cd -P /tmp && pwd -P)
 assert_allow "cd /tmp then reads" "cd $TMPC; gh pr view 5 --json state; gh pr checks 5" Bash "$WT"
 assert_defer "gh search with --web" "gh search code foo --web" Bash "$WT"
+assert_defer "gh repo view with --web" "gh repo view --web" Bash "$WT"
+assert_defer "gh repo view with --web=true" "gh repo view o/r --web=true" Bash "$WT"
+assert_defer "gh repo view with -w" "gh repo view o/r -w" Bash "$WT"
+assert_allow "gh repo view --json name" "gh repo view o/r --json name" Bash "$WT"
+assert_allow "gh auth status --json" "gh auth status --json hosts" Bash "$WT"
+assert_allow "gh repo view of the current repo" "gh repo view" Bash "$WT"
+assert_allow "gh repo view --json" "gh repo view o/r --json name,url" Bash "$WT"
+for c in 'gh repo view --web' 'gh repo view -w' 'gh repo view o/r --web' 'gh repo view o/r -w' \
+  'gh repo view --web=true' 'gh repo view o/r -bmain -w'; do
+  assert_defer "gh repo view opening the browser: $c" "$c" Bash "$WT"
+done
 assert_defer "gh search commits unlisted" "gh search commits foo" Bash "$WT"
 assert_defer "gh pr merge" "gh pr merge 5 --squash" Bash "$WT"
 assert_defer "gh pr ready" "gh pr ready 5" Bash "$WT"
@@ -101,6 +112,53 @@ case $OSTYPE in
   *) assert_defer "sed -i a workflow file (BSD sed reads the path as a script)" "sed -i s/a/b/ .github/workflows/ci.yml" Bash "$WT" ;;
 esac
 assert_allow "perl -pi a tracked file" "perl -pi -e 's/a/b/' f" Bash "$WT"
+# The zsh screen reads each script word's own flags with the -i word set aside:
+# a zsh-unsafe script defers after -i exactly as it does without it.
+assert_allow "sed -i -e a tracked file" "sed -i -e s/a/b/ f" Bash "$WT"
+assert_allow "sed -i with two read-only -e scripts" "sed -i -e 1p -e s/a/b/ f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script (~)" "sed -i 1~2d f" Bash "$WT"
+assert_defer "sed -i -e a zsh-unsafe script (~)" "sed -i -e 1~2d f" Bash "$WT"
+assert_defer "sed -i --expression= a zsh-unsafe script" "sed -i --expression=1~2d f" Bash "$WT"
+assert_defer "sed --in-place a zsh-unsafe script" "sed --in-place 1~2d f" Bash "$WT"
+assert_defer "sed --in-place -e a zsh-unsafe script" "sed --in-place -e 1~2d f" Bash "$WT"
+assert_defer "sed a zsh-unsafe -e script before -i" "sed -e 1~2d -i f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script (^)" "sed -i 1^2p f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script (#)" "sed -i s/a#/b/ f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe second -e script" "sed -i -e 1p -e 1~2d f" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, tracked-variable file" "X=f && sed -i 1~2d \$X" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, unresolved variable file" "sed -i 1~2d \$X" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, glob file" "sed -i 1~2d f*" Bash "$WT"
+assert_defer "sed -i a zsh-unsafe script, substituted file" "sed -i -e 1~2d \$(echo f)" Bash "$WT"
+assert_defer "sed -i a substituted file" "sed -i 1p \"\$(id)\"" Bash "$WT"
+assert_defer "sed -i a parameter-expanded file" "sed -i 1p \$HOME/x" Bash "$WT"
+assert_defer "sed -i a glob file" "sed -i 1p *" Bash "$WT"
+assert_defer "sed -i -e a substituted file" "sed -i -e 1p \$(echo f)" Bash "$WT"
+assert_defer "sed -i a substituted script" "sed -i -e \"\$(echo 1p)\" f" Bash "$WT"
+assert_defer "sed -i a file after a zsh-unsafe file" "sed -i 1p f~x g" Bash "$WT"
+# With a script from -e, sed reads every bare word as a file, and after `--`
+# every word; each one must be screened as a file, never taken as the script.
+assert_defer "sed -i an outside file before -e" "sed -i ../outside/x -e 1p f" Bash "$WT"
+assert_defer "sed -i an outside file before --expression=" "sed -i ../outside/x --expression=1p f" Bash "$WT"
+assert_defer "sed -i an absolute outside file before -e" "sed -i /tmp/p -e 1p f" Bash "$WT"
+assert_defer "sed -i an outside file after -- -e" "sed -i 1p -- -e ../outside/x f" Bash "$WT"
+assert_defer "sed -i -e after a file" "sed -i 1p f -e 1p g" Bash "$WT"
+assert_defer "sed -i a flag after a file" "sed -i 1p f -n" Bash "$WT"
+assert_defer "sed -i --expression= after a file" "sed -i 1p f --expression=1p" Bash "$WT"
+assert_defer "sed -i -- after a file" "sed -i 1p f -- g" Bash "$WT"
+assert_defer "sed -i a second -i after a file" "sed -i 1p f -i" Bash "$WT"
+assert_defer "sed -i a -i after --" "sed -i -- -i 1p f" Bash "$WT"
+assert_allow "sed -n -i a tracked file" "sed -n -i 1p f" Bash "$WT"
+assert_allow "sed -i two tracked files" "sed -i s/a/b/ f g" Bash "$WT"
+case $OSTYPE in
+  linux*)
+    assert_allow "sed -i -- a tracked file" "sed -i -- 1p f" Bash "$WT"
+    assert_allow "sed -i -e then -- a tracked file" "sed -i -e 1p -- f" Bash "$WT"
+    assert_allow "sed -i a script then -- a tracked file" "sed -i s/a/b/ -- f" Bash "$WT"
+    assert_allow "sed -i a script then -- two tracked files" "sed -i 1p -- f g" Bash "$WT"
+    ;;
+esac
+assert_defer "sed -i a second -- after the script" "sed -i s/a/b/ -- -- f" Bash "$WT"
+assert_defer "sed -i -e after a script and --" "sed -i s/a/b/ -- -e 1p f" Bash "$WT"
 assert_defer "sed -i a file in .git" "sed -i s/a/b/ .git/config" Bash "$WT"
 assert_defer "sed -i a hook" "sed -i s/a/b/ githooks/pre-commit" Bash "$WT"
 assert_defer "sed -i under .claude" "sed -i s/a/b/ .claude/settings.json" Bash "$WT"
@@ -147,6 +205,29 @@ assert_defer "perl -pi with two statements" "perl -pi -e 's/a/b/;system(1)' f" B
 assert_defer "perl -e alone" "perl -e 's/a/b/' f" Bash "$WT"
 assert_defer "perl running a script" "perl x.pl" Bash "$WT"
 assert_defer "perl -pi with no file" "perl -pi -e 's/a/b/'" Bash "$WT"
+# Every word in the file position exists as a regular file, so a missing file
+# never explains a defer: perl reads a dash-led word as an option, and a second
+# -e runs its next word. The dash-less twins prove the dash is what defers.
+OPTLIKE=(-e 'system(1)' -MO=Deparse -i.bak -- - e i.bak)
+for n in "${OPTLIKE[@]}"; do
+  printf 'a\n' >"$WT/$n" && [ -f "$WT/$n" ] || {
+    echo "FAIL: could not create the perl fixture $n" >&2
+    exit 1
+  }
+done
+assert_allow "perl -pi a file named like -e without its dash" "perl -pi -e 's/a/b/' e" Bash "$WT"
+assert_allow "perl -pi a file named like -i.bak without its dash" "perl -pi -e 's/a/b/' i.bak" Bash "$WT"
+assert_defer "perl -pi with a second -e in the file position" "perl -pi -e 's/a/b/' -e 'system(1)'" Bash "$WT"
+assert_defer "perl -pi with -e after a file" "perl -pi -e 's/a/b/' f -e 'system(1)'" Bash "$WT"
+assert_defer "perl -pi with a module option in the file position" "perl -pi -e 's/a/b/' -MO=Deparse f" Bash "$WT"
+assert_defer "perl -pi with a backup suffix in the file position" "perl -pi -e 's/a/b/' -i.bak f" Bash "$WT"
+assert_defer "perl -pi with -- in the file position" "perl -pi -e 's/a/b/' -- -e" Bash "$WT"
+assert_defer "perl -pi with - in the file position" "perl -pi -e 's/a/b/' -" Bash "$WT"
+assert_allow "perl -pi an ordinary file beside option-named files" "perl -pi -e 's/a/b/' f" Bash "$WT"
+for n in "${OPTLIKE[@]}"; do
+  rm -f -- "${WT:?}/$n"
+done
+assert_allow "perl -pi two ordinary files" "perl -pi -e 's/a/b/' f g" Bash "$WT"
 HOOK_ENV=()
 assert_defer "perl -pi without the own-branch arm" "perl -pi -e 's/a/b/' f" Bash "$WT"
 
@@ -286,6 +367,13 @@ assert_defer "scoped: git -C /etc" "cd $WT; git -C /etc log -1" Bash "$WT"
 assert_defer "scoped: git diff --ext-diff" "cd $WT; git diff --ext-diff main" Bash "$WT"
 assert_defer "scoped: git log --textconv" "cd $WT; git log -p --textconv -1" Bash "$WT"
 assert_defer "scoped: git show --textconv" "cd $WT; git show --textconv HEAD" Bash "$WT"
+assert_defer "scoped: git -C the worktree, diff --ext" "cd $WT; git -C $WT diff --ext main" Bash "$WT"
+assert_defer "scoped: git -C the worktree, log --textc" "cd $WT; git -C $WT log -p --textc -1" Bash "$WT"
+assert_defer "scoped: git -C the worktree, show --textconv=1" "cd $WT; git -C $WT show --textconv=1 HEAD" Bash "$WT"
+assert_allow "scoped: git -C the worktree, log --text" "cd $WT; git -C $WT log -p --text -1" Bash "$WT"
+assert_defer "scoped: git -C the worktree, config --remove-sec" "cd $WT; git -C $WT config --global --remove-sec core" Bash "$WT"
+assert_defer "scoped: git -C the worktree, log --help opens a pager" "cd $WT; git -C $WT log --help" Bash "$WT"
+assert_defer "scoped: git show --hel, read as --help, fails closed" "cd $WT; git show --hel HEAD" Bash "$WT"
 assert_defer "scoped: git diff --no-index on a sibling TMPDIR" "cd $WT; git diff --no-index $OTHER_TMP/diff.patch f" Bash "$WT"
 assert_defer "scoped: git with an unresolved word" "cd $WT; git log \$X" Bash "$WT"
 assert_defer "scoped: git with a glob" "cd $WT; git diff main -- *" Bash "$WT"

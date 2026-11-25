@@ -101,6 +101,18 @@ else
   fail "the operator-asked launch past the host bound exited $RC: $ERR"
 fi
 
+# Launches in the same second are ordered by their reservation, not by the
+# clock or their random names: a launch counts every session reserved before
+# it. Pushing the earlier rows' launch time past this launch stands for a fast
+# host that lands two sequential launches in one second.
+for same_row in "$capreg"/mc-alpha-*; do
+  [ -f "$same_row" ] || continue
+  sed "s/^launched${TAB}.*/launched${TAB}99999999999/" "$same_row" >"$same_row.tmp.sed" && mv "$same_row.tmp.sed" "$same_row"
+done
+cap_launch same-second
+[ "$RC" = 4 ] && ok "a launch counts earlier sessions however their launch times compare" \
+  || fail "earlier sessions with a later launch time were not counted against the bound (exit $RC): $ERR"
+
 # A mission-control launch is never held by the bound.
 SHIM_RECORD_DIR="$tmp/rec-cap-mc" ml_cap launch --program alpha --kind mission-control --scope cap-mc --brief "$tmp/brief.md"
 [ "$RC" = 0 ] && ok "a mission-control launch is not held by the host-wide bound" || fail "a mission-control launch under the bound exited $RC: $ERR"
@@ -147,6 +159,56 @@ set_cap lots
 cap_launch malformed
 [ "$RC" -ne 0 ] && ok "a malformed bound refuses the launch" || fail "a malformed bound let a launch through"
 
+# A kind whose profile runs no tests or builds (the tower profile) is never
+# held by the bound, so a host full of heavy units still takes a cheap
+# read-only session; every kind under the worker profile stays held, and the
+# exemption leaves no bypass event.
+kind_launch() { # <kind> <scope> [extra launch args...]
+  kl_kind=$1
+  kl_scope=$2
+  shift 2
+  rec="$tmp/rec-cap-$kl_kind-$kl_scope"
+  mkdir -p "$rec"
+  SHIM_RECORD_DIR=$rec ml_cap launch --program alpha --kind "$kl_kind" --scope "$kl_scope" --brief "$tmp/brief.md" --cwd "$repo" "$@"
+}
+# An exempt kind never reads the bound, so the malformed value above leaves
+# it free to launch.
+kind_launch tower light-malformed
+if [ "$RC" = 0 ]; then
+  ok "a malformed bound does not refuse an exempt kind"
+  wait_done "$(field name)"
+else
+  fail "a tower launch under a malformed bound exited $RC: $ERR"
+fi
+set_cap 2
+for light_kind in tower orchestrator; do
+  kind_launch "$light_kind" "light-$light_kind"
+  if [ "$RC" = 0 ]; then
+    ok "a $light_kind launch is not held by a full host"
+    wait_done "$(field name)"
+  else
+    fail "a $light_kind launch on a full host exited $RC: $ERR"
+  fi
+done
+# With --operator-asked a held kind records a bypass; an exempt one is never
+# held, so it records none.
+kind_launch tower light-asked --operator-asked
+light_name=$(field name)
+wait_done "$light_name"
+ml_out=$(cd "$repo" && env PLANWRIGHT_FLEET_STATE_DIR="$fleet" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" HOME="$fixhome" \
+  /bin/bash "$repo_root/scripts/mc-event.sh" list --program alpha)
+case $ml_out in
+  *"${TAB}host-cap-bypass${TAB}$light_name${TAB}"*) fail "an operator-asked launch of an exempt kind recorded a host-cap-bypass event: $ml_out" ;;
+  *"${TAB}host-cap-bypass${TAB}"*) [ "$RC" = 0 ] && ok "an exempt kind records no bypass event even when operator-asked" || fail "the operator-asked tower launch exited $RC: $ERR" ;;
+  *) fail "the event list holds no earlier bypass, so the lookup measures nothing: $ml_out" ;;
+esac
+for heavy_kind in worker reviewer ad-hoc; do
+  kind_launch "$heavy_kind" "heavy-$heavy_kind"
+  case $ERR in
+    *fleet_host_max_live_workers*) [ "$RC" = 4 ] && ok "a $heavy_kind launch is still held by a full host" || fail "a $heavy_kind launch on a full host exited $RC: $ERR" ;;
+    *) fail "a $heavy_kind launch on a full host was not refused by the bound (exit $RC): $ERR" ;;
+  esac
+done
 # ---------------------------------------------------------------------------
 # A session that is only waiting (on the operator, on CI, on a ready flip)
 # stops counting toward the host-wide bound, its state recorded on its row,
@@ -221,10 +283,29 @@ case $(cat "$capreg/$w1") in
 esac
 [ "$(grep -c "^waiting${TAB}" "$capreg/$w1")" = 1 ] && ok "a row holds one waiting field" || fail "a row holds several waiting fields"
 
+# The wait's epoch: written with it, kept when the same reason is marked
+# again (a repeated wait must not restart a park), renewed with a new reason.
+waited_of() { awk -F '\t' '$1 == "waited" { print $2 }' "$capreg/$w1"; }
+w_now=$(date +%s)
+w_at=$(waited_of)
+if [ "$(grep -c "^waited${TAB}" "$capreg/$w1")" = 1 ] && [ -n "$w_at" ] && [ $((w_now - w_at)) -ge 0 ] && [ $((w_now - w_at)) -le 60 ]; then
+  ok "a wait records the epoch it was set"
+else
+  fail "the row's waited field: $(cat "$capreg/$w1")"
+fi
+awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "waited" { $2 = 1000 } { print }' "$capreg/$w1" >"$capreg/$w1.new" && mv -f "$capreg/$w1.new" "$capreg/$w1"
+ml wait "$w1" --on ready-flip
+[ "$(waited_of)" = 1000 ] && ok "marking the same reason again keeps its epoch" || fail "a repeated wait moved its epoch: $(waited_of)"
+ml wait "$w1" --on operator
+w_at=$(waited_of)
+[ -n "$w_at" ] && [ "$w_at" -gt 1000 ] && ok "a new reason takes a new epoch" || fail "a new reason kept the old epoch: $(waited_of)"
+[ "$(grep -c "^waited${TAB}" "$capreg/$w1")" = 1 ] && ok "a row holds one waited field" || fail "a row holds several waited fields"
+
 ml unwait "$w1"
 [ "$RC" = 0 ] && ok "unwait returns a worker to the count" || fail "unwait exited $RC: $ERR"
 [ "$OUT" = "wait${TAB}${w1}${TAB}working" ] && ok "unwait prints its name and the working state" || fail "unwait printed: $OUT"
 grep -q "^waiting${TAB}" "$capreg/$w1" && fail "unwait left the waiting field" || ok "unwait clears the waiting field"
+grep -q "^waited${TAB}" "$capreg/$w1" && fail "unwait left the waited field" || ok "unwait clears the waited field"
 cmp -s "$capreg/$w1" "$fleet/streamjson/$w1/launcher-row" \
   && ok "the kept copy of the row follows wait and unwait" \
   || fail "the kept copy of the row went stale after wait or unwait"

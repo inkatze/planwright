@@ -97,14 +97,21 @@ corpus_sandbox() {
   # A worker's worktree is a linked one, so its .git is a file, and its unit
   # branch sits on a base that resolves as origin/main. The other branch and
   # the sibling repository exist so rows naming them are judged on a real
-  # target rather than a missing one.
+  # target rather than a missing one. The base commits the repository scripts
+  # and bats file the rows run, since the guard trusts only what origin/main
+  # commits in the recorded worktree.
   {
     corpus_git_env init -q --bare "$box/origin.git" \
       && corpus_git_env init -q "$main" \
       && corpus_git_env init -q "$box/other" \
       && corpus_git_env -C "$main" symbolic-ref HEAD refs/heads/main \
+      && mkdir -p "$main/scripts" "$main/tests" \
+      && : >"$main/scripts/ok.sh" \
+      && : >"$main/tests/ok.sh" \
+      && : >"$main/tests/ok.bats" \
+      && corpus_git_env -C "$main" add scripts tests \
       && corpus_git_env -C "$main" -c user.name=corpus -c user.email=corpus@example.invalid \
-        -c commit.gpgsign=false commit -q --allow-empty -m init \
+        -c commit.gpgsign=false commit -q -m init \
       && corpus_git_env -C "$main" branch other \
       && corpus_git_env -C "$main" remote add origin "$box/origin.git" \
       && corpus_git_env -C "$main" push -q origin main other \
@@ -129,9 +136,6 @@ corpus_sandbox() {
       && printf '### REQ-A1.1\n' >"$wt/specs/demo/test-spec.md" \
       && printf 'msg\n' >"$wt/build/msg.txt" \
       && : >"$wt/build/a" \
-      && : >"$wt/scripts/ok.sh" \
-      && : >"$wt/tests/ok.sh" \
-      && : >"$wt/tests/ok.bats" \
       && : >"$wt/mise.toml" \
       && : >"$wt/mise.local.toml" \
       && : >"$wt/lefthook.yml" \

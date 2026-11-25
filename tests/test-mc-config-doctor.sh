@@ -329,21 +329,21 @@ rm -f "$mlocal"
 cfg doctor --program drift
 expect_eq "REQ-A1.9: drift: no rules and no local layer is clean" "clean"
 
-mc_run mc-rules.sh add drift --text "Mission control hands over to a fresh successor every time its context passes 40%." --subject handover --source "operator, fixture" --date 2026-01-01
+mc_run mc-rules.sh add drift --text "Mission control hands over to a fresh successor every time its context passes 50%." --subject handover --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Keep mission_control_stall_window at 10m." --subject stall --source "operator, fixture" --date 2026-01-01
 mc_run mc-rules.sh add drift --text "Hand over the program notes at the end of each week, with 3 sections." --subject notes --source "operator, fixture" --date 2026-01-01
 cfg doctor --program drift
 expect_rc "REQ-A1.9: drift: doctor with rules reports findings as data" 0
-expect_out "REQ-A1.9: drift: a rule naming 40% for the handover knob, left at the shipped 70, is a finding with rule, knob and effective value" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}70${tab}core"
-expect_out "REQ-A1.9: drift: the finding says it in plain words" "says 40 but mission_control_handover_context is 70"
+expect_out "REQ-A1.9: drift: a rule naming 50% for the handover knob, left at the shipped 40, is a finding with rule, knob and effective value" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}50${tab}40${tab}core"
+expect_out "REQ-A1.9: drift: the finding says it in plain words" "says 50 but mission_control_handover_context is 40"
 expect_no_out "REQ-A1.9: drift: a rule naming the knob's own shipped value is no finding" "rule-knob${tab}r-2"
 expect_no_out "REQ-A1.9: drift: a rule that merely says hand over, with no context or percent, is no finding" "rule-knob${tab}r-3"
-printf 'mission_control_handover_context: 40\n' >"$adopter/planwright.yml"
+printf 'mission_control_handover_context: 50\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
 expect_no_out "REQ-A1.9: drift: once the knob matches the rule the finding is gone" "rule-knob${tab}r-1"
 printf 'mission_control_handover_context: 55\n' >"$adopter/planwright.yml"
 cfg doctor --program drift
-expect_out "REQ-A1.9: drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}40${tab}55${tab}adopter"
+expect_out "REQ-A1.9: drift: a knob moved to another value is named with its layer" "rule-knob${tab}r-1${tab}mission_control_handover_context${tab}50${tab}55${tab}adopter"
 expect_out "REQ-A1.9: drift: a rule-knob finding names the file that sets the knob, not only the layer" "(set in adopter, file $adopter/planwright.yml)"
 rm -f "$adopter/planwright.yml"
 mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m." --subject stall --source "operator, fixture" --date 2026-01-01
@@ -447,6 +447,37 @@ printf '# temporary until 2020-04-04\nmission_control_stall_window: 20m\n' >>"$t
 cfg doctor --program drift
 expect_no_out "REQ-A1.9: drift: the team-shared repo-tracked layer is not scanned" "temporary${tab}"
 printf '%s\n' "$tracked_save" >"$tracked"
+
+# Rule text and comments are matched as data: metacharacters run nothing, and
+# no layer or rule file changes.
+sentinel="$tmp/sentinel-ran"
+# shellcheck disable=SC2016 # the metacharacters are the fixture
+printf 'mission_control_stall_window: 20m # interim `touch %s` $(touch %s) ; touch %s\n' "$sentinel" "$sentinel" "$sentinel" >"$mlocal"
+# shellcheck disable=SC2016 # the metacharacters are the fixture
+printf '# temporary adopter note `touch %s` $(touch %s) ; touch %s\nmission_control_handover_context: 55\n' "$sentinel" "$sentinel" "$sentinel" >"$adopter/planwright.yml"
+mc_run mc-rules.sh add drift --text "Set mission_control_stall_window to 30m \`touch $sentinel\` \$(touch $sentinel); touch $sentinel" --subject stall --source "operator, fixture" --date 2026-01-01
+expect_rc "REQ-A1.9: drift: a rule carrying metacharacters is stored" 0
+rules_file="$drift_home/rules.yaml"
+# Both defaults files are layers: doctor reads the checkout's own, config-get
+# the fixture core's.
+layer_sums() {
+  for f in "$rules_file" "$repo_root/config/defaults.yml" "$core/config/defaults.yml" "$adopter/planwright.yml" "$mlocal" "$tracked"; do
+    printf '%s %s\n' "$(sum "$f")" "${f#"$tmp"/}"
+  done
+}
+sums_before=$(layer_sums)
+if printf '%s\n' "$sums_before" | grep -q '^absent '; then fail "drift: a layer or the rules file was missing before the audit, so its checksum proves nothing: $sums_before"; fi
+cfg doctor --program drift
+expect_rc "REQ-A1.9: drift: metacharacters in a rule and a comment still audit" 0
+expect_out "REQ-A1.9: drift: a local comment with metacharacters is still a finding" "temporary${tab}$mlocal${tab}mission_control_stall_window${tab}marker interim"
+expect_out "REQ-A1.9: drift: an adopter comment with metacharacters is still a finding" "temporary${tab}$adopter/planwright.yml${tab}mission_control_handover_context${tab}marker temporary"
+expect_out "REQ-A1.9: drift: a rule with metacharacters is still a finding" "rule-knob${tab}r-10${tab}mission_control_stall_window${tab}30m${tab}20m"
+if [ ! -e "$sentinel" ]; then ok "REQ-A1.9: drift: rule text and comments run nothing"; else fail "drift: storing the rule or auditing it executed rule or comment text"; fi
+sums_after=$(layer_sums)
+if [ "$sums_after" = "$sums_before" ]; then
+  ok "REQ-A1.9: drift: the rule file and every layer are unchanged after the audit"
+else fail "drift: the audit changed a layer or the rules file; before: $sums_before; after: $sums_after"; fi
+rm -f "$mlocal" "$adopter/planwright.yml"
 
 cfg doctor --program gamma
 expect_rc "doctor on a program that is not configured" 3

@@ -195,7 +195,10 @@
 #                                             one is retired; 2 when that
 #                                             record is malformed. A row that
 #                                             would not change is not written.
-#   fleet-state.sh registry                  print the registry records.
+#   fleet-state.sh registry                  print the registry records:
+#                                             nothing, exit 0, when no
+#                                             registry exists yet; 2 when
+#                                             one exists but cannot be read.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
 #                                             + new count on stdout, 1 at bound).
@@ -1052,10 +1055,20 @@ case $cmd in
 
   registry)
     # Read a consistent snapshot: writers rename atomically, so a cat is never
-    # torn (read-during-write safe). Absent registry prints nothing.
-    if [ -f "$registry" ]; then
-      cat "$registry"
+    # torn (read-during-write safe). Only an absent registry reads as empty;
+    # anything else at the path that cannot be read fails, so no reader takes
+    # an unreadable registry for one naming no worker.
+    if [ ! -e "$registry" ] && [ ! -L "$registry" ]; then
+      exit 0
     fi
+    if [ ! -f "$registry" ]; then
+      printf '%s\n' "fleet-state: could not read the registry: it is not a regular file" >&2
+      exit 2
+    fi
+    cat "$registry" 2>/dev/null || {
+      printf '%s\n' "fleet-state: could not read the registry" >&2
+      exit 2
+    }
     exit 0
     ;;
 

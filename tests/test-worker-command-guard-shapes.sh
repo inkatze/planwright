@@ -53,7 +53,6 @@ assert_allow "gh pr list" "gh pr list"
 assert_allow "gh pr checks" "gh pr checks"
 assert_allow "gh auth status" "gh auth status"
 assert_allow "shellcheck" "shellcheck scripts/ok.sh"
-assert_allow "markdownlint" "markdownlint README.md"
 assert_allow "yamllint" "yamllint ."
 assert_allow "mise run" "mise run check"
 assert_allow "mise run scoped task" "mise run lint:shell"
@@ -102,6 +101,43 @@ assert_allow "fish -c safe inner" "fish -c 'git status'"
 assert_defer "fish -c unsafe inner" "fish -c 'rm -rf x'"
 assert_defer "fish -c buried unsafe" "fish -c 'fish -c \"rm -rf x\"'"
 assert_defer "fish bare-paren substitution" "fish -c 'echo (rm -rf x)'"
+# fish decodes \xHH, \XHH, \ooo, \uXXXX and \UXXXXXXXX in an unquoted word,
+# where bash only drops the backslash, so the inner string's words are not the
+# ones the screens read: fish hands git `--help` and `--ext-diff` here.
+for c in "fish -c 'git log --he\\x6cp'" "fish -c 'git log --he\\X6cp'" "fish -c 'git log --hel\\160'" \
+  "fish -c 'git log --he\\u006cp'" "fish -c 'git log --he\\U0000006cp'" "fish -c 'git diff --ext\\x2ddiff'" \
+  "fish -c 'git log \\x2d\\x2dhelp'" "fish -c 'git status --hel\\x70'" \
+  'fish -c "git log --he\x6cp"' 'fish -c "git diff --ext\x2ddiff"' "fish -c 'git log '\"--he\\x6cp\""; do
+  assert_defer "fish escape the screens would misread: $c" "$c"
+done
+# fish expands `{a, b}` across the space into two words.
+for c in "fish -c 'git log {--help, HEAD}'" "fish -c 'git diff {--ext-diff, HEAD}'"; do
+  assert_defer "fish spaced brace expansion: $c" "$c"
+done
+# fish keeps reading its options after the string: a second -c or an
+# --init-command runs, -o/-p write a file, and --help opens fish's man page.
+for c in "fish -c 'git status' -c 'touch pwned'" "fish -c 'git status' --init-command 'touch pwned'" \
+  "fish -c 'git status' -C 'touch pwned'" "fish -c 'git status' -o out.txt" "fish -c 'git status' -p out.prof" \
+  "fish -c 'git status' --profile=out.prof" "fish -c 'git status' --help"; do
+  assert_defer "fish option after the string: $c" "$c"
+done
+# Inside double quotes bash drops a backslash-newline whole, so the word's
+# halves join: git gets `--help`, find gets `-delete`.
+for c in $'git status "--he\\\nlp"' $'find sub "-de\\\nlete"'; do
+  assert_defer "backslash-newline inside double quotes: ${c%%\\*}" "$c"
+done
+# fish's read updates a variable where it already lives, a universal one
+# included, and fish saves those to disk: every later fish session would get
+# the planted PATH.
+for c in "echo /tmp/evil | fish -c 'read fish_user_paths'" "fish -c 'read -r x'" "fish -c 'git status; read x'"; do
+  assert_defer "read inside fish -c: $c" "$c"
+done
+assert_allow "read outside fish still allowed" "echo a | read -r x"
+assert_allow "read after a fish -c segment still allowed" "fish -c 'git status'; echo a | read -r x"
+assert_allow "read piped from fish -c still allowed" "fish -c 'git status' | read -r x"
+assert_allow "the word read as an argument inside fish -c" "fish -c 'git log --grep read'"
+assert_allow "fish -c with braces and no comma" "fish -c 'git log HEAD@{1}'"
+assert_allow "double-quoted fish -c string" 'fish -c "git log --oneline -3"'
 assert_defer "fish --command long form" "fish --command 'git status'"
 
 echo "### REQ-A1.4 — every-segment-safe compound analysis"
@@ -208,11 +244,105 @@ echo "### Red-team regressions — confirmed exec/write vectors (must DEFER)"
 # git grep --open-files-in-pager / -O runs a command through the shell.
 assert_defer "git grep -O bundled exec" "git grep -O'sh -c id' foo"
 assert_defer "git grep --open-files-in-pager exec" "git grep --open-files-in-pager=id foo"
+# -O inside a short cluster: `-nO<cmd>` is -n then -O with <cmd> as its value.
+assert_defer "git grep -nO clustered exec" "git grep -nOid foo"
+assert_defer "git grep -iO clustered exec" "git grep -iOid foo"
+assert_defer "git grep -nO clustered exec, quoted value" "git grep -nO'sh -c id' foo"
+# A short cluster carrying O defers wherever the O sits, so a pickaxe or regex
+# value holding an O prompts too: the accepted cost of not modelling each
+# verb's value-taking flags.
+assert_defer "accepted over-block: an O inside a short-flag value" "git log -SOops"
+assert_allow "a short cluster without O still allows" "git grep -niw foo"
 assert_defer "git log --ext-diff driver exec" "git log --ext-diff"
 assert_defer "git show --textconv driver exec" "git show --textconv HEAD:f"
 assert_defer "git cat-file --filters driver exec" "git cat-file --filters --path=f HEAD:f"
 assert_allow "git cat-file batch still reads" "git cat-file --batch"
 assert_allow "git grep plain still allows" "git grep foo"
+# git reads any unambiguous prefix of a long option and the `--opt=value`
+# spelling; cat-file has no `--text`, so `--t`..`--text` there are textconv, and
+# git before cat-file grew `--filter` read `--filter` as `--filters`.
+for c in 'git cat-file --t HEAD:f' 'git cat-file --te HEAD:f' 'git cat-file --tex HEAD:f' \
+  'git cat-file --text HEAD:f' "git cat-file '--te' HEAD:f" 'git cat-file --textconv=1 HEAD:f' \
+  'git cat-file --f HEAD:f' 'git cat-file --fil HEAD:f' 'git cat-file --filt HEAD:f' \
+  'git cat-file --filter HEAD:f' 'git cat-file --filter=blob:none --batch-all-objects' \
+  'git cat-file --filters=1 HEAD:f' 'git cat-file --batch --filt' \
+  'git grep --textc -e foo' 'git grep --textconv=1 -e foo' 'git blame --textco f' \
+  'git diff --ext HEAD' 'git diff --ext-diff=1 HEAD' 'git show --ext-d HEAD' 'git log --e -p' \
+  'git log -p --textc' 'git show --textconv HEAD:f' 'git whatchanged --ext-diff' \
+  'git cat-file --ext HEAD:f' 'git cat-file --e HEAD:f' 'git log --te -p' 'git log --f' 'git diff --fi HEAD'; do
+  assert_defer "driver option near-spelling: $c" "$c"
+done
+for c in 'git diff --text HEAD~1' 'git grep --text foo' 'git log -p --no-ext-diff' 'git diff --no-textconv' \
+  'git rev-list --filter=blob:none HEAD' 'git log --tags --first-parent' 'git describe --tags' \
+  'git ls-files --full-name' 'git log --follow -- f' 'git log --format=%h -3'; do
+  assert_allow "not a driver option: $c" "$c"
+done
+# git config reads any unambiguous prefix of its write options (`--remove-sec
+# core` drops core.hooksPath), `-e` inside a short cluster, and the write
+# subcommands. One row per prefix class; the ambiguous prefixes git refuses
+# (`--u`, `--re`, `--e`) defer too, failing closed.
+for c in 'git config --global --unset-al a.b' 'git config --global --unset- a.b' \
+  'git config --global --u a.b' 'git config --global --remove-sec core' 'git config --global --rem core' \
+  'git config --global --rename-s core zz' 'git config --global --ren core zz' 'git config --global --re core' \
+  'git config --global --replace-a a.b 9' 'git config --global --rep a.b 9' 'git config --global --ad a.b 9' \
+  'git config --global --a a.b 9' 'git config --global --ed' 'git config --global --edi' 'git config --global --e' \
+  'git config --global --ed=1' 'git config --global -ze' 'git config -ez --global' \
+  'git config edit --global' 'git config edit' 'git config unset --global a.b' 'git config unset --global --al a.b' \
+  'git config remove-section core' 'git config rename-section core zz' 'git config set --global a.b 1' \
+  'git config --global --unset a.b' 'git config --global --unset-all a.b' 'git config --global --remove-section core' \
+  'git config --global --rename-s core' 'git config --global --edit' 'git config --global -e'; do
+  assert_defer "git config write near-spelling: $c" "$c"
+done
+# `--comment` applies only to a write, and its value can be a read flag that
+# would otherwise mark the line a read: git sets a.b here.
+for c in 'git config --comment --list a.b 9' 'git config --global --comment --get-all a.b 9' \
+  'git config --c --list a.b 9' 'git config --comm=hi --get a.b 9'; do
+  assert_defer "git config --comment write: $c" "$c"
+done
+# git stops reading options at the first operand or `--`, so a dashed word
+# after it is a value and each of these sets a key.
+for c in 'git config a.c --list' 'git config --global core.hooksPath -x' 'git config --global -- a.d --get' \
+  'git config a.b -l' 'git config a.b -' 'git config --end-of-options --a.b --list'; do
+  assert_defer "git config dashed value: $c" "$c"
+done
+assert_defer "git config display option negated back off sets" "git config --name-only --no-name-only a.b 9"
+assert_allow "git config read with a dashed value pattern" "git config --get-all a.b -x"
+assert_defer "git config -f inside a short cluster reads another file" "git config -zf other.cfg --list"
+assert_defer "git config -f ending a short cluster reads another file" "git config -lf other.cfg"
+# A short cluster carrying e defers wherever the e sits, so a -t value holding
+# one prompts too: the accepted cost of not modelling -t's value.
+assert_defer "accepted over-block: an e inside a -t value" "git config -texpiry-date --get gc.pruneExpire"
+for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git config --global --exp --get gc.pruneExpire' \
+  'git config -zl' 'git config -z --list' 'git config list --global --show-o' 'git config --name-only --list' \
+  'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
+  assert_allow "git config read: $c" "$c"
+done
+# `git <verb> --help` and `git help <verb>` open the man page through a pager
+# (or a browser), and a pager runs commands (`!cmd` in less).
+for c in 'git log --help' 'git status --help' 'git diff --help' 'git show --help' 'git rev-parse --help' \
+  'git grep --help' 'git ls-files --help' 'git config --help'; do
+  assert_defer "git help opens a pager: $c" "$c"
+done
+# git opens it only for an exact `--help` right after the verb, but any word
+# git could read as --help or --help-all, an abbreviation included, defers.
+for c in 'git log --oneline --help' 'git log --hel' 'git log --he' 'git log --h' 'git log --help-all' \
+  'git log --help-a' 'git log --help=x' 'git config --get --help'; do
+  assert_defer "git could read it as --help, fails closed: $c" "$c"
+done
+assert_defer "accepted over-block: --help as a pathspec" "git log -- --help"
+# Regression rows: these verbs' own screens already deferred them.
+for c in 'git branch --help' 'git branch --list --help' 'git tag --help' 'git stash --help' 'git remote --help' \
+  'git reflog --help' 'git worktree --help' 'git ls-remote --help' 'git symbolic-ref --help' \
+  'git check-ignore --help' 'git commit --help' 'git add --help' 'git fetch --help' \
+  'git help log' 'git help' 'git help -a' 'git help -w log'; do
+  assert_defer "git help request, already deferred: $c" "$c"
+done
+# -h asks for the short usage, never the man page, and is grep's no-filename
+# flag.
+for c in 'git log -h' 'git status -h' 'git grep -h foo' 'git show-ref --heads' \
+  'git log --oneline -- help' 'git log --grep=help' 'git grep -n help'; do
+  assert_allow "not a help request: $c" "$c"
+done
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"
 assert_defer "sed s///e exec with file" "sed 's/.*/whoami/e' scripts/ok.sh"
@@ -515,6 +645,11 @@ jq -n --arg p "$INST_JSON_ROOT" \
 HOOK_ENV=("CLAUDE_DIR=$CDIR" "HOME=$SANDBOX/nohome")
 assert_allow "arm 5 — installed_plugins.json installPath" "$INST_JSON_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "arm 5 — marketplace cache version dir" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+# human-gates REQ-G1.14: the installed branch-sync helper's leased push is
+# reached through this approval, the profiles' force-push deny left whole.
+: >"$INST_CACHE_ROOT/scripts/worker-branch-sync.sh"
+assert_allow "arm 5 — the installed branch-sync helper's leased push" \
+  "$INST_CACHE_ROOT/scripts/worker-branch-sync.sh push --force-with-lease=planwright/flight/demo-0123abcd:0123456789abcdef0123456789abcdef01234567 --force-if-includes" Bash "$PLUGIN_CWD"
 assert_allow "arm 5 — the stalled shape: a loop over a cache-root script" \
   "for d in a b; do printf '%s -> ' \$d; $INST_CACHE_ROOT/scripts/plug.sh \$d; done" Bash "$PLUGIN_CWD"
 assert_defer "arm 5 — a cache plugin that is not planwright" "$INST_CACHE_OTHER/scripts/plug.sh" Bash "$PLUGIN_CWD"

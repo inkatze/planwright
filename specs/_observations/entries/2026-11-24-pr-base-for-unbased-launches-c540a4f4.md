@@ -1,0 +1,1 @@
+- 2026-11-24 [planwright] follow-up from the script-guard fix (D1a): record a pr_base for kickoff, spec-branch and primary-checkout launches, so those sessions stop prompting on every repository script, bats file and linter config, and their declared command steps located in the worktree stop failing

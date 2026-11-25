@@ -12,6 +12,8 @@
 #       pathless descendant included once its parent's death reparents it.
 #   f4: an unusable process table fails the guard instead of passing it.
 #   f5: only the sourcing shell counts as the owner, not a subshell of it.
+#   f6: a continuation line, a non-numeric pid, a short line, or a control byte
+#       in one process's argv does not void an otherwise readable table.
 # shellcheck disable=SC2016 # the fixtures' scripts are literal sh source, expanded by the child
 set -u
 LC_ALL=C
@@ -124,11 +126,54 @@ PATH="$tmp/bin:$PATH" fixture_none "$tmp/" 2>/dev/null \
   && fail "f4: fixture_none passed on a table with no pid rows"
 PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" >/dev/null 2>&1
 [ $? = 2 ] || fail "f4: fixture_procs did not refuse an unusable table"
+printf '#!/bin/sh\n:\n' >"$tmp/bin/ps"
+PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" >/dev/null 2>&1
+[ $? = 2 ] || fail "f4: fixture_procs did not refuse an empty table"
+# A short line or a header with no numeric pid and ppid pair is no table either.
+printf '#!/bin/sh\nprintf "%%s\\n" "PID PPID COMMAND" "abc def ghi" "42"\n' >"$tmp/bin/ps"
+PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" >/dev/null 2>&1
+[ $? = 2 ] || fail "f4: fixture_procs did not refuse a table of non-row lines"
 echo "ok: f4 an unusable process table fails the guard"
 
 # f5
 fixture_is_owner || fail "f5: the sourcing shell is not recognised as the owner"
 (fixture_is_owner) && fail "f5: a subshell was taken for the owner"
 echo "ok: f5 only the sourcing shell owns the teardown"
+
+# f6: a continuation line, a non-numeric pid, a short line, or a control byte in
+# one process's argv must not void an otherwise readable table, and a match on a
+# continuation still counts. The pids are past pid_max, so none is a live process
+# or the suite's own.
+printf '%s\n' \
+  'a line before the first row' \
+  ' 9000100     1 sh -c job '"$tmp"'/a' \
+  'a continuation that names nothing' \
+  ' 9000101  9000100 sleep 300' \
+  'abc def ghi' \
+  '9000103' \
+  ' 9000102     1 sh -c job' \
+  "$tmp/b is on a continuation line" \
+  "$(printf '\001\r') 9000104     1 sh -c ctl $tmp/c" \
+  ' 9000105     1' \
+  ' 9000106     1 sleep 1' >"$tmp/planted.table"
+printf '#!/bin/sh\ncat "%s"\n' "$tmp/planted.table" >"$tmp/bin/ps"
+planted_pids=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>"$tmp/planted.err" | awk '{ printf "%s ", $1 }')
+[ "$planted_pids" = "9000100 9000101 9000102 9000104 " ] \
+  || fail "f6: the planted table matched '$planted_pids', want '9000100 9000101 9000102 9000104 ': $(cat "$tmp/planted.err")"
+PATH="$tmp/bin:$PATH" fixture_none "$tmp/" 2>/dev/null && fail "f6: fixture_none passed on a planted live match"
+printf '#!/bin/sh\necho " 9000106     1 sleep 1"\n' >"$tmp/bin/ps"
+PATH="$tmp/bin:$PATH" fixture_none "$tmp/" || fail "f6: fixture_none failed on a readable table with no match"
+# The refusal names the bytes ps printed, control bytes shown as `?`.
+printf '#!/bin/sh\nprintf "bad\\001line\\n"\n' >"$tmp/bin/ps"
+refusal=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>&1 >/dev/null)
+case $refusal in
+  *"no usable process table"*"ps printed: bad?line"*) ;;
+  *) fail "f6: the refusal did not carry the bytes ps printed: '$refusal'" ;;
+esac
+# A ps that rejects -ww and serves rows without it is read through the retry.
+printf '#!/bin/sh\ncase " $* " in *" -ww "*) echo "usage: ps"; exit 1 ;; esac\necho " 9000107     1 sh -c %s/d"\n' "$tmp" >"$tmp/bin/ps"
+retried=$(PATH="$tmp/bin:$PATH" fixture_procs "$tmp/" 2>"$tmp/planted.err" | awk '{ printf "%s ", $1 }')
+[ "$retried" = "9000107 " ] || fail "f6: the narrow retry after a refused -ww matched '$retried': $(cat "$tmp/planted.err")"
+echo "ok: f6 one malformed line does not void the process table"
 
 echo "all fixture-procs tests passed"

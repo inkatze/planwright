@@ -10,6 +10,16 @@ name: PR-Agent
 # exception), so a fork PR never reaches the key. Never switch the trigger to
 # pull_request_target.
 #
+# When it runs: once per pull request, on the run the ready flip fires
+# (ready_for_review), and again only when a fix round after the flip changes
+# code and asks for one more by requesting a reviewer (review_requested, which
+# scripts/request-reviewer.sh sends). Never on opened, synchronize or reopened:
+# each paid review is a review of a head that is still changing. The request is
+# the same pull_request event, so the conditions below apply unchanged. Any
+# reviewer's request counts, since the event does not say which; a draft never
+# runs, and a pull request opened ready needs a request to get its one run.
+# scripts/check-workflow-posture.sh enforces the trigger set.
+#
 # Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
 # repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS,
 # PR_AGENT_MAX_FINDINGS and PR_AGENT_REVIEW_RETRIES, no code change needed. A
@@ -20,7 +30,7 @@ name: PR-Agent
 
 "on":
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, review_requested]
+    types: [ready_for_review, review_requested]
 
 permissions: {}
 
@@ -31,6 +41,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && !contains(github.event.pull_request.labels.*.name, 'skip-pr-agent')
+      && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -135,12 +146,12 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           # The wrapper forwards no GITHUB_OUTPUT into the container.
           GITHUB_ACTION_CONFIG__ENABLE_OUTPUT: "false"
-          # The action's default leaves out synchronize, so it would skip every
-          # push after the PR opens. Keep this list equal to the trigger types
-          # above; scripts/check-workflow-posture.sh enforces it.
-          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
-          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "true"
-          GITHUB_ACTION_CONFIG__PUSH_COMMANDS: '["/review -i"]'
+          # The action skips any action this list leaves out. Keep it equal to
+          # the trigger types above; scripts/check-workflow-posture.sh
+          # enforces it.
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["ready_for_review", "review_requested"]'
+          # Nothing here reacts to a push, whatever the action's default.
+          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "false"
 
           PR_REVIEWER__INLINE_KEY_ISSUES: "true"
           PR_REVIEWER__NUM_MAX_FINDINGS: ${{ vars.PR_AGENT_MAX_FINDINGS || '10' }}

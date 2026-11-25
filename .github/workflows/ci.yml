@@ -44,7 +44,8 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-26.04 runs the suites about 1.6x slower; revisit when 24.04 nears end of life.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -196,7 +197,7 @@ jobs:
   # runner type, since the prediction divides by this machine's cores, and
   # needs no toolchain: the planner reads two files and runs nothing.
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # actions: read lets the reuse lookup list this workflow's runs, their
     # jobs and their artifacts.
@@ -316,7 +317,7 @@ jobs:
   evidence:
     needs: plan
     if: ${{ needs.plan.outputs.evidence != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
@@ -339,7 +340,7 @@ jobs:
     name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: plan
     if: ${{ needs.plan.outputs.suite_run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -394,7 +395,7 @@ jobs:
   check:
     needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - id: gate
@@ -495,7 +496,33 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
+      # The self-hosted Mac runners on a host share one account, so under
+      # mise's defaults concurrent jobs install into one tree, and one spawning
+      # bin/mise while another rewrites it dies with EBADMACHO ("spawn Unknown
+      # system error -88"). Each runner gets its own directories, before
+      # mise-action, which takes its binary and cache path from MISE_DATA_DIR
+      # (its mise_dir input would move only those, not mise's own installs).
+      # A hosted Mac runs one job per machine and keeps the defaults, so its
+      # cache path stays the one its saved cache was keyed under.
+      # mise-action also unpacks its download into os.tmpdir() under a fixed
+      # name before moving bin/mise into place, and the account's temp
+      # directory is shared too, so the action gets the runner's own; only that
+      # step, so the suite's temp directory stays the default.
+      # tests/test-ci-mac-mise-dirs.sh holds both macOS jobs to this step.
+      - name: "setup: per-runner mise directories"
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
+            : "${RUNNER_NAME:?the runner has no name to key mise on}"
+            id=$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9._-' '_')
+            {
+              echo "MISE_DATA_DIR=$HOME/.local/share/mise-runners/$id"
+              echo "MISE_CACHE_DIR=$HOME/.cache/mise-runners/$id"
+              echo "MISE_STATE_DIR=$HOME/.local/state/mise-runners/$id"
+            } >>"$GITHUB_ENV"
+          fi
       - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        env:
+          TMPDIR: ${{ runner.temp }}
         with:
           version: 2026.6.1
       - run: |
@@ -531,7 +558,21 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           fetch-depth: 0
+      # Per-runner mise directories and TMPDIR: see macos-suite.
+      - name: "setup: per-runner mise directories"
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
+            : "${RUNNER_NAME:?the runner has no name to key mise on}"
+            id=$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9._-' '_')
+            {
+              echo "MISE_DATA_DIR=$HOME/.local/share/mise-runners/$id"
+              echo "MISE_CACHE_DIR=$HOME/.cache/mise-runners/$id"
+              echo "MISE_STATE_DIR=$HOME/.local/state/mise-runners/$id"
+            } >>"$GITHUB_ENV"
+          fi
       - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        env:
+          TMPDIR: ${{ runner.temp }}
         with:
           version: 2026.6.1
       - run: |
@@ -576,7 +617,7 @@ jobs:
     # The one job-level `if:` check:workflow-posture accepts here: the plan
     # job's verdict, false only on a ready flip reusing a prior run.
     if: ${{ needs.plan.outputs.suite_run == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false

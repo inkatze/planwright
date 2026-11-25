@@ -69,6 +69,7 @@ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$WT"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$WT/nested"
 : >"$WT/scripts/ok.sh"
 : >"$WT/sub/g"
+fixture_commit "$WT" scripts && fixture_base "$WT" || exit 1
 ln -s "$SANDBOX_P/install/outside" "$WT/outlink"
 ln -s "$WT/sub" "$WT/inlink"
 # The hook's own git calls (the repository check a `cd` makes, the remote
