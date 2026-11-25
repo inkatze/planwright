@@ -5800,7 +5800,11 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # switch any words may stand before the i cluster, since a switch's value
 # (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
 RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acdfgnpsStTuUvwWXyhl]*i'
-RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|--(i|lo|e)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*(include|load)=|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
+RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|--(i|lo|e|fil)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*(include|load)=|-f[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
+# Program text including the extension, anywhere after the tool: the program's
+# own semicolons and line breaks end no statement of the shell's, and its text
+# may open a word (--source=, -e) rather than follow a blank.
+RE_MC_INPLACE_AWK_INCLUDE='(awk|gawk[0-9.-]*)[[:blank:]].*@(include|load)[[:space:]]*([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([^[:alnum:]_.-]|$)'
 # vim's names: the g, r and e prefixes, the diff and x suffixes, and a
 # distribution's vim.<build>. Keep in step with mc_inplace_targets.
 RE_MC_VIM_NAMES='vi|vimx?|vim[.][a-z0-9]+|view|vimdiff|gvimx?|gvim[.][a-z0-9]+|gview|gvimdiff|rvim|rview|rgvim|rgview|evim|eview|nvim'
@@ -6372,6 +6376,8 @@ mc_inplace_text() {
   [[ $t =~ $re ]] && return 0
   shopt -s nocasematch
   re=$lead$RE_MC_INPLACE_AWK_TOOL
+  [[ $t =~ $re ]] && rc=0
+  re=$lead$RE_MC_INPLACE_AWK_INCLUDE
   [[ $t =~ $re ]] && rc=0
   re=$lead$RE_MC_INPLACE_EDITOR_TOOL
   [[ $t =~ $re ]] && rc=0

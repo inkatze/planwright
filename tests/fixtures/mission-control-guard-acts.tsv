@@ -351,6 +351,11 @@ deny	repo-write	bash	-	edits no repository	bash -c "ruby -yi -pe 1 @UNIT@/README
 defer	read	bash	-	-	perl -Di -pe 1 @UNIT@/README.md
 defer	read	bash	-	-	perl -d:Profile -pe 1 @UNIT@/README.md
 defer	read	bash	-	-	perl -dt:Profile -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "gawk --source='@include \"inplace\"' @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk '1; @include \"inplace\"' @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk --file=inplace.awk @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -e '@load \"inplace\"' @UNIT@/README.md"
+defer	read	bash	-	-	bash -c "gawk '@include \"lib\"; 1' @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); gawk -W load=inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'ed -s @UNIT@/README.md'
