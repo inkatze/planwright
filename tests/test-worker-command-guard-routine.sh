@@ -268,6 +268,12 @@ commit_wt "a base that doctests a document"
 fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
 printf 'iex> 1\n' >>"$WT/README.md"
 assert_defer "a document the base doctests is code" "mix test" Bash "$WT"
+mkwt mix-moduledoc
+printf '@moduledoc File.read!("README.md")\n' >"$WT/lib/m.ex"
+commit_wt "a base that reads a document at compile time"
+fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
+printf 'iex> 1\n' >>"$WT/README.md"
+assert_defer "a document the base reads at compile time is code" "mix test" Bash "$WT"
 mkwt mix-image
 printf 'png\n' >"$WT/logo.png"
 assert_allow "an untracked image" "mix test" Bash "$WT"

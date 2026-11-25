@@ -2057,7 +2057,7 @@ mix_tree_clean() {
   # A base that compiles or doctests a text document runs what the document
   # holds, so no document is inert there.
   MIX_DOCS_INERT=0
-  "${gitc[@]}" grep -q -E 'doctest_file|@external_resource' "$mb" -- '*.ex' '*.exs' 2>/dev/null
+  "${gitc[@]}" grep -q -E 'doctest_file|@external_resource|File\.read' "$mb" -- '*.ex' '*.exs' 2>/dev/null
   case $? in
     1) MIX_DOCS_INERT=1 ;;
     *) ;;
