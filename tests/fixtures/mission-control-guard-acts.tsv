@@ -354,6 +354,7 @@ deny	repo-write	bash	-	edits no repository	gtruncate -s0 @UNIT@/README.md
 deny	repo-write	bash	-	hands a write verb	xargs gcp -t @UNIT@ < @SCRATCH@/kb/real.md
 defer	read	bash	-	-	ruby -C @UNIT@ -C @SCRATCH@/kb -pi -e 1 real.md
 deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'echo a' 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'echo a' "ed -s @UNIT@/README.md"
 defer	read	bash	-	-	x=$(date); sh -c 'echo a' ed
 defer	read	bash	-	-	echo $(date) | bash -c 'sed -n 1p @SCRATCH@/kb/real.md'
 defer	read	bash	-	-	d=$(pwd); perl -e 'print 1'

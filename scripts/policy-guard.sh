@@ -74,7 +74,8 @@
 # shell or runner even where a script reads it as data, and it misses a
 # here-string a shell reads from a later line (cat <<< '...' |, then bash), a
 # compound closer that follows a word or carries no space before a redirect
-# (echo a ) <<<, }2>&1 <<<), and a pipe between a closer and its here-string.
+# (echo a ) <<<, }2>&1 <<<), and a pipe between a closer and its here-string;
+# a quoted span of one word in unparsed text is read as no command.
 #
 # The mission-control tier's flip, for a PR of the repository it runs in or of
 # a program-listed one it names with --repo, follows ready_flip_policy:
