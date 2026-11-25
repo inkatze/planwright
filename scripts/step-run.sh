@@ -281,6 +281,9 @@ trusted_commit() {
   # The scratch root it names, which the worker writes, must not hold it; the
   # root counts on the guard's terms (named once, this user's own canonical
   # directory, apart from the worktree).
+  case $r_sc in
+    *[[:cntrl:]]*) r_sc='' ;;
+  esac
   if [ "$n_sc" -eq 1 ] && [ "${r_sc#/}" != "$r_sc" ] && [ -d "$r_sc" ] && [ -O "$r_sc" ] \
     && sc=$(cd "$r_sc" 2>/dev/null && pwd -P) && [ "$sc" = "$r_sc" ]; then
     case $sc/ in
