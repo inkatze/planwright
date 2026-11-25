@@ -495,6 +495,32 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" -- \
 ! grep -q "launch preflight" "$tmp/pf33g.err" \
   || fail "c33: a passing preflight must be silent, got: $(cat "$tmp/pf33g.err")"
 [ -s "$rec/argv" ] || fail "c33: the passing launch must spawn the worker"
+# A launcher carrying a session record of its own that names no usable
+# worktree: under it the guard trusts no checkout, but the worker never runs
+# under it, so the proof runs with no record and an installed root that is a
+# git checkout committing the script still passes.
+git_root="$cdir/plugins/cache/mkt/planwright/0.97.0"
+mkdir -p "$git_root/scripts"
+: >"$git_root/scripts/resolve-rule-doc.sh"
+if ! { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$git_root" \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$git_root" add scripts \
+  && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C "$git_root" -c user.name=f \
+    -c user.email=f@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q -m root; }; then
+  fail "c33: could not build the checkout root"
+fi
+jq -n --arg p "$git_root" \
+  '{plugins: {"planwright@planwright": [{installPath: $p, version: "0.97.0"}]}}' \
+  >"$cdir/plugins/installed_plugins.json"
+: >"$rec/argv"
+senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
+  PLANWRIGHT_WORKER_SESSION_RECORD="$tmp/no-such.record" -- \
+  launch sjw33r execution-backends:4 --prompt-file "$tmp/prompt33" --foreground \
+  >/dev/null 2>"$tmp/pf33r.err" \
+  || fail "c33: a launcher's own unusable record must not refuse a committed checkout root, stderr: $(cat "$tmp/pf33r.err")"
+[ -s "$rec/argv" ] || fail "c33: the launch under the launcher's own record must spawn the worker"
+jq -n --arg p "$good_root" \
+  '{plugins: {"planwright@planwright": [{installPath: $p, version: "0.98.0"}]}}' \
+  >"$cdir/plugins/installed_plugins.json"
 # An unknown mode value is a usage error, never a silent skip.
 senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" \
   PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=maybe -- \
