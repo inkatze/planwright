@@ -151,10 +151,11 @@ assert_defer "REQ-E1.3: a quoted mixed value assigned, then handed to a script" 
 SUBST_REPO="$(cd "$SANDBOX" && pwd -P)/substrepo"
 mkdir -p "$SUBST_REPO/scripts"
 : >"$SUBST_REPO/scripts/ok.sh"
-fixture_commit "$SUBST_REPO" scripts || exit 1
+fixture_commit "$SUBST_REPO" scripts && fixture_base "$SUBST_REPO" || exit 1
 write_record "$SANDBOX/substrepo.record" "$SUBST_REPO"
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/substrepo.record")
 assert_allow "REQ-E1.3: the inner-cd repository approves a plain cd" "cd scripts && ls" Bash "$SUBST_REPO"
+assert_allow "REQ-E1.3: a real cd carries to the script (control)" "cd scripts && bash ok.sh" Bash "$SUBST_REPO"
 assert_defer "REQ-E1.3: an inner cd" "echo \$(cd scripts)" Bash "$SUBST_REPO"
 assert_defer "REQ-E1.3: an inner cd never carries past &&" "echo \$(cd scripts) && bash ok.sh" Bash "$SUBST_REPO"
 assert_defer "REQ-E1.3: an inner cd never carries past ;" "echo \$(cd scripts); bash ok.sh" Bash "$SUBST_REPO"

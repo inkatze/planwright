@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.83.0](https://github.com/inkatze/planwright/compare/v0.82.1...v0.83.0) (2026-11-24)
+
+
+### Features
+
+* add the run-record measurement kit ([#1049](https://github.com/inkatze/planwright/issues/1049)) ([7b34a2c](https://github.com/inkatze/planwright/commit/7b34a2cd61ba0db714440c55638323e83750aa97))
+
+
+### Bug Fixes
+
+* a declared check command or command step never approves a step-script call ([#1176](https://github.com/inkatze/planwright/issues/1176)) ([2c6810a](https://github.com/inkatze/planwright/commit/2c6810a13188a20e87922fbd3e1de9c5103006f5))
+* correct the recover exit code in the fleet-streamjson usage comment ([#1173](https://github.com/inkatze/planwright/issues/1173)) ([c47da7b](https://github.com/inkatze/planwright/commit/c47da7bcf6f7a68f85df9600ab895a1953213973))
+
 ## [0.82.1](https://github.com/inkatze/planwright/compare/v0.82.0...v0.82.1) (2026-11-24)
 
 
