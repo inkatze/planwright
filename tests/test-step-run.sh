@@ -472,8 +472,9 @@ LOC_REC=$tmp/scr/in.record
 loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record stored inside the scratch root it names, a location is refused" "$(loc_out)"
 # A scratch root the guard drops (its name holds a control character) holds
-# no record by the guard's terms, so the runner keeps the record as the guard does.
-sct="$tmp/scr$(printf '\t')x"
+# no record by the guard's terms, so the runner keeps the record as the guard
+# does.
+sct="$tmp/scr${TAB}x"
 mkdir -p "$sct"
 printf 'worktree_root=%s\npr_base=origin/main\nscratch_root=%s\n' "$lwp" "$sct" >"$sct/in.record"
 LOC_REC=$sct/in.record

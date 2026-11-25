@@ -595,10 +595,12 @@ What still runs code a worker wrote without a prompt:
   worker this way. A record that is set but names no usable worktree (a
   missing, relative or unreadable record path, a record file over the size
   bound or not this user's own regular file, a record inside the worktree or
-  the scratch root it names, an absent, repeated, non-canonical,
-  control-character or non-checkout `worktree_root`) trusts
-  nothing instead, wherever the file lies: the static allows still let the
-  worker commit, and the guard cannot tell which checkout it committed in.
+  inside the scratch root it names when that root counts (named once,
+  absolute, free of control characters, this user's own canonical directory
+  apart from the worktree), an absent, repeated, non-canonical,
+  control-character or non-checkout `worktree_root`) trusts nothing instead,
+  wherever the file lies: the static allows still let the worker commit, and
+  the guard cannot tell which checkout it committed in.
   The one exception is the guard's own planwright root, held to HEAD while
   the session's canonical directory is outside it, since it holds the guard
   itself; a session sitting inside it gets no exception, since it could

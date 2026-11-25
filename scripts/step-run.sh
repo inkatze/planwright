@@ -232,9 +232,8 @@ rgit() (
 # nothing anywhere, since the worker may still commit and the runner cannot
 # tell where; docs/permission-matcher-model.md lists each such record, as
 # the checks below and the guard's session_record_load apply them. Unlike the
-# guard it
-# keeps no exception for a planwright root. Returns 1, printing nothing,
-# wherever nothing is trusted.
+# guard it keeps no exception for a planwright root. Returns 1, printing
+# nothing, wherever nothing is trusted.
 trusted_commit() {
   local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' r_sc='' n_wt=0 n_base=0 n_sc=0 size rdir sc oid rev
   if [ -z "$rec" ]; then
@@ -279,8 +278,8 @@ trusted_commit() {
     "$r_wt"/*) return 1 ;;
   esac
   # The scratch root it names, which the worker writes, must not hold it; the
-  # root counts on the guard's terms (named once, this user's own canonical
-  # directory, apart from the worktree).
+  # root counts on the guard's terms (named once, absolute, free of control
+  # characters, this user's own canonical directory, apart from the worktree).
   case $r_sc in
     *[[:cntrl:]]*) r_sc='' ;;
   esac
