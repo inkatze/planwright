@@ -1,7 +1,9 @@
 # shellcheck shell=sh
 # committed-fixture.sh — sourced, never executed. The worker command guard
 # trusts a repository script only as a commit holds it (the base, in the
-# worktree a session record names; HEAD elsewhere), so a fixture repository
+# worktree a session record names; HEAD in a checkout outside it; the cases
+# trusting nothing are tests/test-worker-command-guard-own-commit.sh's), so a
+# fixture repository
 # whose scripts a suite expects approved commits them, and points its base at
 # that commit when a record names it (fixture_base).
 #

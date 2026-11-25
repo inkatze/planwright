@@ -22,7 +22,8 @@
 #   pr_base            <remote>/<branch>: the unit branch's remote (origin
 #                      when unset) and that remote's default branch as
 #                      recorded locally, else main; omitted when unit_branch
-#                      is. The command guard and the step runner hold the
+#                      is, or when the remote's name falls outside its
+#                      grammar. The command guard and the step runner hold the
 #                      worktree's trusted files to its merge base, so a
 #                      record without it trusts none
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)

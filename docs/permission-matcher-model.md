@@ -565,9 +565,11 @@ commit is the checkout's HEAD. A script a worker wrote or edited prompts,
 committed or not, whichever spelling reaches it (`sh`, `bash`, a direct path,
 a symlinked folder, a `..` walk, inside `fish -c` or a loop, behind
 `timeout`), and so does `bats` on a folder; one the base gained counts once
-the worker merges the base. A record with no `pr_base`, a `pr_base` with no
-remote-tracking ref, or a base with no commit in common trusts no file in the
-worktree, and a repository nested in the worktree trusts none either. The
+the worker merges the base. A record with no `pr_base` or a repeated one, a
+`pr_base` with no remote-tracking ref or one that is a symbolic ref, or a
+base with no commit in common trusts no file in the worktree (a checkout
+outside it keeps HEAD), and a repository nested in the worktree trusts none
+either. The
 launcher writes `pr_base` only for a task or flight branch, so a kickoff,
 spec-branch or primary-checkout session prompts on every repository script,
 `bats` file and linter config in its worktree. A test suite the worker adds
@@ -594,8 +596,10 @@ What still runs code a worker wrote without a prompt:
   missing or relative record path, a repeated or non-canonical
   `worktree_root`, a record inside the worktree) trusts nothing instead,
   wherever the file lies: the static allows still let the worker commit, and
-  the guard cannot place where. The one exception is the guard's own
-  planwright root, held to HEAD, since it holds the guard itself.
+  the guard cannot tell which checkout it committed in. The one exception is
+  the guard's own planwright root, held to HEAD while the session sits
+  outside it, since it holds the guard itself; a session sitting inside it
+  gets no exception, since it could commit there.
 - **A write that lands while a trusted script runs.** The guard checks a
   script's bytes before the command runs, and a shell reads a script as it
   goes, so a write running in the background (an own-branch write the worker
@@ -619,8 +623,9 @@ What still runs code a worker wrote without a prompt:
 - **What a trusted script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
   globs, any of which a worker may have written or edited. A declared step
-  run through `scripts/step-run.sh` is held by the runner itself to the same
-  commit the guard uses (see the next section).
+  run through `scripts/step-run.sh` is held by the runner itself to the
+  commit the guard uses, without the guard's exception for its own root (see
+  the next section).
 - **An install copy outside `~/.claude`.** Under `~/.claude` a file-tool write
   prompts (MB-8); elsewhere the file tools reach an install copy, which is
   trusted by location (see the residual above).
@@ -672,12 +677,13 @@ plain forms:
 - **A declared command step** run through `scripts/step-run.sh` runs its
   location, and a session-hosted step's line is printed, only as the command
   guard's trusted commit for that checkout holds it (`trusted_commit`: the
-  base in the worktree a worker session record names, nothing in a repository
-  nested in it or under a record naming no usable worktree, HEAD elsewhere);
-  otherwise, or when git cannot answer for that checkout, the step is
-  recorded `failed`, so in a session with no base a declared step located in
-  its worktree always fails. A location with no `.git`
-  entry above it, an installed tool, keeps the declaration's trust. The
+  base in the worktree a worker session record names, HEAD in a checkout
+  outside it, nothing in a repository nested in it, and nothing anywhere
+  under a record naming no usable worktree, with no exception for a
+  planwright root); otherwise, or when git cannot answer for that checkout,
+  the step is recorded `failed`, so under a record naming no base a declared
+  step located in its worktree always fails. A location with no `.git` entry
+  above it, an installed tool, keeps the declaration's trust. The
   guard's own approval of a declared line typed in the session is a separate
   check.
 
