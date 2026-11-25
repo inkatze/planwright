@@ -2032,7 +2032,7 @@ review_state_call_ok() {
 # the paths to relative ones inside the worktree.
 
 # mix_path_inert <path>: the path names a file mix does not execute: an image
-# or a PDF by its extension. A text document is not inert, since a base can read
+# by its extension. A text document is not inert, since a base can read
 # one at compile time or doctest it by spellings no pattern lists, and the build
 # and dependency directories are not either: ignored, they can hold code a
 # worker planted, which mix loads.
@@ -2040,7 +2040,7 @@ mix_path_inert() {
   lower "$1"
   case $LOWER in
     '' | *[[:cntrl:]]*) return 1 ;;
-    *.png | *.jpg | *.jpeg | *.gif | *.ico | *.pdf) return 0 ;;
+    *.png | *.jpg | *.jpeg | *.gif | *.ico) return 0 ;;
     *) return 1 ;;
   esac
 }
