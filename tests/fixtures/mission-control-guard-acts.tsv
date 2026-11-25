@@ -368,6 +368,15 @@ deny	repo-write	bash	-	settings or configuration file	echo $(env -S'sed -i s/a/b
 deny	repo-write	bash	-	edits no repository	echo $(env -Sperl -pi -e1 @UNIT@/README.md)
 defer	read	bash	-	-	env -Sls @UNIT@/README.md
 defer	read	bash	-	-	ls -lSd @UNIT@
+deny	repo-write	bash	-	edits no repository	gawk -W source='@include "inplace"' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -Wsource='@include "inplace"' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -W source '@include "inplace"' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -W file=inplace.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -W exec=inplace.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -W file=inplace.awk @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -W exec inplace.awk @UNIT@/README.md"
+defer	read	bash	-	-	gawk -W source='{print}' @UNIT@/README.md
+defer	read	bash	-	-	gawk -W lint '{print}' @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo --user root perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo -Hu root perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	timeout --signal KILL 5 perl -pi -e 1 @UNIT@/README.md

@@ -5803,7 +5803,7 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # switch any words may stand before the i cluster, since a switch's value
 # (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
 RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acdfgnpsStTuUvwWXyhl]*i'
-RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|--(i|lo|e|fil)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*(include|load)=|-f[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
+RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|(--|-W[[:space:]]*)(i|lo|e|fil)[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
 # Program text including the extension, anywhere after the tool: the program's
 # own semicolons and line breaks end no statement of the shell's, and its text
 # may open a word (--source=, -e) rather than follow a blank.
@@ -7520,8 +7520,8 @@ mc_ipt_awk_includes() {
 }
 
 # mc_ipt_awk_opt <letter> <value> — one awk option with its value, applied to
-# the calling mc_ipt_awk's ip, given and stop (bash's dynamic scope): -i
-# includes and -l loads a library, as -W include= and load= do; -f, -e and -E
+# the calling mc_ipt_awk's ip, given, stop and val (bash's dynamic scope): -i
+# includes and -l loads a library, and -W spells a long option; -f, -e and -E
 # give the program, -E ending the options;
 # the program file named inplace.awk, or program text including it, is the
 # extension itself.
@@ -7529,7 +7529,13 @@ mc_ipt_awk_opt() {
   case $1 in
     i | l) ! mc_ipt_inplace_lib "$2" || ip=1 ;;
     W)
-      case $2 in include=* | load=*) ! mc_ipt_inplace_lib "${2#*=}" || ip=1 ;; esac
+      # -W name is --name, its value after = or in the next word.
+      mc_ipt_awk_long "--$2"
+      [ -n "$MC_AL" ] || return 0
+      case $2 in
+        *=*) mc_ipt_awk_opt "$MC_AL" "${2#*=}" ;;
+        *) val=$MC_AL ;;
+      esac
       ;;
     f | E)
       given=1
@@ -7544,6 +7550,26 @@ mc_ipt_awk_opt() {
   esac
 }
 
+# mc_ipt_awk_long <--name[=value]> — in MC_AL the short option a long one
+# spells, or nothing for one whose value the reading does not need.
+mc_ipt_awk_long() {
+  local c=${1%%=*}
+  MC_AL=''
+  if mc_long_is "$c" 3 --include; then
+    MC_AL=i
+  elif mc_long_is "$c" 3 --exec; then
+    MC_AL=E
+  elif mc_long_is "$c" 4 --file; then
+    MC_AL=f
+  elif mc_long_is "$c" 4 --source; then
+    MC_AL=e
+  elif mc_long_is "$c" 4 --load; then
+    MC_AL=l
+  elif mc_long_is "$c" 4 --assign --field-separator; then
+    MC_AL=v
+  fi
+}
+
 # mc_ipt_awk <first> — awk and gawk, whose options end at the program text:
 # including the inplace extension (mc_ipt_awk_opt, or the program text) makes
 # the run in-place; -f, -e and -E (or --file, --source, --exec) give the
@@ -7556,8 +7582,10 @@ mc_ipt_awk() {
     w=$MC_IW
     k=$((k + 1))
     if [ -n "$val" ]; then
-      mc_ipt_awk_opt "$val" "$w"
+      # Cleared first: -W's value can name an option that takes one more.
+      ch=$val
       val=''
+      mc_ipt_awk_opt "$ch" "$w"
       continue
     fi
     if [ "$stop" = 1 ]; then
@@ -7568,20 +7596,9 @@ mc_ipt_awk() {
       --) stop=1 ;;
       --?*)
         # Each long option as the short one it spells.
-        c=${w%%=*} ch=''
-        if mc_long_is "$c" 3 --include; then
-          ch=i
-        elif mc_long_is "$c" 3 --exec; then
-          ch=E
-        elif mc_long_is "$c" 4 --file; then
-          ch=f
-        elif mc_long_is "$c" 4 --source; then
-          ch=e
-        elif mc_long_is "$c" 4 --load; then
-          ch=l
-        elif mc_long_is "$c" 4 --assign --field-separator; then
-          ch=v
-        fi
+        c=${w%%=*}
+        mc_ipt_awk_long "$w"
+        ch=$MC_AL
         [ -n "$ch" ] || continue
         if [ "$c" = "$w" ]; then
           val=$ch
