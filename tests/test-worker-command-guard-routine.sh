@@ -35,7 +35,11 @@ cat >"$STUB/gh" <<'EOF'
 printf '%s\n' "$*" >>"$GH_LOG"
 case "$*" in
   "pr view --json url,headRefName,isCrossRepository,state")
-    printf '%s\n' "{\"url\":\"https://github.com/o/r/pull/21\",\"headRefName\":\"$UNIT_BRANCH\",\"isCrossRepository\":false,\"state\":\"OPEN\"}" ;;
+    # The unit's pull request is the one whose comments were just read, bar
+    # pull request 27, which is another one.
+    n=$(grep -o 'pulls/[0-9]*/comments' "$GH_LOG" | tail -1 | tr -dc 0-9)
+    [ "$n" != 27 ] || n=21
+    printf '%s\n' "{\"url\":\"https://github.com/o/r/pull/$n\",\"headRefName\":\"$UNIT_BRANCH\",\"isCrossRepository\":false,\"state\":\"OPEN\"}" ;;
   "api user") printf '%s\n' '{"login":"me"}' ;;
   "api --paginate repos/o/r/pulls/21/comments")
     printf '%s\n' '[{"id":1001,"in_reply_to_id":null,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"}}]'

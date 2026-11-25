@@ -2,7 +2,7 @@
 # Mutation proof for tests/test-worker-command-guard-routine.sh: each mutant is
 # a deliberately broken copy of the guard that approves an unsafe case, and the
 # routine suite, run against it, must fail. A suite that stays green on a
-# mutant does not guard what it claims to.
+# mutant does not guard what it claims to. The mutants run side by side.
 # shellcheck disable=SC2016 # the sed expressions carry literal dollars
 set -u
 unset CDPATH
@@ -11,44 +11,42 @@ SUITE="$ROOT/tests/test-worker-command-guard-routine.sh"
 LC_ALL=C
 export LC_ALL
 
-failures=0
-passes=0
 M=$(mktemp -d "${TMPDIR:-/tmp}/guard-mutants.XXXXXX") || exit 1
 trap 'rm -rf "$M"' EXIT
+names=()
 
 # mutant <name> <sed expression>: a copy of the guard with the expression
 # applied, the rest of the tree linked in so the copy finds its sibling
-# scripts. A mutant that does not change the guard, or no longer parses, is a
-# failure of this proof, not a pass of the suite.
+# scripts, its verdict left in <dir>/verdict. A mutant that does not change the
+# guard, or no longer parses, is a failure of this proof, not a pass of the
+# suite.
 mutant() {
   local name=$1 expr=$2 d="$M/$1" f
+  names+=("$name")
   mkdir -p "$d/scripts"
   for f in "$ROOT"/scripts/*; do
     [ "${f##*/}" = worker-command-guard.sh ] || ln -s "$f" "$d/scripts/${f##*/}"
   done
   ln -s "$ROOT/config" "$d/config"
   sed "$expr" "$ROOT/scripts/worker-command-guard.sh" >"$d/scripts/worker-command-guard.sh" || {
-    printf 'FAIL: mutant %s: its sed expression is invalid\n' "$name" >&2
-    failures=$((failures + 1))
+    echo "FAIL: mutant $name: its sed expression is invalid" >"$d/verdict"
     return
   }
   if cmp -s "$ROOT/scripts/worker-command-guard.sh" "$d/scripts/worker-command-guard.sh"; then
-    printf 'FAIL: mutant %s did not change the guard\n' "$name" >&2
-    failures=$((failures + 1))
+    echo "FAIL: mutant $name did not change the guard" >"$d/verdict"
     return
   fi
   if ! bash -n "$d/scripts/worker-command-guard.sh"; then
-    printf 'FAIL: mutant %s does not parse\n' "$name" >&2
-    failures=$((failures + 1))
+    echo "FAIL: mutant $name does not parse" >"$d/verdict"
     return
   fi
-  if WCG_HOOK="$d/scripts/worker-command-guard.sh" bash "$SUITE" >"$d/out" 2>&1; then
-    printf 'FAIL: the routine suite passes against mutant %s, so it does not guard that case\n' "$name" >&2
-    failures=$((failures + 1))
-  else
-    printf 'ok: the routine suite fails against mutant %s (%s)\n' "$name" "$(grep -c '^FAIL' "$d/out") failing rows"
-    passes=$((passes + 1))
-  fi
+  (
+    if WCG_HOOK="$d/scripts/worker-command-guard.sh" bash "$SUITE" >"$d/out" 2>&1; then
+      echo "FAIL: the routine suite passes against mutant $name, so it does not guard that case" >"$d/verdict"
+    else
+      echo "ok: the routine suite fails against mutant $name ($(grep -c '^FAIL' "$d/out") failing rows)" >"$d/verdict"
+    fi
+  ) &
 }
 
 mutant mix-ignores-the-diff 's@^mix_tree_clean() {$@mix_tree_clean() { return 0;@'
@@ -60,5 +58,16 @@ mutant thread-ignores-the-unit-pr 's@\[ -n "\$REC_UNIT" \] \&\& \[ "\$unit_url" 
 mutant thread-lets-a-human-in 's@or (.user.type == "User" and .user.login == \$v)@or true@'
 mutant review-state-runs-argv 's@^    register | unregister | sessions) ;;$@    register | unregister | sessions | evidence) ;;@'
 
-printf '\nrouting mutation suite: %s passed, %s failed\n' "$passes" "$failures"
+wait
+failures=0
+passes=0
+for n in "${names[@]}"; do
+  v=$(cat "$M/$n/verdict" 2>/dev/null) || v="FAIL: mutant $n left no verdict"
+  case $v in
+    ok:*) passes=$((passes + 1)) ;;
+    *) failures=$((failures + 1)) ;;
+  esac
+  printf '%s\n' "$v"
+done
+printf '\nroutine mutation suite: %s passed, %s failed\n' "$passes" "$failures"
 [ "$failures" -eq 0 ]
