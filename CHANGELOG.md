@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.84.0](https://github.com/inkatze/planwright/compare/v0.83.0...v0.84.0) (2026-11-25)
+
+
+### Features
+
+* auto-approve routine worker commands in the worker guard ([#1180](https://github.com/inkatze/planwright/issues/1180)) ([57656cf](https://github.com/inkatze/planwright/commit/57656cf5bffb1f67fa6fe926facd6a1485a3e14c))
+
+
+### Bug Fixes
+
+* count same-second launches in the host-wide session bound ([#1177](https://github.com/inkatze/planwright/issues/1177)) ([f05ee75](https://github.com/inkatze/planwright/commit/f05ee75a15431c12fb3164f17fd323c37e15e4cf))
+* stop a worker running a script it committed without a prompt ([#1179](https://github.com/inkatze/planwright/issues/1179)) ([ac222f9](https://github.com/inkatze/planwright/commit/ac222f9f19e04e6c0b2d47561c9f4326d8d65d67))
+
 ## [0.83.0](https://github.com/inkatze/planwright/compare/v0.82.1...v0.83.0) (2026-11-24)
 
 
