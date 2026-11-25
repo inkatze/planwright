@@ -1,7 +1,7 @@
 # Test throughput — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-02
+**Last reviewed:** 2026-11-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -255,8 +255,11 @@ A fixture test file sleeping past a short `PLANWRIGHT_TEST_FILE_DEADLINE`
 is ended and recorded as failed with a message naming the file and the
 deadline, and the next file obtains its ticket; a file finishing inside
 the deadline is unaffected; a malformed value warns once and uses the
-default; a fixture host with neither `timeout` nor `gtimeout` warns once
-and runs files unbounded; `0` is treated as malformed. Run by
+default; on a fixture host with neither `timeout` nor `gtimeout`, a hung
+file and its child are ended at the deadline through
+`scripts/bounded-run.sh` and the file is named, while a runner with no
+`bounded-run.sh` beside it warns once and runs files unbounded; `0` is
+treated as malformed. Run by
 `mise run check` in CI.
 
 ## REQ-E — macOS portability fixes and guards

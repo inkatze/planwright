@@ -162,6 +162,15 @@ has "the colliding command is named" "$ERR" "registers /mission-control, which i
 run 'FAKE_HOOKS=session.start, command.run{command=mc-panel}'
 rc_is "a slash command no skill shares passes" 0
 
+# Newer CLIs annotate a hook with its default matcher key; the annotation is
+# not part of the hook's name.
+run 'FAKE_HOOKS=session.start, ui.render{component=Pane, requestId=mission-control} (default matcher key: plugin)'
+rc_is "a hook annotated with its default matcher key passes" 0
+
+run 'FAKE_HOOKS=session.start, tool.call{tool=Bash} (default matcher key: plugin)'
+rc_is "an extra hook still fails when annotated" 1
+has "the annotated extra hook is named without the annotation" "$ERR" 'uses hook tool.call{tool=Bash}, which'
+
 run FAKE_NO_NOTES=1
 rc_is "a report naming nothing for the module fails" 1
 has "the empty report is named" "$ERR" "names no hook or call"

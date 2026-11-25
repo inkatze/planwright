@@ -172,9 +172,13 @@ echo "ok: a directory with no profile fails rather than passing vacuously"
   echo "skip: live-CLI probe (set PLANWRIGHT_LIVE_CLI_PROBE=1 to re-measure)"
   exit 0
 }
+# The probe is the real CLI by design, so it passes the runner's claude guard.
+PLANWRIGHT_TEST_REAL_CLAUDE=1
+export PLANWRIGHT_TEST_REAL_CLAUDE
 
-command -v claude >/dev/null 2>&1 || {
-  echo "skip: claude CLI not on PATH"
+# Asked, not looked up: under the runner its guard is always on PATH.
+claude --version >/dev/null 2>&1 || {
+  echo "skip: no claude CLI answers on PATH"
   exit 0
 }
 

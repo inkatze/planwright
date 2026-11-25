@@ -193,9 +193,6 @@ shorts=$(printf '%s\n' "$snapshot" | awk -F'\t' 'NF && NF < 8 { print $1 }')
 # would judge is kept), and the pass says so.
 reg_ok=1
 reg_raw=$(/bin/sh "$FS" registry 2>/dev/null) || reg_ok=0
-if [ -e "$root/registry" ] && [ ! -r "$root/registry" ]; then
-  reg_ok=0
-fi
 lastmap=""
 if [ "$reg_ok" = 1 ]; then
   lastmap=$(printf '%s\n' "$reg_raw" | awk -F'\t' '
@@ -314,7 +311,13 @@ evidence() {
   if [ "$ev_class" = process ]; then
     "$DEATH" process "$ev_rest" >/dev/null 2>&1 || ev_rc=$?
   else
-    "$DEATH" tmux-window "${ev_rest%% *}" "${ev_rest#* }" >/dev/null 2>&1 || ev_rc=$?
+    # A pinned handle carries the issuing server and window name too.
+    # shellcheck disable=SC2086 # the handle's tokens, split (globbing is off)
+    set -- $ev_rest
+    case $# in
+      2 | 4) "$DEATH" tmux-window "$@" >/dev/null 2>&1 || ev_rc=$? ;;
+      *) ev_rc=2 ;;
+    esac
   fi
   case $ev_rc in
     0)

@@ -65,6 +65,8 @@ export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 ROOT=$(cd "$here/.." && pwd -P)
 SCRIPT="$ROOT/scripts/flight-record.sh"
 [ -r "$ROOT/tests/lib/emitter-lint.sh" ] || {
@@ -173,9 +175,11 @@ Steps at `pre-pr`'
 # SR_HEADER — the header row of the step tables scripts/step-record.sh renders,
 # which the file home's not-fired post-pr table must match.
 git init -q "$tmp/sr"
+git -C "$tmp/sr" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  commit -q --allow-empty -m "chore: base"
 sr_run=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" new-run)
 "$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" write --completion --run "$sr_run" --point pre-pr \
-  --head 0123456789abcdef0123456789abcdef01234567 >/dev/null
+  --head "$(git -C "$tmp/sr" rev-parse HEAD)" >/dev/null
 SR_HEADER=$("$ROOT/scripts/step-record.sh" --worktree "$tmp/sr" render --run "$sr_run" | grep '^| # |')
 [ -n "$SR_HEADER" ] || fail "fixture: step-record.sh rendered no table header"
 
@@ -1322,10 +1326,18 @@ NOX=noenter-0a1b2c3d
 gitc "$repo" checkout -q -b "planwright/flight/$NOX" main
 mkdir -p "$repo/specs"
 chmod 000 "$repo/specs"
-run_land --flight-id "$NOX"
+nox_denied=0
+if hermetic_access_denied r "$repo/specs"; then
+  nox_denied=1
+  run_land --flight-id "$NOX"
+else
+  echo "skip: unenterable record directory: the running user still reads $repo/specs under mode 000"
+fi
 chmod 755 "$repo/specs"
-[ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
-printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+if [ "$nox_denied" = 1 ]; then
+  [ "$RC" -eq 4 ] || fail "a directory land cannot enter must fail with 4 (got $RC: $ERR)"
+  printf '%s\n' "$ERR" | grep -q 'symlink' && fail "a directory land cannot enter is not a symlink: $ERR"
+fi
 rm -rf "$repo/specs"
 
 # A pre-commit hook that rewrites the record and then refuses the commit

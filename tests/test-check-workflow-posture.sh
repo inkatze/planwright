@@ -19,6 +19,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 GUARD="$REPO_ROOT/scripts/check-workflow-posture.sh"
 
 failures=0
@@ -1408,18 +1410,18 @@ jobs:\r
       - run: echo x\r
 '
 
-# A workflow file the parser cannot READ is not a clean tree. Skipped under
-# root, where mode 000 does not deny a read and the case cannot be staged.
-if [ "$(id -u)" -ne 0 ]; then
-  d="$(mkdir_case fail-unreadable)"
-  printf 'name: x\n' >"$d/x.yml"
-  chmod 000 "$d/x.yml"
+# A workflow file the parser cannot READ is not a clean tree. Skipped where
+# mode 000 does not deny the running user a read and the case cannot be staged.
+d="$(mkdir_case fail-unreadable)"
+printf 'name: x\n' >"$d/x.yml"
+chmod 000 "$d/x.yml"
+if hermetic_access_denied r "$d/x.yml"; then
   out="$("$GUARD" "$d" 2>&1)"
   assert_exit "an unreadable workflow file fails closed" 1 $?
-  chmod 644 "$d/x.yml"
 else
-  echo "ok: an unreadable workflow file fails closed (skipped: running as root)"
+  echo "skip: unreadable workflow file: the running user still reads $d/x.yml under mode 000"
 fi
+chmod 644 "$d/x.yml"
 
 # ---------------------------------------------------------------------------
 # The same-repo exception: a job gated, at its own `if:`, on the PR's head
@@ -1734,6 +1736,10 @@ grep -qF 'MAC_RUN: ${{ needs.plan.outputs.mac_run }}' "$CI_YML"
 assert_exit "the aggregate check job reads the mac_run verdict" 0 $?
 grep -qE 'MACOS_RESULT" = skipped' "$CI_YML"
 assert_exit "the aggregate check job accepts a macOS skip only by that verdict" 0 $?
+n_suite="$(grep -cF "if: \${{ needs.plan.outputs.suite_run == 'true' }}" "$CI_YML")"
+suite_rc=1
+[ "$n_suite" = 2 ] && suite_rc=0
+assert_exit "ci.yml gates exactly the test and Alpine jobs on the plan job's suite_run" 0 "$suite_rc"
 
 # The default argument resolves to the repo's workflow directory, so a bare
 # invocation from anywhere gives the same verdict as the explicit one.
@@ -1851,6 +1857,29 @@ matrix_case "matrix: a branch filter on the macOS job fails" 1 "carries a job-le
 # shellcheck disable=SC2016 # a literal GitHub expression
 matrix_case "matrix: any job-level if on the Alpine job fails" 1 "carries a job-level" \
   'M_ALP_JOB=    if: ${{ !cancelled() }}'
+# The one job-level if the Alpine job may carry: the plan job's verdict that
+# the suite runs, false only on a ready flip reusing a prior run's evidence.
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  matrix_case "matrix: the plan job's suite_run gate on the Alpine job passes" 0 \
+    "holds the platform matrix" \
+    "M_ALP_JOB=    if: \${{ needs.plan.outputs.suite_run == 'true' }}"
+  matrix_case "matrix: the bare suite_run gate on the Alpine job passes" 0 \
+    "holds the platform matrix" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+  matrix_case "matrix: suite_run joined to another condition on the Alpine job fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run == 'true' && github.head_ref == 'planwright/x'"
+  matrix_case "matrix: a suite_run gate spread over two lines with another condition fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: >-
+      needs.plan.outputs.suite_run == 'true'
+      || github.event_name == 'push'"
+  matrix_case "matrix: suite_run compared to anything but 'true' fails" 1 "carries a job-level" \
+    "M_ALP_JOB=    if: needs.plan.outputs.suite_run != 'true'"
+  matrix_case "matrix: the suite_run gate on the macOS job fails" 1 "carries a job-level" \
+    "M_MAC_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+  matrix_case "matrix: the suite_run gate on the Ubuntu job leaves its install smoke gated" 1 "install smoke" \
+    "M_LINT_JOB=    if: needs.plan.outputs.suite_run == 'true'"
+}
 matrix_case "matrix: a job-level if naming a platform fails" 1 "naming a platform" \
   "M_LINT_JOB=    if: runner.os == 'Linux'"
 matrix_case "matrix: a block-scalar job-level if naming a platform fails" 1 "naming a platform" \
@@ -2049,7 +2078,9 @@ assert_exit "matrix: the repo's own ci.yml holds the platform matrix" 0 $?
 # workflow's trigger types and the action's pr_actions must name the same set.
 # ---------------------------------------------------------------------------
 
-# pa_case <name> <types-flow-list> <pr_actions-line-or-empty>
+# pa_case <name> <types-flow-list> <pr_actions-line-or-empty> [<separator>]
+# The separator joins GITHUB_ACTION_CONFIG and PR_ACTIONS: "." by default, or
+# PR-Agent's other spelling, "__".
 pa_case() {
   d="$(mkdir_case "$1")"
   {
@@ -2058,29 +2089,56 @@ pa_case() {
       '    runs-on: ubuntu-latest' '    steps:' '      - name: Review' \
       '        uses: docker://pragent/pr-agent@sha256:0000' '        env:' \
       '          CONFIG.LOG_LEVEL: INFO'
-    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG.PR_ACTIONS: '$3'"
+    [ -z "$3" ] || printf '%s\n' "          GITHUB_ACTION_CONFIG${4:-.}PR_ACTIONS: '$3'"
   } >"$d/pr-agent.yml"
 }
-PA_ALL='opened, synchronize, reopened, ready_for_review, review_requested'
-PA_ALL_JSON='["opened", "reopened", "ready_for_review", "review_requested", "synchronize"]'
+PA_ALL='ready_for_review, review_requested'
+PA_ALL_JSON='["ready_for_review", "review_requested"]'
 
 pa_case pa-agree "[$PA_ALL]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: types and pr_actions naming the same set pass" 0 $?
 
-pa_case pa-missing-sync "[$PA_ALL]" '["opened", "reopened", "ready_for_review", "review_requested"]'
+pa_case pa-missing-action "[$PA_ALL]" '["ready_for_review"]'
 out="$("$GUARD" "$d" 2>&1)"
-assert_exit "pr-agent: a pr_actions without synchronize fails" 1 $?
-assert_contains "pr-agent: the missing action is named" "synchronize" "$out"
+assert_exit "pr-agent: a pr_actions that omits a trigger type fails" 1 $?
+assert_contains "pr-agent: the missing action is named" "review_requested" "$out"
 
 pa_case pa-no-actions "[$PA_ALL]" ""
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a workflow with no pr_actions fails" 1 $?
 
-pa_case pa-extra-action "[opened, synchronize, reopened]" "$PA_ALL_JSON"
+pa_case pa-extra-action "[ready_for_review]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
-assert_contains "pr-agent: the undelivered action is named" "ready_for_review" "$out"
+assert_contains "pr-agent: the undelivered action is named" "review_requested" "$out"
+
+# The bot review runs once per pull request, on the ready flip, and again only
+# when asked for: a push-driven trigger burns the review budget on every commit.
+for pa_every in opened synchronize reopened labeled edited; do
+  pa_case "pa-every-$pa_every" "[$PA_ALL, $pa_every]" "[\"ready_for_review\", \"review_requested\", \"$pa_every\"]"
+  out="$("$GUARD" "$d" 2>&1)"
+  assert_exit "pr-agent: a trigger on $pa_every fails" 1 $?
+  assert_contains "pr-agent: the push-driven type $pa_every is named" "must not trigger on '$pa_every'" "$out"
+done
+
+pa_case pa-no-flip-trigger "[review_requested]" '["review_requested"]'
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow with no ready_for_review trigger fails" 1 $?
+assert_contains "pr-agent: the flip's own trigger is named" "ready_for_review" "$out"
+
+pa_case pa-dunder-agree "[$PA_ALL]" "$PA_ALL_JSON" __
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: the SECTION__KEY spelling of pr_actions is read" 0 $?
+
+pa_case pa-dunder-missing-action "[$PA_ALL]" '["ready_for_review"]' __
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a SECTION__KEY pr_actions that omits a trigger type fails" 1 $?
+assert_contains "pr-agent: the missing SECTION__KEY action is named" "review_requested" "$out"
+
+pa_case pa-one-underscore "[$PA_ALL]" "$PA_ALL_JSON" _
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a single-underscore pr_actions, which PR-Agent ignores, fails" 1 $?
 
 pa_case pa-trailing-comment "[$PA_ALL] # see [docs]" "$PA_ALL_JSON"
 out="$("$GUARD" "$d" 2>&1)"
@@ -2095,6 +2153,26 @@ assert_exit "pr-agent: a workflow naming the image only in a comment is not chec
 
 out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "pr-agent: the repo's own workflows agree" 0 $?
+
+# The repo's own PR-Agent workflow: one run on the ready flip, one more only on
+# a review request, and the safety conditions that gate the job stay.
+PA_REAL="$REPO_ROOT/.github/workflows/pr-agent.yml"
+pa_types="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$PA_REAL" | head -n 1 | tr -d ' ')"
+[ "$pa_types" = "ready_for_review,review_requested" ]
+assert_exit "pr-agent: the repo's workflow triggers on the flip and a review request only (got: $pa_types)" 0 $?
+grep -q 'github.event.pull_request.head.repo.full_name == github.repository' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its same-repo head condition" 0 $?
+grep -q "user.login != 'dependabot\[bot\]'" "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its dependabot exclusion" 0 $?
+grep -q "contains(github.event.pull_request.labels.\*.name, 'skip-pr-agent')" "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its skip-pr-agent label" 0 $?
+grep -qx '    name: PR-Agent' "$PA_REAL"
+assert_exit "pr-agent: the job keeps the name the readiness check and the stall reasons match" 0 $?
+grep -q 'github.event.pull_request.draft == false' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow skips a draft" 0 $?
+# shellcheck disable=SC2016 # the workflow's literal text
+grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2

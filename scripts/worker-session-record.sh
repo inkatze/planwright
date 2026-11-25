@@ -3,7 +3,11 @@
 # launch-time inputs its command guard trusts.
 #
 # Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
-#          [--scratch | --fresh-scratch] [--mise-task-edit]
+#          [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit]
+#          [--spec-branch <branch>] [--launcher mission-control]
+#        worker-session-record.sh path <worktree>
+#
+# path prints the worktree's own record path (below) and writes nothing.
 #
 # Resolves, once, from the worktree the worker will run in:
 #   policy             worker_self_approval through the overlay layers,
@@ -17,8 +21,24 @@
 #   worktree_root      the worktree's canonical top level
 #   pr_base            <remote>/<branch>: the unit branch's remote (origin
 #                      when unset) and that remote's default branch as
-#                      recorded locally, else main
+#                      recorded locally, else main; omitted when unit_branch
+#                      is, or when the remote's name falls outside its
+#                      grammar. The command guard and the step runner hold the
+#                      worktree's trusted files to its merge base, so a
+#                      record without it trusts none
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
+#   draft_rewrite      the human-gates knob, from the core, adopter, and
+#                      machine-local layers only (scripts/resolve-policy-knob.sh;
+#                      omitted when it cannot be read, which reads as deny)
+#   launcher           mission-control only for a launch given --launcher
+#                      mission-control, which mission-control-launch.sh passes
+#                      for the workers it launches; never read from config,
+#                      the checkout or the environment, omitted otherwise
+#   author             `<user.name> <<user.email>>` from the primary checkout's
+#                      git config at launch, which the branch-sync push holds
+#                      every replaced commit to (omitted when either is unset)
+#   record_key         the record's own file name less `.record`, which names
+#                      the session's audit log in every copy of the record
 #   scratch_root       with --scratch, the worktree's scratch root, a short
 #                      directory outside the fleet home that
 #                      scripts/fleet-scratch.sh places and records, whatever
@@ -49,10 +69,26 @@
 #                      the checkout or the environment; omitted otherwise, and a
 #                      fresh launch without the flag drops it, a recover or
 #                      relaunch keeps what its launch recorded
+#   lefthook_edit      `1` only for a launch given --lefthook-edit, the launch-time
+#                      opt-in that lets the own-branch arm write the lefthook
+#                      config names (lefthook.<ext>, lefthook/) inside the
+#                      worktree, and nothing else. Same provenance and
+#                      lifecycle as mise_task_edit, and independent of it
+#   spec_branch        the spec PR branch (planwright/<spec>/<name>) a launch given
+#                      --spec-branch names, omitted otherwise: the policy guard
+#                      lets that session fast-forward its flight branch to it and
+#                      sync the checked-out branch with the PR base, and nothing
+#                      else. Never read from config, the checkout or the command
 #   hook_exclude       worker_hook_exclude as a comma-joined list, omitted
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as
 #                      LEFTHOOK_EXCLUDE (scripts/fleet-dispatch-env.sh)
+#   check_commands     worker_check_commands, last value wins, read at the
+#                      primary checkout like the policy, a malformed overlay
+#                      layer or a failed read dropping it; its `;`-separated
+#                      declarations trimmed, empty ones skipped, and those past
+#                      2048 bytes dropped with a warning. The guard parses each
+#                      declaration and drops a malformed one. Omitted when empty
 #   audit_log_home     <fleet-home>/allow-audit, owner-only, where the guard
 #                      appends a line per approval to <record-name>.log. Every
 #                      write first prunes the logs there older than
@@ -74,7 +110,12 @@
 # PLANWRIGHT_WORKER_SESSION_RECORD. With --session <handle> (the field
 # grammar, never with a <launch-id>) the record is
 # <hash-of-worktree-root>-<hash-of-handle>.record, that session's alone, and
-# names that session's own scratch root. The record lies outside the worktree (a
+# names that session's own scratch root. Every write also copies the record to
+# the worktree's own path, <hash-of-worktree-root>.record (the same file when
+# there is neither a launch id nor a session), so the latest launch into a
+# worktree leaves its record at a path fixed by the worktree alone: the
+# draft-rewrite readers (scripts/policy-guard.sh, scripts/worker-branch-sync.sh)
+# find it there, never through the environment. The record lies outside the worktree (a
 # fleet home inside it is refused), so nothing the worker writes there reaches
 # it. A relaunch writes a fresh record from current config: the same file
 # without a launch id, a new one with. `fleet-cleanup.sh worktree` removes
@@ -87,6 +128,12 @@ export LC_ALL
 unset CDPATH
 
 me=worker-session-record.sh
+# The check_commands bound, scripts/worker-command-guard.sh's MAX_CHECKS_LEN
+# (they change together).
+MAX_CHECKS_LEN=2048
+# The record size every reader accepts (scripts/worker-command-guard.sh,
+# scripts/policy-guard.sh, scripts/worker-branch-sync.sh; they change together).
+MAX_RECORD_SIZE=4096
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 
 die() {
@@ -94,15 +141,24 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit]"
-[ "$#" -ge 2 ] && [ "$1" = write ] || die "$usage" 2
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--launcher mission-control] | path <worktree>"
+[ "$#" -ge 2 ] || die "$usage" 2
+verb=$1
+case $verb in
+  write) ;;
+  path) [ "$#" = 2 ] || die "$usage" 2 ;;
+  *) die "$usage" 2 ;;
+esac
 wt_arg=$2
 shift 2
+launcher=''
 launch_id=''
 have_id=0
 session=''
 want_scratch=0
 mise_task_edit=0
+lefthook_edit=0
+spec_branch=
 while [ "$#" -gt 0 ]; do
   case $1 in
     --scratch | --fresh-scratch)
@@ -115,6 +171,29 @@ while [ "$#" -gt 0 ]; do
       [ "$mise_task_edit" = 0 ] || die "$usage" 2
       mise_task_edit=1
       shift
+      ;;
+    --lefthook-edit)
+      [ "$lefthook_edit" = 0 ] || die "$usage" 2
+      lefthook_edit=1
+      shift
+      ;;
+    --spec-branch)
+      [ "$#" -ge 2 ] && [ -z "$spec_branch" ] || die "$usage" 2
+      case $2 in
+        planwright/flight/* | planwright/*/task-*) die "--spec-branch names a spec PR branch, never a unit branch" 2 ;;
+        planwright/[a-z0-9]*/[a-z0-9]*) ;;
+        *) die "--spec-branch must be planwright/<spec>/<name>" 2 ;;
+      esac
+      case $2 in
+        *[!a-z0-9/.-]* | */ | *//* | *..* | *.lock) die "--spec-branch is outside the branch grammar (lowercase letters, digits, . - and one / between segments)" 2 ;;
+      esac
+      spec_branch=$2
+      shift 2
+      ;;
+    --launcher)
+      [ "$#" -ge 2 ] && [ -z "$launcher" ] && [ "$2" = mission-control ] || die "$usage" 2
+      launcher=$2
+      shift 2
       ;;
     --session)
       [ "$#" -ge 2 ] && [ -z "$session" ] && [ "$have_id" = 0 ] || die "$usage" 2
@@ -158,6 +237,18 @@ wt=$(cd -P -- "$top" 2>/dev/null && pwd -P) || die "the worktree top level does 
 case $wt in
   *[[:cntrl:]]*) die "the worktree path holds a control character" ;;
 esac
+
+if [ "$verb" = path ]; then
+  home=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || die "cannot resolve the fleet home"
+  case $home in
+    /*) ;;
+    *) die "the fleet home is not an absolute path" ;;
+  esac
+  dir=$(cd -P -- "$home/session-records" 2>/dev/null && pwd -P) || die "the record directory does not exist"
+  wt_key=$(printf '%s' "$wt" | git hash-object --stdin 2>/dev/null) || die "cannot name the record"
+  printf '%s\n' "$dir/$wt_key.record"
+  exit 0
+fi
 
 # The primary checkout, where policy is read (scripts/policy-guard.sh,
 # policy_root).
@@ -203,6 +294,50 @@ if [ -n "$primary" ]; then
   done
 fi
 
+# The check commands, read strictly: a malformed overlay layer drops the whole
+# list rather than letting a lower layer's wider list through.
+check_commands=''
+if [ -n "$primary" ]; then
+  raw=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary PLANWRIGHT_CONFIG_STRICT_OVERLAYS=1 \
+    /bin/sh "$script_dir/config-get.sh" worker_check_commands 2>/dev/null </dev/null) || {
+    rc=$?
+    raw=''
+    # Exit 3 is a key no layer sets, which declares nothing.
+    [ "$rc" = 3 ] \
+      || printf '%s: worker_check_commands could not be read (a malformed overlay layer?); the worker gets no check commands\n' "$me" >&2
+  }
+  case $raw in
+    *[[:cntrl:]]*)
+      raw=''
+      printf '%s: worker_check_commands holds a control character; the worker gets no check commands\n' "$me" >&2
+      ;;
+  esac
+  # Past four times the bound the list is dropped whole, which keeps the
+  # split below from running long over a runaway value.
+  if [ "${#raw}" -gt $((MAX_CHECKS_LEN * 4)) ]; then
+    raw=''
+    printf '%s: worker_check_commands is far past %s bytes; the worker gets no check commands\n' "$me" "$MAX_CHECKS_LEN" >&2
+  fi
+  dropped=0
+  while [ -n "$raw" ]; do
+    decl=${raw%%;*}
+    case $raw in
+      *';'*) raw=${raw#*;} ;;
+      *) raw='' ;;
+    esac
+    decl=$(printf '%s' "$decl" | sed 's/^ *//; s/ *$//')
+    [ -n "$decl" ] || continue
+    next=${check_commands:+$check_commands;}$decl
+    if [ "${#next}" -gt "$MAX_CHECKS_LEN" ]; then
+      dropped=1
+      continue
+    fi
+    check_commands=$next
+  done
+  [ "$dropped" = 0 ] \
+    || printf '%s: worker_check_commands is longer than %s bytes; the declarations past it are dropped\n' "$me" "$MAX_CHECKS_LEN" >&2
+fi
+
 unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
 case $unit in
   planwright/flight/task-*) unit='' ;;
@@ -239,6 +374,28 @@ if [ -n "$primary" ]; then
   case $base_merge in
     allow | deny) ;;
     *) base_merge='' ;;
+  esac
+fi
+
+# The author identity the branch-sync push compares replaced commits against,
+# read at launch so a later edit of the repository config changes nothing.
+author=''
+if [ -n "$primary" ]; then
+  a_name=$(gitq "$primary" config --get user.name) || a_name=''
+  a_mail=$(gitq "$primary" config --get user.email) || a_mail=''
+  case "$a_name$a_mail" in
+    *[[:cntrl:]]* | *'<'* | *'>'*) ;;
+    *) [ -z "$a_name" ] || [ -z "$a_mail" ] || author="$a_name <$a_mail>" ;;
+  esac
+fi
+
+draft_rewrite=''
+if [ -n "$primary" ]; then
+  draft_rewrite=$(cd -- "$primary" && PLANWRIGHT_REPO_ROOT=$primary /bin/sh "$script_dir/resolve-policy-knob.sh" \
+    draft_rewrite 2>/dev/null </dev/null) || draft_rewrite=''
+  case $draft_rewrite in
+    allow | deny) ;;
+    *) draft_rewrite='' ;;
   esac
 fi
 
@@ -340,22 +497,64 @@ audit_make() {
 audit=$(audit_make "$home/allow-audit") || audit=''
 [ -n "$audit" ] \
   || printf '%s: the audit-log home is unusable; the worker gets no write arm\n' "$me" >&2
-tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
-if ! {
+record_lines() {
   printf 'policy=%s\n' "$policy"
   [ -z "$unit" ] || printf 'unit_branch=%s\n' "$unit"
   printf 'worktree_root=%s\n' "$wt"
   [ -z "$pr_base" ] || printf 'pr_base=%s\n' "$pr_base"
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
+  [ -z "$draft_rewrite" ] || printf 'draft_rewrite=%s\n' "$draft_rewrite"
+  [ -z "$launcher" ] || printf 'launcher=%s\n' "$launcher"
+  [ -z "$author" ] || printf 'author=%s\n' "$author"
   [ -z "$scratch" ] || printf 'scratch_root=%s\n' "$scratch"
   [ -z "$audit" ] || printf 'audit_log_home=%s\n' "$audit"
   [ -z "$hook_exclude" ] || printf 'hook_exclude=%s\n' "$hook_exclude"
+  [ -z "$check_commands" ] || printf 'check_commands=%s\n' "$check_commands"
   [ "$mise_task_edit" = 0 ] || printf 'mise_task_edit=1\n'
+  [ "$lefthook_edit" = 0 ] || printf 'lefthook_edit=1\n'
+  [ -z "$spec_branch" ] || printf 'spec_branch=%s\n' "$spec_branch"
   case ${PLANWRIGHT_LAUNCH_BACKEND:-} in
     stream-json | headless-oneshot) printf 'launch_backend=%s\n' "$PLANWRIGHT_LAUNCH_BACKEND" ;;
   esac
-} >"$tmp" || ! mv -f -- "$tmp" "$rec"; then
+  printf 'record_key=%s\n' "$key"
+}
+# An earlier launch's copy at the worktree's own path goes first, so a write
+# that fails part way leaves no stale authority behind. Where the record is
+# that path itself, the atomic move below replaces it instead: a live
+# session's record is never left missing.
+fixed=$dir/$wt_key.record
+[ "$rec" = "$fixed" ] || rm -f -- "$fixed"
+tmp=$(mktemp "$dir/.$key.XXXXXX") || die "cannot write the record"
+record_lines >"$tmp" || {
   rm -f -- "$tmp"
   die "cannot write the record"
+}
+# Every reader refuses a record past MAX_RECORD_SIZE whole, so the check
+# commands give way rather than the record.
+size=$(wc -c <"$tmp") || size=''
+size=${size##* }
+if [ -n "$check_commands" ] && { [ -z "$size" ] || [ "$size" -gt "$MAX_RECORD_SIZE" ]; }; then
+  check_commands=''
+  printf '%s: the session record would pass %s bytes; the worker gets no check commands\n' "$me" "$MAX_RECORD_SIZE" >&2
+  record_lines >"$tmp" || {
+    rm -f -- "$tmp"
+    die "cannot write the record"
+  }
+fi
+mv -f -- "$tmp" "$rec" || {
+  rm -f -- "$tmp"
+  die "cannot write the record"
+}
+# The worktree's own copy lands last, so it never names a launch whose own
+# record is missing; any failure leaves no copy rather than an older one.
+if [ "$rec" != "$fixed" ]; then
+  ftmp=$(mktemp "$dir/.$wt_key.XXXXXX") || {
+    rm -f -- "$fixed"
+    die "cannot write the worktree's record"
+  }
+  if ! cp -- "$rec" "$ftmp" || ! mv -f -- "$ftmp" "$fixed"; then
+    rm -f -- "$ftmp" "$fixed"
+    die "cannot write the worktree's record"
+  fi
 fi
 printf '%s\n' "$rec"

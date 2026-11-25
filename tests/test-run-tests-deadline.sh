@@ -3,7 +3,8 @@
 # still running past PLANWRIGHT_TEST_FILE_DEADLINE is ended, reported failed
 # naming the file and the deadline, and its ticket returned; a file inside the
 # deadline is unaffected; a malformed value or 0 warns once and uses the
-# default; a host with no usable timeout or gtimeout warns once and runs files
+# default; a host with no timeout or gtimeout bounds files through
+# scripts/bounded-run.sh, and one with neither warns once and runs them
 # unbounded; gtimeout alone bounds them; a signal to a worker reaches its
 # bounded file; a nested runner inherits the variable.
 set -u
@@ -190,7 +191,7 @@ sh -c 'kill -INT $$; sleep 1; exit 0'
 EOF
 out=$(PLANWRIGHT_TEST_FILE_DEADLINE=5 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r2.tsv" "$RUNNER" "$s2" 2>&1)
 assert_exit "files inside their deadline pass, INT at its default" 0 "$?"
-[ -z "$real_timeout" ] || assert_contains "the files ran bounded" "deadline 5s per file" "$out"
+assert_contains "the files ran bounded" "deadline 5s per file" "$out"
 assert_not_contains "a file inside its deadline draws no deadline message" "ran past its" "$out"
 # A wall clock that jumps past the deadline while a passing file runs (a
 # suspend, an NTP step) leaves timeout's alarm unfired and the file passed.
@@ -228,11 +229,7 @@ assert_not_contains "a file exiting 124 itself is not called a deadline" "ran pa
 # 3. Unset is the default with no warning; a malformed value and 0 each warn
 #    once, naming the default, and use it. The header shows the value only
 #    where files are bounded.
-if [ -n "$real_timeout" ]; then
-  shows() { printf 'deadline %ss per file' "$1"; }
-else
-  shows() { printf 'no per-file deadline'; }
-fi
+shows() { printf 'deadline %ss per file' "$1"; }
 s3="$tmp/s3"
 mkdir -p "$s3"
 quick_file "$s3/test-1.sh"
@@ -260,31 +257,98 @@ for good in 007:7 999999999:999999999; do
 done
 
 # ---------------------------------------------------------------------------
-# 4. Fixture hosts: a PATH without either bounder, one whose timeout refuses
-#    -k (an old busybox), and one with only gtimeout (Homebrew's coreutils).
+# 4. Fixture hosts: a PATH without either bounder (stock macOS), one whose
+#    timeout refuses -k (an old busybox), and one with only gtimeout
+#    (Homebrew's coreutils). With no usable timeout the runner bounds each file
+#    through scripts/bounded-run.sh; only a runner that cannot find that either
+#    warns and runs files unbounded.
 farm=$(no_timeout_path "$tmp/notimeout")
 s4="$tmp/s4"
 mkdir -p "$s4"
-printf '#!/bin/bash\nsleep 2\n' >"$s4/test-slow-1.sh"
-printf '#!/bin/bash\nsleep 2\n' >"$s4/test-slow-2.sh"
-no_tool_case() {
-  out=$(PATH="$farm" PLANWRIGHT_TEST_FILE_DEADLINE=1 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4.tsv" \
+# no_tool_bounded <label> [<path>] — a file that outlives its deadline on the
+# PATH in <path> (default $farm) is ended at it, named, and takes what it
+# started along, and a file started under that bound still gets INT at its
+# default.
+no_tool_bounded() {
+  h4="$tmp/h4-$1"
+  mkdir -p "$h4"
+  hang_file "$s4/test-hang.sh" "$h4"
+  quick_file "$s4/test-quick.sh"
+  cp "$s2/test-int-default.sh" "$s4/test-int-default.sh"
+  start=$(date +%s)
+  out=$(PATH="${2:-$farm}" PLANWRIGHT_TEST_FILE_DEADLINE=4 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4.tsv" \
     "$RUNNER" "$s4" 2>&1)
-  assert_exit "$1: files past the deadline still pass" 0 "$?"
-  n=$(count_lines "WARNING no usable timeout(1) or gtimeout" "$out")
-  if [ "$n" -eq 1 ]; then
-    pass "$1: warns exactly once"
+  rc=$?
+  took=$(($(date +%s) - start))
+  assert_exit "$1: the hung file fails the run" 1 "$rc"
+  assert_contains "$1: the hung file is named with its deadline" \
+    "test-hang.sh ran past its 4s deadline" "$out"
+  assert_contains "$1: the quick file still passes" "ok: test-quick.sh" "$out"
+  assert_contains "$1: INT is at its default in the file" "ok: test-int-default.sh" "$out"
+  assert_contains "$1: the header shows the deadline" "deadline 4s per file" "$out"
+  assert_not_contains "$1: no unbounded warning" "WARNING no usable timeout" "$out"
+  if [ "$took" -lt 40 ]; then
+    pass "$1: the run ends near the deadline, not at the file's own end (${took}s)"
   else
-    fail "$1: warns exactly once (got $n: $out)"
+    fail "$1: the run ends near the deadline, not at the file's own end (${took}s)"
   fi
-  assert_contains "$1: the header says files run unbounded" "no per-file deadline" "$out"
+  if poll_until -- pid_gone "$(cat "$h4/pid")" "$(cat "$h4/child")"; then
+    pass "$1: the hung file and its child are gone"
+  else
+    fail "$1: the hung file and its child are gone"
+    kill -s KILL "$(cat "$h4/pid")" "$(cat "$h4/child")" 2>/dev/null
+  fi
+  rm -f "$s4/test-hang.sh" "$s4/test-quick.sh" "$s4/test-int-default.sh"
 }
-no_tool_case "no bounding tool"
+no_tool_bounded "no-bounding-tool"
+# Stock macOS also lacks a GNU env, so the INT and QUIT reset goes through perl.
+if command -v perl >/dev/null 2>&1; then
+  farm2=$(no_timeout_path "$tmp/noenv")
+  real_env=$(command -v env)
+  rm -f "$farm2/env"
+  # shellcheck disable=SC2016 # $1 and $@ belong to the stub
+  printf '#!/bin/sh\ncase "$1" in --default-signal*) exit 125 ;; esac\nexec "%s" "$@"\n' "$real_env" >"$farm2/env"
+  chmod +x "$farm2/env"
+  no_tool_bounded "no-timeout-no-gnu-env" "$farm2"
+else
+  pass "no-timeout-no-gnu-env (skipped: no perl on this host)"
+fi
 # shellcheck disable=SC2016 # $1 and $@ belong to the stub
 printf '#!/bin/sh\n[ "$1" = -k ] && exit 125\nexec "$@"\n' >"$farm/timeout"
 chmod +x "$farm/timeout"
-no_tool_case "a timeout without -k"
+no_tool_bounded "timeout-without-k"
 rm -f "$farm/timeout"
+# bounded-run.sh takes six digits of seconds, the knob nine: a larger value is
+# clamped for it rather than failing every file.
+s4c="$tmp/s4c"
+mkdir -p "$s4c"
+quick_file "$s4c/test-quick.sh"
+out=$(PATH="$farm" PLANWRIGHT_TEST_FILE_DEADLINE=999999999 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4c.tsv" \
+  "$RUNNER" "$s4c" 2>&1)
+assert_exit "no bounding tool: a nine-digit deadline still runs files" 0 "$?"
+assert_contains "no bounding tool: a nine-digit deadline is read as given" "deadline 999999999s per file" "$out"
+assert_contains "no bounding tool: the file ran bounded" "ok: test-quick.sh" "$out"
+
+# A runner with no bounded-run.sh beside it, on the same PATH: one warning and
+# unbounded files.
+bare="$tmp/bare"
+mkdir -p "$bare/scripts" "$bare/tests/lib"
+cp "$REPO_ROOT/scripts/run-tests.sh" "$REPO_ROOT/scripts/lock-lib.sh" "$REPO_ROOT/scripts/echo-safety.sh" \
+  "$bare/scripts/"
+cp "$REPO_ROOT/tests/lib/hermetic-env.sh" "$bare/tests/lib/"
+printf '#!/bin/bash\nsleep 2\n' >"$s4/test-slow-1.sh"
+printf '#!/bin/bash\nsleep 2\n' >"$s4/test-slow-2.sh"
+out=$(PATH="$farm" PLANWRIGHT_TEST_FILE_DEADLINE=1 PLANWRIGHT_TEST_TIMING_REPORT="$tmp/r4b.tsv" \
+  "$bare/scripts/run-tests.sh" "$s4" 2>&1)
+assert_exit "no tool at all: files past the deadline still pass" 0 "$?"
+assert_contains "no tool at all: the slow files ran" "ok: test-slow-2.sh" "$out"
+n=$(count_lines "WARNING no usable timeout(1) or gtimeout" "$out")
+if [ "$n" -eq 1 ]; then
+  pass "no tool at all: warns exactly once"
+else
+  fail "no tool at all: warns exactly once (got $n: $out)"
+fi
+assert_contains "no tool at all: the header says files run unbounded" "no per-file deadline" "$out"
 
 if [ -z "$real_timeout" ]; then
   pass "gtimeout alone bounds files (skipped: neither timeout nor gtimeout on this host)"
@@ -313,97 +377,103 @@ else
     fail "gtimeout alone: the file ran under gtimeout (${n:-0} use(s))"
   fi
   check_hang_gone "gtimeout alone" "$h5"
+  # The stub would otherwise stand in for a missing timeout on $farm below.
+  rm -f "$farm/gtimeout"
 fi
 
 # ---------------------------------------------------------------------------
 # 5. A signal to a worker reaches its bounded file as TERM, pooled and
 #    parallel, and serial and unpooled, where the run must not then go on to
 #    pass; a file that outlives that TERM is killed ten seconds later.
-if [ -z "$real_timeout" ]; then
-  pass "a worker passes a signal on (skipped: neither timeout nor gtimeout on this host)"
-else
-  # signal_case <label> <dir> <signal> <file-kind> [VAR=value...] — start a
-  # run on one hung file (hang, or stubborn: it notes a TERM and runs on),
-  # send <signal> to the worker holding it, and check the file and the run
-  # both end.
-  signal_case() {
-    sc_label=$1
-    sc_dir=$2
-    sc_sig=$3
-    sc_kind=$4
-    shift 4
-    mkdir -p "$sc_dir/suite"
-    if [ "$sc_kind" = stubborn ]; then
-      stubborn_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
-    else
-      hang_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
-    fi
-    quick_file "$sc_dir/suite/test-later.sh"
-    env "$@" PLANWRIGHT_TEST_FILE_DEADLINE=60 PLANWRIGHT_TEST_JOBS=1 \
-      PLANWRIGHT_TEST_TIMING_REPORT="$sc_dir/r.tsv" "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
-    sc_run=$!
-    if ! poll_until -- test -s "$sc_dir/child"; then
-      fail "$sc_label: the hung file started"
-      kill "$sc_run" 2>/dev/null
-      wait "$sc_run"
-      return
-    fi
-    # The worker is the nearest ancestor of the file running --run-one: its
-    # parent under GNU timeout, the file's own parent under busybox's, which
-    # becomes the file.
-    sc_worker=""
-    sc_p=$(cat "$sc_dir/pid")
-    for _ in 1 2 3; do
-      sc_p=$(ppid_of "$sc_p")
-      [ -n "$sc_p" ] && [ "$sc_p" -gt 1 ] || break
-      case "$(args_of "$sc_p")" in
-        *xargs*) ;;
-        *--run-one*)
-          sc_worker=$sc_p
-          break
-          ;;
-      esac
-    done
-    if [ -n "$sc_worker" ]; then
-      kill -s "$sc_sig" "$sc_worker"
-    else
-      fail "$sc_label: the worker was found"
-    fi
-    if [ "$sc_kind" = stubborn ]; then
-      if poll_until -- pid_gone "$(cat "$sc_dir/pid")"; then
-        pass "$sc_label: the file is killed after the grace"
-      else
-        fail "$sc_label: the file is killed after the grace"
-      fi
-      if [ -e "$sc_dir/termed" ]; then
-        pass "$sc_label: the file got TERM first"
-      else
-        fail "$sc_label: the file got TERM first"
-      fi
-    else
-      check_hang_gone "$sc_label" "$sc_dir"
-    fi
-    if poll_until -- pid_gone "$sc_run"; then
-      pass "$sc_label: the run ends"
-    else
-      fail "$sc_label: the run ends"
-      kill "$sc_run" 2>/dev/null
-    fi
-    # Whatever the outcome, nothing of the case outlives it.
-    kill -s KILL "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
+# signal_case <label> <dir> <signal> <file-kind> [VAR=value...] — start a
+# run on one hung file (hang, or stubborn: it notes a TERM and runs on),
+# send <signal> to the worker holding it, and check the file and the run
+# both end.
+signal_case() {
+  sc_label=$1
+  sc_dir=$2
+  sc_sig=$3
+  sc_kind=$4
+  shift 4
+  mkdir -p "$sc_dir/suite"
+  if [ "$sc_kind" = stubborn ]; then
+    stubborn_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+  else
+    hang_file "$sc_dir/suite/test-hang.sh" "$sc_dir"
+  fi
+  quick_file "$sc_dir/suite/test-later.sh"
+  env "$@" PLANWRIGHT_TEST_FILE_DEADLINE=60 PLANWRIGHT_TEST_JOBS=1 \
+    PLANWRIGHT_TEST_TIMING_REPORT="$sc_dir/r.tsv" "$RUNNER" "$sc_dir/suite" >"$sc_dir/out" 2>&1 &
+  sc_run=$!
+  if ! poll_until -- test -s "$sc_dir/child"; then
+    fail "$sc_label: the hung file started"
+    kill "$sc_run" 2>/dev/null
     wait "$sc_run"
-    sc_rc=$?
-    if [ "$sc_rc" -ne 0 ]; then
-      pass "$sc_label: the run does not pass (exit $sc_rc)"
+    return
+  fi
+  # The worker is the nearest ancestor of the file running --run-one: its
+  # parent under GNU timeout, the file's own parent under busybox's, which
+  # becomes the file.
+  sc_worker=""
+  sc_p=$(cat "$sc_dir/pid")
+  for _ in 1 2 3; do
+    sc_p=$(ppid_of "$sc_p")
+    [ -n "$sc_p" ] && [ "$sc_p" -gt 1 ] || break
+    case "$(args_of "$sc_p")" in
+      *xargs*) ;;
+      *--run-one*)
+        sc_worker=$sc_p
+        break
+        ;;
+    esac
+  done
+  if [ -n "$sc_worker" ]; then
+    kill -s "$sc_sig" "$sc_worker"
+  else
+    fail "$sc_label: the worker was found"
+  fi
+  if [ "$sc_kind" = stubborn ]; then
+    if poll_until -- pid_gone "$(cat "$sc_dir/pid")"; then
+      pass "$sc_label: the file is killed after the grace"
     else
-      fail "$sc_label: the run does not pass ($(cat "$sc_dir/out"))"
+      fail "$sc_label: the file is killed after the grace"
     fi
-  }
+    if [ -e "$sc_dir/termed" ]; then
+      pass "$sc_label: the file got TERM first"
+    else
+      fail "$sc_label: the file got TERM first"
+    fi
+  else
+    check_hang_gone "$sc_label" "$sc_dir"
+  fi
+  # hermetic-exempt: the earlier wait on this pid sits on a branch that returns, so the run is still unreaped here
+  if poll_until -- pid_gone "$sc_run"; then
+    pass "$sc_label: the run ends"
+  else
+    fail "$sc_label: the run ends"
+    kill "$sc_run" 2>/dev/null
+  fi
+  # Whatever the outcome, nothing of the case outlives it.
+  kill -s KILL "$(cat "$sc_dir/pid")" "$(cat "$sc_dir/child")" 2>/dev/null
+  wait "$sc_run"
+  sc_rc=$?
+  if [ "$sc_rc" -ne 0 ]; then
+    pass "$sc_label: the run does not pass (exit $sc_rc)"
+  else
+    fail "$sc_label: the run does not pass ($(cat "$sc_dir/out"))"
+  fi
+}
+if [ -z "$real_timeout" ]; then
+  pass "a worker passes a signal on under timeout (skipped: neither timeout nor gtimeout on this host)"
+else
   signal_case "pooled worker" "$tmp/sig1" TERM hang
   signal_case "a HUP to a worker" "$tmp/sig3" HUP stubborn
   signal_case "serial unpooled worker" "$tmp/sig2" TERM hang PLANWRIGHT_TEST_FORCE_SERIAL=1 \
     PLANWRIGHT_TEST_IN_POOLED_FILE=1
 fi
+# Through bounded-run.sh, where no timeout is on PATH.
+signal_case "no-timeout worker" "$tmp/sig4" TERM hang PATH="$farm"
+signal_case "a HUP to a no-timeout worker" "$tmp/sig5" HUP stubborn PATH="$farm"
 
 # ---------------------------------------------------------------------------
 # 6. A runner started from inside a test file inherits the variable and

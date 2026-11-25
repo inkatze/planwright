@@ -27,6 +27,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 TQ="$here/../scripts/tower-queue.sh"
 FA="$here/../scripts/fleet-attention.sh"
 
@@ -566,14 +568,19 @@ item=$(run add --kind question --origin w9 --worker w9 --closes 'the operator an
 # directory it must rename through is read-only, so the claim fails AFTER the
 # match. Nothing may settle on that.
 chmod 0500 "$home/attention"
-out=$(run settle --now 6002) || fail "the settling pass failed"
+if hermetic_access_denied w "$home/attention"; then
+  out=$(run settle --now 6002) || fail "the settling pass failed"
+  chmod 0700 "$home/attention"
+  [ "$(rec "$item" 12)" = open ] || fail "an item settled on a failed answer: $out"
+  [ -z "$(line "$out" answered)" ] || fail "the pass spoke a rule for an answer that failed: $out"
+  grep -q '"verb":"settle-by-rule"' "$surface/events.log" \
+    || fail "the failed attempt was not logged"
+  grep -q "\"decision\":\"$rule\"" "$surface/events.log" \
+    || fail "the logged attempt does not name the decision"
+  echo "ok: a non-zero exit from the answer channel leaves the item open with the attempt logged"
+else
+  echo "skip: failed answer channel: the running user still writes $home/attention under mode 0500"
+fi
 chmod 0700 "$home/attention"
-[ "$(rec "$item" 12)" = open ] || fail "an item settled on a failed answer: $out"
-[ -z "$(line "$out" answered)" ] || fail "the pass spoke a rule for an answer that failed: $out"
-grep -q '"verb":"settle-by-rule"' "$surface/events.log" \
-  || fail "the failed attempt was not logged"
-grep -q "\"decision\":\"$rule\"" "$surface/events.log" \
-  || fail "the logged attempt does not name the decision"
-echo "ok: a non-zero exit from the answer channel leaves the item open with the attempt logged"
 
 echo "PASS: $(basename "$0")"

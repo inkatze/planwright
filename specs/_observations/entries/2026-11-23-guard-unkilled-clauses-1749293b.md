@@ -1,0 +1,1 @@
+- 2026-11-23 [planwright] In worker-command-guard, the fin() ctl_depth partner clause and the middle-segment empty=0 check have no fixture that kills them, and look unreachable.

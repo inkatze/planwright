@@ -1,6 +1,6 @@
-# token-spend-lib.awk: what token-spend-report.awk and token-spend-total.awk
-# share, loaded first with `awk -f token-spend-lib.awk -f <stage>.awk`. The
-# first input is the price table, the rest token-spend.sh rows. Portable awk.
+# token-spend-lib.awk: what the stages loaded after it share, loaded first
+# with `awk -f token-spend-lib.awk -f <stage>.awk`. The first input is the
+# price table, the rest token-spend.sh rows. Portable awk.
 
 # epoch(<ISO-8601 UTC>): seconds since 1970 by the days-from-civil formula;
 # 0 for anything else, which callers treat as no timestamp.
@@ -45,6 +45,18 @@ function usd(i, c5, c1, ct, cr, o,    rest) {
   rest = ct - c5 - c1
   if (rest < 0) rest = 0
   return (i * Pin + (c5 + rest) * Pw5 + c1 * Pw1 + cr * Pcr + o * Pout) / 1e6
+}
+
+# session_kind(<prompt-head>, <rules-chars>): a session's role, read from its
+# first prompt (the s line's head and rule-block size).
+function session_kind(head, rules) {
+  if (head ~ /planwright:mission-control/) return "mission-control"
+  if (head ~ /planwright:tower/) return "tower"
+  if (rules > 0 || head ~ /launched by planwright.s mission control/) return "mc-launched"
+  if (head ~ /planwright:(execute-task|orchestrate)/) return "fleet-worker"
+  if (head ~ /(polish|self-review|panel-review|bot-review|peer-review|code-review)/) return "review"
+  if (head == "") return "unknown"
+  return "interactive"
 }
 
 function price_ok(v) { return v ~ /^[0-9]+(\.[0-9]+)?$/ }

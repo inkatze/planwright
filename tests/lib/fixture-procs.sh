@@ -13,7 +13,7 @@
 #                            path; only a directory inside one is a needle
 #   fixture_procs <dir/>     one `<pid> <args>` row per matched process, the
 #                            suite's own shell excluded; exit 2 when the
-#                            process table cannot be read, so a guard never
+#                            process table holds no row, so a guard never
 #                            passes on a snapshot it did not get
 #   fixture_none <dir/>      succeeds only on a readable table with no match
 #   fixture_reap <dir/>      SIGTERM the matches, SIGKILL whatever is left
@@ -22,8 +22,9 @@
 #                            when a snapshot is refused, before any signal for
 #                            a bad needle and possibly after the TERM pass for
 #                            a table that stops reading
-#   fixture_report <dir/>    the matched rows on one line, or the refusal, for
-#                            a failure message
+#   fixture_report <dir/>    the matched rows on one line, or the refusal (which
+#                            carries the head of what ps printed), for a
+#                            failure message
 #   fixture_is_owner         succeeds only in the suite's own process: bash
 #                            runs the EXIT trap in a backgrounded child
 #                            signalled before it reaches exec, and that child
@@ -37,8 +38,15 @@
 # as `$HOME/` matches the processes the suite runs under and all their
 # descendants. Reading the marker rather than comparing against $TMPDIR keeps
 # the rule independent of where mktemp chose to put the directory.
-# Only `ps -ww` is read: a narrower table can cut the path out of an argv, and a
-# guard reading it would pass on processes it never saw.
+# `ps -ww` is read first: a narrower table can cut the path out of an argv, and a
+# guard reading it would pass on processes it never saw. A ps without -ww (busybox,
+# which cuts an argv at a length far past any fixture needle) is read in its
+# place, as it also is when the -ww output holds no row.
+# Rows are normalised: control bytes and tabs in an argv read as spaces, and a
+# line that does not lead with a numeric pid and ppid joins the row before it.
+# An argv whose continuation line itself reads `<n> <m> ...` is taken for a row
+# of its own, which no reader of ps output can tell apart, so fixture_reap could
+# signal pid <n>; fixtures here carry no such argv.
 # Matched in-shell over a captured `ps` snapshot: a `grep` or `pgrep` for the
 # path would find its own argv.
 
@@ -86,30 +94,56 @@ _fp_needle_ok() {
   return 1
 }
 
-# Every row leads with a numeric pid and ppid, or this is not a process table.
-_fp_table_ok() {
-  printf '%s\n' "$1" | awk 'NF { n++; if ($1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/) bad = 1 } END { exit (n && !bad) ? 0 : 1 }'
+# _fp_rows — one `<pid> <ppid> <args>` row per process from a `ps` snapshot on
+# stdin. A row leads with a numeric pid and ppid; any other line is a
+# continuation of the row before it (an argv a ps broke across lines) and joins
+# that row's args with a space, so a match on a continuation still counts and one
+# odd line leaves the table readable. A line before the first row has nothing to
+# join and is dropped. Prints nothing when no line is a row, which is how a table
+# that is not a process table reads. Control bytes become spaces.
+_fp_rows() {
+  LC_ALL=C awk '
+    { gsub(/[\001-\037\177]/, " ") }
+    /^ *[0-9]+ +[0-9]+( |$)/ {
+      if (row != "") print row
+      row = $0
+      next
+    }
+    row != "" && NF { row = row " " $0 }
+    END { if (row != "") print row }'
+}
+
+# _fp_snapshot — the process rows, read with -ww when this ps takes it.
+_fp_snapshot() {
+  local wide snap seen='' table
+  for wide in -ww ''; do
+    # shellcheck disable=SC2086 # an empty $wide must vanish, not become an argument
+    snap=$(ps -A $wide -o pid=,ppid=,args= 2>/dev/null) || snap=''
+    seen="$seen$snap"
+    table=$(printf '%s\n' "$snap" | _fp_rows)
+    [ -z "$table" ] || {
+      printf '%s\n' "$table"
+      return 0
+    }
+  done
+  # The head of what ps printed, control bytes made visible, so a table this
+  # reader cannot parse shows its bytes in the failure.
+  printf '%s\n' "fixture_procs: no usable process table on this host (ps printed: $(printf '%s' "$seen" | head -c 400 | tr '\n' '|' | LC_ALL=C sed 's/[^[:print:]]/?/g'))" >&2
+  return 1
 }
 
 fixture_procs() {
-  local needle=$1 snap
+  local needle=$1 table
   _fp_needle_ok "$needle" || {
     printf '%s\n' "fixture_procs: refusing needle '$needle': not an existing directory under a fixture_scratch directory" >&2
     return 2
   }
-  snap=$(ps -A -ww -o pid=,ppid=,args= 2>/dev/null) || snap=''
-  # busybox ps has no -ww (it cuts argv at a fixed length, far past any
-  # fixture needle).
-  [ -n "$snap" ] || snap=$(ps -A -o pid=,ppid=,args= 2>/dev/null) || snap=''
-  _fp_table_ok "$snap" || {
-    echo "fixture_procs: no usable process table on this host" >&2
-    return 2
-  }
-  printf '%s\n' "$snap" | FP_NEEDLE=$needle FP_SELF=$_fp_owner awk '
+  table=$(_fp_snapshot) || return 2
+  printf '%s\n' "$table" | FP_NEEDLE=$needle FP_SELF=$_fp_owner awk '
     NF {
       pid[NR] = $1; ppid[NR] = $2
       args = $0
-      sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]*/, "", args)
+      sub(/^ *[0-9]+ +[0-9]+ */, "", args)
       line[NR] = args
       if (index(args, ENVIRON["FP_NEEDLE"]) && $1 != ENVIRON["FP_SELF"]) hit[$1] = 1
     }

@@ -699,3 +699,66 @@ Class: meaning
 Lens-pass: Amendment 2, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
 Anchor: `0eca2b05e5ce9ea59941496d768ae67a946053fb` — computed as
 `scripts/spec-anchor.sh specs/test-throughput`
+
+### Amendment 3 — the no-timeout fallback runs through `scripts/bounded-run.sh` (2026-11-20)
+
+**Trigger.** A flight fix outside the task graph (#1122, merged) made
+`scripts/run-tests.sh` bound each file through `scripts/bounded-run.sh` on
+a host with no usable `timeout` or `gtimeout`, stock macOS and the macOS CI
+runners among them, where files had run with no deadline (obs:9e55a84a).
+D-21 and the REQ-D1.4 test-spec entry still said such a host runs files
+unbounded. The amendment was walked as an operator-requested relay through
+the spec-pipeline mission control, scoped to what that fix built, read from
+the runner and `tests/test-run-tests-deadline.sh` on main.
+
+**Delta walked.** D-23 supersedes D-21 in part (the no-tool fallback only;
+D-21's other properties stand, and D-21 carries the pointer). REQ-D1.4's
+text is unchanged, since its "no way to bound a process" clause already
+reads true with the helper counted as a way; it gains the D-23 and
+obs:9e55a84a citations. The REQ-D1.4 test-spec entry names the helper path
+and keeps the unbounded case for a runner without the helper; Sources gain
+obs:9e55a84a; the changelog gains the entry. Task 14, completed before the
+fix, stays as delivered (operator, 2026-11-20: "Only the decision
+(Recommended)"). Section 4's ledger row for D-21 now reads as confirmed in
+part, superseded in part by D-23. obs:9e55a84a stays in the store
+unarchived: its busybox half (a `timeout` that signals the file alone) is
+not addressed by this delta.
+
+**Lens review (delta-scoped).** Spec lens set, walked inline over the delta
+(one decision, one pointer, one test entry, citation and source lines); no
+fan-out, scoped by size.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 0 | D-23 keeps every D-21 property but the fallback; REQ-D1.4's text holds under it |
+| Ambiguity and interpretation forks | 0 | "Usable" is pinned to the `-k` probe the runner runs on each tool, the helper included |
+| Citation and coverage integrity | 0 | obs:9e55a84a added to Sources; D-23 cited from REQ-D1.4 |
+| Dead verification paths | 0 | Section 4 of `tests/test-run-tests-deadline.sh` builds the no-timeout host on any runner, and runs in `mise run check` on the Linux and macOS CI legs |
+| Decision-domain gaps | 0 | No new domain; the helper is already in the repository, so no dependency is adopted |
+| Testability | 0 | The updated test-spec entry names assertions section 4 makes |
+| Cross-file consistency | 1 | Task 14's deliverables and Done-when still describe the unbounded no-tool host |
+| Documentation and glossary drift | 0 | No glossary term changes |
+| Rendered-content safety and data hygiene | n/a | Prose not rendered into an executing context; no machine paths or names recorded |
+
+Altitude check: the bundle's altitude record (D-1) is untouched by a
+mechanism-level decision. Ship-gate check: the one out-of-band fix the
+delta names has landed (#1122, merged), so no pending fix lacks a record.
+
+**Dispositions.** Cross-file finding: declined, per the operator's ruling
+above that Task 14 stays as delivered; it records what Task 14 shipped, and
+its D-21 citation leads to the D-23 pointer.
+
+#### Sign-off record (Amendment 3)
+
+Signed off 2026-11-20 by the operator after the approval summary, relayed
+through the spec-pipeline mission control, as an amendment of an Active
+(derived) bundle: no status flip; `Last reviewed:` bumped on
+`requirements.md`, `design.md` and `test-spec.md`, the files the delta
+touched; `scripts/spec-validate.sh` re-run after the edits with no error but
+the anchor mismatch this record clears, and no warning. Classified
+meaning-class by the operator (2026-11-20).
+
+Class: meaning
+Lens-pass: Amendment 3, delta-scoped lens review above (spec lens set, inline; every finding dispositioned)
+Anchor: `0f09390b26fabb5eeab774fee853b3c7b31977f1` — computed as
+`scripts/spec-anchor.sh specs/test-throughput`
