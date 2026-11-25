@@ -1,7 +1,7 @@
 # Human gates — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -59,6 +59,11 @@ kind check with the new composition-contract row and finds `/spec-kickoff`,
 the relayed kickoff session, and the launch-record-named branch in it; a
 fixture copy of the doc without the row fails; the spec-branch rewrite row
 is unchanged against the merge-base (Task 13).
+
+Amendment 6 (Task 23): the same doctrine test finds the row naming the
+sign-off, amendment and spec-rework branches, the clean-merge limit and the
+REQ-E1.4 and mission-control REQ-I1.11 citations, and a fixture copy
+naming only the sign-off branch fails.
 
 ### REQ-A1.7 — The class test [test + design-level]
 
@@ -346,11 +351,14 @@ names states the class exception [design-level] (Task 14).
 
 The policy-guard suite defers a base merge on the unit branch from the PR
 base under `allow` and denies it under `deny`, and denies a merge from
-main, a spec branch, or another unit's branch, for `git merge`,
+main, a spec branch (except the one a launch record names, REQ-E1.4), or
+another unit's branch, for `git merge`,
 `git pull`, and the helper; before a PR exists the base is the branch the
 worktree was created from (Task 6, Task 10).
 
 ### REQ-E1.2 — The conflict knob [test + Gherkin]
+
+Amendment 6: on a spec branch a launch record names, a `resolve` conflict leaves the resolution local with its push refused and the unit parked; the REQ-E1.4 entry carries the case.
 
 Given a fixture conflict: under `halt` the tree is clean and the parking
 bullet names the paths; under `resolve` a resolution commit exists carrying
@@ -365,6 +373,22 @@ is written and the handoff names hand repair (Task 10).
 The suite denies every PR-merge and base-merge spelling under the tower
 profile at every value; the fast-forward helper stays the only admitted
 local-main mutation (Task 6, Task 10).
+
+### REQ-E1.4 — A clean base merge and its push on a spec branch [test + Gherkin]
+
+Given a session record naming a sign-off, amendment or spec-rework branch
+and `worker_base_merge` at `allow`, then the policy-guard suite admits the
+lone base merge and the lone explicit-refspec push whose added commits are
+two-parent merges of the base with the clean-merge tree, on all three
+branch forms; given `deny`, then both are refused. Given a record naming
+none, another branch or another pull request, a force, a deletion, a
+non-merge commit, a hand-resolved merge or a flight checkout, then every
+act is refused. Given a conflicting merge, then `halt` leaves a clean tree
+and parks naming the paths, and `resolve` makes the local commit while the
+push stays refused. A visual-flight branch keeps its existing base merge
+and push unchanged. Task 23 owns only the doctrine row, the worker-profile and
+fixture checks (REQ-A1.6, REQ-G1.9); the guard cases are mission-control's
+REQ-I1.11 tests, in `tests/test-policy-guard-spec-merge-push.sh`.
 
 ## REQ-F — History rewriting
 
@@ -556,6 +580,13 @@ line with no tier profile, and a deny message naming its remedy (Task 6).
 
 ### REQ-G1.9 — The relayed kickoff's one-branch admission [test]
 
+Amendment 6 (Task 23): the REQ-G1.13 cross-copy fixture also drives the
+worker profile with its sign-off branch push and deletion denies removed
+and its guard hooks fail-closed: a spec-branch push, deletion or tag push
+of a worker with no record is refused, and so is a push when the hook
+cannot run. The recorded branch's clean base merge push is admitted by
+mission-control's REQ-I1.11 suite.
+
 The cases ship with mission-control Task 19 (its D-36), routed there by
 this bundle's Deferred item "The kickoff-tier cases in mission-control
 Task 19", in `tests/test-policy-guard-mission-control.sh` and
@@ -613,6 +644,8 @@ against the published tag, owned by the operator through the routing
 bullet [manual].
 
 ### REQ-G1.13 — One spelling list, two tier-scoped exceptions [design-level]
+
+Amendment 6 (Task 23): the fixture list gains the worker tier's recorded-branch spec-branch push as a tier-scoped exception; the REQ-G1.9 entry's Amendment 6 note lists its cases.
 
 The Deferred bullets routing mission control's drafting and release kinds
 name the cross-copy floor-line cases for the kickoff tier's spec-branch
