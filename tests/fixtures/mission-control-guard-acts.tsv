@@ -311,6 +311,8 @@ deny	repo-write	bash	-	edits no repository	gawk --load inplace -e 1 @UNIT@/READM
 deny	repo-write	bash	-	edits no repository	gawk -W include=inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	gawk5 -i inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	gawk -E inplace.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -E inplace.awk @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk --exec inplace.awk @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	gawk --source='@include "inplace"' @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	ruby -C @UNIT@ -pi -e 1 README.md
 deny	repo-write	bash	-	edits no repository	ruby -X@UNIT@ -pi -e 1 README.md
