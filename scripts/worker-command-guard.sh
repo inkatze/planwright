@@ -2090,8 +2090,8 @@ mix_tree_clean() {
 # canonicalizes inside the recorded worktree and which is no link.
 mix_operand_ok() {
   local p=$1 d
-  p=${p%%:[0-9]*}
-  [[ $p =~ ^[A-Za-z0-9_@+-][A-Za-z0-9_./@+-]*$ ]] || return 1
+  [[ $p =~ ^[A-Za-z0-9_@+-][A-Za-z0-9_./@+-]*(:[0-9]+)*$ ]] || return 1
+  p=${p%%:*}
   case /$p/ in
     */../* | */./* | *//*) return 1 ;;
   esac
