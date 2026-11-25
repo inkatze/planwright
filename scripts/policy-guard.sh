@@ -45,39 +45,41 @@
 # target inside a work tree or bare repository denies in the same terms as the
 # file surface, read as written and followed on disk: a redirect (>, >>, >|,
 # &>), tee, dd's of=, truncate, the destination of cp and mv (-t included), sed
-# or gsed -i or --in-place, perl or ruby -i, awk or gawk including the inplace
-# extension, and every file ed, ex or vi (under any of vim's names) edits or
-# writes, each option value
-# read as its tool reads it, a variable the command assigned a plain literal
-# read as that literal. An in-place editor behind xargs, find -exec, a shell's
-# command string or eval, in a here-document or here-string a shell reads, or
-# in text the guard cannot parse denies too, and so does one named at any word
-# after a runner whose command sits among its words (ionice, flock, ssh and the
-# like, RE_MC_OPAQUE_NAMES). A relative target counts from the directory
-# the command starts in and every one it changes to, unless it opens with its
-# only cd, joined to every later statement by &&. Not read, the accepted
-# residual: rm, touch and mkdir; a copy's or move's source (an mv out of a
-# repository removes the file there), rsync --remove-source-files and tar
-# --remove-files; an unpack into a repository (tar -x ... -C <repository>,
-# unzip -d <repository>); writes by install, rsync and ln and through the
-# output options of sort, curl, wget, tar and unzip, which pass the posture
-# screen alone; a program an interpreter runs, a script a shell reads from a
-# pipe, a file or a substitution (echo '...' | sh, bash < <(...), bash -c
-# "$(...)"), and a file an
-# editor's own script writes (sed's w, ed's or vi's :w to another name); a file
-# a tool writes under a default name in the working directory (wget, curl -O,
-# an unpack with no -C or -d); writers the screen does not parse (find
-# -fprint, patch, sponge and the like); and a runner it does not list. The
-# runner and here-string reading is a text reading that fails closed: it
-# refuses an editor's name opening a here-string beside a shell or runner even
-# where a script reads it as data, and it misses a here-string a shell reads
-# from a later line (cat <<< '...' |, then bash), a compound closer that follows
-# a word or carries no space before a redirect (echo a ) <<<, }2>&1 <<<), and a
-# pipe between a closer and its here-string. The mission-control tier's flip,
-# for a PR of the repository it runs in or of a program-listed one it names
-# with --repo, follows ready_flip_policy: unit-owner defers to the ready-guard's currency
-# check, human asks the operator; the MCP flip stays denied whole, as the
-# tower's is.
+# -i or --in-place, perl or ruby -i, awk or gawk including or loading the
+# inplace extension, and every file ed, ex or vi (under any of vim's names)
+# edits or writes; Homebrew's g-prefixed names (gsed, gcp, gtee and the rest)
+# are the same verbs. Each option value is read as its tool reads it, and a
+# variable the command assigned a plain literal as that literal. An in-place
+# editor behind xargs, find -exec, a shell's command string, eval or trap, in a
+# here-document or here-string a shell reads, or in text the guard cannot
+# parse denies too, and so does one named at any word after a runner whose
+# command sits among its words (ionice, flock, ssh and the like,
+# RE_MC_OPAQUE_NAMES). A relative target counts from the directory the command
+# starts in and every one it changes to, unless it opens with its only cd,
+# joined to every later statement by &&. Not read, the accepted residual: rm,
+# touch and mkdir; a copy's or move's source (an mv out of a repository
+# removes the file there), rsync --remove-source-files and tar --remove-files;
+# an unpack into a repository (tar -x ... -C <repository>, unzip -d
+# <repository>); writes by install, rsync and ln and through the output
+# options of sort, curl, wget, tar and unzip, which pass the posture screen
+# alone; a program an interpreter runs; a script a shell reads from a pipe, a
+# file or a substitution (echo '...' | sh, bash < script, bash < <(...), bash
+# -c "$(...)"); a file an editor's own script writes (sed's w, ed's or vi's :w
+# to another name); a file a tool writes under a default name in the working
+# directory (wget, curl -O, an unpack with no -C or -d); writers the screen
+# does not parse (find -fprint, patch, sponge and the like); a runner it does
+# not list; and an option spelled through an expansion the command does not
+# assign a literal. The runner and here-string reading is a text reading that
+# fails closed: it refuses an editor's name opening a here-string beside a
+# shell or runner even where a script reads it as data, and it misses a
+# here-string a shell reads from a later line (cat <<< '...' |, then bash), a
+# compound closer that follows a word or carries no space before a redirect
+# (echo a ) <<<, }2>&1 <<<), and a pipe between a closer and its here-string.
+#
+# The mission-control tier's flip, for a PR of the repository it runs in or of
+# a program-listed one it names with --repo, follows ready_flip_policy:
+# unit-owner defers to the ready-guard's currency check, human asks the
+# operator; the MCP flip stays denied whole, as the tower's is.
 #
 # MODALITY. Like the ready-guard and unlike the allow-only command guards, this
 # guard emits deny, so a missed deny defeats it and a false deny blocks work;
@@ -5749,7 +5751,7 @@ MC_HOME_REBOUND=0
 MC_TMP_REBOUND=0
 # Verbs that copy, move, link or unpack: in their command, a path that does
 # not exist yet may become a link before a write lands on it.
-RE_MC_COPYISH='(^|[^[:alnum:]_.-])(cp|mv|ln|link|rsync|tar|bsdtar|unzip|cpio|pax)([^[:alnum:]_-]|$)'
+RE_MC_COPYISH='(^|[^[:alnum:]_.-])(g?(cp|mv|ln|link|rsync)|tar|bsdtar|unzip|cpio|pax)([^[:alnum:]_-]|$)'
 # Command words that run the next word as the command, whose options
 # mc_unwrap can skip.
 RE_MC_WRAPPER='^(env|nice|nohup|setsid|timeout|stdbuf|time|command|builtin|exec|sudo|doas|busybox|xargs)$'
@@ -5792,10 +5794,10 @@ RE_MC_INPLACE_WORD_LEAD='(^|[[:space:]])([^[:space:]]*/)?'
 # The words between a tool and its in-place switch, within one statement (a
 # line break ends one).
 RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
-# perl's and ruby's switches end at their first other word, so only switch
-# words stand between the tool and its i.
-RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*([[:blank:]]+-[^[:space:]]*)*[[:blank:]]+-[0-9acnpsStTuUvwWXhl]*i'
-RE_MC_INPLACE_AWK_TOOL='g?awk[0-9.-]*'$RE_MC_INPLACE_SPAN'(-[il][[:space:]]*|--(i|lo)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*include=|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
+# perl's and ruby's switches end at their first other word, so a run whose
+# first word is no switch (perl script.pl -i) is no in-place run.
+RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acnpsStTuUvwWXhl]*i'
+RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[il][[:space:]]*|--(i|lo)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*(include|load)=|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
 # vim's names: the g, r and e prefixes, the diff and x suffixes, and a
 # distribution's vim.<build>. Keep in step with mc_inplace_targets.
 RE_MC_VIM_NAMES='vi|vimx?|vim[.][a-z0-9]+|view|vimdiff|gvimx?|gvim[.][a-z0-9]+|gview|gvimdiff|rvim|rview|rgvim|rgview|evim|eview|nvim'
@@ -5804,7 +5806,7 @@ RE_MC_INPLACE_EDITOR_TOOL='(r?ed|ex|'$RE_MC_VIM_NAMES')([[:space:];&|)`}]|$)'
 # The same tools named anywhere, as a word: the screen's opening test, which
 # only decides whether a command is parsed at all (a shell's command string
 # runs a tool its own words never put in command position).
-RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|g?awk[0-9.-]*|g?sed|r?ed|ex|'$RE_MC_VIM_NAMES')([^[:alnum:]_-]|$)'
+RE_MC_INPLACE_NAMES='(^|[^[:alnum:]_.-]|-[A-Za-z]*S)((perl|ruby)[0-9.]*|awk|gawk[0-9.-]*|g?sed|r?ed|ex|'$RE_MC_VIM_NAMES')([^[:alnum:]_-]|$)'
 # Runners that run their later words as a command, past options and values the
 # guard does not read (mc_unwrap reads RE_MC_WRAPPER's); the shells, the
 # interpreters, find, xargs and eval are read their own ways. Every name here
@@ -6331,10 +6333,17 @@ mc_inplace_unparsed() {
   shopt -u nocasematch
   [ "$rc" = 0 ] || return 1
   mc_runnable_text "$1"
-  # A shell or runner the shell itself runs may run the quoted text too.
+  # A shell or runner the shell itself runs may run the quoted text too: the
+  # whole text is read, and so is each quoted span as a command of its own
+  # (sh -c 'ed file').
   if [[ $MC_RT =~ $RE_MC_INTERPRETER || $MC_RT =~ $RE_MC_RUNNER_CMD ]]; then
-    mc_inplace_text "$1"
-    return
+    mc_inplace_text "$1" && return 0
+    local s=$1 re="'([^']*)'|\"([^\"]*)\""
+    while [[ $s =~ $re ]]; do
+      mc_inplace_text "${BASH_REMATCH[1]}${BASH_REMATCH[2]}" && return 0
+      s=${s#*"${BASH_REMATCH[0]}"}
+    done
+    return 1
   fi
   mc_inplace_text "$MC_RT"
 }
@@ -7293,26 +7302,37 @@ mc_ipt_sed() {
   return 0
 }
 
+# mc_ipt_chdir <dir> — apply one directory change to the calling mc_ipt_perl's
+# cdir (bash's dynamic scope): an absolute one replaces it, a relative one goes
+# under it.
+mc_ipt_chdir() {
+  case $1 in
+    /* | '~'*) cdir=$1 ;;
+    *) cdir=${cdir:+${cdir%/}/}$1 ;;
+  esac
+}
+
 # mc_ipt_perl <first> <perl|ruby> — perl or ruby, whose switches end at the
 # first word that is not one: a cluster's i makes the run in-place (the rest of
 # the cluster its backup suffix); e (and perl's E) gives the program, I (and
 # ruby's r and E) takes a value, 0 takes its octal or 0x hex digits and the
 # cluster goes on, and the switches that take the rest of their cluster end it.
-# ruby's -C and -X (and perl's -x<dir>) change directory first, so a relative
-# file is read under that directory.
+# ruby's -C, -X and -x<dir> (and perl's -x<dir>) change directory first, each
+# a relative one under the last, so a relative file is read under where they
+# lead. val is what the next word is: skip (a switch's value) or chdir.
 mc_ipt_perl() {
-  local k=$1 tool=$2 n=${#SW[@]} w c ch j ip=0 given=0 val=0 stop=0 pos=() cdir='' f
+  local k=$1 tool=$2 n=${#SW[@]} w c ch j ip=0 given=0 val='' stop=0 pos=() cdir='' f
   while [ "$k" -lt "$n" ]; do
     mc_ipt_word "$k"
     w=$MC_IW
     k=$((k + 1))
-    if [ "$val" = 1 ]; then
-      val=0
+    if [ "$val" = skip ]; then
+      val=''
       continue
     fi
-    if [ "$val" = cd ]; then
-      val=0
-      cdir=$w
+    if [ "$val" = chdir ]; then
+      val=''
+      mc_ipt_chdir "$w"
       continue
     fi
     if [ "$stop" = 1 ]; then
@@ -7330,7 +7350,7 @@ mc_ipt_perl() {
         # ruby's long options; the ones below take the next word when they
         # carry no =.
         case $tool:$w in
-          ruby:--encoding | ruby:--external-encoding | ruby:--internal-encoding | ruby:--enable | ruby:--disable | ruby:--dump | ruby:--backtrace-limit | ruby:--crash-report | ruby:--parser) val=1 ;;
+          ruby:--encoding | ruby:--external-encoding | ruby:--internal-encoding | ruby:--enable | ruby:--disable | ruby:--dump | ruby:--backtrace-limit | ruby:--crash-report | ruby:--parser) val=skip ;;
         esac
         ;;
       -?*)
@@ -7359,16 +7379,16 @@ mc_ipt_perl() {
               esac
               ;;
             ruby:C | ruby:X)
-              if [ "$j" -lt "${#c}" ]; then cdir=${c:$j}; else val='cd'; fi
+              if [ "$j" -lt "${#c}" ]; then mc_ipt_chdir "${c:$j}"; else val=chdir; fi
               break
               ;;
-            perl:x)
-              [ "$j" -ge "${#c}" ] || cdir=${c:$j}
+            perl:x | ruby:x)
+              [ "$j" -ge "${#c}" ] || mc_ipt_chdir "${c:$j}"
               break
               ;;
             *:e | perl:E | *:I | ruby:r | ruby:E)
               case $tool:$ch in *:e | perl:E) given=1 ;; esac
-              [ "$j" -lt "${#c}" ] || val=1
+              [ "$j" -lt "${#c}" ] || val=skip
               break
               ;;
             *:d | *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V | ruby:K) break ;;

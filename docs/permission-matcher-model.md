@@ -942,7 +942,8 @@ go unscreened and are accepted residual: an unpack into one (`tar -x ... -C
 copy's source, `rsync --remove-source-files` and `tar --remove-files`. The
 guard's header comment names the rest of that residual, among it `rm`,
 `touch` and `mkdir`, a program an interpreter runs, and a script a shell
-reads from a pipe or a substitution.
+reads from a pipe, a file or a substitution. Homebrew's g-prefixed names
+(`gsed`, `gcp`, `gtee` and the rest) are read as the same verbs.
 
 That text reading has known gaps and one known over-refusal, named with the
 rest of the accepted residual in the guard's header comment: it misses

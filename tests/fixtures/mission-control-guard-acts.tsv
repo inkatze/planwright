@@ -336,6 +336,23 @@ deny	repo-write	bash	-	edits no repository	sed --in s/a/b/ @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sed -ni s/a/b/ @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	echo x | tee @SCRATCH@/kb/a.md @UNIT@/b.md
 deny	repo-write	bash	-	edits no repository	truncate -s0 @SCRATCH@/kb/a.md @UNIT@/b.md
+deny	repo-write	bash	-	edits no repository	bash -c "perl -I lib -pi -e 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "ruby -r json -pi -e 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	x=$(date); gawk -W load=inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'ed -s @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	gawk -W load=inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -l inplace.so -e 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby -x@UNIT@ -pi -e 1 README.md
+deny	repo-write	bash	-	edits no repository	perl -x@UNIT@ -pi -e 1 README.md
+deny	repo-write	bash	-	edits no repository	ruby -C @UNIT@/.git -C .. -pi -e 1 README.md
+deny	repo-write	bash	-	edits no repository	ruby -C @SCRATCH@/kb -C @UNIT@ -pi -e 1 README.md
+deny	repo-write	bash	-	-	echo "`echo x > @UNIT@/f.md`"
+deny	repo-write	bash	-	edits no repository	gmv @SCRATCH@/kb/real.md @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gdd if=@SCRATCH@/kb/real.md of=@UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gtruncate -s0 @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	xargs gcp -t @UNIT@ < @SCRATCH@/kb/real.md
+defer	read	bash	-	-	ruby -C @UNIT@ -C @SCRATCH@/kb -pi -e 1 real.md
 defer	read	bash	-	-	echo a | xargs review
 defer	read	bash	-	-	bash -c "review x"
 defer	read	bash	-	-	echo a | xargs vi.basic
