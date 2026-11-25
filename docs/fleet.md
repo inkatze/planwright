@@ -1035,6 +1035,24 @@ the act, and any file write, other git act or non-step plugin script in the
 command keep it prompting. `docs/options-reference.md`
 (`worker_self_approval`) has the full conditions.
 
+Three more routine classes need no policy arm. The operator's installed
+`review-state.sh` (matched by its literal absolute path under the hook's
+`HOME`) runs its `ledger`, `lock`, `register`, `unregister` and `sessions`
+verbs, never `evidence run`, `inbox` or `loop`. A reply to, or a resolve of, a
+review thread passes when the guard's own read of the forge shows the first
+comment from a `[bot]` login and no comment from anyone but a bot or the
+authenticated account itself, on the unit's own open pull request.
+
+`mix ci`, `mix format` and `mix test`, with a short flag list and relative
+paths of the worktree, run unprompted only while the diff of the worktree
+against the merge base with `refs/remotes/<pr_base>`, the untracked and ignored
+files, and the assume-unchanged and skip-worktree flags show nothing but
+images. Anything else the PR adds or changes keeps prompting, documents
+included (a base can read one as code), so committed code cannot be run
+unprompted, and so does an ignored `_build` or `deps` directory, which can hold
+planted code. Step records keep the rule above: a `--start` or `--end` the
+caller supplies prompts.
+
 Before spawning a worker-profile session, `launch` proves the auto-approve
 hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
 root the dispatch-env wrapper exports, run through that wrapper so it sees the

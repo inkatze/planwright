@@ -19,9 +19,10 @@
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
 #     hook skip, squash, or `gh` write), defers, declared check commands and
-#     steps' lines included, save two own-unit acts (see own_unit_act): a push of the
-#     recorded unit branch to origin and a body edit of its own open pull
-#     request. The guard reads the deny block itself rather than trusting
+#     steps' lines included, save the own-unit acts (see own_unit_act): a push of
+#     the recorded unit branch to origin, a body edit of its own open pull
+#     request, and a reply to or resolve of a bot-only review thread on it.
+#     The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared check commands and steps, the
@@ -1631,8 +1632,8 @@ floor_act_words() {
 }
 
 # --------------------------------------------------------------------------
-# The own-unit acts: three a session may run on its own unit that no other
-# arm approves (the push and the edit being floor acts), approved whatever
+# The own-unit acts: those a session may run on its own unit that no other
+# arm approves (the push, the edit and the thread write being floor acts), approved whatever
 # the record's policy, but only under a record carrying the unit branch, the
 # worktree root and a usable audit log, with the session's directory in that
 # worktree's own repository, for the session's own command at the top level
@@ -1648,8 +1649,12 @@ floor_act_words() {
 #       request whose head is the unit branch, as one bounded `gh pr view`
 #       read from the session's directory says, and <file> a regular file
 #       canonically inside the recorded scratch root;
-#   git push origin <unit> | git push origin <unit>:<unit>   nothing else.
-# Every word but the body file is a bare literal as written. Anything else
+#   git push origin <unit> | git push origin <unit>:<unit>;
+#   gh api reply to, or resolve of, a review thread of that same pull
+#   request in which only a bot and the authenticated account have spoken
+#   (own_thread_ok); nothing else.
+# Every word but the body file, a reply's body text and a resolve's query is a
+# bare literal as written (the query must equal one fixed text). Anything else
 # is left to the floor, which reserves it as before.
 
 # own_unit_candidate: the unsubstituted words (`sw`) open one of the
@@ -1657,7 +1662,8 @@ floor_act_words() {
 # verify_known_simple's exact check.
 own_unit_candidate() {
   [ "${sw[0]-}" = git ] && [ "${sw[1]-}" = push ] && return 0
-  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = pr ] && [ "${sw[2]-}" = edit ]
+  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = pr ] && [ "${sw[2]-}" = edit ] && return 0
+  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = api ]
 }
 
 # own_unit_words_bare <from> <to>: words <from>..<to>-1 are bare literals,
@@ -1712,7 +1718,13 @@ own_unit_act() {
       done
       ;;
     git) own_push_ok && own_unit_same_repo "$here" ;;
-    gh) own_unit_same_repo "$here" && own_pr_edit_ok "$here" ;;
+    gh)
+      own_unit_same_repo "$here" || return 1
+      case ${cw[1]} in
+        api) own_thread_ok "$here" ;;
+        *) own_pr_edit_ok "$here" ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
 }
@@ -1821,6 +1833,342 @@ own_pr_edit_ok() {
     'type == "object" and .headRefName == $b and .isCrossRepository == false and .state == "OPEN"' >/dev/null 2>&1
 }
 
+# own_gh_read <dir> <gh args>...: one bounded `gh` read from <dir>, its answer
+# on stdout; a hung forge or a failed call fails the read.
+own_gh_read() {
+  local d=$1
+  shift
+  [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/bounded-run.sh" ] || return 1
+  (cd -- "$d" && /bin/sh "$HOOK_SELF_ROOT/scripts/bounded-run.sh" 15 \
+    env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_PAGER=cat \
+    gh "$@" 2>/dev/null </dev/null)
+}
+
+# The two GraphQL texts a thread resolve is held to, verbatim: the resolve
+# itself and the read of the thread it names.
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
+THREAD_RESOLVE_Q='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
+THREAD_READ_Q='query($id:ID!){node(id:$id){...on PullRequestReviewThread{comments(first:100){totalCount nodes{databaseId pullRequest{number repository{nameWithOwner}}}}}}}'
+
+# own_thread_ok <canonical cwd>: the current `gh api` call is exactly one of
+# two writes to a review thread in which only a bot, and the operator's own
+# earlier replies, have spoken:
+#   gh api -X POST repos/<o>/<r>/pulls/<n>/comments/<id>/replies -f body=<text>
+#   gh api graphql -f query=<the resolveReviewThread mutation> -f id=PRRT_<id>
+# No other flag, field, header, host or input is read. The thread is read from
+# the forge before the approval (thread_bot_only).
+own_thread_ok() {
+  local i w method='' ep='' nf=0 expect=0 thread repo_slug pr_num
+  local -a fk=() fv=()
+  # An assignment earlier in the command (GH_HOST, GH_TOKEN, PATH) could point
+  # the call at another host or program than the one the reads below check.
+  [ "$VAR_C" -eq 0 ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ "${cw[i]}" = "${sw[i]}" ] && [ -z "${csub[i]-}" ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  i=2
+  while [ "$i" -lt "$cwn" ]; do
+    w=${cw[i]}
+    case $w in
+      -X | --method)
+        [ -z "$method" ] && [ $((i + 1)) -lt "$cwn" ] || return 1
+        method=${cw[i + 1]}
+        i=$((i + 2))
+        continue
+        ;;
+      --method=*)
+        [ -z "$method" ] || return 1
+        method=${w#--method=}
+        ;;
+      -f | --raw-field)
+        [ $((i + 1)) -lt "$cwn" ] && [ "$nf" -lt 2 ] || return 1
+        case ${cw[i + 1]} in
+          ?*=*) ;;
+          *) return 1 ;;
+        esac
+        fk[nf]=${cw[i + 1]%%=*}
+        fv[nf]=${cw[i + 1]#*=}
+        nf=$((nf + 1))
+        i=$((i + 2))
+        continue
+        ;;
+      -*) return 1 ;;
+      *)
+        [ -z "$ep" ] || return 1
+        ep=$w
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  [ -n "$ep" ] || return 1
+  if [[ $ep =~ ^repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pulls/([1-9][0-9]{0,8})/comments/([1-9][0-9]{0,14})/replies$ ]]; then
+    [ "$method" = POST ] && [ "$nf" -eq 1 ] && [ "${fk[0]}" = body ] || return 1
+    [ -n "${fv[0]}" ] && [ "${#fv[0]}" -le 65536 ] || return 1
+    # A name made of dots only is a path step, never an owner or repository.
+    [[ ${BASH_REMATCH[1]} != *[!.]* ]] && return 1
+    [[ ${BASH_REMATCH[2]} != *[!.]* ]] && return 1
+    thread_bot_only "$1" "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}" 0
+    return
+  fi
+  [ "$ep" = graphql ] && { [ -z "$method" ] || [ "$method" = POST ]; } && [ "$nf" -eq 2 ] || return 1
+  local q='' id=''
+  for ((i = 0; i < 2; i++)); do
+    case ${fk[i]} in
+      query) q=${fv[i]} ;;
+      id) id=${fv[i]} ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$q" = "$THREAD_RESOLVE_Q" ] && [[ $id =~ ^PRRT_[A-Za-z0-9_-]{1,100}$ ]] || return 1
+  thread=$(own_gh_read "$1" api graphql -f "query=$THREAD_READ_Q" -f "id=$id") || return 1
+  [ "${#thread}" -le 65536 ] || return 1
+  thread=$(printf '%s' "$thread" | jq -r '
+    .data.node.comments as $c
+    | select($c != null and $c.totalCount == ($c.nodes | length) and ($c.nodes | length) >= 1)
+    | $c.nodes[0] as $f
+    | select($c.nodes | all(.pullRequest.number == $f.pullRequest.number
+        and .pullRequest.repository.nameWithOwner == $f.pullRequest.repository.nameWithOwner))
+    | "\($f.pullRequest.repository.nameWithOwner) \($f.pullRequest.number) \($f.databaseId)"' 2>/dev/null) || return 1
+  IFS=' ' read -r repo_slug pr_num expect <<<"$thread"
+  [[ $repo_slug =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [[ $pr_num =~ ^[1-9][0-9]{0,8}$ ]] \
+    && [[ $expect =~ ^[1-9][0-9]{0,14}$ ]] || return 1
+  case $repo_slug in
+    ./* | ../* | */. | */..) return 1 ;;
+  esac
+  thread_bot_only "$1" "$repo_slug" "$pr_num" "$expect" "$expect"
+}
+
+# thread_bot_only <dir> <owner/repo> <pr> <comment id> <root id|0>: the review
+# thread holding the comment has a first comment from a login ending in `[bot]`
+# (an account of type Bot), and every other comment in it is a bot's too or the
+# authenticated account's own earlier reply; a thread any other person has
+# spoken in is a message to that person. When <root id> is not 0 it must be the
+# thread's first comment. The pull request's comments are read whole
+# (paginated), and the thread is rebuilt from their reply links.
+thread_bot_only() {
+  local viewer comments unit_url
+  viewer=$(own_gh_read "$1" api user | jq -r '.login // empty' 2>/dev/null) || return 1
+  [[ $viewer =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || return 1
+  comments=$(own_gh_read "$1" api --paginate "repos/$2/pulls/$3/comments") || return 1
+  [ "${#comments}" -le 4194304 ] || return 1
+  printf '%s' "$comments" | jq -s -e --arg v "$viewer" --argjson id "$4" --argjson expect "$5" '
+    (add // []) as $all
+    | ($all | map(select(.id == $id)) | .[0]) as $t
+    | select($t != null)
+    | ($t.in_reply_to_id // $t.id) as $root
+    | ($all | map(select(.id == $root)) | .[0]) as $r
+    | select($r != null)
+    | ($all | map(select(.id == $root or .in_reply_to_id == $root))) as $th
+    | ($expect == 0 or $root == $expect)
+      and ($r.user.type == "Bot") and ($r.user.login | test("^.+\\[bot\\]$"))
+      and ($th | all(((.user.type == "Bot") and (.user.login | test("^.+\\[bot\\]$")))
+          or (.user.type == "User" and .user.login == $v)))' >/dev/null 2>&1 || return 1
+  # The thread must lie on the unit's own open, same-repository pull request.
+  unit_url=$(own_gh_read "$1" pr view --json url,headRefName,isCrossRepository,state \
+    | jq -r --arg b "$REC_UNIT" 'select(.headRefName == $b and .isCrossRepository == false and .state == "OPEN") | .url' 2>/dev/null) || return 1
+  [ -n "$REC_UNIT" ] && [ "$unit_url" = "https://github.com/$2/pull/$3" ]
+}
+
+# --------------------------------------------------------------------------
+# The installed review-state.sh: the review skills' one writer of the ledger,
+# the writer locks and the session registry, kept in the operator's
+# dotfiles-installed scripts directory. Matched by its literal absolute path
+# under the hook's own HOME, never by a tilde, a bare name or a copy inside
+# the worktree, so a script a worker wrote cannot stand in for it. Only the
+# verbs that keep that state are approved; `evidence run` executes its
+# argument list, and the inbox and loop verbs are not these calls.
+review_state_call_ok() {
+  local h=${HOME:-} i
+  case $h in
+    /?*) ;;
+    *) return 1 ;;
+  esac
+  case $h in
+    */./* | */../* | *//* | */) return 1 ;;
+  esac
+  [ "${cw[0]}" = "$h/.claude/scripts/review-state.sh" ] && [ "${sw[0]}" = "${cw[0]}" ] || return 1
+  # A tracked assignment (REVIEW_STATE_ROOT, HOME) could move the state it keeps.
+  [ "$VAR_C" -eq 0 ] || return 1
+  if [ -n "$REC_WT" ]; then
+    case $h/:${cw[0]} in
+      "$REC_WT"/*) return 1 ;;
+      *:"$REC_WT"/*) return 1 ;;
+    esac
+  fi
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] && [ "${cw[i]}" != -- ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  case ${cw[1]-} in
+    ledger)
+      case ${cw[2]-} in
+        record | lookup | show) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    lock)
+      case ${cw[2]-} in
+        acquire | release | handover | status) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    register | unregister | sessions) ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# mix ci, format and test. A mix run compiles and executes the project's code,
+# so it is approved only while nothing it would execute differs from the
+# trusted PR base: the diff of the worktree against the merge base with
+# `refs/remotes/<pr_base>` (read with show-ref --verify, never a name a local
+# branch could shadow) must name only inert paths (mix_path_inert), the
+# untracked and ignored files likewise, and no tracked file may be hidden from
+# the diff by an assume-unchanged or skip-worktree flag. Code the PR adds or
+# changes therefore keeps prompting, which is what stops a worker committing
+# a test and running it unprompted. Words are held to a short flag list, and
+# the paths to relative ones inside the worktree.
+
+# mix_path_inert <path>: the path names a file mix does not execute: an image
+# by its extension. A text document is not inert, since a base can read
+# one at compile time or doctest it by spellings no pattern lists, and the build
+# and dependency directories are not either: ignored, they can hold code a
+# worker planted, which mix loads.
+mix_path_inert() {
+  lower "$1"
+  case $LOWER in
+    '' | *[[:cntrl:]]*) return 1 ;;
+    *.png | *.jpg | *.jpeg | *.gif | *.ico) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# mix_paths_inert: every NUL-separated path on stdin is mix_path_inert.
+mix_paths_inert() {
+  local p
+  while IFS= read -r -d '' p; do
+    mix_path_inert "$p" || return 1
+  done
+}
+
+# mix_tags_plain: every NUL-separated `ls-files -v` record on stdin carries the
+# plain tag H, read without grep, whose NUL handling differs across hosts.
+mix_tags_plain() {
+  local p
+  while IFS= read -r -d '' p; do
+    [ "${p:0:2}" = 'H ' ] || return 1
+  done
+}
+
+# mix_tree_clean: nothing a mix run in the recorded worktree would execute
+# differs from the trusted PR base.
+mix_tree_clean() {
+  local base=$REC_BASE sha mb st
+  # The work tree is named on the command line and the submodule setting is
+  # pinned, so neither core.worktree nor diff.ignoreSubmodules in the
+  # repository's config can show the diff a different tree or hide a change.
+  local -a gitc=(git_plain -c core.fsmonitor=false -c diff.ignoreSubmodules=none --no-optional-locks --work-tree="$REC_WT" -C "$REC_WT")
+  [[ $base =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+$ ]] || return 1
+  case $base in
+    *..* | */ | *//* | */. | */./* | *.lock) return 1 ;;
+  esac
+  sha=$("${gitc[@]}" show-ref --verify -s "refs/remotes/$base" 2>/dev/null) || return 1
+  [[ $sha =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+  mb=$("${gitc[@]}" merge-base "$sha" HEAD 2>/dev/null) || return 1
+  [[ $mb =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+  # A tracked file flagged assume-unchanged or skip-worktree (a tag other
+  # than H) is one the diff below cannot see change.
+  "${gitc[@]}" ls-files -v -z 2>/dev/null | mix_tags_plain
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
+  "${gitc[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv --ignore-submodules=none "$mb" -- 2>/dev/null | mix_paths_inert
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
+  "${gitc[@]}" ls-files -o --exclude-standard -z 2>/dev/null | mix_paths_inert
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
+  "${gitc[@]}" ls-files -o -i --exclude-standard --directory -z 2>/dev/null | mix_paths_inert
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ]
+}
+
+# mix_operand_ok <word>: a relative path of the worktree (a test file may end
+# in `:<line>`), with no dot-dot, glob or option look, whose parent directory
+# canonicalizes inside the recorded worktree and which is no link.
+mix_operand_ok() {
+  local p=$1 d
+  [[ $p =~ ^[A-Za-z0-9_@+-][A-Za-z0-9_./@+-]*(:[0-9]+)*$ ]] || return 1
+  p=${p%%:*}
+  # An image the diff check lets through is not a file to hand mix to run.
+  ! mix_path_inert "$p" || return 1
+  case /$p/ in
+    */../* | */./* | *//*) return 1 ;;
+  esac
+  [ ! -L "$p" ] || return 1
+  d=${p%/*}
+  [ "$d" != "$p" ] || d=.
+  d=$(cd -- "$d" 2>/dev/null && pwd -P) || return 1
+  case $d/ in
+    "$REC_WT"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# mix_run_ok: the current simple command is `mix ci`, `mix format` or `mix
+# test` with only the flags below, run from a mix project directory of the
+# recorded worktree whose executable files match the PR base.
+mix_run_ok() {
+  local i w task expect=0 here
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
+  [ "${sw[0]}" = mix ] && [ "${swq[0]}" -lt 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
+  [ -n "$REC_WT" ] && [ -n "$REC_BASE" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
+  # The tree is read as it is now, so an earlier segment of this command that
+  # writes or runs repository code could change what mix then executes.
+  [ "$ARM_ACT" = 0 ] && [ "$OB_WROTE" = 0 ] && [ "$OB_LINKY" = 0 ] && [ "$OB_TOUCH" = 0 ] && [ "$RUN_SEEN" = 0 ] || return 1
+  # A tracked assignment (MIX_EXS, ERL_AFLAGS) could point mix at other code.
+  [ "$VAR_C" -eq 0 ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] && [ "${cw[i]}" = "${sw[i]}" ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  own_unit_same_repo "$here" || return 1
+  [ -f "$here/mix.exs" ] && [ ! -L "$here/mix.exs" ] || return 1
+  task=${cw[1]}
+  for ((i = 2; i < cwn; i++)); do
+    w=${cw[i]}
+    if [ "$expect" = 1 ]; then
+      [[ $w =~ ^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,63}$ ]] || return 1
+      expect=0
+      continue
+    fi
+    case $task:$w in
+      test:--trace | test:--failed | test:--stale | test:--cover | test:--warnings-as-errors | test:--no-start | test:--no-compile | test:--no-deps-check | test:--raise | test:--color | test:--no-color) ;;
+      test:--seed | test:--max-failures | test:--only | test:--exclude | test:--include | test:--timeout | test:--slowest | test:--max-cases | test:--partitions) expect=1 ;;
+      test:--seed=* | test:--max-failures=* | test:--only=* | test:--exclude=* | test:--include=* | test:--timeout=* | test:--slowest=* | test:--max-cases=* | test:--partitions=*)
+        [[ ${w#*=} =~ ^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,63}$ ]] || return 1
+        ;;
+      format:--check-formatted | format:--dry-run | format:--no-deps-check) ;;
+      test:-* | format:-* | ci:*) return 1 ;;
+      test:* | format:*) (cd -- "$here" && mix_operand_ok "$w") || return 1 ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$expect" = 0 ] || return 1
+  case $task in
+    ci | format | test) ;;
+    *) return 1 ;;
+  esac
+  mix_tree_clean
+}
+
 # --------------------------------------------------------------------------
 # The own-branch arm: live only when the
 # record's policy names it and the record carries the unit branch and the
@@ -1849,6 +2197,8 @@ OB_ON=0
 SC_ON=0
 OB_WROTE=0
 OB_LINKY=0
+# 1 once an earlier segment of the command ran repository code that may write.
+RUN_SEEN=0
 OB_EXCL_STATE=0
 OB_EXCL_DIRS=''
 
@@ -7295,6 +7645,7 @@ verify_simple() {
     return 0
   }
   OU_PARTNER=1
+  RUN_SEEN=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -8125,6 +8476,9 @@ verify_known_simple() {
   # path-prefixed verb defers (REQ-A1.9, REQ-A1.10).
   case $verb in
     */*)
+      if review_state_call_ok; then
+        return 0
+      fi
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
       if step_script_kind "$verb"; then
         STEP_CALL=1
@@ -8137,9 +8491,16 @@ verify_known_simple() {
   if [ "$cwn" -eq 2 ] && [ "${cw[1]}" = --version ] && version_tool "$verb"; then
     return 0
   fi
+  if [ "$verb" = mix ]; then
+    mix_run_ok
+    return
+  fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats) OU_PARTNER=1 ;;
+    mise | lefthook | bats)
+      OU_PARTNER=1
+      RUN_SEEN=1
+      ;;
     bash | sh) ou_script_kind "${cw[1]}" ;;
   esac
   return 0
@@ -8152,6 +8513,7 @@ verify_known_simple() {
 ou_script_kind() {
   if is_repo_script "$1" "$HOOK_CWD"; then
     OU_PARTNER=1
+    RUN_SEEN=1
     return 0
   fi
   case $1 in
