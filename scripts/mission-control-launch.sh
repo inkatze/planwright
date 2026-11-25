@@ -68,9 +68,10 @@ usage:
       [--brief <file>] [--rules <rule-scope>]... [--backend stream-json|tmux]
       [--cwd <abs-dir>] [--repo <abs-dir>] [--operator-asked]
       [--remote-control <name>] [--model <alias>] [--effort <level>]
-      [--reserved] [--keep-config-env] [--mise-task-edit] [--spec-branch <branch>]
-      [--pr <number>]
+      [--reserved] [--keep-config-env] [--mise-task-edit] [--lefthook-edit]
+      [--spec-branch <branch>] [--pr <number>]
   mission-control-launch.sh name --program <p> --kind <kind> --scope <s>
+  mission-control-launch.sh adopt <name> --scope <s> [--plan]
   mission-control-launch.sh retire <name>|<worker> [--force-parked]
   mission-control-launch.sh reparent <name> --program <dest>
       (--authority <decisions-log id> | --undo)
@@ -94,6 +95,16 @@ rung has no terminal to attach it to, so it drops the flag with a warning.
 refused otherwise) opts the session in to editing the mise task files inside
 its own worktree, under a per-launch settings profile; docs/permission-matcher-model.md
 states what that opens.
+`--lefthook-edit` (same limits: a worker-profile session on the stream-json
+rung only, off by default, recorded in the session record, never read from
+config, the checkout or the environment) opts the session in to editing the
+lefthook config inside its own worktree (lefthook.<ext>, lefthook/), which
+lets it write the commands its own commits and `lefthook run` execute, outside
+the command guard; lefthook-local, the dotted
+variants, the hook directories, .git and .claude stay closed, and so does
+every path outside the worktree. It composes with --mise-task-edit and takes
+effect only by relaunch; docs/permission-matcher-model.md ("The lefthook
+config opt-in") states what it opens.
 `--spec-branch planwright/<spec>/<name>` (a worker-profile session on the
 stream-json rung only, and only for the head branch of an open pull request,
 checked with gh before the launch) records that spec PR branch in the session
@@ -202,6 +213,20 @@ works only while the session's current program holds a move of it out of
 <source>, and logs no undo entry of its own; revert refuses a second
 reversal of one entry. Its exit codes are listed after the others, below.
 
+adopt makes a worker that one of a program's tower, orchestrator or
+mission-control sessions (<name>) dispatched on the stream-json rung, outside
+this launcher, that program's worker: the row a worker launch of <scope>
+would have had, owner and program read from <name>'s row, so list, wait,
+unwait and retire take it, its prompts route to the program and the
+host-wide bound counts it. Every stream-json session holds its own handle as
+PLANWRIGHT_SESSION_HANDLE for this. Run it twice around the dispatch:
+--plan first prints the worker's name and owner (the dispatch launches under
+that name with PLANWRIGHT_TOWER_ID set to that owner), then, once the worker
+runs, the plain form writes the row, refused unless the worker's runtime
+directory records <name> as its parent, the worker profile and <scope>. A
+launch of this launcher's own records no parent. /orchestrate's meta step
+(scripts/orchestrate-meta-step.sh) runs both.
+
 Output, tab separated:
   launch   launch <field> <value> for name, kind, program, owner, scope,
            backend, profile, tier, brief, cwd, and a tier-note where the
@@ -210,6 +235,8 @@ Output, tab separated:
            unrecorded=<undo,event-<program>> when the move landed but a
            record did not (exit 1)
   name     the name alone
+  adopt    adopt <name> adopted <program>; --plan: adopt name|program|owner
+           <value>
   retire   retire <name> released|partial released=<classes> held=<classes>,
            over the classes process, pane, registry, attention and row
   wait     wait <name> waiting <reason> (unwait: wait <name> working)
@@ -232,9 +259,10 @@ as gone once tmux no longer has it or it is no longer that window (another
 server, or another name: nothing is done to tmux then, and stderr says so in
 one line); one recorded without its server is never closed by its id, only
 the windows carrying the session's name are. A session with no row
-(one an older planwright or /orchestrate launched, named by its worker
-handle) is retired through its stream-json runtime directory: the rung's
-final close, then its fleet record and attention row, over the classes
+(one an older planwright, a /orchestrate outside a program's session or a
+hand launch started, named by its worker handle) is retired through its
+stream-json runtime directory: the rung's final close, then its fleet
+record and attention row, over the classes
 process, registry and attention, refused while the rung's own launch,
 recover or relaunch of it is in flight; with no such directory either, the
 refusal names the headless and tmux stops.
@@ -266,6 +294,12 @@ could not be recorded (the output's unrecorded field names which); 2 usage,
 an invalid value, --undo with --authority, no --authority, or a row it
 cannot read or rewrite; 3 no row of that name, or another launch or retire
 of it holds its lock; 4 any other refusal.
+
+adopt exits 0 done; 2 usage, an invalid value, or a row it cannot read or
+write; 3 no row of the dispatching session, the worker's name held by a row,
+or another launch or retire of it holding its lock; 4 a dispatching session
+whose launch is not complete or that runs under the worker profile, or a
+worker whose runtime directory does not vouch for it.
 
 wait and unwait exit 0 done; 2 usage or a row they cannot rewrite; 3 no row of
 that name, or a launch or retire of it holds its lock; 4 a mission-control
@@ -846,7 +880,10 @@ plain git is denied on your own unit branch, run
 \`$cs_root/scripts/worker-branch-sync.sh\` as its own command:
 \`reset origin/<branch>\` resets the clean worktree to the fetched remote
 branch, dropping local commits; \`ff <sha>\` fast-forwards to a descendant
-commit. It pushes nothing: a pushed branch takes new commits. Its \`--help\`
+commit; \`push --force-with-lease=<branch>:<sha> --force-if-includes\`
+publishes a rewrite of the branch while its PR is a draft, leased on the tip
+the rewrite started from, only where your launch record allows
+draft_rewrite; otherwise a pushed branch takes new commits. Its \`--help\`
 states what it refuses.
 EOF
 }
@@ -911,7 +948,7 @@ posture_gate() {
 
 cmd_launch() {
   program='' kind='' scope='' brief='' backend='' cwd='' rules='' repo='' task='' operator_asked=0
-  remote_control='' rc_given=0 mise_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
+  remote_control='' rc_given=0 mise_edit=0 lefthook_edit=0 spec_branch='' ovr_model='' ovr_effort='' ovr_reserved=0 keep_env=''
   pr='' pr_branch='' pr_oid='' pr_ok=0
   PLACED_MARKER='' BRANCH_LOCK='' placed_primary=''
   while [ "$#" -gt 0 ]; do
@@ -947,6 +984,10 @@ cmd_launch() {
         ;;
       --mise-task-edit)
         mise_edit=1
+        shift
+        ;;
+      --lefthook-edit)
+        lefthook_edit=1
         shift
         ;;
       --spec-branch)
@@ -1092,6 +1133,10 @@ cmd_launch() {
   if [ "$mise_edit" = 1 ]; then
     [ "$K_PROFILE" = worker ] || die "--mise-task-edit applies to a worker-profile session only"
     [ "$backend" = stream-json ] || die "--mise-task-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
+  fi
+  if [ "$lefthook_edit" = 1 ]; then
+    [ "$K_PROFILE" = worker ] || die "--lefthook-edit applies to a worker-profile session only"
+    [ "$backend" = stream-json ] || die "--lefthook-edit needs the stream-json rung: the per-launch settings profile is not passed by the tmux rung"
   fi
   if [ -n "$spec_branch" ]; then
     [ "$K_PROFILE" = worker ] || die "--spec-branch applies to a worker-profile session only"
@@ -1330,14 +1375,19 @@ cmd_launch() {
       [ "$ovr_reserved" != 1 ] || set -- "$@" --tier-reserved
       [ "$K_PROFILE" != mission-control ] || set -- "$@" --mc-token "$token"
       [ "$mise_edit" = 0 ] || set -- "$@" --mise-task-edit
+      [ "$lefthook_edit" = 0 ] || set -- "$@" --lefthook-edit
       [ -z "$spec_branch" ] || set -- "$@" --spec-branch "$spec_branch"
+      [ "$K_PROFILE" != worker ] || set -- "$@" --launcher mission-control
       set -- "$@" --
       [ "$model" = inherit ] || set -- "$@" --model "$model"
       [ "$effort" = inherit ] || set -- "$@" --effort "$effort"
       tier="$model/$effort"
       sr=0
+      # The row is this session's record, so the session records no parent:
+      # one would read as a session another one dispatched (adopt).
       # shellcheck disable=SC2086 # $scrub is a word list of -u NAME pairs
-      PLANWRIGHT_TOWER_ID=$owner env $scrub /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
+      PLANWRIGHT_TOWER_ID=$owner env -u PLANWRIGHT_SESSION_HANDLE -u PLANWRIGHT_WORKER_HANDLE $scrub \
+        /bin/sh "$script_dir/fleet-streamjson.sh" "$@" </dev/null >/dev/null || sr=$?
       case $sr in
         0) ;;
         3)
@@ -1438,6 +1488,105 @@ cmd_name() {
   session_name "$program" "$kind" "$scope"
 }
 
+# cmd_adopt <parent> --scope <scope> [--plan] — make a stream-json worker that
+# a program's dispatching session launched outside this launcher (an
+# orchestrator's dispatch) that program's worker, under the row a worker
+# launch of <scope> would have had, so list, wait, unwait and retire take it
+# like one of their own. The parent row is the one source of the program and
+# owner. --plan, before the dispatch, prints the name and owner to launch it
+# under; the record, after it, writes the row once the worker's runtime
+# directory vouches for it.
+cmd_adopt() {
+  [ "$#" -ge 3 ] || usage
+  ad_parent=$1
+  shift
+  scope='' ad_plan=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --scope)
+        [ "$#" -ge 2 ] || usage
+        scope=$2
+        shift 2
+        ;;
+      --plan)
+        ad_plan=1
+        shift
+        ;;
+      *) usage ;;
+    esac
+  done
+  valid_name "$ad_parent" || die "refusing the session name '$(sanitize_printable "$ad_parent")'"
+  valid_scope "$scope" || die "refusing the scope '$(sanitize_printable "$scope")'"
+  fleet_home
+  ad_prow="$REG/$ad_parent"
+  [ ! -L "$ad_prow" ] || die "refusing the registry row for $ad_parent: a symbolic link"
+  [ -f "$ad_prow" ] || die "no registered session is named $ad_parent" 3
+  row_check "$ad_prow"
+  [ "$(row_get "$ad_prow" state)" = launched ] \
+    || die "refusing to adopt a worker of $ad_parent: its launch is not complete" 4
+  ad_pkind=$(row_get "$ad_prow" kind)
+  kind_row "$ad_pkind" || die "the registry row for $ad_parent names an unknown kind" 2
+  # A worker-profile session's own launches are its steps, part of its unit.
+  [ "$K_PROFILE" != worker ] \
+    || die "refusing to adopt a worker of $ad_parent: a $ad_pkind session's launches are its own steps, not the program's workers" 4
+  program=$(row_get "$ad_prow" program)
+  valid_program "$program" || die "the registry row for $ad_parent names no usable program" 2
+  owner=$(row_get "$ad_prow" owner)
+  [ "$owner" = "mission-control:$program" ] \
+    || die "the registry row for $ad_parent names the owner $(sanitize_printable "$owner"), not mission-control:$program" 2
+  kind=worker
+  name=$(session_name "$program" "$kind" "$scope") || exit 2
+  valid_name "$name" || die "the derived session name is outside the launcher's grammar"
+  row="$REG/$name"
+  ad_held="the session name $name is held by a registered session; retire it before dispatching under it"
+  if [ "$ad_plan" = 1 ]; then
+    if [ -e "$row" ] || [ -L "$row" ]; then die "$ad_held" 3; fi
+    printf 'adopt\tname\t%s\n' "$name"
+    printf 'adopt\tprogram\t%s\n' "$program"
+    printf 'adopt\towner\t%s\n' "$owner"
+    return 0
+  fi
+
+  private_dir "$FH/mission-control"
+  private_dir "$REG"
+  name_lock "$name"
+  if [ -e "$row" ] || [ -L "$row" ]; then die "$ad_held" 3; fi
+  # The rung wrote these at the launch: the parent from the launching
+  # session's own handle, which no other session holds.
+  ad_dir="$FH/streamjson/$name"
+  [ -d "$ad_dir" ] && [ ! -L "$ad_dir" ] || die "refusing to adopt $name: no stream-json worker has that name" 4
+  [ "$(head -n 1 "$ad_dir/parent" 2>/dev/null)" = "$ad_parent" ] \
+    || die "refusing to adopt $name: its launch does not record $ad_parent as the session it was launched from" 4
+  [ "$(head -n 1 "$ad_dir/profile" 2>/dev/null)" = worker ] \
+    || die "refusing to adopt $name: it was not launched under the worker profile" 4
+  [ "$(head -n 1 "$ad_dir/scope" 2>/dev/null)" = "$scope" ] \
+    || die "refusing to adopt $name: its launch recorded another scope" 4
+  cwd=$(head -n 1 "$ad_dir/cwd" 2>/dev/null) || cwd=''
+  case $cwd in
+    *[[:cntrl:]]* | '') cwd=- ;;
+    /*) ;;
+    *) cwd=- ;;
+  esac
+  backend=stream-json handle=$name tmux_server=- tier=- composed=- task='' placed_primary='' PLACED_MARKER=''
+  profile=$(/bin/sh "$script_dir/fleet-launch-profile.sh" worker </dev/null 2>/dev/null) || profile=-
+  launched=$(date +%s)
+  token=$(new_token)
+  # A launched row is written over a reservation only, as a launch writes it.
+  rtmp=$(mktemp "$REG/.reserve.XXXXXX") || die "cannot write the row for $name"
+  if ! row_write "$rtmp" "$token" launching || ! ln "$rtmp" "$row" 2>/dev/null; then
+    rm -f "$rtmp"
+    [ ! -e "$row" ] || die "$ad_held" 3
+    die "cannot write the row for $name"
+  fi
+  rm -f "$rtmp"
+  if ! row_write "$row" "$token" launched; then
+    rm -f "$row"
+    die "cannot complete the row for $name; it was removed"
+  fi
+  name_unlock
+  printf 'adopt\t%s\tadopted\t%s\n' "$name" "$program"
+}
+
 # windows_named <name> — print `<server> <id>` for each tmux window named
 # <name>, the server being the one that listed it, or return 1 when tmux
 # cannot list them. No tab in the format: tmux prints one as `_` under
@@ -1502,8 +1651,9 @@ EOF
 }
 
 # retire_unregistered <name> — retire a session this launcher holds no row
-# for: one an older planwright, /orchestrate or a hand launch started straight
-# on the stream-json rung. Its runtime directory is all there is to go on, so
+# for: one an older planwright, a /orchestrate outside a program's session (or
+# one whose adoption did not land) or a hand launch started straight on the
+# stream-json rung. Its runtime directory is all there is to go on, so
 # the rung's own final close takes it, then the fleet registry marker under
 # the same handle and the attention row, as for a launched one. Without that
 # directory the refusal names the stop that applies.
@@ -1838,13 +1988,18 @@ host_live_counts() {
 }
 
 # row_set_waiting <row> <reason> — rewrite a registry row with its waiting
-# field set to <reason>, or with none when <reason> is empty.
+# field set to <reason> and its waited field to the epoch that reason was
+# first set, or with neither when <reason> is empty. Marking the same reason
+# again keeps the epoch: the session-keeper counts a park on the operator
+# from the later of it and the worker's last turn end, so a repeated wait
+# must not restart the park.
 row_set_waiting() {
   rs_tmp="$1.tmp.$$"
-  if ! (umask 077 && awk -F '\t' -v r="$2" '
-    $1 == "waiting" { next }
+  if ! (umask 077 && awk -F '\t' -v r="$2" -v t="$(date +%s)" '
+    $1 == "waiting" { if (ow == "") ow = substr($0, 9); next }
+    $1 == "waited" { if (ot == "") ot = $2; next }
     { print }
-    END { if (r != "") print "waiting\t" r }' "$1" >"$rs_tmp") 2>/dev/null \
+    END { if (r != "") print "waiting\t" r "\nwaited\t" ((ow == r && ot ~ /^[1-9][0-9]*$/) ? ot : t) }' "$1" >"$rs_tmp") 2>/dev/null \
     || ! mv -f -- "$rs_tmp" "$1" 2>/dev/null; then
     rm -f "$rs_tmp"
     return 1
@@ -1939,6 +2094,7 @@ case $verb in
   -h | --help) help_text ;;
   launch) cmd_launch "$@" ;;
   name) cmd_name "$@" ;;
+  adopt) cmd_adopt "$@" ;;
   retire) cmd_retire "$@" ;;
   reparent) cmd_reparent "$@" ;;
   wait) cmd_wait "$@" ;;

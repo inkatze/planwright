@@ -67,9 +67,9 @@ Flagged:
               [ -r ] / [ -w ] test) before its next chmod or the end of the file
   dead-owner  a $! PID used again after it was reaped with wait; draw one from
               tests/lib/dead-owner.sh or a lock-library token instead
-  unsourced   a read of a listed configuration or root variable on a line
-              above the file's source of tests/lib/hermetic-env.sh, or in a
-              file that never sources it
+  unsourced   a read of a listed configuration, root or session variable on
+              a line above the file's source of tests/lib/hermetic-env.sh, or
+              in a file that never sources it
 
 Excluded: an offending line carrying, or following, a
 `# hermetic-exempt: <reason>` comment.

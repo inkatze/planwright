@@ -8,6 +8,8 @@
 
 # The fixture resolves paths through a cd in a command substitution.
 unset CDPATH
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 for t in jq git ps; do
   command -v "$t" >/dev/null 2>&1 || {

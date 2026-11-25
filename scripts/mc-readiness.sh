@@ -49,9 +49,12 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   head<TAB><sha>                      the pull request's current head
   repo<TAB><owner/name>
   label<TAB><name>                    one per label
-  path<TAB><file><TAB><change>        one per changed path, with the
-                                      forge's change type (RENAMED and
-                                      COPIED name no source path)
+  path<TAB><file><TAB><change>[<TAB><source>]
+                                      one per changed path, with the
+                                      forge's change type; a RENAMED or
+                                      COPIED path carries the path it came
+                                      from when the forge's file list
+                                      named one
   check<TAB><name><TAB><state>        one per individual check context,
                                       its latest run only (a re-run
                                       supersedes the runs before it), but
@@ -77,6 +80,16 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   born<TAB><name><TAB><time>          when the workflow run of a check was
                                       created, which a queued check cannot
                                       say itself
+  botmark<TAB><login><TAB><run>.<attempt><TAB><head><TAB><status><TAB><time>
+                                      one per PR-Agent run marker comment
+                                      (`<!-- pr-agent-run: ... -->`) on a
+                                      ready pull request: its author, the
+                                      run attempt, the head it reviewed,
+                                      its status and when it was last edited
+  botattempt<TAB><run>.<attempt><TAB><workflow><TAB><started><TAB><conclusion>
+                                      the run attempt behind a marker the
+                                      workflow (github-actions[bot]) posted
+                                      at the head
   thread<TAB><id><TAB>open|resolved   one per review thread
   finding<TAB><reviewer><TAB><id><TAB>answered|unanswered
                                       an automated reviewer's thread
@@ -88,14 +101,21 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   cadence<TAB>gap<TAB><point><TAB><kind><TAB><detail>
                                       one per gap that audit printed
                                       (kind unaudited: a record the step-record
-                                      truth check refuses; reads as not audited)
+                                      truth check refuses; reads as not audited),
+                                      except that a post-pr stale whose every
+                                      post-pr completion lies outside the pull
+                                      request's history (neither behind nor
+                                      ahead of its head, or held by its base)
+                                      is kind foreign, which collect derives
   cadence<TAB>covered<TAB><point>     one per point it found complete
   cadence<TAB>unaudited<TAB><why>     the audit could not run
   scope<TAB>spec-only<TAB><head>      every changed path lies under the
                                       program's spec root
   signoff<TAB><bundle><TAB>signed|unsigned<TAB><detail>
                                       an edited spec bundle's kickoff
-                                      sign-off at the head
+                                      sign-off at the head; a signed row's
+                                      detail is `-`, or `legacy, no kickoff
+                                      brief` for a legacy bundle (collect)
   drift<TAB><path><TAB><spec>/<task>...
                                       a changed file a spec lists as a task
                                       deliverable that no spec edit, Not
@@ -131,7 +151,12 @@ THE WALK refuses, each failure one line:
     be the one the flip fired: where the flip time is known, a PR-Agent run
     created before the flip is not it (nor is one whose creation time is
     unread), and a ready pull request with no run created at or after the flip
-    is refused until the flip's own run exists and finishes;
+    is refused until the flip's own run exists and finishes. A re-run after
+    a fix round reviews the head while its check stays on the commit the run
+    first fired at, so a run marker stands in for the check: the latest one
+    github-actions[bot] posted for a run attempt, naming the full head with
+    status success, whose attempt is a PR-Agent one that started at or after
+    the flip and finished green. Any other marker is named and not counted;
   - a pending check on a ready pull request, told by its run's creation time:
     created at or after the flip, it is the flip's own run and only has to
     finish; created before the flip and still running at it, the flip came
@@ -142,7 +167,8 @@ THE WALK refuses, each failure one line:
     not SUCCESS, named with the ci-macos label that starts it, so the flip
     never rests on a draft run;
   - an open thread, an unanswered finding, a failed guard, a truncated
-    read;
+    read, a renamed or copied path whose source the forge's file list did
+    not name;
   - any screenshot whose judgment is not ok, or recorded at another head;
   - each required step (ready steps) with no passed or applied record
     ending on the head;
@@ -150,12 +176,14 @@ THE WALK refuses, each failure one line:
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
     for its sign-off instead of the cadence and the required steps. The
-    exception is a post-pr gap (no completion, or a step never recorded) on a
-    draft where PR-Agent is required: that point waits on the bot review the
-    flip fires, so it is pending the flip, not a gap. When it is the only
-    thing the walk holds, the verdict is flip-for-review (below); with any
-    other refusal the verdict stays not-ready and names that refusal. On a
-    ready pull request the post-pr gap is a gap again;
+    exception is a post-pr gap (no completion, one only on heads outside the
+    pull request's history such as another unit's in a reused worktree, or a
+    step never recorded) on a draft where PR-Agent is required: that point
+    waits on the bot review the flip fires, so it is pending the flip, not a
+    gap. When it is the only thing the walk holds, the verdict is
+    flip-for-review (below); with any other refusal the verdict stays
+    not-ready and names that refusal. On a ready pull request the post-pr gap
+    is a gap again;
   - each edited spec bundle not signed off, on any pull request;
   - each drift row: a changed deliverable no spec edit covers, or a drift
     check that could not run (scripts/spec-drift-check.sh);
@@ -163,7 +191,7 @@ THE WALK refuses, each failure one line:
     head;
   - each required body text (ready body) absent from the body.
 The conditions come from scripts/mc-gates.sh resolve, for the evidence's
-repo, labels and paths.
+repo, labels and paths, a renamed or copied path's source among them.
 
 Usage:
   mc-readiness.sh walk --evidence <file> (--program <p> | --conditions <file>)
@@ -186,8 +214,10 @@ Usage:
       finding, answered once resolved or replied to by a person other than
       the pull request's author, with a login), the spec-only scope (every
       path a `.md` file under the program's spec root inside the
-      repository whose origin is --repo, added, modified or deleted, never
-      renamed or copied; a head that repository lacks is a spec-only scope
+      repository whose origin is --repo, added, modified or deleted, or
+      renamed or copied from such a file, its source read from the REST
+      file list and never guessed when unread, a rename also touching the
+      bundle it leaves; a head that repository lacks is a spec-only scope
       with one unsigned `*` sign-off naming the fetch; then each touched
       bundle, a
       directory under the root not opening with `_`, is signed off when,
@@ -195,10 +225,20 @@ Usage:
       requirements.md status is Ready, Active or Done and its
       kickoff-brief.md's latest anchor recomputes over the bundle (a
       requirements.md missing, unreadable or with no Status line, as a
-      legacy bundle has, is unsigned, each named apart with its path); a pull
+      pre-pipeline bundle has, is unsigned, each named apart with its path;
+      a Done bundle with no kickoff-brief.md at the head is a legacy one,
+      finished before kickoff existed, and signed with the detail `legacy,
+      no kickoff brief`, when the base branch's remote-tracking ref already
+      holds the bundle as Done or with no Status line and holds no brief for
+      it, and the pull request deletes none (so a pre-pipeline bundle the
+      pull request marks Done is legacy); a bundle the base lacks or holds
+      at another status, a pull request naming no base, and a base that
+      cannot be read all refuse, and a brief that is present never makes a
+      bundle legacy); a pull
       request touching only `_` accumulators or files directly under the
       root has no bundle to sign off), for any other pull request the same
-      sign-off for each bundle it edits (one it removes aside) and the
+      sign-off for each bundle it edits, a rename's source bundle among
+      them (a bundle absent at the head aside), and the
       spec-drift check (scripts/spec-drift-check.sh, from the base branch's
       remote-tracking ref to the head, the body its statement), the step
       records of --worktree (scripts/step-record.sh list) and the cadence
@@ -428,6 +468,37 @@ walk() {
 walk_awk() {
   awk -F '\t' "$CHECK_FUNCS"'
 function fail(what, detail) { fails[++nf] = "fail\t" what "\t" detail }
+# bot_marker(): 1 when a run marker the PR-Agent workflow posted proves one of
+# its run attempts reviewed the head after the flip. A re-run keeps the check
+# on the commit the run first fired at, so only the marker names the head.
+# Only the latest marker of each author and attempt counts; each refused one
+# is named in mwhy.
+function bot_marker(    i, m, a, k, at, latest, order, n, r) {
+  for (i = 1; i <= nmk; i++) {
+    split(mk[i], m, "\t")
+    k = m[1] "\t" m[2]
+    if (!(k in at)) order[++n] = k
+    if (!(k in at) || m[5] >= at[k]) { at[k] = m[5]; latest[k] = mk[i] }
+  }
+  for (i = 1; i <= n; i++) {
+    split(latest[order[i]], m, "\t")
+    r = ""
+    if (m[1] != "github-actions[bot]") r = "marker " m[2] " was posted by " m[1] ", not the PR-Agent workflow"
+    else if (m[3] != head) r = "marker " m[2] " names " (m[3] == "" ? "no commit" : substr(m[3], 1, 12)) ", not the head"
+    else if (m[4] != "success") r = "marker " m[2] " reports " m[4]
+    else if (!(m[2] in att)) r = "attempt " m[2] " was not read"
+    else {
+      split(att[m[2]], a, "\t")
+      if (!bot_check(a[1])) r = "attempt " m[2] " belongs to " a[1] ", not PR-Agent"
+      else if (a[2] == "") r = "attempt " m[2] " has no start time read"
+      else if (flip != "" && a[2] < flip) r = "attempt " m[2] " started " a[2] ", before the flip at " flip
+      else if (!pass_check(a[3])) r = "attempt " m[2] " is " a[3]
+      else return 1
+    }
+    mwhy = mwhy "; run " r
+  }
+  return 0
+}
 FILENAME == ARGV[1] {
   if ($1 == "ready" && ($2 == "steps" || $2 == "evidence" || $2 == "body")) need[$2, ++nn[$2]] = $3
   next
@@ -436,6 +507,8 @@ FILENAME == ARGV[1] {
 FNR == 1 { if ($0 != "# format: 1") { badfmt = 1; exit } ; next }
 $1 == "head" { head = $2 }
 $1 == "require" && $2 == "pr-agent" { needbot = 1 }
+$1 == "botmark" { mk[++nmk] = $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 }
+$1 == "botattempt" { att[$2] = $3 "\t" $4 "\t" $5 }
 $1 == "bypass" { byp[++nb] = $2 "\t" $3 }
 $1 == "check" && ($2 == "macos-suite" || $2 == "macos-smoke" || $2 ~ /^macos-(suite|smoke) /) {
   j = ($2 ~ /^macos-suite/) ? "macos-suite" : "macos-smoke"
@@ -449,12 +522,14 @@ $1 == "thread" && $3 != "resolved" { fail("thread", $2 " is open") }
 $1 == "finding" && $4 != "answered" { fail("finding", $2 " " $3 " is unanswered") }
 $1 == "guard" && $3 != "pass" { fail("guard", $2 ": " $4) }
 $1 == "truncated" { fail("truncated", "the " $2 " read hit its cap; what lies past it is unread") }
+$1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") && $4 == "" { fail("path", $2 " is " tolower($3) " from a path the file list of the forge did not name, so the gates and sign-off its source brings cannot be read; collect again") }
 $1 == "step" { steps[++ns] = $2 "\t" $3 "\t" $4 }
 $1 == "cadence" && $2 == "audited" { audited = $3 }
 $1 == "cadence" && $2 == "gap" {
   d = $5 " is " $4
   if ($4 == "incomplete") d = "no completion record"
   else if ($4 == "stale") d = "completed only at " substr($5, 1, 12)
+  else if ($4 == "foreign") d = "completed only outside the history of this pull request, newest at " substr($5, 1, 12)
   else if ($4 == "mismatch") d = "a record does not match its branch (" $5 ")"
   else if ($4 == "failed") { i = index($5, ":"); d = substr($5, 1, i - 1) " recorded " substr($5, i + 1) }
   else if ($4 == "fault") d = $5
@@ -462,7 +537,7 @@ $1 == "cadence" && $2 == "gap" {
   else {
     cad[++ncad] = $3 ": " d
     # A post-pr step may wait on the bot review the ready flip fires.
-    if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing")) cadpf[ncad] = d
+    if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing" || $4 == "foreign")) cadpf[ncad] = d
   }
 }
 $1 == "cadence" && $2 == "unaudited" { cad[++ncad] = "not audited: " $3; unaud = 1 }
@@ -482,11 +557,12 @@ END {
   # caller that takes the first refusal as the reason sees the check first.
   for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); lead[++nlead] = "fail\t" substr(r, 1, k - 1) "\t" substr(r, k + 1) }
   if (!nc) fail("check", "no individual check context at the head")
-  if (needbot && state != "draft" && !botseen) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)")
+  marked = (needbot && state != "draft") ? bot_marker() : 0
+  if (needbot && state != "draft" && !botseen && !marked) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)" mwhy)
   # After the flip the run it fired is the one wanted: a run created before
   # the flip (every PR-Agent run there is) is not it, and the run the flip
   # fires has not shown up yet. No apostrophe here: this is a shell string.
-  if (needbot && state == "ready" && botseen && flip != "") {
+  if (needbot && state == "ready" && botseen && flip != "" && !marked) {
     fired = 0; unk = 0; newest = ""
     for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
       b = born[rn[i]]
@@ -494,8 +570,8 @@ END {
       else if (b >= flip) fired = 1
       else if (b > newest) newest = b
     }
-    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again")
-    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires")
+    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again" mwhy)
+    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires" mwhy)
   }
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
@@ -551,7 +627,8 @@ END {
 }
 
 # conditions_for <program> <evidence> <out>: the gate conditions for the
-# evidence's repo, labels and paths.
+# evidence's repo, labels and paths, a rename's or copy's source among them,
+# so moving a file out of a gated path keeps that path's gate.
 conditions_for() {
   cf_args=()
   cf_ev=$(operand "$2")
@@ -563,9 +640,52 @@ conditions_for() {
       path) cf_args+=(--path "$cf_v") ;;
     esac
   done <<EOF
-$(awk -F '\t' '($1 == "label" || $1 == "path") && NF >= 2 { print $1 "\t" $2 }' "$cf_ev")
+$(awk -F '\t' '
+  ($1 == "label" || $1 == "path") && NF >= 2 { print $1 "\t" $2 }
+  $1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") && $4 != "" { print "path\t" $4 }' "$cf_ev")
 EOF
   /bin/bash "$script_dir/mc-gates.sh" resolve --program "$1" ${cf_args[@]+"${cf_args[@]}"} >"$3"
+}
+
+# post_pr_foreign <worktree> <head> <base commit or empty> <records>: succeed
+# only when the records hold a post-pr completion and every one is on a head
+# outside the pull request's own history: on neither side of <head>'s line,
+# or behind it but already held by the base it branched from. Such a
+# completion is another unit's, left in a reused worktree, so it is no
+# completion at <head>. One behind <head> and not in the base, one ahead of
+# it (work not yet pushed), or a head git cannot place keeps the point stale,
+# and so does a shallow repository, whose cut history hides ancestry.
+post_pr_foreign() {
+  local wt=$1 head=$2 base=$3 heads h rc n=0
+  [ "$(mc_untrusted_git -C "$wt" rev-parse --is-shallow-repository 2>/dev/null)" = false ] || return 1
+  # A record that ends without a newline runs into the next one, so each
+  # record line closes the one before it, as the audit reads them.
+  heads=$(awk -F '\t' '
+    function close_rec() { if (t == "completion" && p == "post-pr" && !seen[h]++) print h; t = p = h = "" }
+    $1 == "record" { close_rec(); next }
+    $1 == "type" { t = $2 } $1 == "point" { p = $2 } $1 == "head" { h = $2 }
+    /^$/ { close_rec() }
+    END { close_rec() }' "$4") || return 1
+  while IFS= read -r h; do
+    [[ $h =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+    n=$((n + 1))
+    mc_untrusted_git -C "$wt" merge-base --is-ancestor "$h" "$head" 2>/dev/null
+    rc=$?
+    case $rc in
+      0)
+        [ -n "$base" ] || return 1
+        mc_untrusted_git -C "$wt" merge-base --is-ancestor "$h" "$base" 2>/dev/null || return 1
+        ;;
+      1)
+        mc_untrusted_git -C "$wt" merge-base --is-ancestor "$head" "$h" 2>/dev/null
+        [ $? -eq 1 ] || return 1
+        ;;
+      *) return 1 ;;
+    esac
+  done <<EOF
+$heads
+EOF
+  [ "$n" -gt 0 ]
 }
 
 # branch_worktree <program> <slug> <branch> <head>: find the worktree of the
@@ -651,19 +771,22 @@ drift_scope() {
     return 0
   }
   # A bundle is any directory directly under the root that does not open with
-  # `_`, edited by any file under it.
+  # `_`, edited by any file under it. A rename edits the bundle it leaves as
+  # well; a copy leaves its source unchanged, so it touches only its
+  # destination, as in spec_scope.
   SPEC_REL=$rel awk -F '\t' '
-    $1 == "path" {
-      p = $2; n = length(ENVIRON["SPEC_REL"])
-      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") next
+    function touch(p,    n, b) {
+      n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/") return
       p = substr(p, n + 2)
       if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; print b } }
-    }' "$5" >"$6/touched" || return 0
+    }
+    $1 == "path" { touch($2); if ($3 == "RENAMED" && $4 != "") touch($4) }' "$5" >"$6/touched" || return 0
   if mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
     while IFS= read -r b; do
       # A bundle the pull request removes or moves has no sign-off to read.
       [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]] && [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel/$b" 2>/dev/null)" != tree ] && continue
-      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" || exit
+      signoff_row "$repo" "$3" "$rel" "$b" "$6/touched-$b" "refs/remotes/origin/$4" "$5" || exit
     done <"$6/touched"
   fi
   awk -F '\t' '$1 == "bodyline" { print substr($0, 10) }' "$5" >"$6/body"
@@ -686,31 +809,43 @@ drift_scope() {
   esac
 }
 
-# spec_scope <program> <slug> <head> <pr read> <scratch dir>: when every
-# changed path lies under the program's spec root inside the repository for
-# <slug>, print `scope<TAB>spec-only<TAB><head>` and one `signoff` line per
-# bundle touched; otherwise nothing. Sign-offs are read from the repository's
-# own objects at the head, since collect writes nothing (no fetch) to any
-# repository.
+# spec_scope <program> <slug> <head> <pr read> <scratch dir> <base branch>:
+# when every changed path lies under the program's spec root inside the
+# repository for <slug>, print `scope<TAB>spec-only<TAB><head>` and one
+# `signoff` line per bundle touched; otherwise nothing. Sign-offs are read
+# from the repository's own objects at the head, since collect writes nothing
+# (no fetch) to any repository.
 spec_scope() {
-  local home rel repo files b
+  local home rel repo files b base=''
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
   [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
   home=$(spec_home "$1" "$2") || return 0
   rel=${home#*	} repo=${home%%	*}
   # Each path must sit strictly under the root, with no `.`, `..` or empty
-  # component, be prose (`.md`), and be added, modified or deleted: a rename
-  # or copy names no source path. The bundles are the directories directly
-  # under the root, those opening with `_` (the reserved accumulators) aside.
+  # component, be prose (`.md`), and be added, modified or deleted, or
+  # renamed or copied from a path that passes the same test. A rename or copy
+  # with no source named is refused, never guessed. The bundles are the
+  # directories directly under the root, those opening with `_` (the reserved
+  # accumulators) aside; a rename edits the bundle it leaves as well.
   SPEC_REL=$rel awk -F '\t' '
+    function under(p,    n) {
+      n = length(ENVIRON["SPEC_REL"])
+      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) return ""
+      p = substr(p, n + 2)
+      if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) return ""
+      return p
+    }
+    function touch(p,    b) {
+      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
+    }
     $1 != "path" { next }
     {
-      if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED") { out = 1; exit }
-      p = $2; n = length(ENVIRON["SPEC_REL"])
-      if (substr(p, 1, n + 1) != ENVIRON["SPEC_REL"] "/" || p !~ /\.md$/) { out = 1; exit }
-      p = substr(p, n + 2)
-      if (p == "" || ("/" p "/") ~ /\/(\.|\.\.)?\//) { out = 1; exit }
-      if (index(p, "/") && substr(p, 1, 1) != "_") { b = substr(p, 1, index(p, "/") - 1); if (!(b in seen)) { seen[b] = 1; bs[++nb] = b } }
+      if ($3 == "RENAMED" || $3 == "COPIED") {
+        if (NF < 4 || (s = under($4)) == "") { out = 1; exit }
+      } else if ($3 != "ADDED" && $3 != "MODIFIED" && $3 != "DELETED") { out = 1; exit }
+      if ((p = under($2)) == "") { out = 1; exit }
+      touch(p)
+      if ($3 == "RENAMED") touch(s)
     }
     END { if (out) exit 1; for (i = 1; i <= nb; i++) print bs[i] }' "$4" >"$5/bundles" || return 0
   if ! mc_untrusted_git -C "$repo" cat-file -e "$3^{commit}" 2>/dev/null; then
@@ -719,16 +854,25 @@ spec_scope() {
   fi
   [ "$(mc_untrusted_git -C "$repo" cat-file -t "$3:$rel" 2>/dev/null)" = tree ] || return 0
   printf 'scope\tspec-only\t%s\n' "$3"
+  [ -z "$6" ] || base=refs/remotes/origin/$6
   while IFS= read -r b; do
-    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" || exit
+    signoff_row "$repo" "$3" "$rel" "$b" "$5/bundle-$b" "$base" "$4" || exit
   done <"$5/bundles"
 }
 
-# signoff_row <repo> <head> <root rel> <bundle> <scratch dir>: the bundle's
-# `signoff` row at <head>.
+# signoff_row <repo> <head> <root rel> <bundle> <scratch dir> <base ref> <pr
+# read>: the bundle's `signoff` row at <head>.
 signoff_row() {
-  local why
-  why=$(bundle_signoff "$@") || return
+  local why rc=0
+  why=$(bundle_signoff "$@") || rc=$?
+  case $rc in
+    0) ;;
+    5)
+      printf 'signoff\t%s\tsigned\tlegacy, no kickoff brief\n' "$4"
+      return 0
+      ;;
+    *) return "$rc" ;;
+  esac
   if [ -n "$why" ]; then
     printf 'signoff\t%s\tunsigned\t%s\n' "$4" "$why"
   else
@@ -736,11 +880,12 @@ signoff_row() {
   fi
 }
 
-# bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir>: print why
-# <bundle> is not signed off at <head>, read from <repo>'s objects, or
-# nothing when it is.
+# bundle_signoff <repo> <head> <root rel> <bundle> <scratch dir> <base ref>
+# <pr read>: print why <bundle> is not signed off at <head>, read from
+# <repo>'s objects, or nothing when it is; return 5, printing nothing, for a
+# legacy bundle (legacy_bundle).
 bundle_signoff() {
-  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode
+  local repo=$1 head=$2 rel=$3 b=$4 d=$5 st f entry rc got gd req mode kb
   if ! [[ $b =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     printf 'not a spec identifier'
     return 0
@@ -788,7 +933,7 @@ bundle_signoff() {
   esac
   if [ -z "$st" ]; then
     # Never a pass: a bundle from before the pipeline carries no sign-off.
-    printf 'its requirements.md has no **Status:** value in its header at the head, as a legacy bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
+    printf 'its requirements.md has no **Status:** value in its header at the head, as a pre-pipeline bundle has: add **Status:** Draft to the header of %s and sign the bundle off with /spec-kickoff, or leave the bundle out of this pull request' "$req"
     return 0
   fi
   case $st in
@@ -798,11 +943,34 @@ bundle_signoff() {
       return 0
       ;;
   esac
+  kb=$(sanitize_printable "$rel/$b/kickoff-brief.md")
+  # An absent brief is told from one git cannot hand over, since only an
+  # absent one can make a Done bundle legacy.
+  if ! mode=$(mc_untrusted_git -C "$repo" --literal-pathspecs ls-tree "$head" -- "$rel/$b/kickoff-brief.md" 2>/dev/null); then
+    printf 'its kickoff-brief.md cannot be read at the head (git could not list %s)' "$kb"
+    return 0
+  fi
+  mode=${mode%% *}
+  case $mode in
+    '')
+      if [ "$st" = Done ]; then
+        legacy_bundle "$repo" "$rel" "$b" "$6" "$7" "$d"
+        return
+      fi
+      printf 'it has no kickoff brief at the head'
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf 'its kickoff-brief.md cannot be read at the head (%s is not a file)' "$kb"
+      return 0
+      ;;
+  esac
   for f in design.md tasks.md test-spec.md kickoff-brief.md; do
     mc_untrusted_git -C "$repo" cat-file blob "$head:$rel/$b/$f" >"$d/$f" 2>/dev/null || rm -f "$d/$f"
   done
   if ! [ -f "$d/kickoff-brief.md" ]; then
-    printf 'it has no kickoff brief at the head'
+    printf 'its kickoff-brief.md cannot be read at the head (git could not read %s)' "$kb"
     return 0
   fi
   # The sign-off stands only for the content it anchored: the brief's latest
@@ -843,6 +1011,73 @@ bundle_signoff() {
   fi
 }
 
+# legacy_bundle <repo> <root rel> <bundle> <base ref> <pr read> <scratch dir>:
+# for a Done bundle with no kickoff brief at the head, return 5 when it
+# finished before kickoff existed, or print why that cannot be told: the pull
+# request deletes its brief, the base holds one, the base cannot be read, or
+# the base does not hold the bundle as Done or from before the pipeline (no
+# Status line). Deleting a brief, adding a bundle, or marking a Draft, Ready
+# or Active one Done in the pull request must never make it legacy.
+legacy_bundle() {
+  local p="$2/$3/kickoff-brief.md" req="$2/$3/requirements.md" kb name mode st rc=0
+  kb=$(sanitize_printable "$p")
+  P=$p awk -F '\t' '$1 == "path" && $2 == ENVIRON["P"] && $3 == "DELETED" { found = 1; exit } END { exit !found }' "$5" || rc=$?
+  case $rc in
+    0)
+      printf 'it has no kickoff brief at the head, and the pull request deletes %s' "$kb"
+      return 0
+      ;;
+    1) ;;
+    *)
+      printf "it has no kickoff brief at the head, and the pull request's file list cannot be read to rule out a deleted one"
+      return 0
+      ;;
+  esac
+  if [ -z "$4" ]; then
+    printf 'it has no kickoff brief at the head, and the pull request names no base branch to rule out a deleted one'
+    return 0
+  fi
+  name=$(sanitize_printable "${4#refs/remotes/}")
+  if ! mc_untrusted_git -C "$1" rev-parse --verify -q "$4^{commit}" >/dev/null 2>&1; then
+    printf "it has no kickoff brief at the head, and the pull request's base %s is not in this repository to rule out a deleted one; fetch it" "$name"
+    return 0
+  fi
+  if ! mode=$(mc_untrusted_git -C "$1" --literal-pathspecs ls-tree "$4" -- "$p" 2>/dev/null); then
+    printf "it has no kickoff brief at the head, and git could not list %s at the pull request's base %s" "$kb" "$name"
+    return 0
+  fi
+  if [ -n "$mode" ]; then
+    printf "it has no kickoff brief at the head, but the pull request's base %s holds one (%s)" "$name" "$kb"
+    return 0
+  fi
+  if ! mode=$(mc_untrusted_git -C "$1" --literal-pathspecs ls-tree "$4" -- "$req" 2>/dev/null); then
+    printf "it has no kickoff brief at the head, and git could not list %s at the pull request's base %s" "$(sanitize_printable "$req")" "$name"
+    return 0
+  fi
+  case ${mode%% *} in
+    '')
+      printf "it has no kickoff brief at the head, and the pull request's base %s does not hold the bundle, so it cannot have finished before kickoff" "$name"
+      return 0
+      ;;
+    100644 | 100755) ;;
+    *)
+      printf "it has no kickoff brief at the head, and its requirements.md at the pull request's base %s cannot be read for its status" "$name"
+      return 0
+      ;;
+  esac
+  rc=0
+  mc_untrusted_git -C "$1" cat-file blob "$4:$req" >"$6/base-requirements.md" 2>/dev/null \
+    && st=$(spec_parse_header_value "$6/base-requirements.md" Status 2>/dev/null) || rc=1
+  if [ "$rc" != 0 ]; then
+    printf "it has no kickoff brief at the head, and its requirements.md at the pull request's base %s cannot be read for its status" "$name"
+    return 0
+  fi
+  case $st in
+    '' | Done) return 5 ;;
+  esac
+  printf "it has no kickoff brief at the head, and the pull request's base %s holds it at status %s, so it did not finish before kickoff" "$name" "$(sanitize_printable "$st")"
+}
+
 # collect <program> <slug> <pr> <worktree> <out>
 collect() {
   cl_tmp=$(mktemp -d "${TMPDIR:-/tmp}/mc-readiness.XXXXXX") || mc_fail "cannot create a scratch directory"
@@ -877,6 +1112,20 @@ collect() {
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")
   mc_valid_sha "$cl_head" || mc_fail "the pull request read returned no head"
+  # The GraphQL file list names no source for a rename or copy; the REST one
+  # does. Advisory: a failed read leaves the path with no source,
+  # which no spec-only scope accepts and the walk refuses.
+  if awk -F '\t' '$1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") { f = 1 } END { exit !f }' "$cl_tmp/pr" \
+    && gh api --paginate "repos/$2/pulls/$3/files?per_page=100" --jq '.[] | select((.previous_filename // "") != "")
+      | "from\t" + (.filename | tostring | gsub("[\t\r\n]"; " ")) + "\t" + (.previous_filename | tostring | gsub("[\t\r\n]"; " "))' \
+      >"$cl_tmp/from" 2>"$cl_tmp/err"; then
+    if ! awk -F '\t' '
+      FILENAME == ARGV[1] { if ($1 == "from") src[$2] = $3; next }
+      $1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") && NF == 3 && ($2 in src) { print $0 "\t" src[$2]; next }
+      { print }' "$cl_tmp/from" "$cl_tmp/pr" >"$cl_tmp/pr.from" || ! mv "$cl_tmp/pr.from" "$cl_tmp/pr"; then
+      mc_fail "the pull request's rename sources cannot be joined"
+    fi
+  fi
   # A finding is answered once its thread is resolved, or a person other
   # than the pull request's author replied: the author's sessions post as
   # the author, and their own word is never evidence.
@@ -910,13 +1159,42 @@ collect() {
       FILENAME == ARGV[1] { if ($1 == "runat" && $3 != "") at[$2] = $3; next }
       $1 == "runref" && ($3 in at) { print "born\t" $2 "\t" at[$3] }' "$cl_tmp/runs" "$cl_tmp/pr" >"$cl_tmp/born" || : >"$cl_tmp/born"
   fi
+  # A PR-Agent re-run keeps its check on the commit the run first fired at,
+  # though it reviews the current head; the run marker comment the workflow
+  # posts names the head it reviewed. Every marker is collected with its
+  # author, for the walk to judge, and the attempt behind each of the
+  # workflow's markers at the head is read for its start and conclusion.
+  # Advisory like the run read: a failed read leaves no row, which the walk
+  # never counts as a review. A draft is never judged by it. The marker line is
+  # the one .github/workflows/pr-agent.yml writes; change the two together.
+  # shellcheck disable=SC2016 # a jq program
+  if ! grep -qx "state$(printf '\t')draft" "$cl_tmp/pr" && gh api --paginate "repos/$2/issues/$3/comments?per_page=100" --jq '
+    def clean: tostring | gsub("[\t\r\n]"; " ");
+    .[] | ((.body // "") | split("\n")[0]
+      | capture("^<!-- pr-agent-run: id=(?<id>[0-9]+\\.[0-9]+) head=(?<head>[0-9a-f]*) status=(?<status>[a-z_]+) -->$")?) as $m
+    | "botmark\t" + ((.user.login // "-") | clean) + "\t" + $m.id + "\t" + $m.head + "\t" + $m.status + "\t" + ((.updated_at // "") | clean)' \
+    >"$cl_tmp/marks" 2>"$cl_tmp/err"; then
+    while IFS= read -r cl_att; do
+      [ -n "$cl_att" ] || continue
+      cl_row=$(gh api "repos/$2/actions/runs/${cl_att%.*}/attempts/${cl_att#*.}" --jq '
+        def clean: tostring | gsub("[\t\r\n]"; " ");
+        ((.name // "-") | clean) + "\t" + ((.run_started_at // "") | clean) + "\t"
+        + (if (.conclusion // "") != "" then .conclusion else (.status // "pending") end | ascii_upcase | clean)' 2>"$cl_tmp/err") \
+        && printf 'botattempt\t%s\t%s\n' "$cl_att" "$cl_row" >>"$cl_tmp/marks"
+    done <<EOF
+$(awk -F '\t' -v H="$cl_head" '$1 == "botmark" && $2 == "github-actions[bot]" && $4 == H && $3 ~ /^[0-9]+\.[0-9]+$/ && !seen[$3]++ { print $3 }' "$cl_tmp/marks")
+EOF
+  else
+    # A draft, or a failed read whose partial output must not stand.
+    : >"$cl_tmp/marks"
+  fi
   : >"$cl_tmp/steps"
   cl_wt=$4
   cl_branch=$(awk -F '\t' '$1 == "branch" { print $2; exit }' "$cl_tmp/pr")
   cl_baseref=$(awk -F '\t' '$1 == "base" { print $2; exit }' "$cl_tmp/pr")
   cl_unaud=''
   : >"$cl_tmp/cadence"
-  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/scope"
+  spec_scope "$1" "$2" "$cl_head" "$cl_tmp/pr" "$cl_tmp" "$cl_baseref" >"$cl_tmp/scope"
   : >"$cl_tmp/drift"
   [ -s "$cl_tmp/scope" ] || drift_scope "$1" "$2" "$cl_head" "$cl_baseref" "$cl_tmp/pr" "$cl_tmp" >"$cl_tmp/drift"
   if [ -s "$cl_tmp/scope" ]; then
@@ -950,11 +1228,16 @@ collect() {
     # The audit resolves the cadence as the worktree's own session would; a
     # merge after the last point counts only when the base already holds it.
     # A base the worktree does not hold would let any clean merge pass.
+    # Resolved once, so the audit and the foreign check judge the same base
+    # even if a fetch in the worktree moves it in between.
     cl_base=()
+    cl_basesha=''
     if [ -n "$cl_baseref" ]; then
-      if mc_untrusted_git -C "$cl_wt" rev-parse --verify -q "refs/remotes/origin/$cl_baseref^{commit}" >/dev/null 2>&1; then
-        cl_base=(--base "refs/remotes/origin/$cl_baseref")
+      cl_basesha=$(mc_untrusted_git -C "$cl_wt" rev-parse --verify -q "refs/remotes/origin/$cl_baseref^{commit}" 2>/dev/null) || cl_basesha=''
+      if [[ $cl_basesha =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+        cl_base=(--base "$cl_basesha")
       else
+        cl_basesha=''
         cl_unaud="the worktree $(sanitize_printable "$cl_wt") does not hold the base origin/$cl_baseref; fetch it"
         cl_wt=''
       fi
@@ -991,6 +1274,13 @@ collect() {
       /^$/ { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h; t = "" }
       END { if (t == "step" && s != "") print "step\t" s "\t" o "\t" h }' "$cl_tmp/records" >"$cl_tmp/steps" \
       || mc_fail "the step records cannot be parsed"
+    if awk -F '\t' '$2 == "gap" && $3 == "post-pr" && $4 == "stale" { f = 1 } END { exit !f }' "$cl_tmp/cadence" \
+      && post_pr_foreign "$cl_wt" "$cl_head" "$cl_basesha" "$cl_tmp/records"; then
+      if ! awk -F '\t' 'BEGIN { OFS = FS } $2 == "gap" && $3 == "post-pr" && $4 == "stale" { $4 = "foreign" } { print }' \
+        "$cl_tmp/cadence" >"$cl_tmp/cadence.new" || ! mv "$cl_tmp/cadence.new" "$cl_tmp/cadence"; then
+        mc_fail "the cadence evidence cannot be rewritten"
+      fi
+    fi
   fi
   cl_store=$(evidence_store "$1") || exit 1
   : >"$cl_tmp/evidence"
@@ -1045,7 +1335,7 @@ collect() {
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
     awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" || $1 == "runref" { next } { print }' "$cl_tmp/pr"
-    cat "$cl_tmp/born" "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
+    cat "$cl_tmp/born" "$cl_tmp/marks" "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"
 }

@@ -74,6 +74,7 @@ printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
 printf 'cwd=%s\n' "$(pwd -P)" >>"$SHIM_RECORD_DIR/env"
 printf 'record=%s\n' "${PLANWRIGHT_WORKER_SESSION_RECORD-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf 'tmpdir=%s\n' "${TMPDIR-<unset>}" >>"$SHIM_RECORD_DIR/env"
+printf 'session_handle=%s\n' "${PLANWRIGHT_SESSION_HANDLE-<unset>}" >>"$SHIM_RECORD_DIR/env"
 printf '{"type":"system","subtype":"init","cwd":"/x","session_id":"%s","tools":[]}\n' "$SHIM_SID"
 (sleep "${SHIM_WATCHDOG:-120}" && kill "$$" 2>/dev/null) &
 while IFS= read -r line; do :; done
@@ -88,6 +89,7 @@ env_scrub=(
   -u PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT
   -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_MC_TOKEN
   -u PLANWRIGHT_WORKER_SESSION_RECORD -u PLANWRIGHT_WORKER_SPEC_ROOT
+  -u PLANWRIGHT_SESSION_HANDLE
 )
 
 # senv -- <args...> — the supervisor under the case-local home and shim, with
@@ -242,6 +244,111 @@ case " $last " in
   *" --model "* | *" --effort "*) fail "r2: an unconfigured tier must pass no --model or --effort: $last" ;;
 esac
 echo "ok: r2 a relaunch resumes the persisted session under the installed profile in its launch directory, rewriting the record and keeping the scratch root (REQ-G1.3, REQ-G1.2)"
+
+# A worker launched with both opt-ins keeps them across a relaunch: the
+# per-launch profile is regenerated from the recorded opt-ins and the session
+# record carries both fields again.
+# plant_opt_in <lines>: the launch opt-in record a launch writes for <lines>,
+# under its own blob id, in place of any earlier one.
+plant_opt_in() {
+  find "$wdir" -maxdepth 1 -name 'planwright-opt-in.*' -exec rm -f {} +
+  printf '%s\n' "$1" >"$wdir/opt-in.new"
+  po_id=$(cd "$wdir" && git hash-object --no-filters -- opt-in.new) || return 1
+  mv "$wdir/opt-in.new" "$wdir/planwright-opt-in.$po_id"
+}
+plant_opt_in "mise_task_edit=1
+lefthook_edit=1"
+out=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>"$tmp/err") || fail "r2: the opted-in relaunch exited non-zero: $(cat "$tmp/err")"
+alive "$npid" && fail "r2: the pre-opt-in worker is still running"
+npid=$(pid_of worker.pid)
+alive "$npid" || fail "r2: the opted-in resumed worker is not running"
+last=$(tail -n 1 "$rec/argv")
+case " $last " in
+  *" --settings $wdir/worker-settings.json "*) ;;
+  *) fail "r2: the opted-in relaunch must pass the worker's per-launch profile: $last" ;;
+esac
+jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("Edit(//**/mise.toml)") == null)' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile must replace the mise and the lefthook broad denies"
+jq -e '[.hooks.PreToolUse[].hooks[].command] | any(endswith("worker-mise-edit-guard.sh '"'$wt'"' mise lefthook"))' "$wdir/worker-settings.json" >/dev/null \
+  || fail "r2: the regenerated profile's hook must judge both name sets"
+{ grep -qx 'lefthook_edit=1' "$record" && grep -qx 'mise_task_edit=1' "$record"; } \
+  || fail "r2: the rewritten session record must carry both opt-in fields: $(cat "$record")"
+# A marker of the layout the record replaced, which a worker could write, is
+# never read: the relaunch refuses (exit 7) with the worker left running.
+printf '1\n' >"$wdir/lefthook-edit"
+n=$(argv_lines)
+rx_err=$(cd "$tmp" && senv -- relaunch sjr1 --grace 2 2>&1 >"$tmp/out-legacy")
+rx_rc=$?
+{ [ "$rx_rc" -eq 7 ] && alive "$npid" && [ "$(argv_lines)" = "$n" ]; } \
+  || fail "r2: a legacy lefthook-edit marker must refuse the relaunch (exit 7) with the worker running, got $rx_rc: $rx_err"
+rm -f "$wdir/lefthook-edit"
+plant_opt_in lefthook_edit=1
+# A relaunch whose hook root's file-tool hook ignores the lefthook argument is
+# refused before it regenerates the profile the running worker reads.
+mkdir -p "$tmp/oldeh"
+cp -R "$here/../scripts" "$tmp/oldeh/scripts"
+cp -R "$here/../config" "$tmp/oldeh/config"
+mv "$tmp/oldeh/scripts/worker-mise-edit-guard.sh" "$tmp/oldeh/scripts/worker-mise-edit-guard.real.sh"
+# shellcheck disable=SC2016 # expanded by the stub when it runs
+printf '#!/bin/sh\nexec /bin/sh "$(dirname "$0")/worker-mise-edit-guard.real.sh" "$1" mise\n' \
+  >"$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+chmod +x "$tmp/oldeh/scripts/worker-mise-edit-guard.sh"
+cp "$wdir/worker-settings.json" "$tmp/settings-before"
+n=$(argv_lines)
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/oldeh/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+[ "$rx_rc" -eq 9 ] || fail "r2: a relaunch whose file-tool hook ignores the lefthook argument must be refused (exit 9), got $rx_rc: $rx_err"
+case $rx_err in
+  *"does not judge the opted-in names (failed: lefthook)"*) ;;
+  *) fail "r2: the refusal must name the file-tool hook proof: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the file-tool proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the file-tool proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused at the file-tool proof rewrote the running worker's profile"
+# A refusal after the profile check (here the approval proof, its command
+# guard gone) leaves the running worker's profile as it was too.
+mkdir -p "$tmp/nowg"
+cp -R "$here/../scripts" "$tmp/nowg/scripts"
+cp -R "$here/../config" "$tmp/nowg/config"
+rm -f "$tmp/nowg/scripts/worker-command-guard.sh"
+# The generator stub records where the relaunch asks for its check profile.
+cat >"$tmp/nowg/scripts/worker-settings-generate.sh" <<EOF
+#!/bin/sh
+for a; do out=\$a; done
+printf '%s\n' "\$out" >>'$tmp/gen-out'
+printf '{}\n' >"\$out"
+EOF
+mkdir -p "$tmp/rxtmp"
+rx_err=$(cd "$tmp" && env "${env_scrub[@]}" TMPDIR="$tmp/rxtmp" PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+  SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  /bin/sh "$tmp/nowg/scripts/fleet-streamjson.sh" relaunch sjr1 --grace 2 2>&1 >/dev/null)
+rx_rc=$?
+case $rx_rc:$rx_err in
+  9:*"auto-approve hook"*"missing or not executable"*) ;;
+  *) fail "r2: a relaunch whose command guard is gone must be refused at the approval proof (exit 9), got $rx_rc: $rx_err" ;;
+esac
+alive "$npid" || fail "r2: a relaunch refused at the approval proof stopped the worker"
+[ "$(argv_lines)" = "$n" ] || fail "r2: a relaunch refused at the approval proof spawned a session"
+cmp -s "$tmp/settings-before" "$wdir/worker-settings.json" \
+  || fail "r2: a relaunch refused after its profile check rewrote the running worker's profile"
+# The check profile went to a scratch folder it removed, never beside the
+# worker's state where the worker's file tools reach.
+case $(cat "$tmp/gen-out" 2>/dev/null) in
+  "$tmp/rxtmp/"*/worker-settings.json) ;;
+  *) fail "r2: the relaunch must check its profile in a scratch folder under TMPDIR, not $(cat "$tmp/gen-out" 2>/dev/null)" ;;
+esac
+[ -z "$(ls -A "$tmp/rxtmp")" ] || fail "r2: the relaunch left its scratch behind: $(ls -A "$tmp/rxtmp")"
+for f in "$wdir"/*; do
+  case ${f##*/} in
+    worker-settings.json | planwright-opt-in.*) ;;
+    *.json) fail "r2: the relaunch wrote a profile into the worker's state folder: $f" ;;
+  esac
+done
+find "$wdir" -maxdepth 1 -name 'planwright-opt-in.*' -exec rm -f {} +
+echo "ok: r2 a relaunch keeps recorded opt-ins, regenerating the profile and the record, and refuses one a stale file-tool hook would leave open"
 
 # ---------------------------------------------------------------------------
 # r3: a resume that fails after the stop, then a worker that is not running.
@@ -432,6 +539,37 @@ step_env sjr-step launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd 
 [ ! -e "$sdir/parent" ] || fail "r8: a launch naming itself as the launching worker recorded a parent"
 senv -- stop sjr-step --grace 2 >/dev/null 2>&1
 echo "ok: r8 a recover keeps the parent, and a session is never its own parent"
+
+# r8b: every session holds its own handle, so a launch from inside one that is
+# no worker (an orchestrator dispatching) records it as the parent; where the
+# launching session is a worker, its worker handle names the parent.
+session_env() { # session_env <session-handle> <worker-handle or empty> <args...>
+  env "${env_scrub[@]}" PLANWRIGHT_SESSION_HANDLE="$1" ${2:+PLANWRIGHT_WORKER_HANDLE="$2"} \
+    PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" \
+    SHIM_RECORD_DIR="$rec" SHIM_SID="$sid" \
+    GIT_CEILING_DIRECTORIES="$tmp" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    /bin/sh "$SJ" "${@:3}"
+}
+: >"$rec/env"
+session_env sjr-orch '' launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8b: the launch from inside a session that is no worker exited non-zero"
+[ "$(cat "$sdir/parent" 2>/dev/null)" = sjr-orch ] \
+  || fail "r8b: the launch from inside session sjr-orch recorded parent '$(cat "$sdir/parent" 2>&1)'"
+poll_until --what 'the session handle the step session holds' -- grep -q '^session_handle=' "$rec/env" \
+  || fail "r8b: setup: the step session never started"
+[ "$(grep '^session_handle=' "$rec/env" | tail -n 1)" = session_handle=sjr-step ] \
+  || fail "r8b: the launched session does not hold its own handle: $(grep '^session_handle=' "$rec/env" | tail -n 1)"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+session_env sjr-orch sjr1 launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8b: the launch from inside a worker exited non-zero"
+[ "$(cat "$sdir/parent" 2>/dev/null)" = sjr1 ] \
+  || fail "r8b: a worker's launch recorded parent '$(cat "$sdir/parent" 2>&1)', not its worker handle"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+session_env sjr-step '' launch sjr-step flight-step --prompt-file "$tmp/prompt" --cwd "$wt2" >/dev/null \
+  || fail "r8b: the launch naming itself as the launching session exited non-zero"
+[ ! -e "$sdir/parent" ] || fail "r8b: a launch naming itself as the launching session recorded a parent"
+senv -- stop sjr-step --grace 2 >/dev/null 2>&1
+echo "ok: r8b every session holds its own handle, and a launch from inside one records it as the parent"
 
 # ---------------------------------------------------------------------------
 # r9: a relaunch onto a pull request's worktree records that pull request's

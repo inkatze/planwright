@@ -65,12 +65,34 @@ registry records for the worker, and it never types into a session:
             server or name, or, recorded without its server, gone from its
             session) is unreachable, nothing sent
   any other backend, or a retired worker: unreachable, nothing sent
+A WAKE REACHES ONLY MISSION CONTROL: a reachable target whose row in the
+mission-control launcher's registry (<fleet-home>/mission-control/sessions/)
+names another kind, or that has no row, is refused (`misroute`), and so are
+`compose` and a `target add --mod` claim run with a worker identity
+(PLANWRIGHT_WORKER_HANDLE) whose row is not a mission-control session's,
+since a panel mod in such a session would take another session's events.
+A fleet home that cannot be resolved leaves the kind unread: the target is
+unreachable, the compose or claim exits 1. Every compose or claim refusal
+is named on stderr, a relay's only the first time; the first of each
+verb, target, session and kind is logged in <runtime>/wake-misroutes
+(<epoch><TAB><verb><TAB><target><TAB><session><TAB><kind>) and raised as a
+wake-misroute event.
 A ROUTINE event (one whose kind config/mc-event-classes.tsv classes
 `routine`) never wakes: relay, tick and compose leave it out of the wake
-and mark it submitted for the target (compose's one mark), since the
-script that emitted it already acted and nothing in it is for the
-operator; it stays listable. With the table unreadable every event wakes,
-said on stderr.
+and mark it submitted for the target, since the script that emitted it
+already acted and nothing in it is for the operator; it stays listable.
+With the table unreadable every event wakes, said on stderr.
+AN EVENT WHOSE SUBJECT IS GONE never wakes either: relay, tick and compose
+mark it submitted unsent (mc-event.sh prune --gone, run by hand, clears the
+same ones from the store). Gone is a pending-prompt-overdue for a session
+scripts/mc-session-names.sh does not name, a handover-requested or
+mission-control-announce naming a session that is not the program's holder,
+and a merged or closed pull request (merge-ready, readiness-due,
+ready-to-merge, ready-offer), judged before the merge-ready check below. A
+pending-prompt is never judged gone, since one carries several workers'
+requests under the first one's name. A read that fails or comes back empty,
+or a subject that cannot be resolved, keeps the event: it is not dropped as
+gone.
 A merge-ready event is checked against the forge before it wakes
 (scripts/mc-merge-ready.sh fresh): one whose pull request merged, closed
 or moved to another head is marked submitted unsent; one whose bot round is
@@ -110,6 +132,8 @@ Usage:
         mod<TAB><worker>                     the mod wakes it
         idle<TAB><worker>                    nothing to send
         unreachable<TAB><worker><TAB><why>
+        misroute<TAB><worker><TAB><kind>     not a mission-control session;
+                                             nothing sent
         refused<TAB><worker><TAB><exit>      the relay declined (a dialog
                                              open, an earlier wake staged,
                                              a message shaped like a new
@@ -126,14 +150,15 @@ Usage:
       the wake a session with the mod submits itself: `idle`, or
       `wake<TAB><n><TAB><id> <id>...` then the wake's text, over the
       target's events not yet submitted (the tick's selection); or
-      `paused` (`blocked`) as the relay. Sends nothing and marks only
-      routine events: the mod marks the ids submitted once its prompt is
-      in.
+      `paused` (`blocked`) as the relay. Sends nothing and marks only the
+      events it leaves out (routine, gone-subject and stale merge-ready
+      ones): the mod marks the ids submitted once its prompt is in.
 
 Exit codes: 0 done (a refused or unreachable target is reported, not a
 failure); 1 a store that cannot be read or written (the fleet registry
 included), a failed target, or a blocked daemon gate; 2 usage; 3 the
-program is not configured.
+program is not configured; 4 a compose or claim refused because the caller
+is not a mission-control session.
 
 Portable bash 3.2 / BSD tooling.
 HELP
@@ -182,6 +207,82 @@ mc_now_arg "$now"
 mc_require_program "$program"
 runtime=$(mc_runtime "$program") || mc_fail "cannot create the runtime directory for '$program'"
 targets="$runtime/wake-targets"
+misroutes="$runtime/wake-misroutes"
+
+# session_kind <name>: SK_KIND, the kind the mission-control launcher's
+# registry row records for a session, `unknown` with no row it can trust,
+# or `unreadable` when the fleet home cannot be resolved: only a session the
+# launcher started as mission control is one. Set, not printed, so the
+# fleet home is resolved once per run.
+session_kind() {
+  SK_KIND=unknown
+  mc_valid_handle "$1" || return 0
+  if [ -z "${SK_ROOT+x}" ]; then
+    SK_ROOT=$(/bin/sh "$script_dir/fleet-state.sh" root 2>/dev/null </dev/null) || SK_ROOT=""
+  fi
+  if [ -z "$SK_ROOT" ]; then
+    SK_KIND=unreadable
+    return 0
+  fi
+  sk_row=$SK_ROOT/mission-control/sessions/$1
+  [ -f "$sk_row" ] && [ ! -L "$sk_row" ] && [ -r "$sk_row" ] || return 0
+  while IFS='	' read -r sk_key sk_val || [ -n "$sk_key" ]; do
+    [ "$sk_key" = kind ] || continue
+    case $sk_val in
+      "" | -* | *[!a-z0-9-]*) ;;
+      *) SK_KIND=$sk_val ;;
+    esac
+    break
+  done <"$sk_row"
+}
+
+# misroute <verb> <target> <session> <kind>: a wake that would have reached
+# a session that is not mission control, refused. Raised as one
+# wake-misroute event and logged in <runtime>/wake-misroutes the first time
+# each verb, target, session and kind are seen together, so a relay that
+# meets it at every pass neither grows the log nor floods the store. Named
+# on stderr then, and at every compose or claim refusal, whose caller shows
+# it. The line is written only once the event is in, so a failed emit is
+# tried again at the next refusal; a log that cannot be read or written
+# raises nothing, since it could not stop the next pass raising it again,
+# and the refusal is then named on stderr at every pass, its only trace.
+misroute() {
+  mr_s=$3
+  mc_valid_handle "$mr_s" || mr_s=-
+  mr_for=""
+  [ "$2" = "$mr_s" ] || mr_for=" for $2"
+  mr_seen=0
+  if [ -f "$misroutes" ] && awk -F '\t' -v v="$1" -v t="$2" -v s="$mr_s" -v k="$4" \
+    '$2 == v && $3 == t && $4 == s && $5 == k { f = 1; exit } END { exit !f }' "$misroutes"; then
+    mr_seen=1
+  fi
+  if [ "$mr_seen" -eq 0 ] || [ "$1" != relay ]; then
+    printf '%s: refusing to wake %s (kind %s)%s: not a mission-control session\n' \
+      "$prog" "$mr_s" "$4" "$mr_for" >&2
+  fi
+  [ "$mr_seen" -eq 0 ] || return 0
+  [ ! -L "$misroutes" ] || return 0
+  { : >>"$misroutes"; } 2>/dev/null && [ -r "$misroutes" ] || return 0
+  # A session name outside the handle grammar cannot be an event's subject.
+  mr_subject=$mr_s
+  [ "$mr_subject" != - ] || mr_subject=$2
+  mc_event emit --program "$program" -- wake-misroute "$mr_subject" \
+    "a $1 wake for $2 would have reached $mr_s, a $4 session; refused" >/dev/null 2>&1 </dev/null || return 0
+  printf '%s\t%s\t%s\t%s\t%s\n' "$NOW" "$1" "$2" "$mr_s" "$4" >>"$misroutes" || :
+}
+
+# require_mc_caller <verb> <target>: exits 4 when the caller
+# carries a worker identity whose session is not mission control: a panel
+# mod that activated in a worker must neither take the target nor its wake.
+require_mc_caller() {
+  rc_h=${PLANWRIGHT_WORKER_HANDLE:-}
+  [ -n "$rc_h" ] || return 0
+  session_kind "$rc_h"
+  [ "$SK_KIND" != mission-control ] || return 0
+  [ "$SK_KIND" != unreadable ] || mc_fail "cannot resolve the fleet home to read the session kind of '$rc_h'"
+  misroute "$1" "$2" "$rc_h" "$SK_KIND"
+  exit 4
+}
 
 # drop_stale_merge_ready <target>: SEL_ROWS without the merge-ready events
 # that must not be pushed now, each checked against the forge once more
@@ -237,22 +338,36 @@ EOF
 }
 
 # select_events <target> unmarked|unsubmitted: the target's events for one
-# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (all but the routine
-# ones), SEL_N and SEL_IDS (space separated).
+# wake, in SEL_ROWS (at most LISTED_MAX), SEL_TOTAL (every event the wake
+# may carry, before the LISTED_MAX cut), SEL_N and SEL_IDS (space separated).
 select_events() {
   SEL_ROWS=$(mc_event list --program "$program" --target "$1" --pending --limit 100000) || return 1
-  # A routine event is marked submitted unsent, so it leaves the pending
-  # set (the panel's count, the next listing) instead of piling up there.
-  # Marked in batches, so a large routine backlog never outgrows the
-  # argument list and holds back the events that do wake.
-  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '
-    { printf "%s%s", (n % 200 ? " " : (n ? "\n" : "")), $1; n++ } END { if (n) print "" }')
-  if [ -n "$sel_routine" ]; then
-    printf '%s\n' "$sel_routine" | while IFS= read -r sel_batch; do
-      # shellcheck disable=SC2086 # one event id per word
-      mc_event mark --program "$program" --target "$1" submitted $sel_batch
-      case $? in 0 | 3) ;; *) exit 1 ;; esac
-    done || return 1
+  # A routine event, and one whose subject is gone (a retired session, a
+  # merged pull request, a past holder), is marked submitted unsent, so it
+  # leaves the pending set (the next listing) instead of piling up there.
+  # Marked in batches, so a large backlog never outgrows the argument list
+  # and holds back the events that do wake.
+  sel_routine=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes --routine | awk -F '\t' '{ print $1 }')
+  sel_gone=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes | mc_event_gone "$program")
+  sel_ids=$(printf '%s\n%s\n' "$sel_routine" "$sel_gone" | awk 'NF && !seen[$0]++')
+  if [ -n "$sel_ids" ]; then
+    printf '%s\n' "$sel_ids" | awk '{ printf "%s%s", (NR % 200 != 1 ? " " : (NR > 1 ? "\n" : "")), $0 } END { print "" }' \
+      | while IFS= read -r sel_batch; do
+        # shellcheck disable=SC2086 # one event id per word
+        mc_event mark --program "$program" --target "$1" submitted $sel_batch
+        case $? in 0 | 3) ;; *) exit 1 ;; esac
+      done || return 1
+    # The dropped ids go to awk as a file, never an argument or environment
+    # string, which a large backlog would outgrow.
+    sel_file=$(mktemp "$runtime/.sel.XXXXXX") || return 1
+    printf '%s\n' "$sel_ids" >"$sel_file" || {
+      rm -f "$sel_file"
+      return 1
+    }
+    SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | awk -F '\t' 'FILENAME == ARGV[1] { d[$1] = 1; next } NF && !($1 in d)' "$sel_file" -)
+    sel_rc=$?
+    rm -f "$sel_file"
+    [ "$sel_rc" -eq 0 ] || return 1
   fi
   SEL_ROWS=$(printf '%s\n' "$SEL_ROWS" | mc_event_wakes)
   drop_stale_merge_ready "$1" || return 1
@@ -352,6 +467,16 @@ send() {
       return 0
       ;;
   esac
+  session_kind "$sd_w"
+  if [ "$SK_KIND" = unreadable ]; then
+    printf 'unreachable\t%s\tthe fleet home could not be resolved to read its session kind\n' "$sd_w"
+    return 0
+  fi
+  if [ "$SK_KIND" != mission-control ]; then
+    misroute relay "$sd_w" "$sd_w" "$SK_KIND"
+    printf 'misroute\t%s\t%s\n' "$sd_w" "$SK_KIND"
+    return 0
+  fi
   select_events "$sd_w" "$2" || return 1
   sd_rows=$SEL_ROWS
   sd_total=$SEL_TOTAL
@@ -441,6 +566,7 @@ case $verb in
         w=${args[0]}
         mc_valid_handle "$w" || mc_usage_fail "invalid worker '$(sanitize_printable "$w")'"
         [ "$sub" = add ] || [ "$mod" -eq 0 ] || usage
+        [ "$mod" -eq 0 ] || require_mc_caller claim "$w"
         line=""
         if [ "$sub" = add ]; then
           if [ "$mod" -eq 1 ]; then line="$w	mod"; else line="$w	no-mod"; fi
@@ -494,6 +620,7 @@ case $verb in
     w=${args[0]}
     mc_valid_handle "$w" || mc_usage_fail "invalid target '$(sanitize_printable "$w")'"
     mc_gate_or_exit mc-wake
+    require_mc_caller compose "$w"
     select_events "$w" unsubmitted || mc_fail "cannot read the events for '$w'"
     if [ "$SEL_TOTAL" -eq 0 ]; then
       printf 'idle\n'

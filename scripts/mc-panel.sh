@@ -71,8 +71,12 @@ reads it through `lookup`, and writes its acknowledgment (`ack`); `await`
 is the skill's side of that handshake. PLANWRIGHT_MC_PROGRAM=<program>
 (and optionally PLANWRIGHT_MC_TARGET=<its wake target>, the program's
 name by default) in a session's environment stays a fast path: the mod
-reads them once, clears them, and records the activation itself. Under
-<fleet-home>/mission-control/_panel/, owner-only, no symlink followed:
+reads them once, clears them, and records the activation itself. No
+session the fleet launches inherits them (scripts/fleet-dispatch-env.sh
+drops them), and a session carrying a worker identity
+(PLANWRIGHT_WORKER_HANDLE) never activates, by the variables, a record or
+a reload. Under <fleet-home>/mission-control/_panel/, owner-only, no
+symlink followed:
   sessions/<host pid>        format, session, written: which session the
                              host process carries, rewritten at every
                              session start (a /clear included)

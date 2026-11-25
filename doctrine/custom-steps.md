@@ -181,6 +181,11 @@ values to a command step.
 
 **Every hosting runs a command step's printed location, never the bare
 target**: a session shell would run a same-named builtin (`cd`, `printf`).
+A location in a git checkout is run, or its line printed, only as that
+checkout's HEAD commits it, and the step is recorded `failed` otherwise or
+when git cannot answer for the checkout: the declaration names a file, not
+its content, and a worker can write the file. A location with no `.git`
+entry above it, an installed tool, keeps the declaration's trust.
 
 An `isolated` session takes the unit's own launch backend. A headless unit
 (`offload-dispatch.sh launch-backend` prints `stream-json-persistent` or
@@ -441,7 +446,9 @@ pipeline-entry: execute-task orchestrate drain spec-draft spec-kickoff offload t
 **Permissions (D-11).** Catalogs and lists are read only from the
 human-owned layers: core and adopter sit outside the worktree and a
 dispatched worker's write set; repo-tracked and machine-local sit inside it,
-inheriting the guard's trusted-repository-code posture for `scripts/`; the
+inheriting the guard's trusted-repository-code posture for `scripts/`, which
+trusts a file in a git checkout, a declared location included, only as that
+checkout's HEAD commits it; the
 worker profile is unchanged (REQ-G1.2). The worker command guard
 auto-approves, allow-only, a segment whose words, minus leading
 `PLANWRIGHT_STEP_*` assignments in the resolver's exact form, equal a
@@ -492,7 +499,14 @@ back against the configured lists, read-only, by `scripts/step-run.sh audit
 --through <point>`: a point is covered by its newest run whose completion
 counts at the head, that run recording every required step passed, applied,
 or skipped (a recorded skip counts), so a point or step left with no record
-is caught whoever omitted it. A record that does not match the branch it
+is caught whoever omitted it. A `skill` or `prompt` record passed or applied
+whose start equals its end and whose head did not move is no evidence the
+step ran (a model session cannot finish in zero seconds): the audit prints
+`gap<TAB><point><TAB>unrun<TAB><step>`. A `command` record is exempt, since
+a fast command may finish within a second; a record without an end head is
+judged by its times alone. A round that did not run is recorded `skipped`
+with reason `missing` in a fresh run; written records are never edited. A
+record that does not match the branch it
 claims is refused as a `mismatch` gap, never counted: a stored run or point
 that differs from its path, a step whose start and end heads are not commits
 of the completion's branch in order, or an outcome its own fields contradict
@@ -500,7 +514,8 @@ of the completion's branch in order, or an outcome its own fields contradict
 that did not skip). A skill or prompt record that overstates what happened
 (the step-record truth check, whose rules `scripts/step-record.sh`'s usage
 header states: `write` refuses such a record, and `untrue` names a stored
-one) leaves its step an `unaudited` gap, never done. The script's usage
+one) leaves its step an `unaudited` gap, never done, unless it is already an
+`unrun` one. The script's usage
 header states the freshness rule and the output.
 
 **Correcting a misdated record.** A record is never edited, and a point that

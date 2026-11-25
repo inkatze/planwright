@@ -815,8 +815,9 @@ spec_parse_parked_map() {
 #   2  the most recent entry does not parse (a brief whose only anchor line
 #      never resolved included) — fail closed rather than answer with the
 #      older entry it supersedes; with --record, also an entry
-#      carrying two `Class:` or two `Lens-pass:` lines, or a brief ending
-#      inside an open fence
+#      carrying two `Class:` fields or two `Lens-pass:` lines, or a brief
+#      ending inside an open fence (a `Class:` line is a field when it names
+#      `meaning` or `expression-only`, or sits in the record block)
 #
 # An `Anchor:` line is held PENDING and resolved when the following record
 # arrives, rather than pulled in with `getline`. The distinction matters where
@@ -881,14 +882,29 @@ spec_parse_latest_anchor_entry() {
     # Order is load-bearing: a pending entry closes against this record BEFORE
     # the record is itself considered as a new entry, so an adjacent pair does
     # both in one pass.
-    pending != "" { resolve(pending, $0); pending = ""; cur_class = ""; cur_lens = ""; has_class = 0; has_lens = 0; cur_dup = 0 }
+    pending != "" { resolve(pending, $0); pending = ""; cur_class = ""; cur_lens = ""; has_class = 0; has_lens = 0; cur_dup = 0; blk_class_n = 0 }
     # Fences hide record labels only, not anchor lines: the anchor walk keeps
     # the shape the standing freshness guard has always read, while a fenced
     # format example can no longer stand in for the class of a real entry.
     /^```/ { in_fence = !in_fence }
-    !in_fence && /^Class:/ { if (has_class) cur_dup = 1; has_class = 1; cur_class = field($0) }
+    # A Class line naming a grammar value is a field wherever it sits in the
+    # entry. Any other Class line is a field only inside the record block, the
+    # unbroken run of lines ending at the Anchor line: there it is a malformed
+    # field and still refuses, while a prose paragraph that merely opens with
+    # the word ends at a blank line and drops out. Lens-pass takes free text,
+    # so no value tells its prose from its field, and every line still counts.
+    /^[ \t\r]*$/ { blk_class_n = 0 }
+    !in_fence && /^Class:/ {
+      v = field($0)
+      if (v == "meaning" || v == "expression-only") { if (has_class) cur_dup = 1; has_class = 1; cur_class = v }
+      else { blk_class_n++; blk_class = v }
+    }
     !in_fence && /^Lens-pass:/ { if (has_lens) cur_dup = 1; has_lens = 1; cur_lens = field($0) }
-    /^Anchor:/ { seen_anchor = 1; pending = $0; pend_class = cur_class; pend_lens = cur_lens; pend_dup = cur_dup }
+    /^Anchor:/ {
+      if (blk_class_n) { if (has_class || blk_class_n > 1) cur_dup = 1; has_class = 1; cur_class = blk_class }
+      blk_class_n = 0
+      seen_anchor = 1; pending = $0; pend_class = cur_class; pend_lens = cur_lens; pend_dup = cur_dup
+    }
     END {
       # A brief ending on its anchor line has no following record; the
       # parenthesized layout still carries the command, the canonical one does

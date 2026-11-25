@@ -1,0 +1,1 @@
+- 2026-11-23 [planwright] A dispatched worker cannot write polish-audit.md under its worktree's .claude/ directory (the write is denied), so a nested /polish cannot keep its audit artifact where the skill says.

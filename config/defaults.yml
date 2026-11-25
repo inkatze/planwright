@@ -163,6 +163,16 @@ stale_marker_threshold: 15m
 # above; the SECONDS env override PLANWRIGHT_DISPATCH_FETCH_TTL wins for tests.
 dispatch_fetch_ttl: 2m
 
+# Whether /orchestrate's pre-flight (every mode but --bookkeeping) fast-forwards
+# a lagging primary checkout before it reads any spec
+# (scripts/orchestrate-primary-ff.sh). true moves the primary's default branch
+# to origin's only by a fetched `--ff-only` merge, and only when that branch is
+# checked out with nothing tracked uncommitted and no local history origin
+# lacks; any other state is refused and left untouched, never merged, reset or
+# rebased, and each move is logged with its old and new heads. false (default)
+# leaves the primary as it is, as before: the operator keeps it current by hand.
+orchestrate_fast_forward_primary: false
+
 # Which channel the fleet attention/notification seam pushes a notification
 # through (D-13, REQ-E1.4). This is the capability-vs-style split (REQ-A1.5):
 # the notification SEAM lives in core; the specific channel VALUE is
@@ -969,6 +979,13 @@ messaging_heal_cadence_seconds: 300
 # unpushed_rewrite              whether a worker may amend, squash, or rebase
 #                               commits no remote holds, on its own unit
 #                               branch: allow or deny.
+# draft_rewrite                 whether a worker mission control launched may
+#                               reshape commits it already pushed to its own
+#                               unit branch and publish them through
+#                               scripts/worker-branch-sync.sh push while the
+#                               PR is a draft: deny or allow. Read once, at
+#                               launch, into the session record, from the
+#                               core, adopter, and machine-local layers only.
 # converge_sync_main            whether the convergence sync merges origin/main
 #                               every time (always) or only on a need
 #                               (on-need): a conflict with it, a need the
@@ -1010,6 +1027,7 @@ merge_class_strategy: sole-allowed
 worker_base_merge: allow
 worker_merge_conflict_policy: halt
 unpushed_rewrite: allow
+draft_rewrite: deny
 converge_sync_main: on-need
 ready_guard_behind_base: checks
 ready_base_state_checks: release-window/window-lock
@@ -1035,6 +1053,15 @@ worker_self_approval: scratch
 # an explicit LEFTHOOK_EXCLUDE in the launch environment wins. A name outside
 # [A-Za-z0-9_-] drops the whole list.
 worker_hook_exclude:
+
+# A repository's own check and test commands a dispatched worker's command
+# guard approves by shape, `;` separated: literal words, plus the
+# placeholders <word>, <int> and <path> (worktree-relative), the last one
+# optionally suffixed `...` for one or more words, e.g.
+# `mix test <path>...; mix format --check-formatted`. Resolved once into the
+# worker's session record at launch from the primary checkout, like the
+# policy; a malformed declaration is dropped alone. Empty approves none.
+worker_check_commands:
 
 # How many days a worker's audit log of allow decisions is kept under the
 # fleet home's allow-audit directory. The guard only appends; each worker
@@ -1098,8 +1125,9 @@ mission_control_kb_lock_wait: 5
 # before scripts/mc-stall.sh reads it busy-unchanged. A cadence; time alone
 # never makes a stall, only beside a busy marker and an unchanged pane.
 mission_control_stall_window: 10m
-# How long past its owner's alarm a worker request may stay pending, or a
-# mission control's own dialog stay open, before scripts/mc-escalate.sh
+# How long past its owner's alarm a worker request may stay pending, a worker
+# stay parked on the operator, or a mission control's own dialog stay open,
+# before scripts/mc-escalate.sh
 # raises it to the hub; at twice the window it reaches the operator. A
 # cadence.
 mission_control_escalation_window: 15m
@@ -1134,7 +1162,7 @@ mission_control_panel_mascot: animated
 # harness measures no context (a wake is one duty trigger or one operator
 # turn), and the compaction count that raises it whichever of the two
 # applies.
-mission_control_handover_context: 70
+mission_control_handover_context: 40
 mission_control_handover_wakes: 150
 mission_control_handover_compactions: 2
 # The panel's health line (scripts/mc-panel.sh health): the bounds past which
@@ -1165,7 +1193,9 @@ mission_control_handover_window: 2m
 # bound is retired, its next round of work going to a fresh session with a
 # handover brief. A stream-json worker whose last turn completed is retired
 # after the shorter completed grace, so a finished worker stops holding a
-# host slot. Cadences.
+# host slot; one parked on the operator stays, and past the same grace is
+# raised to its mission control as a worker-parked-on-operator event.
+# Cadences.
 mission_control_worker_lifetime: 4h
 mission_control_worker_idle: 30m
 mission_control_worker_completed_grace: 5m

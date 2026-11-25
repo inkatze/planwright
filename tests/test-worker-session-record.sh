@@ -106,6 +106,72 @@ else
   fail "hook skip list: a malformed list reached the record: $(field hook_exclude)"
 fi
 set_layer machine-local ''
+
+echo "### REQ-A1.18 — the check commands, read at the primary checkout"
+write "$WT"
+if ! grep -q '^check_commands=' "$REC"; then
+  pass "A1.18: no worker_check_commands, no record field"
+else
+  fail "A1.18: the record carried check_commands with no config"
+fi
+set_layer repo-tracked 'worker_check_commands: mix test <path>... ;; mix format --check-formatted ;'
+write "$WT"
+if [ "$(field check_commands)" = "mix test <path>...;mix format --check-formatted" ]; then
+  pass "A1.18: the declarations reach the record, trimmed, empty ones skipped"
+else
+  fail "A1.18: read '$(field check_commands)'"
+fi
+mkdir -p "$WT/.claude"
+printf '%s\n' 'worker_check_commands: rm -rf <path>' >"$WT/.claude/planwright.local.yml"
+printf '%s\n' 'worker_check_commands: rm -rf <path>' >"$WT/.claude/planwright.yml"
+write "$WT"
+if [ "$(field check_commands)" = "mix test <path>...;mix format --check-formatted" ]; then
+  pass "A1.18: a declaration in a file the worker can write is ignored"
+else
+  fail "A1.18: the worktree's own overlay reached the record: '$(field check_commands)'"
+fi
+rm -f "$WT/.claude/planwright.local.yml" "$WT/.claude/planwright.yml"
+set_layer machine-local 'worker_check_commands: mix test <path>'
+printf '%s\n' 'not flat' >>"$MAIN/.claude/planwright.local.yml"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^check_commands=' "$REC"; then
+  pass "A1.18: a malformed machine-local layer drops the list, not a fall back to a lower one"
+else
+  fail "A1.18: a malformed layer left '$(field check_commands)' (rc=$RC)"
+fi
+long=''
+for i in $(seq 1 200); do long="${long}mix t$i <path>; "; done
+set_layer machine-local "worker_check_commands: $long"
+write "$WT"
+got=$(field check_commands)
+if [ "$RC" -eq 0 ] && [ "${#got}" -le 2048 ] && [ "${got%%;*}" = "mix t1 <path>" ] \
+  && grep -q 'dropped' "$T/err" && [ "$(wc -c <"$REC")" -le 4096 ]; then
+  pass "A1.18: declarations past the bound drop with a warning, the record stays readable"
+else
+  fail "A1.18: long list (len=${#got}, rc=$RC, $(cat "$T/err"))"
+fi
+hooks=''
+for i in $(seq 1 220); do hooks="${hooks}hook-name-$i "; done
+set_layer machine-local "worker_check_commands: $long
+worker_hook_exclude: $hooks"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^check_commands=' "$REC" && grep -q '^hook_exclude=' "$REC" \
+  && [ "$(wc -c <"$REC")" -le 4096 ] && grep -q 'would pass' "$T/err"; then
+  pass "A1.18: a record that would pass the readers' size bound drops the check commands, not the record"
+else
+  fail "A1.18: oversize record (rc=$RC, size=$(wc -c <"$REC"), $(cat "$T/err"))"
+fi
+set_layer machine-local 'worker_check_commands: mix test <path>
+not flat'
+write "$WT"
+if grep -q 'could not be read' "$T/err"; then
+  pass "A1.18: a failed read is warned about"
+else
+  fail "A1.18: no warning on a failed read: $(cat "$T/err")"
+fi
+set_layer machine-local ''
+set_layer repo-tracked ''
+
 set_layer repo-tracked 'worker_self_approval: own-branch'
 write "$WT"
 if [ "$(field policy)" = own-branch ]; then
@@ -238,6 +304,143 @@ if /bin/sh "$WRITER" write "$WT" NOT-HEX >/dev/null 2>&1; then
   fail "G1.8: a malformed launch id was accepted"
 else
   pass "G1.8: a malformed launch id is refused"
+fi
+
+echo "### REQ-F1.6 — draft_rewrite and the launcher, resolved once into the record"
+set_layer repo-tracked ''
+set_layer machine-local ''
+write "$WT"
+if [ "$RC" = 0 ] && [ "$(field draft_rewrite)" = deny ] && ! grep -q '^launcher=' "$REC"; then
+  pass "F1.6: with no overlay the record carries draft_rewrite=deny and no launcher"
+else
+  fail "F1.6: default record fields: $(tr '\n' ' ' <"$REC")"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session mc-demo --launcher mission-control 2>/dev/null)
+if [ "$(field launcher)" = mission-control ]; then
+  pass "F1.6: --launcher mission-control names mission control as the launcher"
+else
+  fail "F1.6: launcher field '$(field launcher)'"
+fi
+for bad in tower '' mission; do
+  /bin/sh "$WRITER" write "$WT" --launcher "$bad" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" = 2 ] || fail "F1.6: --launcher '$bad' exited $rc, not a usage error"
+done
+pass "F1.6: a launcher other than mission-control is a usage error"
+set_layer repo-tracked 'draft_rewrite: allow'
+write "$WT"
+if [ "$(field draft_rewrite)" = deny ]; then
+  pass "F1.6: a repo-tracked draft_rewrite: allow line leaves the record at deny"
+else
+  fail "F1.6: the repo-tracked line enabled it: '$(field draft_rewrite)'"
+fi
+set_layer repo-tracked ''
+printf 'draft_rewrite: allow\n' >"$T/env-local.yml"
+cp "$REPO_ROOT/config/defaults.yml" "$T/env-defaults.yml"
+printf 'draft_rewrite: allow\n' >>"$T/env-defaults.yml"
+REC=$(PLANWRIGHT_LOCAL_CONFIG="$T/env-local.yml" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+r1=$(field draft_rewrite)
+REC=$(PLANWRIGHT_CONFIG_DEFAULTS="$T/env-defaults.yml" /bin/sh "$WRITER" write "$WT" 2>/dev/null)
+r2=$(field draft_rewrite)
+if [ "$r1" = deny ] && [ "$r2" = deny ]; then
+  pass "F1.6: a draft_rewrite: allow line in a file the environment names leaves the record at deny"
+else
+  fail "F1.6: an environment-named file enabled it (local '$r1', defaults '$r2')"
+fi
+printf 'draft_rewrite: allow\n' >"$T/adopter/planwright.yml"
+write "$WT"
+if [ "$(field draft_rewrite)" = allow ]; then
+  pass "F1.6: an adopter-layer draft_rewrite: allow line records allow"
+else
+  fail "F1.6: the adopter line read '$(field draft_rewrite)'"
+fi
+rm -f "$T/adopter/planwright.yml"
+set_layer machine-local 'draft_rewrite: allow'
+write "$WT"
+if [ "$(field draft_rewrite)" = allow ]; then
+  pass "F1.6: the primary checkout's machine-local draft_rewrite: allow line records allow"
+else
+  fail "F1.6: the machine-local line read '$(field draft_rewrite)'"
+fi
+set_layer machine-local 'draft_rewrite: sometimes'
+write "$WT"
+if [ "$(field draft_rewrite)" = deny ]; then
+  pass "F1.6: a malformed machine-local value degrades to deny"
+else
+  fail "F1.6: a malformed value read '$(field draft_rewrite)'"
+fi
+set_layer machine-local ''
+
+git -C "$MAIN" config user.name 'Launch Author'
+git -C "$MAIN" config user.email launch@example.invalid
+write "$WT"
+a1=$(field author)
+git -C "$MAIN" config --unset user.name
+git -C "$MAIN" config --unset user.email
+write "$WT"
+if [ "$a1" = 'Launch Author <launch@example.invalid>' ] && ! grep -q '^author=' "$REC"; then
+  pass "F1.8: the record carries the primary checkout's author identity at launch, and none when it has none"
+else
+  fail "F1.8: author field '$a1', then $(grep '^author=' "$REC")"
+fi
+
+echo "### the worktree's own record, at a path the worktree fixes"
+fixed=$PLANWRIGHT_FLEET_STATE_DIR/session-records/$(printf '%s' "$WT" | git hash-object --stdin).record
+rm -f "$fixed"
+REC=$(/bin/sh "$WRITER" write "$WT" --session mc-fixed --launcher mission-control 2>/dev/null)
+if [ "$REC" != "$fixed" ] && [ -f "$fixed" ] && cmp -s "$REC" "$fixed"; then
+  pass "a session's record is copied to the worktree's own path"
+else
+  fail "the worktree's own record is missing or differs ($REC, $fixed)"
+fi
+rk=$(basename "$REC" .record)
+if [ "$(field record_key)" = "$rk" ] && grep -qx "record_key=$rk" "$fixed"; then
+  pass "both copies name the session's own record as record_key, its audit log's name"
+else
+  fail "record_key '$(field record_key)' is not the session record's name $rk in both copies"
+fi
+# A plain write (no launch id, no session) is the worktree's path itself, and
+# its earlier record is replaced in place, never removed first.
+REC=$(/bin/sh "$WRITER" write "$WT" 2>/dev/null)
+# shellcheck disable=SC2012 # the fixture's own hash-named file
+before=$(ls -i "$REC" | awk '{print $1}')
+chmod 500 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+if [ -w "$PLANWRIGHT_FLEET_STATE_DIR/session-records" ]; then
+  chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  printf '%s\n' "skip: a failing plain write (this user writes into a read-only directory, as root does)"
+else
+  /bin/sh "$WRITER" write "$WT" >/dev/null 2>&1
+  rc=$?
+  chmod 700 "$PLANWRIGHT_FLEET_STATE_DIR/session-records"
+  # shellcheck disable=SC2012 # the fixture's own hash-named file
+  if [ "$rc" != 0 ] && [ -f "$fixed" ] && [ "$(ls -i "$fixed" | awk '{print $1}')" = "$before" ]; then
+    pass "a plain write that fails leaves the live record at the worktree's path in place"
+  else
+    fail "a failing plain write left the worktree's record missing or replaced (rc=$rc)"
+  fi
+fi
+mode=$(stat -c %a "$fixed" 2>/dev/null || stat -f %Lp "$fixed")
+if [ "$mode" = 600 ]; then
+  pass "the worktree's own record is owner-only"
+else
+  fail "the worktree's own record has mode $mode"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" "$id" 2>/dev/null)
+if cmp -s "$REC" "$fixed" && ! grep -q '^launcher=' "$fixed"; then
+  pass "the latest launch into the worktree replaces its own record"
+else
+  fail "a later launch left the earlier launch's record at the worktree's path"
+fi
+got=$(PLANWRIGHT_WORKER_SESSION_RECORD="$T/elsewhere.record" /bin/sh "$WRITER" path "$WT/sub" 2>/dev/null)
+if [ "$got" = "$fixed" ]; then
+  pass "path prints the worktree's own record path, whatever the environment names"
+else
+  fail "path printed '$got', not $fixed"
+fi
+if /bin/sh "$WRITER" path "$WT" extra >/dev/null 2>&1; then
+  fail "path took an extra argument"
+else
+  pass "path takes the worktree alone"
 fi
 
 echo "### REQ-G1.2 — the scratch root"
@@ -632,6 +835,55 @@ if [ -s "$REC" ] && ! grep -q '^mise_task_edit=' "$REC"; then
   pass "mise opt-in: a relaunch without the flag drops the field"
 else
   fail "mise opt-in: the field outlived its launch"
+fi
+
+echo "### the lefthook config opt-in is a launch-time field"
+write "$WT"
+if [ "$RC" -eq 0 ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: a launch without the flag writes no field"
+else
+  fail "lefthook opt-in: the field appeared without the flag"
+fi
+set_layer machine-local 'lefthook_edit: true'
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: config never sets it"
+else
+  fail "lefthook opt-in: a config line reached the record"
+fi
+set_layer machine-local ''
+REC=$(/bin/sh "$WRITER" write "$WT" --lefthook-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(grep -c '^lefthook_edit=' "$REC")" -eq 1 ] \
+  && ! grep -q '^mise_task_edit=' "$REC"; then
+  pass "lefthook opt-in: the flag writes lefthook_edit=1 once, and no mise field"
+else
+  fail "lefthook opt-in: the flag wrote '$(field lefthook_edit)' (rc=$RC)"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --session demo-1 --scratch --mise-task-edit --lefthook-edit 2>"$T/err")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(field lefthook_edit)" = 1 ] && [ "$(field mise_task_edit)" = 1 ]; then
+  pass "lefthook opt-in: it combines with a session, the scratch root and the mise opt-in"
+else
+  fail "lefthook opt-in: the combined form failed (rc=$RC, $(cat "$T/err"))"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" --mise-task-edit 2>"$T/err")
+if [ -s "$REC" ] && [ "$(field mise_task_edit)" = 1 ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: the mise flag alone writes no lefthook field"
+else
+  fail "lefthook opt-in: the mise flag leaked into the lefthook field"
+fi
+/bin/sh "$WRITER" write "$WT" --lefthook-edit --lefthook-edit >/dev/null 2>&1
+if [ "$?" -eq 2 ]; then
+  pass "lefthook opt-in: a repeated flag is a usage error"
+else
+  fail "lefthook opt-in: a repeated flag was accepted"
+fi
+REC=$(/bin/sh "$WRITER" write "$WT" 2>"$T/err")
+if [ -s "$REC" ] && ! grep -q '^lefthook_edit=' "$REC"; then
+  pass "lefthook opt-in: a relaunch without the flag drops the field"
+else
+  fail "lefthook opt-in: the field outlived its launch"
 fi
 
 echo "### launch backend: a headless launch is recorded for the dispatcher to read"

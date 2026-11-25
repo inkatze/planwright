@@ -13,11 +13,11 @@ unset CDPATH
 # `$(…)` is what a guard judging the unexpanded text would find and trust.
 SUBST_CWD="$SANDBOX/subst"
 mkdir -p "$SUBST_CWD/scripts"
-: >"$SUBST_CWD/.git"
 : >"$SUBST_CWD/scripts/ok.sh"
 mkdir -p "$SUBST_CWD/tests"
 : >"$SUBST_CWD/tests/ok.bats"
 : >"$SUBST_CWD/scripts/\$(echo ok).sh"
+fixture_commit "$SUBST_CWD" scripts tests || exit 1
 
 # The REQ-E1.3 fixtures that depend on the argument-independence check: each
 # defers against the guard and allows against the over-broad variant that
@@ -150,8 +150,8 @@ assert_defer "REQ-E1.3: a quoted mixed value assigned, then handed to a script" 
 # the later script path is checked against.
 SUBST_REPO="$(cd "$SANDBOX" && pwd -P)/substrepo"
 mkdir -p "$SUBST_REPO/scripts"
-GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$SUBST_REPO"
 : >"$SUBST_REPO/scripts/ok.sh"
+fixture_commit "$SUBST_REPO" scripts || exit 1
 write_record "$SANDBOX/substrepo.record" "$SUBST_REPO"
 HOOK_ENV=("GIT_CONFIG_GLOBAL=/dev/null" "GIT_CONFIG_NOSYSTEM=1" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/substrepo.record")
 assert_allow "REQ-E1.3: the inner-cd repository approves a plain cd" "cd scripts && ls" Bash "$SUBST_REPO"

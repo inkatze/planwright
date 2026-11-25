@@ -480,7 +480,13 @@ ready_verdict() {
 # --- the command guards ------------------------------------------------------
 
 mkdir -p "$SANDBOX/repo/scripts" "$SANDBOX/no-home"
-: >"$SANDBOX/repo/.git"
+# The worker guard trusts a repository script only as HEAD commits it, so the
+# two helpers the fixture lines run are committed there.
+# shellcheck source=tests/lib/committed-fixture.sh
+. "$REPO_ROOT/tests/lib/committed-fixture.sh"
+: >"$SANDBOX/repo/scripts/merge-admitted.sh"
+: >"$SANDBOX/repo/scripts/request-reviewer.sh"
+fixture_commit "$SANDBOX/repo" scripts || exit 1
 
 guard_verdict() {
   local hook=$1 spell=$2 payload out rc=0

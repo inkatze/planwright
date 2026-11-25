@@ -53,7 +53,6 @@ assert_allow "gh pr list" "gh pr list"
 assert_allow "gh pr checks" "gh pr checks"
 assert_allow "gh auth status" "gh auth status"
 assert_allow "shellcheck" "shellcheck scripts/ok.sh"
-assert_allow "markdownlint" "markdownlint README.md"
 assert_allow "yamllint" "yamllint ."
 assert_allow "mise run" "mise run check"
 assert_allow "mise run scoped task" "mise run lint:shell"
@@ -102,6 +101,43 @@ assert_allow "fish -c safe inner" "fish -c 'git status'"
 assert_defer "fish -c unsafe inner" "fish -c 'rm -rf x'"
 assert_defer "fish -c buried unsafe" "fish -c 'fish -c \"rm -rf x\"'"
 assert_defer "fish bare-paren substitution" "fish -c 'echo (rm -rf x)'"
+# fish decodes \xHH, \XHH, \ooo, \uXXXX and \UXXXXXXXX in an unquoted word,
+# where bash only drops the backslash, so the inner string's words are not the
+# ones the screens read: fish hands git `--help` and `--ext-diff` here.
+for c in "fish -c 'git log --he\\x6cp'" "fish -c 'git log --he\\X6cp'" "fish -c 'git log --hel\\160'" \
+  "fish -c 'git log --he\\u006cp'" "fish -c 'git log --he\\U0000006cp'" "fish -c 'git diff --ext\\x2ddiff'" \
+  "fish -c 'git log \\x2d\\x2dhelp'" "fish -c 'git status --hel\\x70'" \
+  'fish -c "git log --he\x6cp"' 'fish -c "git diff --ext\x2ddiff"' "fish -c 'git log '\"--he\\x6cp\""; do
+  assert_defer "fish escape the screens would misread: $c" "$c"
+done
+# fish expands `{a, b}` across the space into two words.
+for c in "fish -c 'git log {--help, HEAD}'" "fish -c 'git diff {--ext-diff, HEAD}'"; do
+  assert_defer "fish spaced brace expansion: $c" "$c"
+done
+# fish keeps reading its options after the string: a second -c or an
+# --init-command runs, -o/-p write a file, and --help opens fish's man page.
+for c in "fish -c 'git status' -c 'touch pwned'" "fish -c 'git status' --init-command 'touch pwned'" \
+  "fish -c 'git status' -C 'touch pwned'" "fish -c 'git status' -o out.txt" "fish -c 'git status' -p out.prof" \
+  "fish -c 'git status' --profile=out.prof" "fish -c 'git status' --help"; do
+  assert_defer "fish option after the string: $c" "$c"
+done
+# Inside double quotes bash drops a backslash-newline whole, so the word's
+# halves join: git gets `--help`, find gets `-delete`.
+for c in $'git status "--he\\\nlp"' $'find sub "-de\\\nlete"'; do
+  assert_defer "backslash-newline inside double quotes: ${c%%\\*}" "$c"
+done
+# fish's read updates a variable where it already lives, a universal one
+# included, and fish saves those to disk: every later fish session would get
+# the planted PATH.
+for c in "echo /tmp/evil | fish -c 'read fish_user_paths'" "fish -c 'read -r x'" "fish -c 'git status; read x'"; do
+  assert_defer "read inside fish -c: $c" "$c"
+done
+assert_allow "read outside fish still allowed" "echo a | read -r x"
+assert_allow "read after a fish -c segment still allowed" "fish -c 'git status'; echo a | read -r x"
+assert_allow "read piped from fish -c still allowed" "fish -c 'git status' | read -r x"
+assert_allow "the word read as an argument inside fish -c" "fish -c 'git log --grep read'"
+assert_allow "fish -c with braces and no comma" "fish -c 'git log HEAD@{1}'"
+assert_allow "double-quoted fish -c string" 'fish -c "git log --oneline -3"'
 assert_defer "fish --command long form" "fish --command 'git status'"
 
 echo "### REQ-A1.4 — every-segment-safe compound analysis"
@@ -280,6 +316,32 @@ for c in 'git config --get user.name' 'git config --global --get-all a.b' 'git c
   'git config -zl' 'git config -z --list' 'git config list --global --show-o' 'git config --name-only --list' \
   'git config -tbool --get a.b' 'git config --show-scope --get user.name' 'git config --get-colorbool color.ui'; do
   assert_allow "git config read: $c" "$c"
+done
+# `git <verb> --help` and `git help <verb>` open the man page through a pager
+# (or a browser), and a pager runs commands (`!cmd` in less).
+for c in 'git log --help' 'git status --help' 'git diff --help' 'git show --help' 'git rev-parse --help' \
+  'git grep --help' 'git ls-files --help' 'git config --help'; do
+  assert_defer "git help opens a pager: $c" "$c"
+done
+# git opens it only for an exact `--help` right after the verb, but any word
+# git could read as --help or --help-all, an abbreviation included, defers.
+for c in 'git log --oneline --help' 'git log --hel' 'git log --he' 'git log --h' 'git log --help-all' \
+  'git log --help-a' 'git log --help=x' 'git config --get --help'; do
+  assert_defer "git could read it as --help, fails closed: $c" "$c"
+done
+assert_defer "accepted over-block: --help as a pathspec" "git log -- --help"
+# Regression rows: these verbs' own screens already deferred them.
+for c in 'git branch --help' 'git branch --list --help' 'git tag --help' 'git stash --help' 'git remote --help' \
+  'git reflog --help' 'git worktree --help' 'git ls-remote --help' 'git symbolic-ref --help' \
+  'git check-ignore --help' 'git commit --help' 'git add --help' 'git fetch --help' \
+  'git help log' 'git help' 'git help -a' 'git help -w log'; do
+  assert_defer "git help request, already deferred: $c" "$c"
+done
+# -h asks for the short usage, never the man page, and is grep's no-filename
+# flag.
+for c in 'git log -h' 'git status -h' 'git grep -h foo' 'git show-ref --heads' \
+  'git log --oneline -- help' 'git log --grep=help' 'git grep -n help'; do
+  assert_allow "not a help request: $c" "$c"
 done
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"
@@ -583,6 +645,11 @@ jq -n --arg p "$INST_JSON_ROOT" \
 HOOK_ENV=("CLAUDE_DIR=$CDIR" "HOME=$SANDBOX/nohome")
 assert_allow "arm 5 — installed_plugins.json installPath" "$INST_JSON_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 assert_allow "arm 5 — marketplace cache version dir" "$INST_CACHE_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+# human-gates REQ-G1.14: the installed branch-sync helper's leased push is
+# reached through this approval, the profiles' force-push deny left whole.
+: >"$INST_CACHE_ROOT/scripts/worker-branch-sync.sh"
+assert_allow "arm 5 — the installed branch-sync helper's leased push" \
+  "$INST_CACHE_ROOT/scripts/worker-branch-sync.sh push --force-with-lease=planwright/flight/demo-0123abcd:0123456789abcdef0123456789abcdef01234567 --force-if-includes" Bash "$PLUGIN_CWD"
 assert_allow "arm 5 — the stalled shape: a loop over a cache-root script" \
   "for d in a b; do printf '%s -> ' \$d; $INST_CACHE_ROOT/scripts/plug.sh \$d; done" Bash "$PLUGIN_CWD"
 assert_defer "arm 5 — a cache plugin that is not planwright" "$INST_CACHE_OTHER/scripts/plug.sh" Bash "$PLUGIN_CWD"

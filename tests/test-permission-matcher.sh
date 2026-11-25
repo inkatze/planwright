@@ -530,8 +530,8 @@ allow|legit|git add -A && git commit -m "wip"|compound where every subcommand is
 allow|legit|gh pr create --draft --title t --body b|draft PR creation
 allow|legit|gh pr ready 123|the /spec-kickoff spec-PR exception stays allowed
 allow|legit|git status|read-only status
-allow|legit|git log --oneline -5|read-only log
-allow|legit|mise run check|the full CI gate
+prompt|residual|git log --oneline -5|no static rule names git log, which writes to any path with --output; the worker guard approves the read form (MB-5)
+prompt|residual|mise run check|no static rule names mise run, whose --shell, --cd, --env and --tool change what the task runs; the worker guard approves the plain form (MB-5)
 allow|residual|git push origin "main"|quoted destination; the glob layer is literal so it misses this — githooks/pre-push rejects the refspec
 allow|residual|git push origin "master"|quoted master destination; the glob layer misses it the same way, and githooks/pre-push refuses only main, so no layer backs this one up
 allow|residual|git push origin 'planwright/human-gates/spec'|quoted spec-branch destination; missed like the quoted master push, with no githooks backstop either
@@ -598,14 +598,22 @@ deny|load-bearing|if false; then true; elif git push origin main; then true; fi|
 allow|legit|for f in a b; do git add $f; done|a for loop whose body every allow rule covers is allowed (M9)
 allow|legit|git rev-parse --abbrev-ref HEAD|read-only rev-parse
 allow|legit|git branch --show-current|read-only branch listing
-allow|legit|git diff --stat origin/main|diff stat
-allow|legit|git show --stat HEAD|show stat
+prompt|residual|git diff --stat origin/main|no static rule names git diff; the worker guard approves the read form (MB-5)
+prompt|residual|git show --stat HEAD|no static rule names git show; the worker guard approves the read form (MB-5)
+prompt|residual|git show --output=/tmp/x HEAD:f|git show writes its output to the named path, one the file tools refuse included, so no static rule may admit it (REQ-G1.1)
+prompt|residual|git log --output /tmp/x|git log takes --output as a separate word too (REQ-G1.1)
+prompt|residual|git diff --output=/tmp/x|git diff writes its patch to the named path (REQ-G1.1)
+prompt|residual|mise run --shell 'sh x' t|--shell runs the task through any command (REQ-G1.1)
+prompt|residual|mise run -s 'sh x' t|the short --shell form (REQ-G1.1)
+prompt|residual|mise run --shell='sh x' t|the attached --shell form (REQ-G1.1)
+prompt|residual|mise run --cd /tmp/x t|--cd runs a task another directory's config defines (REQ-G1.1)
+prompt|residual|mise tasks run --shell 'sh x' t|mise tasks run is mise run (REQ-G1.1)
 allow|legit|git checkout planwright/guard-coverage/task-1|checkout of a task branch
 allow|legit|git switch planwright/guard-coverage/task-1|switch to a task branch
 allow|legit|git add scripts/x.sh|staging a file
 allow|legit|gh pr view 123 --json state|PR inspection
 allow|legit|gh pr list --head planwright/guard-coverage/task-1|PR listing
-allow|legit|mise tasks|task listing
+prompt|residual|mise tasks|no static rule names mise tasks, whose run leaf is mise run and edit leaf opens an editor; the worker guard approves the listing (MB-5)
 prompt|residual|wc --files0-from=/proc/1234/environ README.md|no static rule names wc: --files0-from echoes a file's content in its error output (REQ-G1.1, REQ-E1.6)
 allow|legit|ls -la scripts|static read-only set: ls (REQ-G1.1)
 allow|legit|stat README.md|static read-only set: stat (REQ-G1.1)
@@ -748,7 +756,7 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=208
+ROW_FLOOR=216
 DENY_ROW_FLOOR=124
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
@@ -945,8 +953,9 @@ fi
 # ---------------------------------------------------------------------------
 FORBIDDEN_VERBS='awk find xargs sed sort uniq cat grep head tail cut diff jq wc'
 # Verbs that run their argument as the command, so a rule naming one admits
-# whatever follows it.
-WRAPPER_VERBS='command builtin env sudo time timeout nice nohup stdbuf noglob exec eval sh bash zsh fish'
+# whatever follows it. mise runs one through `exec`, and through `run` with
+# --shell, or a task another directory's config defines with --cd.
+WRAPPER_VERBS='command builtin env sudo time timeout nice nohup stdbuf noglob exec eval sh bash zsh fish mise'
 # The diff family takes --output, rev-list and the log family write the same
 # way, grep takes -O, cat-file takes --textconv.
 FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlog reflog format-patch range-diff rev-list stash grep cat-file'
@@ -955,7 +964,7 @@ FORBIDDEN_GIT='diff diff-tree diff-index diff-files log show whatchanged shortlo
 REVIEWED_GIT='status rev-parse checkout switch add commit push ls-files ls-tree merge-base show-ref for-each-ref'
 # Rules that predate the no-write-forms rule and keep their write forms: kept,
 # never widened, and no new rule may join them.
-GRANDFATHERED='Bash(git diff:*) Bash(git log:*) Bash(git show:*) Bash(git branch:*)'
+GRANDFATHERED='Bash(git branch:*)'
 
 # forbidden_allow_rules <rule-lines> — print each Bash allow rule that names a
 # forbidden or wrapper verb, a verb that is not a plain word (a glob, a path,
@@ -1025,9 +1034,13 @@ Bash(/bin/cat:*)
 Bash(LC_ALL=C sort:*)
 Bash(command cat:*)
 Bash(git diff:*)
+Bash(git show:*)
+Bash(git log:*)
+Bash(mise run:*)
+Bash(mise tasks:*)
 Bash(git ls-files:*)
 Bash(stat:*)'
-expected_probe='Bash(cat:*) Bash(sed -n:*) Bash(wc:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) Bash(git archive:*) Bash(git --no-pager grep:*) Bash(git*) Bash(*) Bash(/bin/cat:*) Bash(LC_ALL=C sort:*) Bash(command cat:*) '
+expected_probe='Bash(cat:*) Bash(sed -n:*) Bash(wc:*) Bash(git grep:*) Bash(git cat-file:*) Bash(git diff-tree:*) Bash(git rev-list:*) Bash(git archive:*) Bash(git --no-pager grep:*) Bash(git*) Bash(*) Bash(/bin/cat:*) Bash(LC_ALL=C sort:*) Bash(command cat:*) Bash(git diff:*) Bash(git show:*) Bash(git log:*) Bash(mise run:*) Bash(mise tasks:*) '
 if [ "$(forbidden_allow_rules "$probe" | tr '\n' ' ')" = "$expected_probe" ]; then
   ok "pass G flags each excluded, unreviewed, or disguised spelling and passes the reviewed ones"
 else
@@ -1126,8 +1139,12 @@ deny|load-bearing|Write|/work/repo/.claude/worktrees/w1/.lefthook-local/pre-comm
 deny|load-bearing|Edit|/work/repo/.claude/worktrees/w1/.lefthook-local.yml|lefthook's dotted local override (REQ-F1.6)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/fleet/session-records/0123abcd.record|the guard's session record (REQ-G1.8)
 deny|load-bearing|Write|/srv/fleet/session-records/0123abcd-89ef0123456789ab.record|a session record under an overridden fleet home (REQ-G1.8)
-deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/streamjson/mc-w-1/mise-task-edit|the persisted mise task-file opt-in a recover reads back
+deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/streamjson/mc-w-1/planwright-opt-in.0123456789abcdef0123456789abcdef01234567|the persisted launch opt-ins a recover reads back
+deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/StreamJson/mc-w-1/planwright-opt-in.0123456789abcdef0123456789abcdef01234567|the opt-in name under a recased folder above it, which a case-insensitive filesystem resolves to the real one
 deny|load-bearing|Edit|/srv/fleet/streamjson/mc-w-1/worker-settings.json|an opted-in worker's per-launch settings profile
+deny|load-bearing|Write|/home/u/.claude/plugins/data/planwright-planwright/fleet/streamjson/mc-w-1/profile|the settings profile a recover resumes the worker under
+deny|load-bearing|Write|/srv/fleet/streamjson/mc-w-1/scope|the worker scope a recover exports
+deny|load-bearing|Edit|/srv/fleet/streamjson/mc-w-1/cwd|the directory a relaunch resumes in
 deny|load-bearing|Edit|/work/repo/.claude/planwright.yml|the repo-tracked overlay (REQ-G1.8)
 deny|load-bearing|Write|/work/repo/.claude/planwright.local.yml|the machine-local overlay (REQ-G1.8)
 deny|load-bearing|Edit|/home/u/.claude/plugins/data/planwright-planwright/overlay/planwright.yml|the adopter overlay (REQ-G1.8)
@@ -1503,6 +1520,198 @@ for t in "$GWT/mise.toml" "$GWT/.mise.toml" "$GWT/mise-tasks/deploy" "$GWT/.mise
     ok "pass I: the shipped profile still denies $t"
   else
     fail "pass I: the shipped profile admits $t"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Pass J — the per-launch profile of a --lefthook-edit launch (the lefthook
+# config opt-in). The generator replaces the two broad lefthook denies
+# (lefthook/** and lefthook.*) with literal denies in every ancestor folder of
+# the worktree, and the file-tool hook refuses the lefthook names everywhere
+# outside it. Everything else, the mise names, the lefthook-local and dotted
+# variants, the hook directories, .git and .claude included, stays denied.
+# ---------------------------------------------------------------------------
+if mkdir -p "$GBOX/other/lefthook-dir" "$GWT/sub2" "$GWT/sub" "$GWT/lefthook" \
+  && : >"$GBOX/other/lefthook.yml" \
+  && ln -s "$GBOX/other/lefthook.yml" "$GWT/sub2/lh-link.yml" \
+  && ln -s "$GBOX/other/lefthook-dir" "$GWT/sub2/lefthook"; then
+  ok "pass J: built the lefthook symlink fixtures"
+else
+  fail "pass J: could not build the lefthook symlink fixtures"
+fi
+LH_GEN_OUT="$GBOX/generated-lefthook.json"
+if /bin/sh "$GEN_SCRIPT" --lefthook-edit "$SETTINGS" "$GWT" "$LH_GEN_OUT" >/dev/null 2>"$tmp/gen.err"; then
+  ok "pass J: the generator wrote a lefthook per-launch profile"
+else
+  fail "pass J: the generator failed ($(cat "$tmp/gen.err" 2>/dev/null))"
+fi
+
+lh_path_rows() {
+  cat <<ROWS
+allow|legit|Edit|$GWT/lefthook.yml|the opted-in worker edits its own worktree lefthook.yml
+allow|legit|Write|$GWT/lefthook.yaml|its own lefthook.yaml
+allow|legit|Write|$GWT/lefthook.json|its own lefthook.json
+allow|legit|Edit|$GWT/lefthook.toml|its own lefthook.toml
+allow|legit|Write|$GWT/lefthook/pre-commit.yml|its own lefthook/ directory
+allow|legit|Write|$GWT/sub/lefthook.yml|a nested lefthook.yml inside its own worktree
+allow|legit|Write|$GWT/sub/lefthook/x.yml|a nested lefthook/ directory inside its own worktree
+allow|legit|Edit|$GWT/scripts/x.sh|ordinary edits stay allowed
+deny|load-bearing|Edit|/work/unrelated/lefthook.yml|an unrelated repository's lefthook.yml stays closed: only the worker's own worktree opens
+deny|load-bearing|Write|/work/unrelated/lefthook/x.yml|an unrelated repository's lefthook/ stays closed
+deny|load-bearing|Write|/work/unrelated/lefthook|a bare lefthook leaf outside the worktree stays closed
+deny|load-bearing|Write|/work/unrelated/LEFTHOOK.YML|an upper-case spelling outside the worktree stays closed through the hook's case fold
+deny|load-bearing|Write|/work/unrelated/Lefthook/x.yml|a mixed-case lefthook/ directory outside the worktree stays closed
+deny|load-bearing|Write|/work/unrelated/lefthook.d/x.yml|a lefthook.* directory component outside the worktree stays closed
+deny|load-bearing|Write|$GMAIN/.claude/worktrees/w2/lefthook.yml|a sibling worktree's lefthook.yml stays closed
+deny|load-bearing|Edit|$GMAIN/.claude/worktrees/w2/lefthook/x.yml|a sibling worktree's lefthook/ stays closed
+deny|load-bearing|Write|$GBOX/other/lefthook.yml|another repository's lefthook.yml stays closed
+deny|load-bearing|Edit|$GWT/../w2/lefthook.yml|a .. escape into a sibling worktree stays closed
+deny|load-bearing|Write|$GWT/sub/../../../../../other/lefthook.yml|a .. escape into another repository stays closed
+deny|load-bearing|Write|$GWT/sub2/lefthook/x.yml|a lefthook/ directory that is a symlink pointing out of the worktree stays closed
+deny|load-bearing|Edit|$GWT/sub2/lh-link.yml|a file symlink pointing at another repository's lefthook.yml stays closed
+deny|load-bearing|Write|~/other/lefthook.yml|a home-relative lefthook path the file tools may expand stays closed
+deny|load-bearing|Edit|$GWT/lefthook-local.yml|the per-machine lefthook override stays closed
+deny|load-bearing|Write|$GWT/lefthook-local.yaml|the per-machine lefthook override, other extension, stays closed
+deny|load-bearing|Edit|$GWT/.lefthook.yml|the dotted lefthook config stays closed
+deny|load-bearing|Write|$GWT/.lefthook/x.yml|the dotted lefthook directory stays closed
+deny|load-bearing|Write|$GWT/.lefthook-local.yml|the dotted per-machine override stays closed
+deny|load-bearing|Write|$GWT/.lefthook-local/x.yml|the dotted per-machine override directory stays closed
+deny|load-bearing|Edit|$GWT/mise.toml|the mise task files stay closed under the lefthook opt-in alone
+deny|load-bearing|Write|$GWT/mise-tasks/deploy|mise-tasks/ stays closed under the lefthook opt-in alone
+deny|load-bearing|Write|$GWT/.mise-tasks/deploy|.mise-tasks/ stays closed under the lefthook opt-in alone
+deny|load-bearing|Write|$GWT/githooks/pre-commit|the githooks directory stays closed
+deny|load-bearing|Write|$GWT/.githooks/pre-commit|the .githooks directory stays closed
+deny|load-bearing|Edit|$GWT/.git|git entries stay closed
+deny|load-bearing|Edit|$GWT/.claude/settings.json|.claude stays closed
+deny|load-bearing|Write|$GWT/.envrc|.envrc stays closed
+ROWS
+  # Every ancestor of the worktree, the primary checkout included, keeps the
+  # lefthook names closed: the config a worktree picks up from above.
+  local a
+  a=$GWT
+  while [ "$a" != / ] && [ -n "$a" ]; do
+    a=${a%/*}
+    [ -n "$a" ] || a=/
+    printf 'deny|load-bearing|Edit|%s/lefthook.yml|the ancestor %s keeps lefthook.yml closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Write|%s/lefthook.yaml|the ancestor %s keeps lefthook.yaml closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Write|%s/lefthook/x.yml|the ancestor %s keeps lefthook/ closed\n' "${a%/}" "$a"
+    printf 'deny|load-bearing|Write|%s/lefthook/sub/x.yml|the ancestor %s keeps a nested lefthook/ file closed\n' "${a%/}" "$a"
+  done
+}
+LH_FIXTURES=$(lh_path_rows)
+LH_DENY=$(read_rules "$LH_GEN_OUT" deny 2>/dev/null) || LH_DENY=''
+LH_ALLOW=$(read_rules "$LH_GEN_OUT" allow 2>/dev/null) || LH_ALLOW=''
+if [ -n "$LH_DENY" ] && pm_load_rules "$LH_DENY" "" "$LH_ALLOW"; then
+  pm_path_compile
+  PM_CWD=$GWT
+  lh_rows=0
+  while IFS='|' read -r expected class tool path note; do
+    [ -n "${expected:-}" ] || continue
+    lh_rows=$((lh_rows + 1))
+    got="$(pm_decide_path "$tool" "$path")"
+    if [ "$got" = allow ] && [ -x "$MISE_GUARD" ]; then
+      case $(printf '{"tool_name":"%s","tool_input":{"file_path":"%s"},"cwd":"%s"}' "$tool" "$path" "$GWT" | "$MISE_GUARD" "$GWT" lefthook) in
+        *'"permissionDecision":"deny"'*) got=deny ;;
+      esac
+    fi
+    if [ "$got" = "$expected" ]; then
+      ok "pass J [$class] $expected: $tool $path"
+    else
+      fail "pass J [$class] expected $expected, got $got: $tool $path  ($note)"
+    fi
+  done <<EOF
+$LH_FIXTURES
+EOF
+  if [ "$lh_rows" -ge 40 ]; then
+    ok "pass J: the lefthook generated-profile table is non-vacuous: $lh_rows rows"
+  else
+    fail "pass J: the lefthook generated-profile table shrank: $lh_rows rows"
+  fi
+  PATH_FIXTURES=$LH_FIXTURES
+  lh_uncovered=$(path_rules_uncovered | grep -E '^(dead|shadowed) Edit\(/[^*]*/?(lefthook/\*\*|lefthook\.\*)\)$')
+  if [ -z "$lh_uncovered" ]; then
+    ok "pass J: every literal ancestor lefthook deny is the sole cover for a row"
+  else
+    fail "pass J: literal ancestor denies without sole cover: $lh_uncovered"
+  fi
+  if [ -x "$MISE_GUARD" ] && jq -e --arg wt "$GWT" '[.hooks.PreToolUse[] | select(.matcher | test("Edit")) | .hooks[].command] | any(contains("worker-mise-edit-guard.sh '"'"'" + $wt + "'"'"' lefthook"))' "$LH_GEN_OUT" >/dev/null 2>&1; then
+    ok "pass J: the generated profile wires the outside-the-worktree hook for the lefthook names"
+  else
+    fail "pass J: the generated profile does not wire the outside-the-worktree hook for the lefthook names"
+  fi
+  case "$LH_DENY" in
+    *'Edit(//**/lefthook.*)'* | *'Edit(//**/lefthook/**)'*) fail "pass J: a broad lefthook deny survived in the generated profile" ;;
+    *) ok "pass J: no broad lefthook deny survives in the generated profile" ;;
+  esac
+  # The hook's name-set arguments, run directly: none judges mise only, `mise
+  # lefthook` both, a word it does not know both, and a field holding the
+  # payload separator is refused rather than misread.
+  hook_verdict() {
+    local args=$1 tool=$2 path=$3 out
+    # shellcheck disable=SC2086 # a word list of the hook's own arguments
+    out=$(printf '{"tool_name":"%s","tool_input":{"file_path":"%s"},"cwd":"%s"}' "$tool" "$path" "$GWT" | "$MISE_GUARD" "$GWT" $args)
+    case $out in
+      *'"permissionDecision":"deny"'*) printf 'deny' ;;
+      *) printf 'allow' ;;
+    esac
+  }
+  if [ -x "$MISE_GUARD" ]; then
+    for row in \
+      "|/work/unrelated/mise.toml|deny" \
+      "|/work/unrelated/lefthook.yml|allow" \
+      "mise|/work/unrelated/lefthook.yml|allow" \
+      "lefthook|/work/unrelated/mise.toml|allow" \
+      "lefthook|/work/unrelated/lefthook.yml|deny" \
+      "mise lefthook|/work/unrelated/mise-tasks/x|deny" \
+      "mise lefthook|/work/unrelated/lefthook.yml|deny" \
+      "lefthook mise|/work/unrelated/mise.toml|deny" \
+      "bogus|/work/unrelated/mise.toml|deny" \
+      "bogus|/work/unrelated/lefthook.yml|deny" \
+      "lefthook|$GWT/lefthook.yml|allow" \
+      "mise lefthook|$GWT/mise.toml|allow"; do
+      args=${row%%|*}
+      rest=${row#*|}
+      p=${rest%%|*}
+      want=${rest##*|}
+      got=$(hook_verdict "$args" Write "$p")
+      if [ "$got" = "$want" ]; then
+        ok "pass J: hook [$args] $p is $want"
+      else
+        fail "pass J: hook [$args] $p expected $want, got $got"
+      fi
+    done
+    got=$(hook_verdict lefthook MultiEdit "/work/unrelated/lefthook.yml")
+    if [ "$got" = deny ]; then
+      ok "pass J: the hook judges MultiEdit"
+    else
+      fail "pass J: the hook let a MultiEdit of an outside lefthook.yml through"
+    fi
+    got=$(printf '{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/work/unrelated/lefthook.yml"},"cwd":"%s"}' "$GWT" | "$MISE_GUARD" "$GWT" lefthook)
+    case $got in
+      *'"permissionDecision":"deny"'*) ok "pass J: the hook judges a NotebookEdit path" ;;
+      *) fail "pass J: the hook let a NotebookEdit of an outside lefthook.yml through" ;;
+    esac
+    got=$(printf '{"tool_name":"Write","tool_input":{"file_path":"/work/a\\u0001/../zz/lefthook.yml"},"cwd":"%s"}' "$GWT" | "$MISE_GUARD" "$GWT" lefthook)
+    case $got in
+      *'"permissionDecision":"deny"'*) ok "pass J: a payload separator inside the path is refused" ;;
+      *) fail "pass J: a payload separator inside the path blinded the hook" ;;
+    esac
+  else
+    fail "pass J: the hook script is not executable"
+  fi
+else
+  fail "pass J: the generated rules did not load into the model"
+fi
+# The shipped profile is untouched by any of this: the worktree's own lefthook
+# config stays closed under it.
+pm_load_rules "$DENY_RULES" "$ASK_RULES" "$ALLOW_RULES" >/dev/null 2>&1
+pm_path_compile
+PM_CWD=$GWT
+for t in "$GWT/lefthook.yml" "$GWT/lefthook/pre-commit.yml" "$GWT/lefthook.yaml"; do
+  if [ "$(pm_decide_path Edit "$t")" = deny ]; then
+    ok "pass J: the shipped profile still denies $t"
+  else
+    fail "pass J: the shipped profile admits $t"
   fi
 done
 

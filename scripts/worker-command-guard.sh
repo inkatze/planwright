@@ -18,13 +18,14 @@
 #   * The floor first: before any approval is weighed,
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
-#     hook skip, squash, or `gh` write), defers, declared steps' lines
-#     included, save two own-unit acts (see own_unit_act): a push of the
+#     hook skip, squash, or `gh` write), defers, declared check commands and
+#     steps' lines included, save two own-unit acts (see own_unit_act): a push of the
 #     recorded unit branch to origin and a body edit of its own open pull
 #     request. The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
-#     shapes, trusted repo code, declared steps, the spec-root write zone) is
+#     shapes, trusted repo code, declared check commands and steps, the
+#     spec-root write zone) is
 #     always in force; the own-branch arm, which approves writes confined to
 #     the unit branch and its worktree, and the scratch arm, which approves
 #     writes confined to the worker's scratch root, each only when the session
@@ -81,12 +82,15 @@
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
+# path canonicalizes INSIDE the repository and HEAD commits the file unchanged
+# (committed_blob; a `bats` directory defers), and an INSTALLED planwright root's
 # `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
-# for itself (REQ-A1.10; see is_planwright_script — the reason this needs no
+# for itself, held to that root's HEAD the same way when the root is a git
+# checkout (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
-# A segment none of these shapes approve is still approved when it is exactly
+# A segment none of these shapes approve is still approved when it matches a
+# check command the repository declares (see check_command_ok), or is exactly
 # a command step an operator declared (see declared_line_ok).
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
@@ -161,14 +165,20 @@ emit_allow() {
 AUDIT_OB=0
 AUDIT_SC=0
 AUDIT_OU=0
+# 1 once the own-branch arm approved an act that can change a worktree file
+# (a file write, or a git act other than add and commit); main reads it beside
+# COMMITTED_USED.
+OB_TOUCH=0
 OU_EXPORTED=0
 OU_EXP_NAMES=''
 OU_SEG=0
 # 1 once the own-branch or scratch arm or the spec-root zone approved a write
-# or git act, a plain fetch was approved, and once trusted repository code or
-# a declared step was approved (main reads both).
+# or a git act other than add and commit, a plain fetch was approved, or a
+# plugin script other than an installed step script ran (main reads it).
 ARM_ACT=0
-TASK_ACT=0
+# 1 while the segment being verified is an own-unit partner: git add or
+# commit through the own-branch arm, or a gate task (fin reads it).
+OU_PARTNER=0
 
 # audit_append <command> <session-id>: append the approval's line to the
 # session's audit log, before the decision is written. The command, its
@@ -437,7 +447,14 @@ tokenize() {
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
-            k="$k$dn"
+            # bash keeps the backslash before any other character, and
+            # guard_fish must see it.
+            case $dn in
+              '$' | '`' | '"' | "\\") k="$k$dn" ;;
+              # bash drops a backslash-newline whole, joining the word's halves.
+              "$NL") return 1 ;;
+              *) k="$k\\$dn" ;;
+            esac
             j=$((j + 2))
             continue
           fi
@@ -698,7 +715,7 @@ classify_redirect() {
 # --------------------------------------------------------------------------
 # Repo-root discovery and path containment (REQ-A1.10). repo_root walks up from
 # the payload cwd looking for a `.git` entry (a dir in a normal checkout, a file
-# in a worktree). canon_contained canonicalizes a script/bats path (resolving
+# in a worktree). canon_under canonicalizes a script/bats path (resolving
 # `..` and symlinks on its directory) and checks it resolves INSIDE the repo.
 repo_root_of() {
   local d=$1
@@ -746,17 +763,78 @@ canon_under() {
   esac
 }
 
-# canon_contained <path> <cwd>: canon_under against the repo root — prints the
-# canonical path and returns 0 only when it resolves inside the repository;
-# non-zero (DEFER) otherwise, including when the repo root cannot be resolved.
-canon_contained() {
+# committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
+# <rel> under the work tree <root>) is a regular file whose bytes are exactly
+# the blob HEAD records for <rel>, as a plain or executable file. Where a file
+# sits proves nothing about who wrote it, since a worker may Write it, so a
+# file the guard trusts by its content is trusted only as a commit holds it.
+# Plumbing only, so no index refresh (no write, no index.lock race with a
+# concurrent commit) and no filter or textconv driver runs. A verdict is kept
+# per path for the rest of the hook call, since a loop re-checks its body.
+#
+# COMMITTED_USED records that the approval leans on such a check, which holds
+# only for the file as it is before the command runs: main refuses a command
+# that also makes an own-branch act that can change a worktree file
+# (OB_TOUCH), since that act could land on the file before the shell reaches
+# it. Staging and committing change no worktree file, so they do not count.
+COMMITTED_OK=''
+COMMITTED_USED=0
+committed_blob() {
+  local root=$1 rel=$2 full=$3 key line meta path want have
+  key=$'\n'"$full"$'\n'
+  case $COMMITTED_OK in
+    *"$key"*)
+      committed_used "$full"
+      return 0
+      ;;
+  esac
+  [ -f "$full" ] && [ ! -L "$full" ] || return 1
+  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
+  case $line in
+    *$'\n'*) return 1 ;;
+  esac
+  meta=${line%%$'\t'*}
+  path=${line#*$'\t'}
+  [ "$path" = "$rel" ] || return 1
+  case $meta in
+    '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
+    *) return 1 ;;
+  esac
+  have=$(git_plain -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ] || return 1
+  COMMITTED_OK=$COMMITTED_OK$key
+  committed_used "$full"
+  return 0
+}
+
+# committed_used <full>: note a committed check the approval leans on, when the
+# file lies in the recorded worktree, the only place an own-branch write lands.
+committed_used() {
+  case $1 in
+    "$REC_WT"/*) [ -z "$REC_WT" ] || COMMITTED_USED=1 ;;
+  esac
+}
+
+# git_plain <args>: git answering about the repository its -C names, never one
+# a GIT_DIR, GIT_WORK_TREE or index variable inherited from a git hook points at.
+git_plain() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR -u GIT_OBJECT_DIRECTORY git "$@"
+}
+
+# committed_in_checkout <full>: 0 when <full>, a canonical path, is a file the
+# git checkout holding it commits unchanged (committed_blob). The checkout must
+# answer for itself: a `.git` that is no repository of its own would let git
+# answer from the one around it.
+committed_in_checkout() {
   local root
-  root=$(repo_root_of "$2") || return 1
-  canon_under "$1" "$2" "$root"
+  root=$(repo_root_of "$(dirname -- "$1")") || return 1
+  [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+  committed_blob "$root" "${1#"$root"/}" "$1"
 }
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
-# tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10).
+# tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10)
+# and matches what HEAD commits there (committed_blob).
 is_repo_script() {
   local p=$1 cwd=$2 full rel root
   case $p in
@@ -769,9 +847,10 @@ is_repo_script() {
   [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
   rel=${full#"$root"/}
   case $rel in
-    scripts/* | tests/* | */scripts/* | */tests/*) return 0 ;;
+    scripts/* | tests/* | */scripts/* | */tests/*) ;;
     *) return 1 ;;
   esac
+  committed_blob "$root" "$rel" "$full"
 }
 
 # planwright_roots: print, one per line and canonicalized, every planwright
@@ -865,7 +944,16 @@ is_planwright_script() {
     [ ! "$full" -ef "$root/scripts/tower-force-push.sh" ] || return 1
     rel=${full#"$root"/}
     case $rel in
-      scripts/*) return 0 ;;
+      scripts/*)
+        # A root that is a git checkout (a tower or mission control run from
+        # one) lies outside the worktree, where the file tools still write,
+        # so it is held to what its HEAD commits, as the repository is. A
+        # root that is no checkout of its own is an install copy.
+        [ -e "$root/.git" ] || return 0
+        [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+        committed_blob "$root" "$rel" "$full"
+        return
+        ;;
     esac
   done <<EOF
 $PW_ROOTS
@@ -889,11 +977,165 @@ is_trusted_script() {
   is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
 }
 
+# --------------------------------------------------------------------------
+# The step scripts (REQ-F1.12). A record whose times a worker sets by hand
+# can make a step that never ran read as run, so the guard approves only the
+# calls that leave the times to the scripts, on the session's own step cache.
+# A call is read as the script path, at most one two-word `--worktree <dir>`,
+# then the verb; every word must be the literal the script will see.
+
+# step_script_kind <path>: 0 when <path> is a step script,
+# its kind left in STEP_KIND (`record` or `run`): by name under any casing a
+# case-insensitive filesystem runs, or as a link of a trusted root's copy.
+step_script_kind() {
+  local p=$1 root
+  lower "${p##*/}"
+  case $LOWER in
+    step-record.sh)
+      STEP_KIND=record
+      return 0
+      ;;
+    step-run.sh)
+      STEP_KIND=run
+      return 0
+      ;;
+  esac
+  case $p in
+    /*) ;;
+    *) p=$HOOK_CWD/$p ;;
+  esac
+  cache_roots
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    if [ "$p" -ef "$root/scripts/step-record.sh" ]; then
+      STEP_KIND=record
+      return 0
+    fi
+    if [ "$p" -ef "$root/scripts/step-run.sh" ]; then
+      STEP_KIND=run
+      return 0
+    fi
+  done <<EOF
+$PW_ROOTS
+EOF
+  return 1
+}
+
+# step_call_ok <index>: the step-script call whose script path is word
+# <index> of the current simple command, STEP_KIND set, is one REQ-F1.12
+# passes.
+step_call_ok() {
+  local i=$1 j wt='' given=0 verb
+  for ((j = i; j < cwn; j++)); do
+    [ -z "${csub[j]-}" ] || return 1
+    word_unresolved "${cw[j]}" "${cdyn[j]}" "${cglob[j]}" "${cx[j]}" && return 1
+  done
+  j=$((i + 1))
+  if [ "${cw[j]-}" = --worktree ]; then
+    [ $((j + 1)) -lt "$cwn" ] || return 1
+    wt=${cw[j + 1]}
+    given=1
+    j=$((j + 2))
+  fi
+  [ "$j" -lt "$cwn" ] || return 1
+  verb=${cw[j]}
+  # It reads no worktree or file, so no cache to keep it to.
+  [ "$STEP_KIND:$verb" != record:args-digest ] || return 0
+  step_own_cache_ok "$given" "$wt" || return 1
+  case $STEP_KIND:$verb in
+    record:write) step_write_ok $((j + 1)) ;;
+    # The script checks the source against the session's own events.
+    record:supersede) step_has_word $((j + 1)) --source ;;
+    record:render | record:list | record:lookup | record:heads | record:untrue | record:fingerprint) ;;
+    record:new-run | record:regenerate | record:status) ;;
+    record:excerpt) [ $((j + 2)) -eq "$cwn" ] && step_excerpt_ok "${cw[j + 1]}" ;;
+    # Their records are timed by the script itself.
+    run:resolve | run:audit | run:command | run:begin | run:end | run:resume | run:refire) ;;
+    *) return 1 ;;
+  esac
+}
+
+# step_own_cache_ok <given> <dir>: the call works on the recorded worktree's
+# cache: a given `--worktree` is a plain absolute path canonically that
+# worktree; an absent one leaves the script to find the git top level from
+# the session's directory, which must then lie in the worktree's own
+# repository. A step-context WORKTREE is held to the same worktree where
+# step_context_value_ok reads it.
+step_own_cache_ok() {
+  local here
+  [ -n "$REC_WT" ] || return 1
+  if [ "$1" = 1 ]; then
+    bare_abs_path_ok "$2" || return 1
+    case $2/ in
+      */./* | */../* | *//*/*) return 1 ;;
+    esac
+    [ "$(cd -- "$2" 2>/dev/null && pwd -P)" = "$REC_WT" ]
+    return
+  fi
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  own_unit_same_repo "$here"
+}
+
+# step_write_ok <index>: the write from word <index> on is a --completion
+# write setting no time: a step, re-fire or full-suite write gives --start.
+step_write_ok() {
+  local j c=0
+  for ((j = $1; j < cwn; j++)); do
+    case ${cw[j]} in
+      --completion) c=1 ;;
+      --start | --end | --start=* | --end=*) return 1 ;;
+    esac
+  done
+  [ "$c" = 1 ]
+}
+
+# step_has_word <index> <word>: <word> is one of the words from <index> on.
+step_has_word() {
+  local j
+  for ((j = $1; j < cwn; j++)); do
+    [ "${cw[j]}" != "$2" ] || return 0
+  done
+  return 1
+}
+
+# step_excerpt_ok <file>: <file> canonicalizes inside the recorded worktree
+# or scratch root, never through a symlinked leaf.
+step_excerpt_ok() {
+  local f=$1 d b full root
+  case $f in
+    /*) ;;
+    *) f=$HOOK_CWD/$f ;;
+  esac
+  b=${f##*/}
+  case $b in
+    '' | . | ..) return 1 ;;
+  esac
+  d=$(cd "${f%/*}/" 2>/dev/null && pwd -P) || return 1
+  full=${d%/}/$b
+  [ ! -L "$full" ] || return 1
+  for root in "$REC_WT" "$REC_SCRATCH"; do
+    [ -n "$root" ] || continue
+    case $full in
+      "$root"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# (used for `bats <file>`, which need not sit under scripts/ or tests/, and which
-# stays REPO-scoped — an install ships no test files to run).
+# and is a file HEAD commits there unchanged (used for `bats <file>`, which need
+# not sit under scripts/ or tests/, and which stays REPO-scoped — an install
+# ships no test files to run). A directory operand fails, since bats would run
+# whatever files it holds.
 is_contained_file() {
-  canon_contained "$1" "$2" >/dev/null
+  local root full
+  root=$(repo_root_of "$2") || return 1
+  full=$(canon_under "$1" "$2" "$root") || return 1
+  committed_blob "$root" "${full#"$root"/}" "$full"
 }
 
 # --------------------------------------------------------------------------
@@ -1047,9 +1289,16 @@ REC_BASE=''
 REC_BASE_MERGE=''
 REC_SCRATCH=''
 REC_AUDIT_LOG=''
-# 1 when the launch opted in to editing the worktree's own mise task files
-# (the record's mise_task_edit=1); see ob_excluded_name.
-REC_MISE_TASKS=0
+# The launch's opt-ins to editing the worktree's own trusted names, as the
+# letters ob_excluded_name and ob_tree_clean read: m (the record's mise_task_edit=1, the mise
+# task files), l (lefthook_edit=1, the lefthook config).
+REC_OPEN=''
+# The repository's declared check commands, `;` separated, as the launcher
+# resolved worker_check_commands; see check_command_ok. The length bound is
+# scripts/worker-session-record.sh's (they change together), which keeps the
+# record under the size every record reader accepts.
+REC_CHECKS=''
+readonly MAX_CHECKS_LEN=2048
 
 # rec_unit_branch_ok <name>: a task or flight branch, in policy-guard.sh's
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
@@ -1080,7 +1329,7 @@ rec_policy_norm() {
 
 session_record_load() {
   local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' dup=' ' size dir
-  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt=''
+  local policy='' unit='' wt='' base='' bm='' sr='' ah='' log='' mt='' lh='' cc=''
   case $p in
     /?*) ;;
     *) return 0 ;;
@@ -1108,6 +1357,8 @@ session_record_load() {
       scratch_root) sr=$v ;;
       audit_log_home) ah=$v ;;
       mise_task_edit) mt=$v ;;
+      lefthook_edit) lh=$v ;;
+      check_commands) cc=$v ;;
     esac
   done <"$p"
   case $dup in *" policy "*) policy='' ;; esac
@@ -1118,6 +1369,12 @@ session_record_load() {
   case $dup in *" scratch_root "*) sr='' ;; esac
   case $dup in *" audit_log_home "*) ah='' ;; esac
   case $dup in *" mise_task_edit "*) mt='' ;; esac
+  case $dup in *" lefthook_edit "*) lh='' ;; esac
+  case $dup in *" check_commands "*) cc='' ;; esac
+  case $cc in
+    *[[:cntrl:]]*) cc='' ;;
+  esac
+  [ "${#cc}" -le "$MAX_CHECKS_LEN" ] || cc=''
   rec_unit_branch_ok "$unit" || unit=''
   case $wt in
     /?*) ;;
@@ -1213,8 +1470,11 @@ session_record_load() {
   REC_BASE=$base
   REC_BASE_MERGE=$bm
   REC_SCRATCH=$sr
-  REC_MISE_TASKS=0
-  [ "$mt" != 1 ] || REC_MISE_TASKS=1
+  REC_OPEN=''
+  [ "$mt" != 1 ] || REC_OPEN=${REC_OPEN}m
+  [ "$lh" != 1 ] || REC_OPEN=${REC_OPEN}l
+  REC_CHECKS=''
+  [ -z "$wt" ] || REC_CHECKS=$cc
 }
 
 # --------------------------------------------------------------------------
@@ -1618,6 +1878,26 @@ ob_mark() {
   esac
 }
 
+# lower <text>: the text with A-Z lowercased into LOWER, as `tr` does under
+# the C locale, without a fork: a fork that failed would leave an empty
+# string, which matches no excluded name and so would admit the path.
+lower() {
+  local s=$1 out='' c k i u=ABCDEFGHIJKLMNOPQRSTUVWXYZ l=abcdefghijklmnopqrstuvwxyz
+  for ((i = 0; i < ${#s}; i++)); do
+    c=${s:i:1}
+    case $c in
+      [A-Z])
+        # Under nocasematch the pattern also takes a lowercase letter, which
+        # the prefix strip then finds nowhere.
+        k=${u%%"$c"*}
+        [ "${#k}" -ge 26 ] || c=${l:${#k}:1}
+        ;;
+    esac
+    out=$out$c
+  done
+  LOWER=$out
+}
+
 # canon_loose <abs>: the canonical form of an absolute path whose trailing
 # components may not exist yet.
 canon_loose() {
@@ -1656,23 +1936,36 @@ ob_excl_load() {
 $raw
 EOF
   [ -n "$out" ] || return 1
-  OB_EXCL_DIRS=$(printf '%s' "$out" | tr '[:upper:]' '[:lower:]')
+  lower "$out"
+  OB_EXCL_DIRS=$LOWER
   OB_EXCL_STATE=1
 }
 
-# ob_excluded_name <component> [<task-open>]: the names a tool runs or trusts
+# ob_excluded_name <component> [<open>]: the names a tool runs or trusts
 # without a further prompt, matched case-insensitively at any depth, since
-# mise reads a config from whatever directory it starts in. With <task-open>
-# 1, the four task-file names (mise.toml, .mise.toml, mise-tasks, .mise-tasks)
-# are let through: only the worktree zone of an opted-in session asks for it.
+# mise reads a config from whatever directory it starts in. <open> is REC_OPEN
+# or a subset of it: with `m`, the four task-file names (mise.toml, .mise.toml,
+# mise-tasks, .mise-tasks) are let through; with `l`, the lefthook config
+# names (lefthook, lefthook.*; lefthook-local.* and the dotted variants stay
+# excluded). Only the worktree zone of an opted-in session asks for either.
 ob_excluded_name() {
   local low
-  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  if [ "${2:-0}" = 1 ]; then
-    case $low in
-      mise.toml | .mise.toml | mise-tasks | .mise-tasks) return 1 ;;
-    esac
-  fi
+  lower "$1"
+  low=$LOWER
+  case ${2:-} in
+    *m*)
+      case $low in
+        mise.toml | .mise.toml | mise-tasks | .mise-tasks) return 1 ;;
+      esac
+      ;;
+  esac
+  case ${2:-} in
+    *l*)
+      case $low in
+        lefthook | lefthook.*) return 1 ;;
+      esac
+      ;;
+  esac
   case $low in
     .git | .claude | .envrc | .tool-versions | .config | .mise | mise.toml | .mise.toml | mise.*.toml | .mise.*.toml | .miserc*.toml | mise-tasks | .mise-tasks | mise*.lock | lefthook | lefthook.* | lefthook-local.* | .lefthook | .lefthook.* | .lefthook-local | .lefthook-local.*) return 0 ;;
   esac
@@ -1683,14 +1976,15 @@ ob_excluded_name() {
 # loads, matched case-insensitively. Anything else there is never read.
 ob_excluded_mise_child() {
   local low
-  low=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  lower "$1"
+  low=$LOWER
   case $low in
     config*.toml | miserc*.toml | conf.d | tasks) return 0 ;;
   esac
   return 1
 }
 
-# ob_excluded_rel <relative-path> <root> [<task-open>]: 0 when a component of the path
+# ob_excluded_rel <relative-path> <root> [<open>]: 0 when a component of the path
 # under <root> is an excluded name, a `mise/` entry mise loads (the root's own
 # name counting as its parent), or the last component is `mise` itself:
 # moving a directory onto that name would turn its config.toml or conf.d into
@@ -1698,17 +1992,19 @@ ob_excluded_mise_child() {
 ob_excluded_rel() {
   local comp prev last=''
   local -a comps=()
-  prev=$(printf '%s' "${2##*/}" | tr '[:upper:]' '[:lower:]')
+  lower "${2##*/}"
+  prev=$LOWER
   IFS=/ read -r -a comps <<<"$1"
   for comp in ${comps[@]+"${comps[@]}"}; do
     case $comp in
       '' | .) continue ;;
     esac
-    ob_excluded_name "$comp" "${3:-0}" && return 0
+    ob_excluded_name "$comp" "${3:-}" && return 0
     if [ "$prev" = mise ] && ob_excluded_mise_child "$comp"; then
       return 0
     fi
-    prev=$(printf '%s' "$comp" | tr '[:upper:]' '[:lower:]')
+    lower "$comp"
+    prev=$LOWER
     last=$prev
   done
   [ "$last" = mise ]
@@ -1719,7 +2015,8 @@ ob_excluded_rel() {
 ob_excluded() {
   local full=$1 low d
   ob_excl_load || return 0
-  low=$(printf '%s' "$full" | tr '[:upper:]' '[:lower:]')
+  lower "$full"
+  low=$LOWER
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     case $low/ in
@@ -1728,14 +2025,16 @@ ob_excluded() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT" "$REC_MISE_TASKS"
+  ob_excluded_rel "${full#"$REC_WT"/}" "$REC_WT" "$REC_OPEN"
 }
 
-# ob_tree_clean <canonical-dir>: 0 when nothing under the directory is an
-# excluded path, for a recursive act on it.
+# ob_tree_clean <canonical-dir> [<open>]: 0 when nothing under the directory is
+# an excluded path, for a recursive act on it. <open> is ob_excluded_name's:
+# the opt-in names let through, given only where the act lands in the worktree.
 ob_tree_clean() {
   local dir=$1 low d hit
-  low=$(printf '%s' "$dir" | tr '[:upper:]' '[:lower:]')
+  lower "$dir"
+  low=$LOWER
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     case $d/ in
@@ -1744,25 +2043,24 @@ ob_tree_clean() {
   done <<EOF
 $OB_EXCL_DIRS
 EOF
-  if [ "$REC_MISE_TASKS" = 1 ]; then
-    hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-      -o -iname .config -o -iname .mise \
-      -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' \
-      -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
-      -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
-      -o -iname lefthook -o -iname 'lefthook.*' \
-      -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-      -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
-  else
-    hit=$(find "$dir" \( -iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions \
-      -o -iname .config -o -iname .mise -o -iname 'mise.toml' -o -iname '.mise.toml' \
-      -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml' -o -iname mise-tasks \
-      -o -iname .mise-tasks -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml' \
-      -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks' \
-      -o -iname lefthook -o -iname 'lefthook.*' \
-      -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*' -o -iname '.lefthook-local' \
-      -o -iname '.lefthook-local.*' \) -print -quit 2>/dev/null) || return 1
-  fi
+  # The same names ob_excluded_name lists (keep the two in step), as find
+  # primaries, less the ones an opt-in lets through.
+  local -a names=(-iname .git -o -iname .claude -o -iname .envrc -o -iname .tool-versions
+    -o -iname .config -o -iname .mise
+    -o -iname 'mise.*.toml' -o -iname '.mise.*.toml' -o -iname '.miserc*.toml'
+    -o -iname 'mise*.lock' -o -ipath '*/mise/config*.toml'
+    -o -ipath '*/mise/miserc*.toml' -o -ipath '*/mise/conf.d' -o -ipath '*/mise/tasks'
+    -o -iname 'lefthook-local.*' -o -iname '.lefthook' -o -iname '.lefthook.*'
+    -o -iname '.lefthook-local' -o -iname '.lefthook-local.*')
+  case ${2:-} in
+    *m*) ;;
+    *) names+=(-o -iname mise.toml -o -iname .mise.toml -o -iname mise-tasks -o -iname .mise-tasks) ;;
+  esac
+  case ${2:-} in
+    *l*) ;;
+    *) names+=(-o -iname lefthook -o -iname 'lefthook.*') ;;
+  esac
+  hit=$(find "$dir" \( "${names[@]}" \) -print -quit 2>/dev/null) || return 1
   [ -z "$hit" ]
 }
 
@@ -1833,7 +2131,8 @@ ob_path() {
     # read them as its own configuration. The root is the worker's TMPDIR,
     # so its mise/ is mise's own temporary directory.
     ob_excluded_rel "${acc#"$REC_SCRATCH"/}" "$REC_SCRATCH" && return 1
-    case $(printf '%s' "${acc#"$REC_SCRATCH"/}" | tr '[:upper:]' '[:lower:]') in
+    lower "${acc#"$REC_SCRATCH"/}"
+    case $LOWER in
       mise | mise/*) return 1 ;;
     esac
     OB_ZONE=sc
@@ -1849,7 +2148,7 @@ ob_path() {
   fi
   OB_PATH=$acc
   case $OB_ZONE in
-    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1; } ;;
+    wt) ! ob_live || { AUDIT_OB=1 && ARM_ACT=1 && OB_TOUCH=1; } ;;
     sc) AUDIT_SC=1 ARM_ACT=1 ;;
   esac
 }
@@ -1858,7 +2157,7 @@ ob_path() {
 # act on a worktree directory, nothing excluded beneath it.
 ob_target() {
   ob_path "$1" "$2" "${4-wt}" || return 1
-  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" && return 1
+  [ "$3" = 1 ] && [ "$OB_ZONE" = wt ] && [ -d "$OB_PATH" ] && ! ob_tree_clean "$OB_PATH" "$REC_OPEN" && return 1
   return 0
 }
 
@@ -1948,7 +2247,8 @@ guard_touch() {
 # zone; a copied one is read, so the worktree or, under the scratch arm, the
 # scratch root); the destination is a new path, or an existing directory
 # whose entry for each source is checked as the target. A directory copied
-# or moved holds no excluded path, in either zone. A recursive copy lands only
+# or moved holds no excluded path, in either zone, an opt-in's names excepted
+# when the destination is the worktree. A recursive copy lands only
 # where nothing exists yet, so it never writes through an existing file.
 ob_copy_move() {
   local verb=$1 rec=$2 zones=$3 n dst s b final src src_dir
@@ -1983,7 +2283,12 @@ ob_copy_move() {
       return 1
     fi
     if [ -n "$src_dir" ]; then
-      ob_tree_clean "$src_dir" || return 1
+      # An opt-in's names move only within the worktree, never into scratch.
+      if [ "$OB_ZONE" = wt ]; then
+        ob_tree_clean "$src_dir" "$REC_OPEN" || return 1
+      else
+        ob_tree_clean "$src_dir" || return 1
+      fi
     fi
   done
   return 0
@@ -2105,7 +2410,7 @@ ob_git_ready() {
   head=$(git -C "$REC_WT" symbolic-ref -q HEAD 2>/dev/null) || return 1
   [ "$head" = "refs/heads/$REC_UNIT" ] || return 1
   AUDIT_OB=1
-  ARM_ACT=1
+  OB_TOUCH=1
 }
 
 # ob_pathspec <word> <recursive>: a git pathspec naming a write target: no
@@ -2168,8 +2473,14 @@ git_fetch_ok() {
 # object store and index are not write targets; the worktree
 # files a `rm`, `mv`, `restore`, or `checkout --` writes are.
 ob_git() {
-  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src=''
+  local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' ot=$OB_TOUCH
   ob_git_ready || return 1
+  # Staging, committing and fetching write only git's own store, never a
+  # worktree file, so they leave a script HEAD already holds as it was
+  # (OB_TOUCH); a commit's -F read is a read.
+  case $sub in
+    add | commit | fetch) OB_TOUCH=$ot ;;
+  esac
   case $sub in
     add)
       for (( ; i < cwn; i++)); do
@@ -2230,6 +2541,7 @@ ob_git() {
             ;;
         esac
       done
+      OB_TOUCH=$ot
       [ -z "$expect" ]
       return
       ;;
@@ -3649,39 +3961,175 @@ guard_umask() {
   return 1
 }
 
+# guard_mdlint <verb>: markdownlint-cli2 and markdownlint load their config
+# from the folder of each file they lint, the working directory and the folders
+# above, and a config can run code: a .cjs or .mjs one is a module, and an
+# options file can name custom-rule, plugin and formatter modules. A worker can
+# Write any of those, so a run is approved only on named files inside the
+# repository, since a glob or a folder reaches folders this does not check,
+# and only when mdlint_configs_ok clears every folder. An option defers (it
+# can name a config, a rule module or an output file, or fix files), but for
+# `--no-globs` and markdownlint's `-q`.
 guard_mdlint() {
-  local i a
+  local verb=$1 i a p full root ends=0 nog=0 dirs=()
+  root=$(repo_root_of "$HOOK_CWD") || return 1
+  [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
-    case $a in
-      --fix | -f | --output | --output=* | -o) return 1 ;;
+    if [ "$ends" = 0 ]; then
+      case $verb:$a in
+        *:--)
+          ends=1
+          continue
+          ;;
+        markdownlint-cli2:--no-globs)
+          nog=1
+          continue
+          ;;
+        markdownlint:-q | markdownlint:--quiet) continue ;;
+        *:-*) return 1 ;;
+      esac
+    fi
+    p=$a
+    # markdownlint-cli2 reads a leading `:` as "a literal path".
+    [ "$verb" != markdownlint-cli2 ] || p=${p#:}
+    # Glob and extended-glob syntax, and a newline, which no folder walk below
+    # could follow.
+    case $p in
+      '' | -* | '#'* | '!'* | '~'* | *[][*?{}\(\)\|\\]* | *$'\n'*) return 1 ;;
+    esac
+    case /$p/ in
+      */../*) return 1 ;;
+    esac
+    mdlint_unlinked "$p" || return 1
+    full=$(canon_under "$p" "$HOOK_CWD" "$root") || return 1
+    [ -f "$full" ] || return 1
+    dirs+=("${full%/*}")
+  done
+  [ "${#dirs[@]}" -ge 1 ] || return 1
+  mdlint_configs_ok "$verb" "$nog" "${dirs[@]}"
+}
+
+# mdlint_unlinked <operand>: 0 unless a folder the operand names on its way to
+# the file is a symbolic link. The linters look for config along the path as
+# written, so a linked folder's own config would lie off the canonical walk.
+mdlint_unlinked() {
+  local d
+  case $1 in
+    */*) d=${1%/*} ;;
+    *) return 0 ;;
+  esac
+  while [ -n "$d" ]; do
+    case $d in
+      /*) [ ! -L "$d" ] || return 1 ;;
+      *) [ ! -L "$HOOK_CWD/$d" ] || return 1 ;;
+    esac
+    case $d in
+      */*) d=${d%/*} ;;
+      *) d='' ;;
     esac
   done
   return 0
 }
 
+# The files markdownlint-cli2 and markdownlint read from a folder, by what
+# they can do: a module runs whatever it imports, an options file can name
+# modules to import and, in the working directory, add globs, and a config
+# file holds rule settings only (its `extends` reads another such file).
+MDLINT_MODULES=(.markdownlint-cli2.cjs .markdownlint-cli2.mjs .markdownlint.cjs .markdownlint.mjs)
+MDLINT_OPTIONS=(.markdownlint-cli2.jsonc .markdownlint-cli2.yaml .markdownlint-cli2.yml package.json)
+MDLINT_SETTINGS=(.markdownlint.jsonc .markdownlint.json .markdownlint.yaml .markdownlint.yml .markdownlintrc)
+
+# mdlint_configs_ok <verb> <no-globs> <dir>...: 0 when the working directory,
+# each <dir> and every folder above them hold no module config, and every
+# options and settings file there is one a git checkout commits unchanged.
+# A committed module may still import a file the worker wrote, so it defers
+# too, and so does an options file naming a module key or holding a
+# backslash, through which an escape could spell one. Without --no-globs, an
+# options file in the working directory may add globs reaching folders this
+# does not walk, so one there defers. The verdict holds only for the folders as
+# they are before the command runs, so the approval leans on a committed check
+# (COMMITTED_USED) and main refuses it beside an own-branch act that can change
+# a worktree file (OB_TOUCH).
+mdlint_configs_ok() {
+  local verb=$1 nog=$2 d f seen=$'\n' cwdp
+  shift 2
+  cwdp=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  # A newline in a folder name would forge an entry of the walk's seen list.
+  case $cwdp in
+    *$'\n'*) return 1 ;;
+  esac
+  if [ "$verb" = markdownlint-cli2 ] && [ "$nog" = 0 ]; then
+    for f in "${MDLINT_OPTIONS[@]}"; do
+      [ ! -e "$cwdp/$f" ] && [ ! -L "$cwdp/$f" ] || return 1
+    done
+  fi
+  for d in "$cwdp" "$@"; do
+    while :; do
+      case $seen in
+        *$'\n'"$d"$'\n'*) break ;;
+      esac
+      seen=$seen$d$'\n'
+      for f in "${MDLINT_MODULES[@]}"; do
+        [ ! -e "$d/$f" ] && [ ! -L "$d/$f" ] || return 1
+      done
+      for f in "${MDLINT_OPTIONS[@]}" "${MDLINT_SETTINGS[@]}"; do
+        [ -e "$d/$f" ] || [ -L "$d/$f" ] || continue
+        committed_in_checkout "${d%/}/$f" || return 1
+      done
+      for f in "${MDLINT_OPTIONS[@]}"; do
+        [ -f "$d/$f" ] || continue
+        # grep exits 1 only on a file read whole with no match.
+        LC_ALL=C grep -a -q -E 'customRules|markdownItPlugins|outputFormatters|modulePaths|[\]' -- "$d/$f"
+        [ $? -eq 1 ] || return 1
+      done
+      [ "$d" != / ] || break
+      d=${d%/*}
+      [ -n "$d" ] || d=/
+    done
+  done
+  COMMITTED_USED=1
+  return 0
+}
+
 guard_bashsh() {
   # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code or an installed planwright root's scripts/; any option (notably -c /
+  # code HEAD commits unchanged or an installed planwright root's scripts/
+  # (is_trusted_script); any option (notably -c /
   # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
     -*) return 1 ;;
   esac
-  is_trusted_script "${cw[1]}" "$HOOK_CWD"
+  is_trusted_script "${cw[1]}" "$HOOK_CWD" || return 1
+  step_script_kind "${cw[1]}" || return 0
+  STEP_CALL=1
+  step_call_ok 1
 }
 
 guard_fish() {
   # Only `fish -c "<inner>"`; recurse the same analysis on the inner string
   # within the depth bound (REQ-A1.5, REQ-B1.3).
-  [ "$cwn" -ge 3 ] || return 1
+  # fish keeps reading its own options after the string, and a second `-c`
+  # or `--init-command` runs too.
+  [ "$cwn" -eq 3 ] || return 1
   [ "${cw[1]}" = '-c' ] || return 1
+  # The inner string is read with bash's quoting, but fish decodes escapes
+  # bash does not (`--he\x6cp` is `--help` to fish), and expands `{a, b}`
+  # across the space into two words, so either defers.
+  case ${cw[2]} in
+    *\\* | *'{'*','*) return 1 ;;
+  esac
+  # fish's read updates a variable where it already lives, a universal one
+  # included, and fish saves those to disk, so no read runs inside.
+  local FISH_INNER=1
   analyze_command "${cw[2]}" "$((HOOK_DEPTH + 1))"
 }
 
 guard_bats() {
   # `bats [safe-flags] <file...>`: each file operand must resolve inside the
-  # repo (REQ-A1.10), and ONLY no-value display/selection flags are allowed.
+  # repo (REQ-A1.10) to a file HEAD commits unchanged (a directory defers), and
+  # ONLY no-value display/selection flags are allowed.
   # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
   # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
   # carry a path bats would execute or write OUTSIDE the containment check, so
@@ -3724,9 +4172,9 @@ guard_mise() {
       # `mise tasks` is a subcommand TREE, not a read-only leaf. Bare
       # `mise tasks` and the display leaves (`ls`/`info`/`deps`) list tasks, but
       # `edit` launches $EDITOR (arbitrary exec), `add` writes a task file, and
-      # `run` is an alias of `mise run` (so it can carry the `--shell`
-      # interpreter override, REQ-A1.6). Enumerate the read-only leaves, route
-      # `run` through the shell-override guard below, and defer edit/add/unknown.
+      # `run` is an alias of `mise run` (so it can carry the options that
+      # change what a task runs). Enumerate the read-only leaves, route
+      # `run` through the run-option screen below, and defer edit/add/unknown.
       leaf=''
       for ((j = i + 1; j < cwn; j++)); do
         case ${cw[j]} in
@@ -3739,20 +4187,29 @@ guard_mise() {
       done
       case $leaf in
         '' | ls | info | deps) return 0 ;;
-        run) i=$j ;; # fall through to the shell-override guard on the run args
+        run) ;; # screened below from the words after `tasks`, a global option before `run` included
         *) return 1 ;;
       esac
       ;;
-    run) ;; # fall through to the shell-override guard below
+    run) ;; # fall through to the run-option screen below
     *) return 1 ;;
   esac
-  # `mise run --shell/-s '<cmd>'` overrides the interpreter, turning the trusted
-  # repo-task runner into an arbitrary-command runner (REQ-A1.6). Defer any
-  # short-flag token carrying `s` (`-s`, `-ns`, …) or the long `--shell` form.
-  for (( ; i < cwn; i++)); do
+  mise_run_args_ok "$((i + 1))"
+}
+
+# mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
+# that changes what a task runs, turning the trusted repo-task runner into an
+# arbitrary-command runner: --shell runs the task through any
+# command, --cd takes it from another directory's config, --env loads a
+# mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
+# reads no abbreviation of a long option, but a short-flag cluster can carry
+# any of the letters (`-nC`), so a cluster holding one defers.
+mise_run_args_ok() {
+  local i
+  for ((i = $1; i < cwn; i++)); do
     case ${cw[i]} in
-      --shell | --shell=*) return 1 ;;
-      -[!-]*s* | -s*) return 1 ;;
+      --shell | --shell=* | --cd | --cd=* | --env | --env=* | --tool | --tool=*) return 1 ;;
+      -[sCEt]* | -[!-]*[sCEt]*) return 1 ;;
     esac
   done
   return 0
@@ -3838,7 +4295,7 @@ gh_release_ok() {
 # path is read through ob_path, whose audit marks a write arm: a read is no
 # arm's act, so the marks are put back.
 guard_gitleaks() {
-  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC
+  local i a src='' have=0 ao=$AUDIT_OB as=$AUDIT_SC ot=$OB_TOUCH
   [ "${cw[1]-}" = detect ] || return 1
   for ((i = 2; i < cwn; i++)); do
     a=${cw[i]}
@@ -3864,6 +4321,7 @@ guard_gitleaks() {
   ob_path "$src" exists read || return 1
   AUDIT_OB=$ao
   AUDIT_SC=$as
+  OB_TOUCH=$ot
   return 0
 }
 
@@ -4008,6 +4466,23 @@ git_config_write_opt() {
   return 1
 }
 
+# git_help_req <verb>: whether the git line in cw asks for help, which opens the
+# man page through a pager or a browser, and a pager runs commands (`!cmd` in
+# less). git opens it for the `help` verb and an exact `--help` right after
+# the verb, but any word git could read as --help or --help-all, wherever it
+# sits and abbreviated or not, counts, failing closed.
+git_help_req() {
+  local i n
+  [ "$1" = help ] && return 0
+  for ((i = 1; i < cwn; i++)); do
+    n=${cw[i]%%=*}
+    case $n in
+      --?*) [[ help-all == "${n#--}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution, REQ-A1.8), and per-subcommand form
 # guards on the subcommands with a mutating twin (REQ-A1.5).
@@ -4032,12 +4507,22 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  git_help_req "$sub" && return 1
   if [ "$viac" = 1 ]; then
     case $sub in
       status | diff | log | show) ;;
       *) return 1 ;;
     esac
   fi
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       # Read-only, but reject a following flag that WRITES a file
@@ -4163,11 +4648,9 @@ guard_git() {
       return 0
       ;;
     stash)
-      # Only the read-only subcommands; bare `git stash` PUSHES, so it defers.
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`; bare `git stash`
+      # PUSHES, and every other subcommand writes, so it defers.
+      return 1
       ;;
     symbolic-ref)
       # `git symbolic-ref <name>` READS a ref, but `git symbolic-ref HEAD <ref>`
@@ -4185,10 +4668,10 @@ guard_git() {
       return 0
       ;;
     reflog)
-      # `git reflog` / `reflog show` / `reflog exists` READ; `expire`/`delete`
-      # destroy recovery data.
+      # `git reflog` and `reflog exists` READ (`reflog show` arrives above as
+      # `log`); `expire`/`delete` destroy recovery data.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -4245,14 +4728,27 @@ guard_git() {
       # objects. Not through -C.
       if [ "$viac" = 0 ] && [ "$IN_SUBST" = 0 ] && [ "$HOOK_DEPTH" -eq 0 ] && [ -n "$REC_WT" ] && [ -n "$REC_UNIT" ]; then
         HOOK_WT_ROOT=$REC_WT
-        # It writes remote-tracking refs, so it is no own-unit partner.
+        # It writes remote-tracking refs: no own-unit partner, whichever arm
+        # approves it.
         cd_same_repo "$HOOK_CWD" && git_fetch_ok "$((subidx + 1))" origin && ARM_ACT=1 && return 0
       fi
-      ob_git "$sub" "$subidx"
+      ob_git "$sub" "$subidx" && ARM_ACT=1
       ;;
-    add | rm | mv | restore | checkout | commit | merge) ob_git "$sub" "$subidx" ;;
+    add | commit) ob_git_partner "$sub" "$subidx" ;;
+    rm | mv | restore | checkout | merge) ob_git "$sub" "$subidx" && ARM_ACT=1 ;;
     *) return 1 ;;
   esac
+}
+
+# ob_git_partner <sub> <index>: ob_git for the own-branch arm's `git add` and
+# `git commit`, the two git acts that may come before an own-unit act in its
+# chain (OU_PARTNER): a read their checks make (a `commit -F` file) is no
+# write, so it leaves ARM_ACT as it was.
+ob_git_partner() {
+  local arm=$ARM_ACT
+  ob_git "$1" "$2" || return 1
+  ARM_ACT=$arm
+  OU_PARTNER=1
 }
 
 # ls_remote_url_ok <remote>: 0 only when `git ls-remote <remote>` would use a
@@ -5959,10 +6455,10 @@ classify_verb() {
     perl) guard_perl_inplace ;;
     awk) guard_awk ;;
     jq) guard_jq ;;
-    markdownlint | markdownlint-cli2) guard_mdlint ;;
+    markdownlint | markdownlint-cli2) guard_mdlint "$verb" ;;
     env) guard_env ;;
     printenv) guard_printenv ;;
-    read) guard_read ;;
+    read) [ -z "${FISH_INNER-}" ] && guard_read ;;
     yq) guard_yq ;;
     shfmt) guard_shfmt ;;
     rg) guard_rg ;;
@@ -5991,6 +6487,396 @@ classify_verb() {
 }
 
 # --------------------------------------------------------------------------
+# Declared check commands (worker_check_commands). A segment no rule above
+# approved is still approved when its words match a check command the
+# repository declares, so its own test and check runners need no mise task.
+# A declaration is a word sequence: literal words, matched exactly (a flag is
+# admitted only where it is spelled out), and the placeholders `<word>` (a
+# token with no `/`), `<int>` and `<path>` (worktree-relative, resolved from
+# the working directory, inside the worktree and outside every path the
+# own-branch arm excludes, so naming no hooks, git or tool configuration
+# path), the last of them optionally suffixed `...` to match one or more
+# words. No placeholder matches a leading dash, a shell metacharacter or an
+# expansion, and the working directory is held to the `<path>` rules. A runner prefix (`mise exec --`) is literal words like any other,
+# so it admits its own sequence and never the runner in general. A
+# declaration holding anything else is malformed and dropped alone. The
+# declarations come from the session record, read by the launcher at the
+# primary checkout, never from a file the worker can write; the floor is read
+# before them (verify_simple). Running one runs repository code: a script its
+# literal words name is held to HEAD as the repository's scripts/ are
+# (check_literals_committed), and whatever a `<path>` names runs as declared.
+# That trust stops at a config loader: a declared markdownlint or mise run
+# still passes the screen the undeclared command does (check_loader_ok). Nor
+# does it reach a step script, whose hand-timed records stay at the prompt
+# (names_step_script).
+
+readonly MAX_CHECK_WORDS=32
+readonly MAX_CHECK_ARG=512
+# The `<path>` words one hook call may check: each walks and canonicalizes a
+# path, a cost the command-length bounds do not cap.
+readonly MAX_CHECK_PATHS=64
+CHECK_PATHS_N=0
+# The well-formed declarations, parsed once per hook call (check_decls_load),
+# with their first words; the working directory last checked, and its verdict.
+CHECK_STATE=0
+CHECK_DECLS=()
+CHECK_FIRST=()
+CHECK_CWD_FOR=''
+CHECK_CWD=''
+HAZARD_NAME=''
+
+# check_word_ok <word>: the `<word>` placeholder. A leading `=` is refused
+# because zsh expands `=name` to a command's absolute path.
+check_word_ok() {
+  case $1 in
+    '' | -* | =* | *[!A-Za-z0-9._:@%,+=-]* | . | ..) return 1 ;;
+  esac
+  [ "${#1}" -le "$MAX_CHECK_ARG" ]
+}
+
+# check_int_ok <word>: the `<int>` placeholder.
+check_int_ok() {
+  case $1 in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "${#1}" -le 18 ]
+}
+
+# check_dir_open <canonical-path>: 0 when the path is the worktree root or
+# lies inside it, outside every path the own-branch arm excludes.
+check_dir_open() {
+  local c=$1 d
+  [ "$c" = "$REC_WT" ] && return 0
+  case $c/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  ob_excl_load || return 1
+  lower "$c"
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case $LOWER/ in
+      "$d"/*) return 1 ;;
+    esac
+  done <<EOF
+$OB_EXCL_DIRS
+EOF
+  ! ob_excluded_rel "${c#"$REC_WT"/}" "$REC_WT" ''
+}
+
+# check_path_in <relative-path> <canonical-cwd>: 0 when no existing component
+# of the path is a symlink and it resolves inside the worktree, outside every
+# excluded path.
+check_path_in() {
+  local rest=$1 acc=$2 comp c
+  case /$rest/ in
+    */../*) return 1 ;;
+  esac
+  while [ -n "$rest" ]; do
+    comp=${rest%%/*}
+    case $rest in
+      */*) rest=${rest#*/} ;;
+      *) rest='' ;;
+    esac
+    case $comp in
+      '' | .) continue ;;
+    esac
+    acc=$acc/$comp
+    [ ! -L "$acc" ] || return 1
+    [ -e "$acc" ] || break
+  done
+  c=$(canon_loose "$2/${1%/}") || return 1
+  check_dir_open "$c"
+}
+
+# check_path_ok <word> <canonical-cwd>: the `<path>` placeholder. A runner may
+# read `<file>:<line>`, so the part before the first `:` is held to the same
+# rules as the whole word.
+check_path_ok() {
+  local p=$1
+  case $p in
+    '' | -* | /* | *[!A-Za-z0-9._/:+-]*) return 1 ;;
+  esac
+  [ "${#p}" -le "$MAX_CHECK_ARG" ] || return 1
+  CHECK_PATHS_N=$((CHECK_PATHS_N + 1))
+  [ "$CHECK_PATHS_N" -le "$MAX_CHECK_PATHS" ] || return 1
+  [ -n "${p%%:*}" ] || return 1
+  case $p in
+    *:*/*) return 1 ;;
+  esac
+  check_path_in "$p" "$2" || return 1
+  [ "${p%%:*}" = "$p" ] || check_path_in "${p%%:*}" "$2"
+}
+
+# check_decl_ok <word>...: 0 when the words form a well-formed declaration.
+check_decl_ok() {
+  local n=$# j=0 d
+  [ "$n" -ge 1 ] && [ "$n" -le "$MAX_CHECK_WORDS" ] || return 1
+  for d in "$@"; do
+    case $d in
+      '<word>' | '<int>' | '<path>')
+        [ "$j" -gt 0 ] || return 1
+        ;;
+      '<word>...' | '<int>...' | '<path>...')
+        [ "$j" -gt 0 ] && [ "$j" -eq $((n - 1)) ] || return 1
+        ;;
+      *[!A-Za-z0-9._/:=@%,+-]*) return 1 ;;
+      *=*) [ "$j" -gt 0 ] || return 1 ;;
+    esac
+    j=$((j + 1))
+  done
+}
+
+# check_decls_load: parse REC_CHECKS into CHECK_DECLS and CHECK_FIRST, once per
+# hook call, dropping each malformed declaration alone, so a malformed one
+# never matches on a prefix.
+check_decls_load() {
+  local decl w key
+  local -a all=() dw=()
+  CHECK_STATE=1
+  IFS=';' read -r -a all <<<"$REC_CHECKS"
+  for decl in ${all[@]+"${all[@]}"}; do
+    dw=()
+    IFS=' ' read -r -a dw <<<"$decl"
+    [ "${#dw[@]}" -ge 1 ] || continue
+    check_decl_ok "${dw[@]}" || continue
+    key=''
+    for w in "${dw[@]}"; do
+      key="${key:+$key }$w"
+    done
+    CHECK_DECLS[${#CHECK_DECLS[@]}]=$key
+    CHECK_FIRST[${#CHECK_FIRST[@]}]=${dw[0]}
+  done
+}
+
+# check_decl_match <declaration> <canonical-cwd>: 0 when the current simple
+# command's words (`sw` / `swn`, via dynamic scope) match the well-formed
+# declaration.
+check_decl_match() {
+  local -a dw=()
+  local n j i=0 d ph last
+  IFS=' ' read -r -a dw <<<"$1"
+  n=${#dw[@]}
+  for ((j = 0; j < n; j++)); do
+    d=${dw[j]}
+    case $d in
+      '<'*)
+        ph=${d%...}
+        last=$i
+        [ "$d" = "$ph" ] || last=$((swn - 1))
+        [ "$i" -le "$last" ] || return 1
+        while [ "$i" -le "$last" ]; do
+          [ "$i" -lt "$swn" ] || return 1
+          case $ph in
+            '<word>') check_word_ok "${sw[i]}" || return 1 ;;
+            '<int>') check_int_ok "${sw[i]}" || return 1 ;;
+            '<path>') check_path_ok "${sw[i]}" "$2" || return 1 ;;
+          esac
+          i=$((i + 1))
+        done
+        ;;
+      *)
+        [ "$i" -lt "$swn" ] && [ "${sw[i]}" = "$d" ] || return 1
+        i=$((i + 1))
+        ;;
+    esac
+  done
+  [ "$i" -eq "$swn" ]
+}
+
+# check_command_ok: 0 when the current simple command (`sw` / `swn`, the
+# redirect arrays `ro` / `rt` / `rn`, via dynamic scope) matches a declared
+# check command, run from inside the recorded worktree with no redirect but
+# a read, an fd duplication or one to /dev/null.
+check_command_ok() {
+  local i k c
+  [ -n "$REC_CHECKS" ] && [ -n "$REC_WT" ] && [ "$swn" -gt 0 ] || return 1
+  [ "$swn" -le $((MAX_CHECK_WORDS + MAX_CHECK_PATHS)) ] || return 1
+  for ((i = 0; i < rn; i++)); do
+    case ${rt[i]} in
+      *'$'*) return 1 ;;
+    esac
+    classify_redirect "${ro[i]}" "${rt[i]}" || return 1
+  done
+  # The working directory is held to the `<path>` rules: a declared command
+  # never runs from inside a hooks, git or tool-configuration directory.
+  if [ "$CHECK_CWD_FOR" != "$HOOK_CWD" ]; then
+    CHECK_CWD_FOR=$HOOK_CWD
+    CHECK_CWD=''
+    if c=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) && check_dir_open "$c"; then
+      CHECK_CWD=$c
+    fi
+  fi
+  [ -n "$CHECK_CWD" ] || return 1
+  [ "$CHECK_STATE" = 1 ] || check_decls_load
+  for ((k = 0; k < ${#CHECK_DECLS[@]}; k++)); do
+    [ "${CHECK_FIRST[k]}" = "${sw[0]}" ] || continue
+    check_decl_match "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
+    check_literals_committed "${CHECK_DECLS[k]}" "$CHECK_CWD" || continue
+    # The loader verdict reads only the words, so no other declaration
+    # could turn it.
+    check_loader_ok
+    return
+  done
+  return 1
+}
+
+# names_step_script: 0 when a word of the current simple command (`sw` /
+# `swn`), whole or after its last `=`, is a step script as step_script_kind
+# reads one. Every word is read, not just the first: a runner prefix, a path
+# spelling verify_known_simple never reads as a step-script call, or a `VAR=`
+# word would otherwise carry a hand-timed record past its prompt on a
+# declaration alone.
+names_step_script() {
+  local i w
+  for ((i = 0; i < swn; i++)); do
+    w=${sw[i]}
+    step_script_kind "$w" && return 0
+    case $w in
+      *=*) step_script_kind "${w##*=}" && return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# check_literals_committed <declaration> <canonical-cwd>: every literal word
+# of the declaration that names an existing file, from the working directory
+# or by its absolute path, is held to what HEAD commits, as a declared step's
+# location is (declared_location_ok): the declaration names the file, not its
+# content, and the worker can Write it. A bare first word is looked up on PATH,
+# never in the working directory, and a `<path>` placeholder is the declarer's
+# choice of what the runner is given; both stay as declared.
+check_literals_committed() {
+  local -a dw=()
+  local w full j=0
+  IFS=' ' read -r -a dw <<<"$1"
+  for w in "${dw[@]}"; do
+    j=$((j + 1))
+    case $w in
+      '<'*) continue ;;
+      /*) full=$w ;;
+      */*) full=$2/$w ;;
+      *)
+        [ "$j" -gt 1 ] || continue
+        full=$2/$w
+        ;;
+    esac
+    [ -e "$full" ] || [ -L "$full" ] || continue
+    [ -d "$full" ] && [ ! -L "$full" ] && continue
+    declared_location_ok "$full" || return 1
+  done
+  return 0
+}
+
+# check_may_partner: 0 when the matched check command (`sw` / `swn`) may be a
+# chain partner of an own-unit act: no word is one check_hazard_word refuses,
+# and no `run` follows a `go`. Every word is read, a placeholder's included,
+# so a runner prefix or a wrapper cannot carry one past the check; only a
+# leading `mise exec` is skipped. A repository task runner (`mix`, `npm`,
+# `make`) names none and partners.
+check_may_partner() {
+  local i=0 go=0
+  [ "${sw[0]}" != mise ] || [ "${sw[1]-}" != exec ] || i=2
+  for (( ; i < swn; i++)); do
+    ! check_hazard_word "${sw[i]}" || return 1
+    case $HAZARD_NAME in
+      go) go=1 ;;
+      run) [ "$go" = 0 ] || return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# check_hazard_word <word>: 0 when the word names a program check_hazard_name
+# lists, read lowercased (a case-insensitive filesystem runs `GIT` as git), by
+# its last path component, whole or after its last `=` (`--cmd=rm`,
+# `SHELL=bash`). The whole word's lowercased last component is left in
+# HAZARD_NAME.
+check_hazard_word() {
+  local w=$1
+  case $w in
+    *[A-Z]*)
+      lower "$w"
+      w=$LOWER
+      ;;
+  esac
+  HAZARD_NAME=${w##*/}
+  check_hazard_name "$HAZARD_NAME" && return 0
+  case $w in
+    *=*)
+      w=${w##*=}
+      check_hazard_name "${w##*/}"
+      return
+      ;;
+  esac
+  return 1
+}
+
+# check_hazard_name <lowercase name>: 0 for a program that writes files, acts
+# on git, runs another program, or interprets code, its GNU `g`-prefixed name
+# (`gsed`, `gtouch`) included. Subcommand words that fetch and run a package
+# (`npm exec`, `pnpm dlx`, `npm x`) are listed too. The list fails open for a
+# program it does not name.
+check_hazard_name() {
+  case $1 in
+    # git and gh, and the programs the guard approves only as a write or
+    # screens for a write or exec vector.
+    git | gh | mise | tee | mkdir | rm | touch | cp | mv | mktemp | sed | awk | find | sort | uniq | date | file | yq | shfmt | rg | fd | jq | gitleaks | markdownlint | markdownlint-cli2 | lefthook | bats) return 0 ;;
+    # Other writers, archivers and editors.
+    mawk | nawk | ln | link | chmod | chown | chgrp | dd | install | truncate | shred | unlink | rmdir | rename | mkfifo | mknod | xxd | ditto | rsync | scp | sftp | curl | wget | tar | bsdtar | unzip | zip | gzip | bzip2 | xz | zstd | lz4 | 7z | 7za | cpio | sponge | split | patch | ed | ex | vi | vim | nvim | nano | emacs | sqlite3 | psql | crontab) return 0 ;;
+    # Shells and programs that run another program.
+    bash | sh | fish | zsh | dash | ksh | ash | csh | tcsh | mksh | rbash | env | command | builtin | exec | x | eval | xargs | sudo | doas | su | ssh | nc | socat | docker | podman | tmux | screen | script | at | systemd-run | chroot | unshare | nsenter | xvfb-run | nohup | setsid | timeout | nice | ionice | time | stdbuf | flock | watch | parallel | strace | busybox) return 0 ;;
+    # Interpreters, compilers and fetch-and-run launchers.
+    perl | perl[0-9]* | python | python[0-9]* | node | nodejs | ruby | ruby[0-9]* | irb | php | php[0-9]* | deno | bun | bunx | npx | pnpx | uvx | pipx | dlx | osascript | lua | lua[0-9]* | luajit | r | rscript | tclsh | pwsh | powershell | elixir | iex | erl | escript | java | javac | jshell | julia | groovy | cc | gcc | clang | rustc) return 0 ;;
+  esac
+  case $1 in
+    g?*) check_hazard_name "${1#g}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# check_loader_ok: 0 unless the current simple command (`sw` / `swn`) runs a
+# loader the guard screens by its words, as its first word or the word after a
+# runner prefix's `--`, and that loader's own screen defers it. A declaration
+# vouches for the words it spells, never for the config the loader reads from
+# folders a worker can Write, so a declared loader is approved only where the
+# undeclared command would be: markdownlint by guard_mdlint, and mise before an
+# option, `run`, `tasks` or their aliases by guard_mise, which knows no alias
+# and so defers one. Any other markdownlint name (the `-fix` and `-config`
+# binaries older releases ship) defers, as the undeclared one does. The
+# subcommand list must stay a superset of what guard_mise screens, or a new
+# spelling passes on the declaration alone. The name is matched
+# case-insensitively, since a case-insensitive filesystem runs a recased one.
+check_loader_ok() {
+  local k
+  for ((k = 0; k < swn; k++)); do
+    [ "$k" -eq 0 ] || [ "${sw[k - 1]}" = -- ] || continue
+    lower "${sw[k]##*/}"
+    case $LOWER in
+      markdownlint | markdownlint-cli2) check_loader_screen "$k" guard_mdlint "$LOWER" || return 1 ;;
+      markdownlint*) return 1 ;;
+      mise)
+        case ${sw[k + 1]-} in
+          -* | run | r | tasks | task | t) check_loader_screen "$k" guard_mise || return 1 ;;
+        esac
+        ;;
+    esac
+  done
+  return 0
+}
+
+# check_loader_screen <from> <screen> [<arg>]: run <screen> on the words from
+# index <from> on, as `cw` / `cwn`. The parallel per-word arrays are not
+# sliced, so a screen run here must read only those two.
+check_loader_screen() {
+  local from=$1
+  shift
+  local -a cw=("${sw[@]:from}")
+  local cwn=${#cw[@]}
+  "$@"
+}
+
+# --------------------------------------------------------------------------
 # Declared command steps (custom-steps REQ-G1.2, REQ-G1.3). A segment no rule
 # above approved is still approved when its words equal a command step an
 # operator declared at a named point: the step's location exactly as
@@ -5998,7 +6884,8 @@ classify_verb() {
 # after any leading context assignments in the runner's form. The declaration
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
-# scripts/), so the match is exact: a segment sharing only the first word, a
+# scripts/, which holds a location inside the repository to what HEAD commits
+# there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
 # bare target, or an extra arg defers. The declarations are resolved at most
 # once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
@@ -6319,14 +7206,34 @@ declared_line_ok() {
   # line can never claim a pool hold its step was not given.
   if [ -n "$mark_pool" ]; then
     case $NL$DECL_LINES in
-      *"$NL$key$TAB$mark_pool$NL"*) return 0 ;;
+      *"$NL$key$TAB$mark_pool$NL"*) declared_location_ok "${sw[i0]}" && return 0 ;;
     esac
     return 1
   fi
   case $NL$DECL_LINES in
-    *"$NL$key$TAB"*) return 0 ;;
+    *"$NL$key$TAB"*) declared_location_ok "${sw[i0]}" && return 0 ;;
   esac
   return 1
+}
+
+# declared_location_ok <abs-path>: a declared step's location in a git checkout
+# (the session's repository, or another such as the primary) is held to what
+# that checkout's HEAD commits, as a script run by its path is: the declaration
+# names the file, not its content, and the worker can Write the file. A
+# location spelled inside the session's repository counts as in it even when a
+# symlinked folder resolves it elsewhere, and so defers. A location in no
+# checkout keeps the declaration's trust.
+declared_location_ok() {
+  local root d full
+  d=$(cd -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
+  if root=$(repo_root_of "$HOOK_PAYLOAD_CWD"); then
+    case $1 in
+      "$root"/*) d=$root ;;
+    esac
+  fi
+  root=$(repo_root_of "$d") || return 0
+  full=$(canon_under "$1" / "$root") || return 1
+  committed_blob "$root" "${full#"$root"/}" "$full"
 }
 
 # verify_simple: verify one simple command — known-safe by the rules below, or
@@ -6352,23 +7259,42 @@ verify_simple() {
   # The floor comes before every arm and the declared steps. An own-unit act
   # it reserves is weighed exactly by verify_known_simple, and nothing else
   # may approve it.
-  local own_cand=0
+  local own_cand=0 STEP_CALL=0
   [ "$cwn" -eq 0 ] || ! deny_hit "${sw[@]}" || return 1
   if [ "$cwn" -gt 0 ] && floor_act_words "${sw[@]}"; then
     own_unit_candidate || return 1
     own_cand=1
   fi
   verify_known_simple && return 0
-  [ "$own_cand" = 0 ] || return 1
-  # A declared step is an operator's exact line, never one around a
-  # substitution, and is not read-only inside one. Nor is one judged in the
+  # A step-script call step_call_ok refused is never a declared line's.
+  [ "$own_cand" = 0 ] && [ "$STEP_CALL" = 0 ] || return 1
+  # A declared check command or step is an operator's line, never one around
+  # a substitution, and is not read-only inside one. Nor is one judged in the
   # scoped read mode, whose directory is one of two.
   [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] || return 1
   done
-  declared_line_ok || return 1
-  TASK_ACT=1
+  # A declared check command or command step is a trusted repository task:
+  # a chain partner before an own-unit act. A check command check_may_partner
+  # refuses, unless a step declares the same line, is approved alone but keeps
+  # every own-unit act in its command from being approved.
+  local partner=1
+  if check_command_ok; then
+    check_may_partner || declared_line_ok || partner=0
+  else
+    declared_line_ok || return 1
+  fi
+  # A matched line naming a step script in a spelling verify_known_simple
+  # does not read as a call defers, as undeclared, on either path below. It
+  # is read only after a match, so a command no declaration names never pays
+  # for the root lookup.
+  ! names_step_script || return 1
+  [ "$partner" = 1 ] || {
+    ARM_ACT=1
+    return 0
+  }
+  OU_PARTNER=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -6557,6 +7483,9 @@ strip_compute_route() {
   fi
   shift_words $((n + 1))
   PREFIXED=1
+  # The router is a plugin script other than a step script: whatever it
+  # routes, it keeps an own-unit act out of its command.
+  ARM_ACT=1
   case ${cw[0]} in
     compute-route.sh | */compute-route.sh) return 1 ;;
   esac
@@ -7197,12 +8126,11 @@ verify_known_simple() {
   case $verb in
     */*)
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
-      # Trusted code that may write, which no own-unit act may share a
-      # command with; an installed step script is the one exception.
-      case $verb in
-        */step-run.sh | */step-record.sh) is_planwright_script "$verb" "$HOOK_CWD" || TASK_ACT=1 ;;
-        *) TASK_ACT=1 ;;
-      esac
+      if step_script_kind "$verb"; then
+        STEP_CALL=1
+        step_call_ok 0 || return 1
+      fi
+      ou_script_kind "$verb"
       return 0
       ;;
   esac
@@ -7211,9 +8139,25 @@ verify_known_simple() {
   fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats | bash | sh) TASK_ACT=1 ;;
+    mise | lefthook | bats) OU_PARTNER=1 ;;
+    bash | sh) ou_script_kind "${cw[1]}" ;;
   esac
   return 0
+}
+
+# ou_script_kind <trusted script>: what the script is to an own-unit act in
+# the same command. A repository script is a chain partner (a gate task); an
+# installed step script is neither; any other plugin script keeps the act
+# from being approved, since it may write.
+ou_script_kind() {
+  if is_repo_script "$1" "$HOOK_CWD"; then
+    OU_PARTNER=1
+    return 0
+  fi
+  case $1 in
+    */step-run.sh | */step-record.sh) return 0 ;;
+  esac
+  ARM_ACT=1
 }
 
 # --------------------------------------------------------------------------
@@ -7248,6 +8192,12 @@ verify_tokens() {
   # trailing `&` can drop what that list assigned, and whether the last `;`
   # was a newline continuing that list (fin).
   local list_var=$VAR_C list_cont=0
+  # An own-unit act's chain partners (OU_PARTNER: a git add or commit the
+  # policy approves, a trusted repository task) come before it, joined only
+  # by `&&`. ou_chain: a partner was seen and its chain is still open;
+  # ou_bad: one was seen anywhere else, or after an act (ou_seen), so no act
+  # in this command is approved.
+  local ou_chain=0 ou_bad=0 ou_seen=0
   # A lead `cd <own dir> &&` keeps SCOPED_CHAIN while each segment of its
   # chain passes the scoped read check (SEG_SCOPED), with the directory it
   # left in cd_pre: a later `;` or `||` then enters the scoped read mode.
@@ -7292,6 +8242,7 @@ verify_tokens() {
     PENDING_OUT_DIR=''
     SEG_SCOPED=0
     OU_SEG=0
+    OU_PARTNER=0
     verify_simple || return 1
     if [ "$close" = '|' ]; then
       ou_pipe=1
@@ -7299,6 +8250,25 @@ verify_tokens() {
       ou_pipe=0
     fi
     [ "$OU_SEG" = 0 ] || ou_list=1
+    if [ "$OU_PARTNER" = 1 ]; then
+      if [ "$ctl_depth" -ne 0 ] || [ "$close" != '&&' ] || [ "$ou_seen" = 1 ] || [ "$ou_or" = 1 ]; then
+        ou_bad=1
+      fi
+      case $seg_open in
+        '' | ';' | '&&') ;;
+        *) ou_bad=1 ;;
+      esac
+      ou_chain=1
+    elif [ "$OU_SEG" = 0 ] && [ "$ou_chain" = 1 ] && [ "$ou_seen" = 0 ] && [ "$ctl_depth" -eq 0 ]; then
+      # A segment between a partner and the act keeps the chain only by `&&`,
+      # with no line break either.
+      [ "$close" = '&&' ] && [ "$empty" = 0 ] || ou_bad=1
+    fi
+    if [ "$OU_SEG" = 1 ]; then
+      ou_seen=1
+      [ "$ou_bad" = 0 ] || return 1
+    fi
+    [ "$ou_seen" = 0 ] || [ "$ou_bad" = 0 ] || return 1
     if [ "$ctl_depth" -eq 0 ]; then
       [ "$close" != '&' ] || [ "$ou_list" = 0 ] || return 1
       # The tokenizer reads every line break as `;`, but one right after
@@ -7761,21 +8731,21 @@ main() {
   IN_SUBST=0
   AUDIT_OB=0
   AUDIT_SC=0
+  COMMITTED_USED=0
+  OB_TOUCH=0
   AUDIT_OU=0
   OU_EXPORTED=0
   OU_EXP_NAMES=''
   ARM_ACT=0
-  TASK_ACT=0
   SCANNED=0
 
   analyze_command "$cmd" 0 || return 0
-  # An own-unit act shares its command only with a cd into the worktree, a
-  # read-only segment, a step-context export or an installed step script:
-  # never with a write or git act the own-branch or scratch arm or the
-  # spec-root zone approved, nor with trusted repository code (a mise or
-  # lefthook task, bats, a repo or other plugin script, a declared step), so
-  # a worker commits or runs its gate, then pushes in a call of its own.
-  [ "$AUDIT_OU" = 0 ] || { [ "$ARM_ACT" = 0 ] && [ "$TASK_ACT" = 0 ]; } || return 0
+  [ "$COMMITTED_USED" = 0 ] || [ "$OB_TOUCH" = 0 ] || return 0
+  # An own-unit act shares its command only with a cd into the worktree,
+  # read-only segments, a step-context export, an installed step script, and
+  # the partners verify_tokens places before it (git add or commit, a gate
+  # task): never with a file write, another git act or a spec-root write.
+  [ "$AUDIT_OU" = 0 ] || [ "$ARM_ACT" = 0 ] || return 0
   audit_append "$cmd" "$sid"
   emit_allow
   return 0

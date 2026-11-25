@@ -300,6 +300,8 @@ tokenize() {
           if [ "$dc" = "\\" ]; then
             dn=${s:j+1:1}
             [ -n "$dn" ] || return 1
+            # bash drops a backslash-newline whole, joining the word's halves.
+            [ "$dn" = "$NL" ] && return 1
             [ "$dn" = '$' ] && curx=1 # \$ inside double quotes is literal
             k="$k$dn"
             j=$((j + 2))
@@ -558,7 +560,7 @@ repo_root_of() {
 # (an already-canonical root); returns non-zero (DEFER) otherwise — including
 # when <base> is empty, the path's directory cannot be resolved, or the final
 # component is a symlink (which could point OUT of <base>). Mirrors the worker
-# guard's canon_contained, generalized to an arbitrary containment root.
+# guard's canon_under.
 canon_under() {
   local p=$1 cwd=$2 base=$3 d b cd full
   [ -n "$base" ] || return 1
@@ -604,7 +606,10 @@ is_force_push_file() {
 # marketplace/writer install). The chain's other arms are not trusted: that is
 # the tower's own, tighter policy. `tests/` is deliberately NOT
 # a trusted script directory for the tower (that is a worker-only shape), so the
-# tower set stays distinct from and tighter than the worker set (REQ-C1.2).
+# tower set stays distinct from and tighter than the worker set (REQ-C1.2),
+# with one exception: the worker guard also requires HEAD to commit a checkout
+# script unchanged, which this guard does not, since a tower session carries no
+# file-tool denies for such a script to get around.
 # Under the mission-control profile (`tower-command-guard.sh mission-control`)
 # only the script verbs config/mission-control-verbs.txt lists are approved,
 # read from this guard's own root and never from an overlay; every other
@@ -1825,8 +1830,8 @@ guard_rm() {
 }
 
 # mise: `mise run <task>` / `mise tasks` (and its read-only leaves) only. Any
-# pre-subcommand flag, a `--shell`/`-s` interpreter override, or another
-# subcommand defers.
+# pre-subcommand flag, a run option that changes what the task runs
+# (mise_run_args_ok), or another subcommand defers.
 guard_mise() {
   local sub=''
   local i a j leaf
@@ -1854,20 +1859,32 @@ guard_mise() {
       done
       case $leaf in
         '' | ls | info | deps) return 0 ;;
-        run) i=$j ;; # fall through to the shell-override guard on the run args
+        run) ;; # screened below from the words after `tasks`, a global option before `run` included
         *) return 1 ;;
       esac
       ;;
-    run) ;; # fall through to the shell-override guard below
+    run) ;; # fall through to the run-option screen below
     *) return 1 ;;
   esac
   # A task runs whatever its body says, a release among them, so under the
   # mission-control mode a task run reaches the prompt.
   [ "$GUARD_MODE" != mission-control ] || return 1
-  for (( ; i < cwn; i++)); do
+  mise_run_args_ok "$((i + 1))"
+}
+
+# mise_run_args_ok <from>: 0 unless a word from index <from> on is an option
+# that changes what a task runs, turning the trusted repo-task runner into an
+# arbitrary-command runner: --shell runs the task through any
+# command, --cd takes it from another directory's config, --env loads a
+# mise.<env>.toml beside the config, and --tool puts a tool on its PATH. mise
+# reads no abbreviation of a long option, but a short-flag cluster can carry
+# any of the letters (`-nC`), so a cluster holding one defers.
+mise_run_args_ok() {
+  local i
+  for ((i = $1; i < cwn; i++)); do
     case ${cw[i]} in
-      --shell | --shell=*) return 1 ;;
-      -[!-]*s* | -s*) return 1 ;;
+      --shell | --shell=* | --cd | --cd=* | --env | --env=* | --tool | --tool=*) return 1 ;;
+      -[sCEt]* | -[!-]*[sCEt]*) return 1 ;;
     esac
   done
   return 0
@@ -1914,6 +1931,23 @@ git_config_write_opt() {
   return 1
 }
 
+# git_help_req <verb>: whether the git line in cw asks for help, which opens the
+# man page through a pager or a browser, and a pager runs commands (`!cmd` in
+# less). git opens it for the `help` verb and an exact `--help` right after
+# the verb, but any word git could read as --help or --help-all, wherever it
+# sits and abbreviated or not, counts, failing closed.
+git_help_req() {
+  local i n
+  [ "$1" = help ] && return 0
+  for ((i = 1; i < cwn; i++)); do
+    n=${cw[i]%%=*}
+    case $n in
+      --?*) [[ help-all == "${n#--}"* ]] && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # git: read-only subcommands only, no pre-subcommand global option (which can
 # inject config/alias-driven execution), and per-subcommand form guards on the
 # subcommands with a mutating twin. `update-ref` / `branch -f` are absent from
@@ -1932,6 +1966,16 @@ guard_git() {
     esac
   done
   [ -n "$sub" ] || return 1
+  git_help_req "$sub" && return 1
+  # `stash list`, `stash show` and `reflog show` hand their options to git log
+  # or git diff, --output among them, so the read verbs' screen applies to the
+  # words after the subcommand.
+  case $sub:${cw[subidx + 1]-} in
+    stash:list | stash:show | reflog:show)
+      sub=log
+      subidx=$((subidx + 1))
+      ;;
+  esac
   case $sub in
     log | show | diff | status | rev-parse | cat-file | ls-files | ls-tree | for-each-ref | describe | blame | shortlog | rev-list | name-rev | whatchanged | grep | merge-base | show-ref | cherry | var)
       for ((i = subidx + 1; i < cwn; i++)); do
@@ -2021,10 +2065,8 @@ guard_git() {
       return 0
       ;;
     stash)
-      case ${cw[subidx + 1]-} in
-        list | show) return 0 ;;
-        *) return 1 ;;
-      esac
+      # `stash list` and `stash show` arrive above as `log`.
+      return 1
       ;;
     symbolic-ref)
       local positional=0
@@ -2040,8 +2082,9 @@ guard_git() {
       return 0
       ;;
     reflog)
+      # `reflog show` arrives above as `log`.
       case ${cw[subidx + 1]-} in
-        '' | show | exists) return 0 ;;
+        '' | exists) return 0 ;;
         *) return 1 ;;
       esac
       ;;

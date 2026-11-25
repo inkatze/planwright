@@ -1431,16 +1431,130 @@ refresh_upstream() {
   REFRESHED="$REFRESHED<$d|$UP_REMOTE|$UP_BRANCH>"
 }
 
-# check_unpushed <dir> <what> <range> — after refresh_upstream.
+# check_unpushed <dir> <what> <range> [<base>] — after refresh_upstream. The
+# range's knob is unpushed_rewrite while no remote-tracking ref contains a
+# commit of it, and draft_rewrite, read from the worktree's launch record,
+# once one does. <base> is a rebase's upstream as
+# written, or --root or --onto for those forms; empty for an amend, squash,
+# or fixup. UNPUSHED_OK is unpushed_rewrite's value, set by the caller.
+UNPUSHED_OK=0
 check_unpushed() {
-  local d=$1 what=$2 range=$3 all mine
+  local d=$1 what=$2 range=$3 base=${4:-} all mine
   all=$(gitq "$d" rev-list --count "$range") || all=''
   mine=$(gitq "$d" rev-list --count "$range" --not --remotes) || mine=''
   case "$all:$mine" in
     *[!0-9:]* | :* | *:) emit_deny "$what: the commits it would rewrite could not be listed - refusing (fail closed)." ;;
   esac
-  [ "$all" = "$mine" ] \
+  if [ "$all" = "$mine" ]; then
+    [ "$UNPUSHED_OK" = 1 ] \
+      || emit_deny "unpushed_rewrite is deny, so $what is refused; history stays append-only. Add a new commit instead."
+    return 0
+  fi
+  draft_record_ok "$d" \
     || emit_deny "$what would rewrite $((all - mine)) commit(s) a remote-tracking ref already contains; pushed history stays append-only - refusing. Add a new commit instead."
+  draft_range_ok "$d" "$what" "$range" "$base" "$all" "$mine"
+}
+
+# draft_record_ok <dir> — 0 when the worktree's own launch record, at the path
+# scripts/worker-session-record.sh path prints (never one the environment
+# names), is this user's own file outside the worktree naming mission control
+# as the launcher, draft_rewrite=allow, this checkout, and its branch; sets
+# DR_REMOTE and DR_BASE from its pr_base. Read once per call; any doubt is a 1.
+DR_STATE='' DR_REMOTE='' DR_BASE=''
+draft_record_ok() {
+  local d=$1 top b p pdir ptop size line k v seen=' ' lnch='' drw='' ub='' wr='' pb='' rtop
+  case $DR_STATE in
+    ok) return 0 ;;
+    no) return 1 ;;
+  esac
+  DR_STATE=no
+  [ "$TIER" = worker ] || return 1
+  [ -n "$GUARD_DIR" ] && [ -r "$GUARD_DIR/worker-session-record.sh" ] || return 1
+  checkout_of "$d" && [ "$CO_LINKED" = 1 ] || return 1
+  top=$CO_TOP
+  b=$(current_branch "$d")
+  is_unit_branch "$b" || return 1
+  need_timeout
+  p=$("$TB" -k 2 "$KNOB_B" /bin/sh "$GUARD_DIR/worker-session-record.sh" path "$top" 2>/dev/null </dev/null) || return 1
+  case $p in /?*) ;; *) return 1 ;; esac
+  [ -f "$p" ] && [ ! -L "$p" ] && [ -r "$p" ] && [ -O "$p" ] || return 1
+  [ -z "$(find "$p" -prune \( -perm -020 -o -perm -002 \) -print 2>/dev/null)" ] || return 1
+  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd) || return 1
+  ptop=$(cd -P -- "$top" 2>/dev/null && pwd) || return 1
+  case "${pdir%/}/" in "${ptop%/}"/*) return 1 ;; esac
+  size=$(wc -c <"$p" 2>/dev/null) || return 1
+  [ "${size// /}" -le 4096 ] 2>/dev/null || return 1
+  # As strict as the helper's read: every line key=value, no key twice.
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ ^[a-z_]+= ]] || return 1
+    k=${line%%=*}
+    v=${line#*=}
+    case $seen in *" $k "*) return 1 ;; esac
+    seen="$seen$k "
+    case $k in
+      launcher | draft_rewrite | unit_branch | worktree_root | pr_base) ;;
+      *) continue ;;
+    esac
+    case $k in
+      launcher) lnch=$v ;;
+      draft_rewrite) drw=$v ;;
+      unit_branch) ub=$v ;;
+      worktree_root) wr=$v ;;
+      pr_base) pb=$v ;;
+    esac
+  done <"$p"
+  [ "$lnch" = mission-control ] && [ "$drw" = allow ] && [ "$ub" = "$b" ] || return 1
+  rtop=$(cd -P -- "$wr" 2>/dev/null && pwd) && [ "$rtop" = "$ptop" ] || return 1
+  [[ ${pb%%/*} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && valid_branch "${pb#*/}" && [ "${pb#*/}" != "$pb" ] || return 1
+  DR_REMOTE=${pb%%/*} DR_BASE=${pb#*/} DR_STATE=ok
+}
+
+# draft_range_ok <dir> <what> <range> <base> <all> <never-pushed> — the
+# draft-branch rewrite's bounds on a range holding a pushed commit: the
+# branch tracks, and was refreshed from, its own remote branch; no remote ref
+# but that one contains a commit of the range; a never-pushed commit in it
+# also needs unpushed_rewrite; and a rebase lands on the record's PR base or
+# the branch's own remote branch. No host call.
+draft_range_ok() {
+  local d=$1 what=$2 range=$3 base=$4 all=$5 mine=$6 own="$DR_REMOTE/$CUR_BRANCH" rest
+  [ "$UNPUSHED_OK" = 1 ] || [ "$mine" = 0 ] \
+    || emit_deny "$what would rewrite $mine never-pushed commit(s) beside pushed ones, and unpushed_rewrite is deny: a mixed range needs it as well as draft_rewrite - refusing. Add a new commit instead."
+  [ "$UP_REMOTE" = "$DR_REMOTE" ] && [ "$UP_BRANCH" = "$CUR_BRANCH" ] \
+    || emit_deny "$what would rewrite pushed commits, and $(sanitize_printable "$CUR_BRANCH" 'this branch') does not track its own remote branch ($(sanitize_printable "$own" 'its remote branch')), so the refresh does not prove what that branch holds - refusing. Set it as the upstream first."
+  rest=$(gitq "$d" rev-list --count "$range" --not --exclude="$own" --remotes) || rest=''
+  case $rest in
+    '' | *[!0-9]*) emit_deny "$what: the commits it would rewrite could not be listed - refusing (fail closed)." ;;
+  esac
+  [ "$rest" = "$all" ] \
+    || emit_deny "$what would rewrite $((all - rest)) commit(s) a remote ref other than $(sanitize_printable "$own" 'the branch'\''s own') contains (the base's or another branch's); the draft-branch rewrite reshapes only the branch's own commits - refusing. Add a new commit instead."
+  case $base in
+    '') ;;
+    --root | --onto)
+      emit_deny "$what rebases pushed commits with $base, and the draft-branch rewrite rebases only onto the PR base ($(sanitize_printable "$DR_REMOTE/$DR_BASE" 'the base')) or the branch's own remote branch - refusing."
+      ;;
+    *)
+      draft_base_ok "$d" "$base" \
+        || emit_deny "$what rebases pushed commits onto $(sanitize_printable "$base" 'another revision'), which is neither the PR base ($(sanitize_printable "$DR_REMOTE/$DR_BASE" 'the base')) nor the branch's own remote branch ($(sanitize_printable "$own" 'its remote branch')) - refusing. Rebase onto one of those."
+      ;;
+  esac
+}
+
+# draft_base_ok <dir> <name> — 0 when a rebase upstream names the record's PR
+# base or the branch's own remote-tracking ref, by name and by the commit git
+# resolves the name to.
+draft_base_ok() {
+  local d=$1 r=$2 ref want oid
+  for ref in "$DR_REMOTE/$DR_BASE" "$DR_REMOTE/$CUR_BRANCH"; do
+    case $r in
+      "$ref" | "refs/remotes/$ref" | "remotes/$ref") ;;
+      *) continue ;;
+    esac
+    want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$ref^{commit}") || return 1
+    oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+    [ -n "$want" ] && [ "$oid" = "$want" ]
+    return
+  done
+  return 1
 }
 
 # --------------------------------------------------------------------------
@@ -3567,6 +3681,10 @@ classify_gh_api() {
         return 0
         ;;
       heads/*)
+        if [ "$TIER" = worker ] && [ "$um" = DELETE ] && is_unit_branch "${orig_rest#heads/}"; then
+          deny_now "$(worker_delete_deny "this gh api request" "${orig_rest#heads/}")"
+          return 0
+        fi
         queue_protected "$eff" "$eff_ok" "this gh api ref write" "${orig_rest#heads/}"
         ;;
     esac
@@ -3634,6 +3752,12 @@ classify_gh_api() {
     queue_protected "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
   fi
   return 0
+}
+
+# worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
+# unit branch on the remote.
+worker_delete_deny() {
+  printf '%s' "$1 deletes $(sanitize_printable "$2" 'a unit branch') on the remote; a worker never deletes a unit branch, its own included, since deleting and pushing it again would publish a rewrite with no lease - refusing. Add new commits, or publish a rewrite of your own draft branch through scripts/worker-branch-sync.sh push."
 }
 
 # queue_protected <eff> <eff_ok> <what> <branch...>
@@ -4674,8 +4798,9 @@ classify_git_rebase() {
     deny_now 'this git rebase names a revision through an expansion the guard cannot read - refusing (fail closed). Write it literally.'
     return 0
   }
-  local root=0 ur=0 t uref=update-refs nuref=no-update-refs
+  local root=0 ur=0 onto=0 t uref=update-refs nuref=no-update-refs
   long_prefix_seen root 2 && root=1
+  long_prefix_seen onto 2 && onto=1
   # git takes the last of --update-refs and --no-update-refs.
   for t in $GP_LONG; do
     if [ "${#t}" -ge 2 ] && [ "$t" = "${uref:0:${#t}}" ]; then
@@ -4684,7 +4809,7 @@ classify_git_rebase() {
       ur=-1
     fi
   done
-  PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB${GP_POS[*]-}"
+  PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB$onto$TAB${GP_POS[*]-}"
 }
 
 COMMIT_VLONG=' message file reuse-message reedit-message author date template cleanup trailer pathspec-from-file '
@@ -4856,7 +4981,7 @@ classify_git_push() {
     k=$((k + 1))
   done
   if [ "$force" = 1 ]; then
-    deny_now 'this git push forces; a force-push is never performed by a worker, and by the tower only on an explicit operator request through its own path. Push new commits instead.'
+    deny_now 'this git push forces, and a raw force-push is refused at every tier. Push new commits instead; a worker whose launch record allows a draft-branch rewrite publishes it through scripts/worker-branch-sync.sh push, and any other force-push is the tower'"'"'s, on the operator'"'"'s explicit request.'
     return 0
   fi
   if [ "$bulk" = 1 ]; then
@@ -4895,6 +5020,26 @@ classify_git_push() {
     refs[${#refs[@]}]=$r
     i=$((i + 1))
   done
+  # Deleting a unit branch on the remote, and pushing it again, would publish
+  # a rewrite with no lease: refused to the worker tier whatever the branch's
+  # state.
+  if [ "$TIER" = worker ]; then
+    local t
+    for r in ${refs[@]+"${refs[@]}"}; do
+      t=''
+      if [ "$del" = 1 ]; then
+        t=$r
+      else
+        case $r in :?*) t=${r#:} ;; esac
+      fi
+      t=${t#refs/heads/}
+      t=${t#heads/}
+      if [ -n "$t" ] && is_unit_branch "$t"; then
+        deny_now "$(worker_delete_deny "this git push" "$t")"
+        return 0
+      fi
+    done
+  fi
   act_gate 'this git push' push || return 0
   need_dir "$dir_ok" 'this git push' || return 0
   local alone=0
@@ -5336,7 +5481,9 @@ eval_pull() {
   fi
   if [ "$mode" = rebase ]; then
     read_knob unpushed_rewrite "$dir" allow deny
-    [ "$KNOB_VAL" = allow ] \
+    UNPUSHED_OK=0
+    [ "$KNOB_VAL" != allow ] || UNPUSHED_OK=1
+    [ "$UNPUSHED_OK" = 1 ] || draft_record_ok "$dir" \
       || emit_deny "unpushed_rewrite is deny, so $rwhat is refused. Merge the PR base instead:$rhint git merge origin/main, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
     on_unit_branch "$dir" "$rwhat"
     local upref
@@ -5349,7 +5496,7 @@ eval_pull() {
       upref="refs/remotes/$remote/${ref#refs/heads/}"
     fi
     valid_rev "${upref#refs/}" || emit_deny "$rwhat names a source the guard will not read - refusing (fail closed)."
-    refresh_and_check_unpushed "$dir" "$rwhat" "$upref..HEAD"
+    refresh_and_check_unpushed "$dir" "$rwhat" "$upref..HEAD" "${upref#refs/}"
     return 0
   fi
   local remedy=''
@@ -5371,9 +5518,15 @@ eval_pull() {
     || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main'), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
 }
 
-rewrite_allowed() { # <dir> <what>
+# rewrite_allowed <dir> <what> — unpushed_rewrite, then the unit branch. Under
+# deny the act goes on only where the worktree's launch record allows the
+# draft-branch rewrite, whose range check (check_unpushed) still refuses a
+# never-pushed commit.
+rewrite_allowed() {
   read_knob unpushed_rewrite "$1" allow deny
-  [ "$KNOB_VAL" = allow ] \
+  UNPUSHED_OK=0
+  [ "$KNOB_VAL" != allow ] || UNPUSHED_OK=1
+  [ "$UNPUSHED_OK" = 1 ] || draft_record_ok "$1" \
     || emit_deny "unpushed_rewrite is deny, so $2 is refused; history stays append-only. Add a new commit instead."
   need_timeout
   on_unit_branch "$1" "$2"
@@ -5384,10 +5537,12 @@ resolve_commit() { # <dir> <rev> — the full object id, or empty
 }
 
 eval_rebase() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} root ur up br
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} root ur onto up br
   root=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   ur=${rest%%"$TAB"*}
+  rest=${rest#*"$TAB"}
+  onto=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   rewrite_allowed "$dir" 'this git rebase'
   # shellcheck disable=SC2086 # the positionals, split on purpose
@@ -5406,7 +5561,7 @@ eval_rebase() {
   [ "$ur" != 1 ] \
     || emit_deny 'this git rebase updates other branches too (--update-refs or rebase.updateRefs) - refusing. Rebase with --no-update-refs.'
   if [ "$root" = 1 ]; then
-    refresh_and_check_unpushed "$dir" 'this git rebase --root' HEAD
+    refresh_and_check_unpushed "$dir" 'this git rebase --root' HEAD --root
     return 0
   fi
   # Refresh first, so the upstream resolves to what the rebase will use.
@@ -5418,7 +5573,8 @@ eval_rebase() {
   local oid
   oid=$(resolve_commit "$dir" "$up")
   [ -n "$oid" ] || emit_deny "this git rebase names an upstream that does not resolve to a commit ($(sanitize_printable "$up" 'unprintable')) - refusing (fail closed). Name an existing commit."
-  check_unpushed "$dir" 'this git rebase' "$oid..HEAD"
+  [ "$onto" != 1 ] || up=--onto
+  check_unpushed "$dir" 'this git rebase' "$oid..HEAD" "$up"
 }
 
 eval_commit() {
@@ -7911,8 +8067,8 @@ EOF
 }
 
 # sync_record_set <text> — 0 when a worker's command sets, exports, reads into
-# or clears the session-record variable: the record is the launcher's, and the
-# helper trusts the one the session started with.
+# or clears the session-record variable: the record is the launcher's, and this
+# guard's unit and sync checks read the one the session started with.
 SYNC_REC=PLANWRIGHT_WORKER_SESSION_RECORD
 SYNC_SETTERS=' export declare typeset readonly local read unset readarray mapfile getopts env printf '
 sync_record_set() {
@@ -7957,7 +8113,7 @@ sync_refuse() {
 branch_sync_check() {
   local cmd=$1 si=0 eff=$PAYLOAD_CWD w a rtop
   [ "$TIER" = worker ] \
-    || emit_deny "scripts/worker-branch-sync.sh syncs a dispatched worker's own unit branch and runs under the worker profile only; it is refused at this tier. A pushed branch is rewritten by the tower, through scripts/tower-force-push.sh, on the operator's request."
+    || emit_deny "scripts/worker-branch-sync.sh syncs a dispatched worker's own unit branch and runs under the worker profile only; it is refused at this tier. Any other pushed branch is rewritten by the tower, through scripts/tower-force-push.sh, on the operator's request."
   need_timeout
   tokenize "$cmd" || sync_refuse "this command runs scripts/worker-branch-sync.sh in a form the guard will not parse - refusing (fail closed)."
   [ "$HEREDOC_SUBST" = 0 ] || sync_refuse "this command runs scripts/worker-branch-sync.sh beside a here-document - refusing."
@@ -8007,7 +8163,7 @@ branch_sync_check() {
 
   on_unit_branch "$eff" 'this run of scripts/worker-branch-sync.sh'
   record_usable "$UNIT_TOP" \
-    || emit_deny "scripts/worker-branch-sync.sh runs only for a dispatched worker whose launch-written session record (PLANWRIGHT_WORKER_SESSION_RECORD, this user's own file outside the worktree) names its worktree and unit branch, and this session has no usable one - refusing. Leave the sync to the operator and name it in your handoff."
+    || emit_deny "scripts/worker-branch-sync.sh runs only for a dispatched worker whose launch-written session record (the one PLANWRIGHT_WORKER_SESSION_RECORD names to this guard, this user's own file outside the worktree) names its worktree and unit branch, and this session has no usable one - refusing. Leave the sync to the operator and name it in your handoff."
   record_field unit_branch && [ "$RF" = "$UNIT_BRANCH" ] \
     || emit_deny "this session's record does not name $(sanitize_printable "$UNIT_BRANCH" 'the unit branch') as its one unit branch, so scripts/worker-branch-sync.sh is refused here."
   record_field worktree_root \
@@ -8026,7 +8182,19 @@ branch_sync_check() {
         sync_refuse "ff takes the full SHA of a commit descending from HEAD, and nothing else - refusing."
       fi
       ;;
-    *) sync_refuse "scripts/worker-branch-sync.sh has the verbs reset and ff only; it publishes nothing, and a rewrite of a pushed branch stays the tower's, on the operator's request - refusing." ;;
+    push)
+      # The literal grammar alone: the helper itself re-reads the launch
+      # record, the lease, the authors and the PR before it pushes.
+      a=${SW[2]:-}
+      a=${a#--force-with-lease=}
+      local lb=${a%:*} ls=${a##*:}
+      case $ls in *[!0-9a-f]*) ls='' ;; esac
+      if [ "${#SW[@]}" != 4 ] || [ "${SW[2]}" = "$a" ] || [ "${SW[3]}" != --force-if-includes ] \
+        || [ "$lb" != "$UNIT_BRANCH" ] || { [ "${#ls}" != 40 ] && [ "${#ls}" != 64 ]; }; then
+        sync_refuse "push takes --force-with-lease=$(sanitize_printable "$UNIT_BRANCH" '<branch>'):<the full SHA of the tip the rewrite started from> then --force-if-includes, and nothing else (no remote, refspec, + form, or other option) - refusing."
+      fi
+      ;;
+    *) sync_refuse "scripts/worker-branch-sync.sh has the verbs push, reset and ff only - refusing." ;;
   esac
 }
 
@@ -8084,7 +8252,7 @@ handle_bash() {
     esac
   else
     [ "$TIER" != worker ] || ! sync_record_set "$cmd" \
-      || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which scripts/worker-branch-sync.sh trusts - refusing. Run commands under the record the session started with.'
+      || emit_deny 'this command sets or clears PLANWRIGHT_WORKER_SESSION_RECORD, the session record the launcher wrote, which this guard reads its unit and sync checks from - refusing. Run commands under the record the session started with.'
   fi
   if [ "${#cmd}" -le "$MAX_CMD_LEN" ] && branch_sync_run "$cmd"; then
     branch_sync_check "$cmd"

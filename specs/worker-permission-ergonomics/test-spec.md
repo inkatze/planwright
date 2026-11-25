@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -703,3 +703,30 @@ same command, a commit carrying a flag the `own-branch` arm refuses, and a
 commit with another branch checked out. A commit chain's audit line reads
 `own-branch,own-unit`; a gate chain's reads `own-unit`. Once Task 20 has
 landed, a declared check command partner allows too.
+
+## 2026-11-22 delta
+
+### REQ-F1.12 — Hand-timed step records defer; step scripts stay on the worker's own cache [test]
+
+The guard's step-script suite (Task 23), at every policy value, each
+deferred row first shown allowing against the pre-change guard. These
+defer: `step-record.sh write` for a step, a re-fire (`--refire-of`) and a
+full-suite (`--full-suite`) record; a `--completion` write carrying
+`--start`, `--end`, `--start=<ts>` or `--end=<ts>`; each of those alone,
+behind a `PLANWRIGHT_STEP_*` prefix, after a REQ-E1.10 export, and before an
+own-unit push; a `supersede` without `--source`; any step-script call with
+`--worktree` naming another directory, and every one but `args-digest`
+under a record naming no worktree; a step-context `WORKTREE` naming another
+directory; `--worktree=<dir>`, a doubled `--worktree`, a relative one, and a
+`--start` reached through `$X`; `excerpt` of a file outside the worktree and
+the scratch root; an unknown verb or leading word. These allow, with
+`--worktree` absent and with it naming the recorded worktree: a `--completion` write, a `supersede`
+with `--source`, `render`, `list`, `lookup`, `heads`, `untrue`,
+`fingerprint`, `new-run`, `regenerate`, `status`, `args-digest`, `excerpt`
+of a worktree file and of a scratch file, and `step-run.sh` `resolve`,
+`audit`, `command`, `begin`, `end`, `resume` and `refire`. Existing guard
+suite rows move to a passing form where they allow a step-script call
+(the REQ-F1.10 and REQ-E1.10 rows pairing an act or export with a step
+write among them) and where a step write only carries another defect, so
+each still defers for that defect alone; a corpus row replays the reported
+hand-timed write as a floor row.

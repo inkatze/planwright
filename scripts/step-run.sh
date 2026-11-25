@@ -74,7 +74,9 @@
 #           the slot released only once it is gone; a signal then exits
 #           128+n after the record. A refused context value, location, or
 #           args word (resolve-steps.sh --line's checks) fails the step
-#           without running it. A re-fire must name a step whose row
+#           without running it, and so does a location in a git checkout
+#           that is not as HEAD commits it (committed_location), here and at
+#           begin. A re-fire must name a step whose row
 #           declares refire post-pr that this run has not re-fired. In its
 #           own group the check has no terminal: one that reads /dev/tty
 #           under a controlling terminal stops, as any background job does.
@@ -111,10 +113,14 @@
 #           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
 #           completion in any run, then `...missing<TAB><step>` or
 #           `...failed<TAB><step>:<outcome>` over all runs, or
-#           `...unaudited<TAB><step>` for a record the step-record truth
-#           check (step-record.sh untrue) would refuse; a record's start and
-#           end are those of its standing supersede (step-record.sh supersede)
-#           when it has one;
+#           `...unrun<TAB><step>` for a skill or prompt record passed or
+#           applied with start equal to end and no head move (judged by its
+#           times alone without an end head; a command is exempt), the
+#           message telling the worker to record it skipped, reason
+#           missing, in a fresh run, or else `...unaudited<TAB><step>` for
+#           a record the step-record truth check (step-record.sh untrue)
+#           would refuse; a record's start and end are those of its
+#           standing supersede (step-record.sh supersede) when it has one;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
 #           ahead of those, `...mismatch<TAB>run` for a record of the judged
@@ -208,12 +214,57 @@ is_in_run_point() {
 # step inherits them untouched (REQ-A1.6 forbids scrubbing its environment).
 no_git_selectors() {
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES
 }
 rgit() (
   no_git_selectors
   exec git "$@"
 )
+
+# committed_location <abs-path>: 0 when a step's location may run. The
+# declaration names a file, not its content, and a worker can Write any file
+# in its worktree, so a location in a git checkout runs only as that
+# checkout's HEAD commits it: a regular file whose bytes are the blob HEAD
+# records at that path. A location spelled inside the unit's worktree is held
+# to it even when a symlinked folder resolves it elsewhere, and so is refused.
+# A location with no `.git` entry in any folder above it (an installed tool)
+# keeps the declaration's trust; any other is held to the checkout that entry
+# marks, so a git that cannot answer for it (a broken or foreign `.git`, a
+# location inside a checkout's git folder) refuses rather than trusts.
+committed_location() {
+  local loc=$1 d full root line meta want have
+  d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
+  full="$d/$(basename -- "$loc")"
+  case $loc in
+    "$worktree"/*) root=$worktree ;;
+    *)
+      root=$d
+      while [ ! -e "$root/.git" ] && [ ! -L "$root/.git" ]; do
+        [ "$root" != / ] || return 0
+        root=${root%/*}
+        [ -n "$root" ] || root=/
+      done
+      [ "$(rgit -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+      ;;
+  esac
+  case $full in
+    "$root"/*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$full" ] && [ ! -L "$full" ] || return 1
+  line=$(rgit -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "${full#"$root"/}" 2>/dev/null) || return 1
+  case $line in
+    *"$NL"* | '') return 1 ;;
+  esac
+  meta=${line%%"$TAB"*}
+  [ "${line#*"$TAB"}" = "${full#"$root"/}" ] || return 1
+  case $meta in
+    '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
+    *) return 1 ;;
+  esac
+  have=$(rgit -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ]
+}
 
 worktree=''
 if [ "${1:-}" = --worktree ]; then
@@ -726,6 +777,13 @@ render_line() {
     cat "$work/ctx.err" >&2
     finish failed "$1"
   fi
+  if ! committed_location "$ROW_LOCATION"; then
+    printf 'step-run: step %s not run: its location %s is in a git checkout, but not as HEAD commits it, or git cannot answer for that checkout; commit it or put it back\n' \
+      "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    cat "$work/loc.err" >>"$1"
+    cat "$work/loc.err" >&2
+    finish failed "$1"
+  fi
 }
 
 # group_gone <pgid>: no process of the group is left.
@@ -949,7 +1007,7 @@ audit_fresh() {
 }
 
 cmd_audit() {
-  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line
+  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line unrun=0
   while [ $# -gt 0 ]; do
     case $1 in
       --through | --head | --base) [ $# -ge 2 ] || usage ;;
@@ -995,6 +1053,8 @@ cmd_audit() {
     function flush(   ok) {
       if (!inrec) return
       inrec = 0
+      nk = split("run point type step kind start end head end-head outcome refire-of skip-code", KEYS, " ")
+      for (ki = 1; ki <= nk; ki++) if (!(KEYS[ki] in F)) F[KEYS[ki]] = ""
       if (bad) return
       if (F["run"] != R || F["point"] != K) { if (!((R, K) in runbad)) { runbad[R, K] = 1; print "run\t" R "\t" K >SIDE }; return }
       if (T == "done" && F["type"] == "completion") {
@@ -1009,6 +1069,12 @@ cmd_audit() {
       if (!(key in S)) ord[++no] = key
       S[key] = "step\t" R "\t" K "\t" F["step"] "\t" (hex(F["head"]) ? F["head"] : "-") "\t" (hex(F["end-head"]) ? F["end-head"] : "-") "\t" o "\t" (F["skip-code"] == "" ? "-" : F["skip-code"])
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
+      # A model-session step cannot run in zero seconds without moving the head.
+      if ((o == "passed" || o == "applied") && (F["kind"] == "skill" || F["kind"] == "prompt") \
+          && length(F["start"]) > 0 && F["start"] == F["end"] && (length(F["end-head"]) == 0 || F["end-head"] == F["head"])) {
+        ok = 0; o = "0unrun"
+      }
+      if (!ok && o == "ok") o = "malformed"
       # A record the step-record truth check would refuse covers nothing: the
       # step is reported unaudited, not done.
       if (ok && ((R ":" K ":" substr(b, 1, 3), F["step"]) in untrue)) { ok = 0; o = "unaudited" }
@@ -1024,7 +1090,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "0unrun" ? "unrun:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
       }
       return out == "" ? "-" : out
     }
@@ -1066,6 +1132,10 @@ cmd_audit() {
       case $w in
         missing:*) printf 'gap\t%s\tmissing\t%s\n' "$1" "${w#missing:}" ;;
         failed:*) printf 'gap\t%s\tfailed\t%s\n' "$1" "${w#failed:}" ;;
+        unrun:*)
+          printf 'gap\t%s\tunrun\t%s\n' "$1" "${w#unrun:}"
+          unrun=1
+          ;;
         unaudited:*) printf 'gap\t%s\tunaudited\t%s\n' "$1" "${w#unaudited:}" ;;
       esac
     done
@@ -1154,6 +1224,7 @@ cmd_audit() {
   fi
   line="audit${TAB}complete${TAB}$head"
   [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
+  [ "$unrun" -eq 0 ] || echo "step-run: an unrun gap is a skill or prompt record that started and ended in the same second with no head move, so it is no evidence the step ran; record the step skipped with reason missing in a fresh run (never edit a written record)" >&2
   printf '%s\n' "$line"
   [ "$any" -eq 0 ]
 }
