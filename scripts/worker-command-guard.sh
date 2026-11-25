@@ -84,8 +84,9 @@
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
 # path canonicalizes INSIDE the repository and its trusted commit holds the
 # file unchanged (committed_blob, trusted_rev: the base in the recorded
-# worktree, where the worker commits, HEAD elsewhere; a `bats` directory
-# defers), and an INSTALLED planwright root's `scripts/*.sh` is trusted after
+# worktree, where the worker commits, HEAD in a checkout outside it, and
+# nothing in the cases trusted_rev lists; a `bats` directory defers), and an
+# INSTALLED planwright root's `scripts/*.sh` is trusted after
 # canonicalizing inside a root the hook resolves for itself, held to its
 # trusted commit the same way when the root is a git checkout
 # (REQ-A1.10; see is_planwright_script — the reason this needs no
@@ -778,14 +779,19 @@ canon_under() {
 # which the worker can give any refs, trusts nothing.
 #
 # A record that is set but names no usable worktree trusts nothing at all:
-# the static allows still let the worker commit, and the guard cannot place
-# where (a shell sitting in a repository nested in the one it committed in
-# leaves the outer one looking like "elsewhere"). The one exception is the
-# hook's own root, held to HEAD: it holds this guard, so a worker able to
-# rewrite it has already beaten the guard, and its step scripts keep running.
+# the static allows still let the worker commit, and the guard cannot tell
+# which checkout it committed in (a shell sitting in a repository nested in
+# the one it committed in leaves the outer one looking like a checkout
+# elsewhere). The one exception is the hook's own root, held to HEAD while the
+# session sits outside it: that root holds this guard, so a worker able to
+# rewrite it has already beaten the guard, and its scripts keep running. A
+# session sitting inside it could commit there, so it gets no exception.
 #
 # The recorded worktree's base is resolved once per hook call; trusted_rev is
 # called outside a command substitution so that the cache survives.
+# scripts/step-run.sh's trusted_commit mirrors this function and the record
+# checks in session_record_load, without the hook-root exception; change
+# them together.
 TRUSTED_REV_ROOT=''
 TRUSTED_REV=''
 TRUSTED_REV_OUT=''
@@ -795,6 +801,9 @@ trusted_rev() {
   if [ -z "$REC_WT" ]; then
     if [ -n "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ]; then
       [ -n "${HOOK_SELF_ROOT:-}" ] && [ "$1" = "$HOOK_SELF_ROOT" ] || return 1
+      case ${HOOK_PAYLOAD_CWD:-/}/ in
+        "$HOOK_SELF_ROOT"/*) return 1 ;;
+      esac
     fi
     TRUSTED_REV_OUT=HEAD
     return 0
@@ -1010,9 +1019,8 @@ is_planwright_script() {
       scripts/*)
         # A root that is a git checkout (a tower or mission control run from
         # one) is one the file tools still write, so it is held to its
-        # trusted commit as the repository is: HEAD outside the recorded
-        # worktree, the base when it is that worktree. A root that is no
-        # checkout of its own is an install copy.
+        # trusted commit as the repository is (trusted_rev). A root that is
+        # no checkout of its own is an install copy.
         [ -e "$root/.git" ] || return 0
         [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
         committed_blob "$root" "$rel" "$full"
@@ -1337,13 +1345,15 @@ guard_mkdir() {
 # outside its grammar is dropped, disabling whatever reads it: the
 # policy reads as the empty list, and without the worktree root and unit
 # branch neither the own-branch arm nor a `cd` approves anything, and without
-# the scratch root the scratch arm approves nothing; without the worktree root
-# or the PR base, no file is trusted by its content (trusted_rev). The scratch
-# root must be this user's own canonical directory, apart from the worktree in
-# both directions. A record that is unreadable, not this user's own regular
-# file, or inside the worktree or the scratch root it describes loads no
-# field, which is not the same as no record: trusted_rev, seeing the variable
-# set, trusts nothing.
+# the scratch root the scratch arm approves nothing; without the PR base no
+# file in the worktree is trusted by its content, and without the worktree
+# root no file anywhere is, the hook's own root aside (trusted_rev). The
+# scratch root must be this user's own canonical directory, apart from the
+# worktree in both directions. A record that is unreadable, not this user's
+# own regular file, or inside the worktree or the scratch root it describes
+# loads no field, which is not the same as no record: trusted_rev sees the
+# variable set. scripts/step-run.sh's trusted_commit repeats these checks;
+# change them together.
 #
 # The audit-log home must be this user's own writable canonical directory,
 # apart from the worktree and the scratch root in both directions, and the
@@ -6792,9 +6802,9 @@ check_command_ok() {
 # or by its absolute path, is held to what its trusted commit holds, as a
 # declared step's location is (declared_location_ok): the declaration names
 # the file, not its content, and the worker can Write it. A bare first word is
-# looked up on PATH,
-# never in the working directory, and a `<path>` placeholder is the declarer's
-# choice of what the runner is given; both stay as declared.
+# looked up on PATH, never in the working directory, and a `<path>`
+# placeholder is the declarer's choice of what the runner is given; both stay
+# as declared.
 check_literals_committed() {
   local -a dw=()
   local w full j=0
@@ -6935,8 +6945,8 @@ check_loader_screen() {
 # and machine-local layers inherit the trust already given to the repo's
 # scripts/, which holds a location inside the repository to what its trusted
 # commit holds there: declared_location_ok), so the match is exact: a segment
-# sharing only the first word, a bare target, or an extra arg defers. The declarations are resolved at most
-# once per hook call, by one resolver run over every wired point, only when a
+# sharing only the first word, a bare target, or an extra arg defers. The
+# declarations are resolved at most once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
 # of its location word (the first after any context assignments) is the last
 # path component of a target some layer's steps catalog declares, and under
@@ -7269,9 +7279,9 @@ declared_line_ok() {
 # (the session's repository, or another such as the primary) is held to what
 # that checkout's trusted commit holds (trusted_rev), as a script run by its
 # path is: the declaration names the file, not its content, and the worker
-# can Write the file. A location spelled inside the session's repository counts as in it even when a
-# symlinked folder resolves it elsewhere, and so defers. A location in no
-# checkout keeps the declaration's trust.
+# can Write the file. A location spelled inside the session's repository
+# counts as in it even when a symlinked folder resolves it elsewhere, and so
+# defers. A location in no checkout keeps the declaration's trust.
 declared_location_ok() {
   local root d full
   d=$(cd -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1

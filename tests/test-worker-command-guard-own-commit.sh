@@ -214,11 +214,8 @@ printf 'pr_base=origin/main\n' >>"$DUPBASE"
 under "$DUPBASE"
 assert_defer "a repeated pr_base" "bash scripts/ok.sh" Bash "$WT"
 
-echo "### a record that names no usable worktree trusts no worker commit"
 DUP=$(record_with dup)
 printf 'worktree_root=%s\n' "$WT" >>"$DUP"
-under "$DUP"
-assert_defer "a repeated worktree_root: a committed script" "bash scripts/act-merge.sh" Bash "$WT"
 
 echo "### a repository nested in the worktree answers to no base"
 N=$WT/sub/nested
@@ -258,21 +255,35 @@ echo "### a record set but naming no usable worktree trusts nothing but the hook
 # Such a session can still commit through the static allows, and the guard
 # cannot place where: a shell sitting in a repository nested in the one it
 # committed in would make the outer one look like a checkout elsewhere.
-for r in "$DUP" "$STATE/missing.record" relative.record; do
+# The harness sandbox is itself a checkout enclosing the corpus, so a folder in
+# no checkout at all is made apart from it.
+NOWHERE=$(mktemp -d /tmp/own-commit-nowhere.XXXXXX) || exit 1
+trap 'rm -rf "$SANDBOX" "$NOWHERE"' EXIT
+NOWHERE=$(cd "$NOWHERE" && pwd -P)
+for r in "$DUP" "$STATE/missing.record"; do
   under "$r"
   HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
+  assert_defer "record $r: a committed script" "bash scripts/act-merge.sh" Bash "$WT"
   assert_defer "record $r: the session's own repository" "bash scripts/ok.sh" Bash "$WT"
   assert_defer "record $r: a root checkout elsewhere" "bash $C/scripts/plug.sh" Bash "$WT"
   under "$r"
   HOOK_ENV+=("PLANWRIGHT_ROOT=$WT")
   assert_defer "record $r: the worktree as a root, from a nested repository's directory" \
     "bash $WT/scripts/act-merge.sh" Bash "$N"
-  assert_defer "record $r: the worktree as a root, from outside every checkout" \
-    "bash $WT/scripts/act-merge.sh" Bash "$CORPUS_OUTSIDE"
+  assert_defer "record $r: the worktree as a root, from a folder in no checkout" \
+    "bash $WT/scripts/act-merge.sh" Bash "$NOWHERE"
 done
-under "$DUP"
-assert_allow "the hook's own root keeps HEAD, so its step scripts still run" \
-  "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$WT"
+# The hook's own root is held to HEAD only while the session sits outside it,
+# and only a checkout can show that: an install copy is trusted by location.
+if [ "$(fixture_git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$REPO_ROOT" ]; then
+  under "$DUP"
+  assert_allow "the hook's own root keeps HEAD, so its scripts still run" \
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$WT"
+  assert_defer "the hook's own root, with the session sitting in it, trusts nothing" \
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$REPO_ROOT"
+else
+  fail "the suite must run from a git checkout to show the hook's own root is held to HEAD"
+fi
 under "$REC"
 HOOK_ENV+=("PLANWRIGHT_ROOT=$C")
 assert_allow "control: the root checkout elsewhere under a usable record" \
