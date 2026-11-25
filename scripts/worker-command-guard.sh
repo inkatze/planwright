@@ -1631,8 +1631,8 @@ floor_act_words() {
 }
 
 # --------------------------------------------------------------------------
-# The own-unit acts: three a session may run on its own unit that no other
-# arm approves (the push and the edit being floor acts), approved whatever
+# The own-unit acts: those a session may run on its own unit that no other
+# arm approves (the push, the edit and the thread write being floor acts), approved whatever
 # the record's policy, but only under a record carrying the unit branch, the
 # worktree root and a usable audit log, with the session's directory in that
 # worktree's own repository, for the session's own command at the top level
@@ -1652,7 +1652,8 @@ floor_act_words() {
 #   gh api reply to, or resolve of, a review thread of that same pull
 #   request in which only a bot and the authenticated account have spoken
 #   (own_thread_ok); nothing else.
-# Every word but the body file is a bare literal as written. Anything else
+# Every word but the body file, a reply's body text and a resolve's query is a
+# bare literal as written (the query must equal one fixed text). Anything else
 # is left to the floor, which reserves it as before.
 
 # own_unit_candidate: the unsubstituted words (`sw`) open one of the
