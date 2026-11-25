@@ -2116,6 +2116,9 @@ mix_run_ok() {
   [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
   [ "${sw[0]}" = mix ] && [ "${swq[0]}" -lt 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
   [ -n "$REC_WT" ] && [ -n "$REC_BASE" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
+  # The tree is read as it is now, so an earlier segment of this command that
+  # writes or runs repository code could change what mix then executes.
+  [ "$ARM_ACT" = 0 ] && [ "$OB_WROTE" = 0 ] && [ "$OB_LINKY" = 0 ] && [ "$OB_TOUCH" = 0 ] && [ "$RUN_SEEN" = 0 ] || return 1
   for ((i = 0; i < cwn; i++)); do
     [ -z "${csub[i]-}" ] && [ "${cw[i]}" = "${sw[i]}" ] || return 1
     word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
@@ -2183,6 +2186,8 @@ OB_ON=0
 SC_ON=0
 OB_WROTE=0
 OB_LINKY=0
+# 1 once an earlier segment of the command ran repository code that may write.
+RUN_SEEN=0
 OB_EXCL_STATE=0
 OB_EXCL_DIRS=''
 
@@ -7602,6 +7607,7 @@ verify_simple() {
     declared_line_ok || return 1
   fi
   OU_PARTNER=1
+  RUN_SEEN=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -8453,7 +8459,10 @@ verify_known_simple() {
   fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats) OU_PARTNER=1 ;;
+    mise | lefthook | bats)
+      OU_PARTNER=1
+      RUN_SEEN=1
+      ;;
     bash | sh) ou_script_kind "${cw[1]}" ;;
   esac
   return 0
@@ -8466,6 +8475,7 @@ verify_known_simple() {
 ou_script_kind() {
   if is_repo_script "$1" "$HOOK_CWD"; then
     OU_PARTNER=1
+    RUN_SEEN=1
     return 0
   fi
   case $1 in

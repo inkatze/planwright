@@ -53,6 +53,7 @@ mutant mix-ignores-the-diff 's@^mix_tree_clean() {$@mix_tree_clean() { return 0;
 mutant mix-treats-code-as-inert 's@^mix_path_inert() {$@mix_path_inert() { return 0;@'
 mutant mix-ignores-hidden-flags 's@^  \[ "\${st\[0\]}" = 0 \] \&\& \[ "\${st\[1\]}" = 1 \] || return 1$@  :@'
 mutant mix-trusts-a-shadowable-base 's@show-ref --verify -s "refs/remotes/\$base"@rev-parse --verify -q "$base"@'
+mutant mix-ignores-an-earlier-write 's@^  \[ "\$ARM_ACT" = 0 \] \&\& \[ "\$OB_WROTE" = 0 \].*$@  :@'
 mutant thread-needs-no-bot 's@^thread_bot_only() {$@thread_bot_only() { return 0;@'
 mutant thread-ignores-the-unit-pr 's@\[ -n "\$REC_UNIT" \] \&\& \[ "\$unit_url" = "https://github.com/\$2/pull/\$3" \]$@true@'
 mutant thread-lets-a-human-in 's@or (.user.type == "User" and .user.login == \$v)@or true@'

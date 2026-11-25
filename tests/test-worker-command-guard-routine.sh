@@ -325,6 +325,20 @@ commit_wt "upstream change"
 fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
 fixture_git -C "$WT" reset -q --hard HEAD~1
 assert_allow "the base moved on: only the merge-base counts" "mix test" Bash "$WT"
+mkwt mix-own-branch
+mkdir -p "$WT/scripts"
+printf '#!/bin/sh\n' >"$WT/scripts/ok.sh"
+commit_wt "a repository script"
+fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
+printf '%s\n' "policy=own-branch" "unit_branch=$B" "worktree_root=$WT" "pr_base=origin/main" \
+  "worker_base_merge=allow" "scratch_root=$SCR" \
+  "audit_log_home=$(cd -P -- "$REC.audit" && pwd -P)" >"$REC"
+assert_allow "mix test under the own-branch policy" "mix test" Bash "$WT"
+assert_allow "a repository script alone is approved" "bash scripts/ok.sh" Bash "$WT"
+assert_defer "a write, then mix, joined by &&" "printf x > lib/b.ex && mix test" Bash "$WT"
+assert_defer "a write, then mix, joined by ;" "printf x > lib/b.ex; mix test" Bash "$WT"
+assert_defer "tee, then mix" "echo x | tee lib/b.ex && mix test" Bash "$WT"
+assert_defer "a repository script, then mix" "bash scripts/ok.sh && mix test" Bash "$WT"
 mkwt mix-no-record
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH" "HOME=$HOME_DIR")
 assert_defer "no session record" "mix test" Bash "$WT"
