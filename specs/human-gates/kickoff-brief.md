@@ -1413,5 +1413,5 @@ reviewed:**` set to 2026-11-25 on all four spec files.
 Class: meaning
 Lens-pass: the delta-scoped lens review recorded in this entry (four-agent
 fan-out over the spec artifact class, dispositions above)
-Anchor: `239bf7fc6a0c9639667363c8a871d2a9dc6d3234` — computed as
+Anchor: `61373053524e08090cd8d7e677779d457466f3a7` — computed as
 `scripts/spec-anchor.sh specs/human-gates`

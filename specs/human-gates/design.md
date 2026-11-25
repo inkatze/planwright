@@ -257,7 +257,7 @@ the approval gate survives every value.
 
 ### D-7: A worker merges its base into its own branch; conflicts are a knob  (N)
 
-*(Amended at Amendment 6, 2026-11-25: D-28 admits a clean base merge and its push on the one spec branch a launch record names; the exclusion of spec branches below stands for every other case.)*
+Amended at Amendment 6, 2026-11-25: D-28 admits a clean base merge and its push on the one spec branch a launch record names; the exclusion of spec branches below stands for every other case.
 
 **Decision:** The allowance is the act "merge the PR base into the branch
 this session owns" (the base being the PR's base branch, or the branch the
@@ -343,7 +343,7 @@ reshape, the tower path, and the human-run purge stand.
 
 ### D-9: Enforcement derives from the resolved policy; one spelling list; the protected set  (N)
 
-*(Amended at Amendment 6, 2026-11-25: the worker profile's plain-push denies of a spec branch become guard-only for the one branch a record names, D-28.)*
+Amended at Amendment 6, 2026-11-25: the worker profile's plain-push denies of a spec branch become guard-only for the one branch a record names, D-28.
 
 **Decision:** Acts no value can permit stay in the deny profiles as the
 floor where a profile can express them (merge or rewrite of main, `master`,
