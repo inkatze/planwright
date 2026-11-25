@@ -284,8 +284,11 @@ if [ "$(fixture_git -C "$REPO_ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$
   ln -s "$REPO_ROOT" "$NOWHERE/rootlink"
   assert_defer "the hook's own root, the session in it through a symlinked spelling" \
     "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$NOWHERE/rootlink/scripts"
+  [ -d "${REPO_ROOT%/*}/./${REPO_ROOT##*/}/scripts" ] || fail "the dot-segment spelling must exist"
   assert_defer "the hook's own root, the session in it through a dot segment" \
-    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$NOWHERE/../${REPO_ROOT#/}"
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "${REPO_ROOT%/*}/./${REPO_ROOT##*/}/scripts"
+  assert_defer "the hook's own root, a session directory that cannot be entered" \
+    "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "$NOWHERE/gone"
   assert_defer "the hook's own root, a relative session directory" \
     "$REPO_ROOT/scripts/step-record.sh args-digest x" Bash "."
 else

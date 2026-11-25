@@ -593,9 +593,10 @@ What still runs code a worker wrote without a prompt:
   repository script to HEAD, which the profile's static `git commit` allow
   lets the worker move. A launcher whose record write fails launches the
   worker this way. A record that is set but names no usable worktree (a
-  missing, relative or oversized record path, one that is not this user's
-  own regular file, a record inside the worktree or the scratch root it
-  names, a repeated, non-canonical or non-checkout `worktree_root`) trusts
+  missing, relative or unreadable record path, a record file over the size
+  bound or not this user's own regular file, a record inside the worktree or
+  the scratch root it names, an absent, repeated, non-canonical,
+  control-character or non-checkout `worktree_root`) trusts
   nothing instead, wherever the file lies: the static allows still let the
   worker commit, and the guard cannot tell which checkout it committed in.
   The one exception is the guard's own planwright root, held to HEAD while

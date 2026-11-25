@@ -496,7 +496,8 @@ senv "$home" "$rec" "CLAUDE_DIR=$cdir" SHIM_EVENTS="$ev" -- \
   || fail "c33: a passing preflight must be silent, got: $(cat "$tmp/pf33g.err")"
 [ -s "$rec/argv" ] || fail "c33: the passing launch must spawn the worker"
 # A launcher carrying a session record of its own that names no usable
-# worktree: under it the guard trusts no checkout, but the worker never runs
+# worktree: under it the guard trusts no checkout but its own root, but the
+# worker never runs
 # under it, so the proof runs with no record and an installed root that is a
 # git checkout committing the script still passes.
 git_root="$cdir/plugins/cache/mkt/planwright/0.97.0"
