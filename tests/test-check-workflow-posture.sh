@@ -1738,8 +1738,8 @@ grep -qE 'MACOS_RESULT" = skipped' "$CI_YML"
 assert_exit "the aggregate check job accepts a macOS skip only by that verdict" 0 $?
 n_suite="$(grep -cF "if: \${{ needs.plan.outputs.suite_run == 'true' }}" "$CI_YML")"
 suite_rc=1
-[ "$n_suite" = 2 ] && suite_rc=0
-assert_exit "ci.yml gates exactly the test and Alpine jobs on the plan job's suite_run" 0 "$suite_rc"
+[ "$n_suite" = 3 ] && suite_rc=0
+assert_exit "ci.yml gates exactly the test and the two Alpine jobs on the plan job's suite_run" 0 "$suite_rc"
 
 # The default argument resolves to the repo's workflow directory, so a bare
 # invocation from anywhere gives the same verdict as the explicit one.
@@ -1959,6 +1959,16 @@ matrix_case "matrix: the install smoke in its own Alpine job passes" 0 \
   "holds the platform matrix" DROP_ALPINE_SMOKE=1 "M_LINT_STEP=$SMOKE_JOB"
 matrix_case "matrix: a sharded suite job beside an unsharded smoke job passes" 0 \
   "holds the platform matrix" DROP_ALPINE_SMOKE=1 "M_ALP_JOB=$SHARDED" "M_LINT_STEP=$SMOKE_JOB"
+matrix_case "matrix: the suite_run gate on an Alpine smoke job of its own passes" 0 \
+  "holds the platform matrix" DROP_ALPINE_SMOKE=1 "M_LINT_STEP=  alpine-smoke:
+    if: \${{ needs.plan.outputs.suite_run == 'true' }}
+${SMOKE_JOB#*alpine-smoke:
+}"
+matrix_case "matrix: another condition on an Alpine smoke job of its own fails" 1 "carries a job-level" \
+  DROP_ALPINE_SMOKE=1 "M_LINT_STEP=  alpine-smoke:
+    if: github.event_name == 'push'
+${SMOKE_JOB#*alpine-smoke:
+}"
 matrix_case "matrix: the install smoke in two Alpine jobs fails" 1 "2 \`install smoke\`" \
   "M_LINT_STEP=$SMOKE_JOB"
 matrix_case "matrix: the install smoke in a sharded Alpine job fails" 1 "strategy.matrix" \

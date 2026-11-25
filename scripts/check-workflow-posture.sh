@@ -176,7 +176,7 @@
 #     last fail silently;
 #   - no `if:`, job- or step-level and on every line of a multi-line value,
 #     names a platform (runner.os, runner.arch, matrix.os, or a platform
-#     word); the Alpine job carries only the plan job's
+#     word); an Alpine job carries only the plan job's
 #     `needs.plan.outputs.suite_run == 'true'` (false only on a ready flip
 #     reusing a prior run that passed every suite job on the same head, base
 #     and workflow), alone, since a matrix job runs on every pull request,
