@@ -56,6 +56,7 @@ mutant mix-treats-code-as-inert 's@^mix_path_inert() {$@mix_path_inert() { retur
 mutant mix-ignores-hidden-flags 's@^  \[ "\${st\[0\]}" = 0 \] \&\& \[ "\${st\[1\]}" = 1 \] || return 1$@  :@'
 mutant mix-trusts-a-shadowable-base 's@show-ref --verify -s "refs/remotes/\$base"@rev-parse --verify -q "$base"@'
 mutant thread-needs-no-bot 's@^thread_bot_only() {$@thread_bot_only() { return 0;@'
+mutant thread-ignores-the-unit-pr 's@\[ -n "\$REC_UNIT" \] \&\& \[ "\$unit_url" = "https://github.com/\$2/pull/\$3" \]$@true@'
 mutant thread-lets-a-human-in 's@or (.user.type == "User" and .user.login == \$v)@or true@'
 mutant review-state-runs-argv 's@^    register | unregister | sessions) ;;$@    register | unregister | sessions | evidence) ;;@'
 

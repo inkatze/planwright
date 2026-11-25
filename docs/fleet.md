@@ -1041,12 +1041,13 @@ Four more routine classes need no policy arm. The operator's installed
 verbs, never `evidence run`, `inbox` or `loop`. A reply to, or a resolve of, a
 review thread passes when the guard's own read of the forge shows the first
 comment from a `[bot]` login and no comment from anyone but a bot or the
-authenticated account itself. `mix ci`, `mix format` and `mix test`, with a
+authenticated account itself, on the unit's own open pull request. `mix ci`, `mix format` and `mix test`, with a
 short flag list and relative paths of the worktree, run unprompted only while
 the diff of the worktree against the merge base with
 `refs/remotes/<pr_base>`, the untracked and ignored files, and the
-assume-unchanged and skip-worktree flags show nothing but images and documents (documents only where the base
-neither doctests nor declares one as an external resource); code the PR adds
+assume-unchanged and skip-worktree flags show nothing but images and documents (documents only where the base never
+doctests one, declares one as an external resource, or calls `File`, `Code`
+or `EEx`); code the PR adds
 or changes keeps prompting, so committed code cannot be run unprompted, and
 so does an ignored `_build` or `deps` directory, which can hold planted code. Step records keep
 the rule above: a `--start` or `--end` the caller supplies prompts.

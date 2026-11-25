@@ -34,6 +34,8 @@ cat >"$STUB/gh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >>"$GH_LOG"
 case "$*" in
+  "pr view --json url,headRefName,isCrossRepository,state")
+    printf '%s\n' "{\"url\":\"https://github.com/o/r/pull/21\",\"headRefName\":\"$UNIT_BRANCH\",\"isCrossRepository\":false,\"state\":\"OPEN\"}" ;;
   "api user") printf '%s\n' '{"login":"me"}' ;;
   "api --paginate repos/o/r/pulls/21/comments")
     printf '%s\n' '[{"id":1001,"in_reply_to_id":null,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"}}]'
@@ -46,6 +48,8 @@ case "$*" in
     printf '%s\n' '[{"id":1301,"in_reply_to_id":null,"user":{"login":"notabot","type":"Bot"}}]' ;;
   "api --paginate repos/o/r/pulls/25/comments")
     printf '%s\n' '[{"id":1401,"in_reply_to_id":null,"user":{"login":"x[bot]x","type":"Bot"}}]' ;;
+  "api --paginate repos/o/r/pulls/27/comments")
+    printf '%s\n' '[{"id":1601,"in_reply_to_id":null,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"}}]' ;;
   "api --paginate repos/o/r/pulls/26/comments")
     printf '%s\n' '[{"id":1501,"in_reply_to_id":null,"user":{"login":"[bot]","type":"Bot"}}]' ;;
   "api graphql -f query=query(\$id:ID!){node(id:\$id){...on PullRequestReviewThread{comments(first:100){totalCount nodes{databaseId pullRequest{number repository{nameWithOwner}}}}}}} -f id=PRRT_bot")
@@ -82,7 +86,7 @@ mkwt() {
   printf '%s\n' "policy=" "unit_branch=$B" "worktree_root=$WT" "pr_base=origin/main" \
     "worker_base_merge=allow" "scratch_root=$SCR" \
     "audit_log_home=$(cd -P -- "$REC.audit" && pwd -P)" >"$REC"
-  HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC" "PATH=$STUB:$PATH" "HOME=$HOME_DIR" "GH_LOG=$GH_LOG")
+  HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$REC" "PATH=$STUB:$PATH" "HOME=$HOME_DIR" "GH_LOG=$GH_LOG" "UNIT_BRANCH=$B")
 }
 # commit_wt <message>: commit everything in the current worktree.
 commit_wt() {
@@ -144,10 +148,11 @@ echo "### class 3: replies to and resolves of review threads only a bot has spok
 REPLY="gh api -X POST repos/o/r/pulls/21/comments/1001/replies -f body='Fixed in abc123, thanks.'"
 assert_allow "a reply to a bot-only thread" "$REPLY" Bash "$WT"
 assert_allow "a reply with --method POST" "gh api --method POST repos/o/r/pulls/21/comments/1001/replies -f body=ok" Bash "$WT"
-assert_allow "a reply to the bot's own reply in the thread" "gh api -X POST repos/o/r/pulls/21/comments/1002/replies -f body=ok" Bash "$WT"
+assert_allow "a reply in a thread holding the operator's own earlier reply" "gh api -X POST repos/o/r/pulls/21/comments/1002/replies -f body=ok" Bash "$WT"
 # shellcheck disable=SC2016 # GraphQL variables, not shell ones
 RES='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
 assert_allow "a resolve of a bot-only thread" "gh api graphql -f query='$RES' -f id=PRRT_bot" Bash "$WT"
+assert_defer "a bot-only thread on a pull request that is not the unit's" "gh api -X POST repos/o/r/pulls/27/comments/1601/replies -f body=ok" Bash "$WT"
 assert_defer "a reply where a human has replied" "gh api -X POST repos/o/r/pulls/22/comments/1101/replies -f body=ok" Bash "$WT"
 assert_defer "a reply to a human's comment" "gh api -X POST repos/o/r/pulls/23/comments/1201/replies -f body=ok" Bash "$WT"
 assert_defer "a thread whose first comment is a human's" "gh api -X POST repos/o/r/pulls/23/comments/1202/replies -f body=ok" Bash "$WT"
@@ -274,6 +279,12 @@ commit_wt "a base that reads a document at compile time"
 fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
 printf 'iex> 1\n' >>"$WT/README.md"
 assert_defer "a document the base reads at compile time is code" "mix test" Bash "$WT"
+mkwt mix-evalfile
+printf 'Code.eval_file("rules.txt")\n' >"$WT/test/e_test.exs"
+commit_wt "a base that evaluates a text file"
+fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
+printf 'x\n' >"$WT/rules.txt"
+assert_defer "a text file the base evaluates is code" "mix test" Bash "$WT"
 mkwt mix-image
 printf 'png\n' >"$WT/logo.png"
 assert_allow "an untracked image" "mix test" Bash "$WT"

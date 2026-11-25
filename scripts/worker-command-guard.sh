@@ -19,9 +19,9 @@
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
 #     hook skip, squash, or `gh` write), defers, declared check commands and
-#     steps' lines included, save two own-unit acts (see own_unit_act): a push of the
-#     recorded unit branch to origin and a body edit of its own open pull
-#     request. The guard reads the deny block itself rather than trusting
+#     steps' lines included, save the own-unit acts (see own_unit_act): a push of the
+#     recorded unit branch to origin, a body edit of its own open pull
+#     request, and a reply to or resolve of a bot-only review thread on it. The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared check commands and steps, the
@@ -1648,7 +1648,10 @@ floor_act_words() {
 #       request whose head is the unit branch, as one bounded `gh pr view`
 #       read from the session's directory says, and <file> a regular file
 #       canonically inside the recorded scratch root;
-#   git push origin <unit> | git push origin <unit>:<unit>   nothing else.
+#   git push origin <unit> | git push origin <unit>:<unit>;
+#   gh api reply to, or resolve of, a review thread of that same pull
+#   request in which only a bot and the authenticated account have spoken
+#   (own_thread_ok); nothing else.
 # Every word but the body file is a bare literal as written. Anything else
 # is left to the floor, which reserves it as before.
 
@@ -1940,7 +1943,7 @@ own_thread_ok() {
 # thread's first comment. The pull request's comments are read whole
 # (paginated), and the thread is rebuilt from their reply links.
 thread_bot_only() {
-  local viewer comments
+  local viewer comments unit_url
   viewer=$(own_gh_read "$1" api user | jq -r '.login // empty' 2>/dev/null) || return 1
   [[ $viewer =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || return 1
   comments=$(own_gh_read "$1" api --paginate "repos/$2/pulls/$3/comments") || return 1
@@ -1956,7 +1959,11 @@ thread_bot_only() {
     | ($expect == 0 or $root == $expect)
       and ($r.user.type == "Bot") and ($r.user.login | test("^.+\\[bot\\]$"))
       and ($th | all(((.user.type == "Bot") and (.user.login | test("^.+\\[bot\\]$")))
-          or (.user.type == "User" and .user.login == $v)))' >/dev/null 2>&1
+          or (.user.type == "User" and .user.login == $v)))' >/dev/null 2>&1 || return 1
+  # The thread must lie on the unit's own open, same-repository pull request.
+  unit_url=$(own_gh_read "$1" pr view --json url,headRefName,isCrossRepository,state \
+    | jq -r --arg b "$REC_UNIT" 'select(.headRefName == $b and .isCrossRepository == false and .state == "OPEN") | .url' 2>/dev/null) || return 1
+  [ -n "$REC_UNIT" ] && [ "$unit_url" = "https://github.com/$2/pull/$3" ]
 }
 
 # --------------------------------------------------------------------------
@@ -2057,7 +2064,7 @@ mix_tree_clean() {
   # A base that compiles or doctests a text document runs what the document
   # holds, so no document is inert there.
   MIX_DOCS_INERT=0
-  "${gitc[@]}" grep -q -E 'doctest_file|@external_resource|File\.read' "$mb" -- '*.ex' '*.exs' 2>/dev/null
+  "${gitc[@]}" grep -q -E 'doctest_file|@external_resource|File\.|Code\.|EEx\.' "$mb" -- '*.ex' '*.exs' 2>/dev/null
   case $? in
     1) MIX_DOCS_INERT=1 ;;
     *) ;;
