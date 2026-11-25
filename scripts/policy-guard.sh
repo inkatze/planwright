@@ -5799,7 +5799,7 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # first word is no switch (perl script.pl -i) is no in-place run; past a first
 # switch any words may stand before the i cluster, since a switch's value
 # (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
-RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acnpsStTuUvwWXhl]*i'
+RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acdfgnpsStTuUvwWXyhl]*i'
 RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|--(i|lo|e)[a-z]*[=[:space:]][[:space:]]*|-W[[:space:]]*(include|load)=|-f[[:space:]]*|@include[[:space:]]*|@load[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
 # vim's names: the g, r and e prefixes, the diff and x suffixes, and a
 # distribution's vim.<build>. Keep in step with mc_inplace_targets.
@@ -7397,7 +7397,12 @@ mc_ipt_perl() {
               [ "$j" -lt "${#c}" ] || val=skip
               break
               ;;
-            *:d | *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V | ruby:K) break ;;
+            perl:d)
+              # -d[t] reads on through the cluster; :module or =module ends it.
+              [ "${c:$j:1}" != t ] || j=$((j + 1))
+              case ${c:$j:1} in : | =) break ;; esac
+              ;;
+            *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V | ruby:K) break ;;
           esac
         done
         ;;

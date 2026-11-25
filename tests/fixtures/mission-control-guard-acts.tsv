@@ -340,6 +340,17 @@ deny	repo-write	bash	-	edits no repository	echo x | tee @SCRATCH@/kb/a.md @UNIT@
 deny	repo-write	bash	-	edits no repository	truncate -s0 @SCRATCH@/kb/a.md @UNIT@/b.md
 deny	repo-write	bash	-	edits no repository	bash -c "perl -I lib -pi -e 1 @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	bash -c "ruby -r json -pi -e 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	perl -di -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	perl -dti -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	ruby -di -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "perl -di -pe 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "perl -fi -pe 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "perl -gi -pe 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "ruby -dpi -e 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "ruby -yi -pe 1 @UNIT@/README.md"
+defer	read	bash	-	-	perl -Di -pe 1 @UNIT@/README.md
+defer	read	bash	-	-	perl -d:Profile -pe 1 @UNIT@/README.md
+defer	read	bash	-	-	perl -dt:Profile -pe 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); gawk -W load=inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'ed -s @UNIT@/README.md'
