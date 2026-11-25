@@ -51,7 +51,7 @@ mutant() {
 
 mutant mix-ignores-the-diff 's@^mix_tree_clean() {$@mix_tree_clean() { return 0;@'
 mutant mix-treats-code-as-inert 's@^mix_path_inert() {$@mix_path_inert() { return 0;@'
-mutant mix-ignores-hidden-flags 's@^  \[ "\${st\[0\]}" = 0 \] \&\& \[ "\${st\[1\]}" = 1 \] || return 1$@  :@'
+mutant mix-ignores-hidden-flags 's@^mix_tags_plain() {$@mix_tags_plain() { cat >/dev/null; return 0;@'
 mutant mix-trusts-a-shadowable-base 's@show-ref --verify -s "refs/remotes/\$base"@rev-parse --verify -q "$base"@'
 mutant mix-ignores-an-earlier-write 's@^  \[ "\$ARM_ACT" = 0 \] \&\& \[ "\$OB_WROTE" = 0 \].*$@  :@'
 mutant mix-ignores-an-assignment 's@^  \[ "\$VAR_C" -eq 0 \] || return 1$@  :@'

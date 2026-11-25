@@ -2053,6 +2053,15 @@ mix_paths_inert() {
   done
 }
 
+# mix_tags_plain: every NUL-separated `ls-files -v` record on stdin carries the
+# plain tag H, read without grep, whose NUL handling differs across hosts.
+mix_tags_plain() {
+  local p
+  while IFS= read -r -d '' p; do
+    [ "${p:0:2}" = 'H ' ] || return 1
+  done
+}
+
 # mix_tree_clean: nothing a mix run in the recorded worktree would execute
 # differs from the trusted PR base.
 mix_tree_clean() {
@@ -2076,9 +2085,9 @@ mix_tree_clean() {
   esac
   # A tracked file flagged assume-unchanged or skip-worktree (a tag other
   # than H) is one the diff below cannot see change.
-  "${gitc[@]}" ls-files -v -z 2>/dev/null | grep -qz '^[^H]'
+  "${gitc[@]}" ls-files -v -z 2>/dev/null | mix_tags_plain
   st=("${PIPESTATUS[@]}")
-  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 1 ] || return 1
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
   "${gitc[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv "$mb" -- 2>/dev/null | mix_paths_inert
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
