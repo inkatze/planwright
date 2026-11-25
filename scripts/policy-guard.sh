@@ -7724,7 +7724,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -8190,10 +8190,14 @@ XEOF_RUN
     opsr=()
     tdir=''
     k=0
+    oend=0
     for w in "${SW[@]:$((vi + 1))}"; do
       # k: 1 when this word is the target directory, 2 when it is a file the
-      # verb writes beside its operands, 3 when it is an option's value, which
-      # the verb opens for no write.
+      # verb writes beside its operands, 3 when it is an option's value kept
+      # among the operands, which the verb opens for no write, 4 when it is an
+      # option's value the verb only reads and is no operand (a copy verb's
+      # backup suffix, install's mode, owner and group). After --, every word
+      # is an operand (oend).
       if [ "$k" = 1 ]; then
         k=0
         tdir=$w
@@ -8219,64 +8223,83 @@ XEOF_RUN
         ! mc_write_word_refused "$w" 2 || emit_deny "$MC_REFUSAL"
         continue
       fi
-      # truncate's size and reference file are values.
-      case $verb:$w in
-        truncate:--?*) ! mc_long_is "$w" 3 --size --reference || k=3 ;;
-        truncate:-[!-]*)
-          c=${w#-}
-          case $c in *[rs]*) [ -n "${c#*[rs]}" ] || k=3 ;; esac
-          ;;
-        cp:--?* | mv:--?* | install:--?*) ! mc_long_is "$w" 4 --suffix || k=4 ;;
-        cp:-* | mv:-* | install:-*)
-          # S takes the rest of its cluster or, ending it, the next word; a t
-          # before it takes the rest itself.
-          c=${w#-}
-          case $c in -* | *t*S*) ;; *S) k=4 ;; esac
-          ;;
-      esac
-      case $w in
-        -e | -f | --expression | --file)
-          # sed's script options; for any other verb these are plain flags.
-          [ "$verb" != sed ] || sedscript=1
+      if [ "$oend" = 0 ] && [ "$w" = -- ]; then
+        oend=1
+        continue
+      fi
+      if [ "$oend" = 1 ]; then
+        if [ "$sedscript" = 1 ]; then
+          sedscript=0
           continue
-          ;;
-        --?*)
-          # rsync's log and batch files are written as well.
-          case $verb:${w%%=*} in
-            rsync:--log-file | rsync:--write-batch | rsync:--only-write-batch | rsync:--backup-dir | rsync:--partial-dir | rsync:--temp-dir)
-              case $w in
-                *=*) ! mc_write_word_refused "${w#*=}" 1 0 || emit_deny "$MC_REFUSAL" ;;
-                *) k=2 ;;
-              esac
+        fi
+      else
+        # truncate's size and reference file are values.
+        case $verb:$w in
+          truncate:--?*) ! mc_long_is "$w" 3 --size --reference || k=3 ;;
+          truncate:-[!-]*)
+            c=${w#-}
+            case $c in *[rs]*) [ -n "${c#*[rs]}" ] || k=3 ;; esac
+            ;;
+          cp:--?* | mv:--?* | install:--?*) ! mc_long_is "$w" 4 --suffix || k=4 ;;
+          cp:-[!-]* | mv:-[!-]* | install:-[!-]*)
+            # The first letter of the cluster that takes a value takes the
+            # rest of it, or the next word when it ends the cluster: t the
+            # target directory (below), S a backup suffix and install's m, o
+            # and g their values (read, k=4).
+            c=${w#-}
+            case $verb in install) m='Smog' ;; *) m='S' ;; esac
+            # shellcheck disable=SC2295 # the bracket is a pattern of letters
+            m=${c%%[t$m]*}
+            if [ "${#m}" -lt "${#c}" ] && [ "${c:${#m}:1}" != t ]; then
+              [ -n "${c:$((${#m} + 1))}" ] || k=4
               continue
-              ;;
-          esac
-          # --target-directory in any abbreviation getopt_long accepts.
-          case $verb in cp | mv | install | ln) ;; *) continue ;; esac
-          c=--target-directory
-          # shellcheck disable=SC2295 # the word is a literal prefix
-          case $c in "${w%%=*}"*) ;; *) continue ;; esac
-          case $w in *=*) tdir=${w#*=} ;; *) k=1 ;; esac
-          continue
-          ;;
-        -[!-]*)
-          # A t anywhere in a short cluster (-rt, -st) takes the rest of the
-          # cluster or the next word as the target directory.
-          case $verb in cp | mv | install | ln) ;; *) continue ;; esac
-          c=${w#-}
-          case $c in *t*) ;; *) continue ;; esac
-          c=${c#*t}
-          if [ -n "$c" ]; then tdir=$c; else k=1; fi
-          continue
-          ;;
-        -*) continue ;;
-        *)
-          if [ "$sedscript" = 1 ]; then
-            sedscript=0
+            fi
+            ;;
+        esac
+        case $w in
+          -e | -f | --expression | --file)
+            # sed's script options; for any other verb these are plain flags.
+            [ "$verb" != sed ] || sedscript=1
             continue
-          fi
-          ;;
-      esac
+            ;;
+          --?*)
+            # rsync's log and batch files are written as well.
+            case $verb:${w%%=*} in
+              rsync:--log-file | rsync:--write-batch | rsync:--only-write-batch | rsync:--backup-dir | rsync:--partial-dir | rsync:--temp-dir)
+                case $w in
+                  *=*) ! mc_write_word_refused "${w#*=}" 1 0 || emit_deny "$MC_REFUSAL" ;;
+                  *) k=2 ;;
+                esac
+                continue
+                ;;
+            esac
+            # --target-directory in any abbreviation getopt_long accepts.
+            case $verb in cp | mv | install | ln) ;; *) continue ;; esac
+            c=--target-directory
+            # shellcheck disable=SC2295 # the word is a literal prefix
+            case $c in "${w%%=*}"*) ;; *) continue ;; esac
+            case $w in *=*) tdir=${w#*=} ;; *) k=1 ;; esac
+            continue
+            ;;
+          -[!-]*)
+            # A t in a short cluster (-rt, -st) takes the rest of the cluster
+            # or the next word as the target directory.
+            case $verb in cp | mv | install | ln) ;; *) continue ;; esac
+            c=${w#-}
+            case $c in *t*) ;; *) continue ;; esac
+            c=${c#*t}
+            if [ -n "$c" ]; then tdir=$c; else k=1; fi
+            continue
+            ;;
+          -*) continue ;;
+          *)
+            if [ "$sedscript" = 1 ]; then
+              sedscript=0
+              continue
+            fi
+            ;;
+        esac
+      fi
       ops[${#ops[@]}]=$w
       # sed's in-place files were read by its own parser above; dd writes only
       # its of= file.

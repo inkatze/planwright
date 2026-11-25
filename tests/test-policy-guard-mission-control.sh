@@ -167,9 +167,11 @@ done
 pg mission-control "echo \$(date) \"Checked over ssh.${NL}View the log afterwards.\" > $SCRATCH/kb/o.md" "$SCRATCH"
 expect defer "[mission-control] a quoted prose line starting with an editor's name is no editor run"
 for c in "cp $KB/real.md $UNIT/README.md -S .bak" "mv $KB/real.md $UNIT/README.md --suffix .bak" \
-  "cp $KB/real.md $UNIT/README.md -bS .bak"; do
+  "cp $KB/real.md $UNIT/README.md -bS .bak" "cp -S.tmp $KB/real.md $UNIT/README.md" \
+  "cp -bS.attic $KB/real.md $UNIT/README.md" "cp -St $KB/real.md $UNIT/README.md" \
+  "cp -- $KB/real.md -S $UNIT/README.md" "mv -- $KB/real.md --suffix $UNIT/README.md"; do
   pg mission-control "$c" "$SCRATCH"
-  expect deny "[mission-control] a backup suffix after the destination is no destination: ${c##*/README.md }"
+  expect deny "[mission-control] a backup suffix is no destination: ${c%% "$KB"*}"
 done
 pg mission-control "cp -S .bak $KB/real.md $KB/s2.md" "$SCRATCH"
 expect defer "[mission-control] a backup suffix is a value, read as no repository write"
