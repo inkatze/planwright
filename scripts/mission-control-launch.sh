@@ -524,6 +524,7 @@ row_write() {
     printf 'primary\t%s\n' "${placed_primary:--}"
     printf 'marker\t%s\n' "${PLACED_MARKER:--}"
     printf 'launched\t%s\n' "$launched"
+    printf 'seq\t%s\n' "${rsv_seq:--}"
   } >"$rw_tmp"); then
     rm -f "$rw_tmp"
     return 1
@@ -1206,15 +1207,40 @@ cmd_launch() {
     die "the session name $name is held by a registered session; retire it before launching again" 3
   fi
   rtmp=$(mktemp "$REG/.reserve.XXXXXX") || die "cannot write the reservation for $name"
+  # The host-wide bound orders launches by a sequence number taken and linked
+  # under one lock, so a later launch always counts an earlier one even when
+  # both start in the same second.
+  order_lock="$FH/mission-control/locks/.reservation-order"
+  pw_lock_acquire "$order_lock" 600 || {
+    rm -f "$rtmp"
+    die "cannot take the reservation-order lock for $name" 2
+  }
+  # Only settled rows are read: a temporary row another launch renames away
+  # mid-scan would otherwise abort an awk over the glob and read as no rows.
+  rsv_seq=0
+  set +f
+  set -- "$REG"/mc-*
+  set -f
+  for rsv_f in "$@"; do
+    [ -f "$rsv_f" ] && [ ! -L "$rsv_f" ] || continue
+    case ${rsv_f##*/} in *.tmp.*) continue ;; esac
+    rsv_s=$(row_get "$rsv_f" seq)
+    case $rsv_s in '' | *[!0-9]*) continue ;; esac
+    [ "$rsv_s" -le "$rsv_seq" ] || rsv_seq=$rsv_s
+  done
+  rsv_seq=$((rsv_seq + 1))
   if ! row_write "$rtmp" "$token" launching; then
+    pw_lock_release "$order_lock" || :
     rm -f "$rtmp"
     die "cannot write the reservation for $name"
   fi
   if ! ln "$rtmp" "$row" 2>/dev/null; then
+    pw_lock_release "$order_lock" || :
     rm -f "$rtmp"
     [ ! -e "$row" ] || die "the session name $name is held by a registered session; retire it before launching again" 3
     die "cannot reserve the session name $name"
   fi
+  pw_lock_release "$order_lock" || :
   rm -f "$rtmp"
   # A launch directory with no row is a leftover of a launch that died; the
   # reservation now owns the name, so it is cleared.
@@ -1243,16 +1269,16 @@ cmd_launch() {
   }
 
   # The host-wide bound counts every program's registered sessions that
-  # reserved before this launch (an earlier time, or the same second and an
-  # earlier name), so concurrent launches near the bound admit the first and
-  # never refuse each other. Only worker-profile kinds are held; a tower or
+  # reserved before this launch (a lower reservation sequence, or for a row
+  # with none, a launch time no later than this one), so concurrent launches
+  # near the bound admit the first and never refuse each other. Only worker-profile kinds are held; a tower or
   # orchestrator row is still counted, a mission-control row never. A row of
   # a session that died stays counted until it is retired.
   if runs_local_work "$K_PROFILE"; then
     hc_limit=$(/bin/sh "$script_dir/resolve-config-knob.sh" --key fleet_host_max_live_workers --type threshold --no-degrade </dev/null 2>/dev/null) \
       || refuse "refusing to launch $name: fleet_host_max_live_workers cannot be resolved to a number or off" 4
     if [ "$hc_limit" != off ]; then
-      hc_held=$(host_live_counts "$name" "$launched")
+      hc_held=$(host_live_counts "$name" "$launched" "${rsv_seq:-}")
       hc_total=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $2 } END { print n + 0 }')
       hc_idle=$(printf '%s\n' "$hc_held" | awk -F '\t' '{ n += $3 } END { print n + 0 }')
       if [ "$hc_total" -ge "$hc_limit" ]; then
@@ -1954,14 +1980,15 @@ $rp_dest
   printf 'reparent\t%s\tmoved\t%s\t%s\tundo=%s\n' "$rp_name" "$rp_src" "$rp_dest" "$rp_undo_id"
 }
 
-# host_live_counts <own-name> <own-launched> — one
+# host_live_counts <own-name> <own-launched> [<own-seq>] — one
 # "<program><TAB><working><TAB><waiting>" line per program holding
 # registered non-mission-control sessions in the
 # shared registry that reserved before the named session (its own row and
-# later reservations left out). A remote host's sessions sit in that
+# later reservations left out): a lower reservation sequence when both rows
+# carry one, else a launch time no later than <own-launched>. A remote host's sessions sit in that
 # host's registry (scripts/fleet-remote.sh), so they are never counted here.
 host_live_counts() {
-  hl_own=$1 hl_when=$2
+  hl_own=$1 hl_when=$2 hl_own_seq=${3:-}
   hl_rows=''
   set +f
   set -- "$REG"/mc-*
@@ -1970,9 +1997,17 @@ host_live_counts() {
     [ -f "$f" ] && [ ! -L "$f" ] || continue
     case ${f##*/} in *.tmp.* | "$hl_own") continue ;; esac
     row_format_ok "$f" || continue
-    hl_at=$(row_get "$f" launched)
-    case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
-    if [ "$hl_at" -gt "$hl_when" ] || { [ "$hl_at" -eq "$hl_when" ] && expr "x${f##*/}" \> "x$hl_own" >/dev/null; }; then continue; fi
+    hl_sq=$(row_get "$f" seq)
+    case $hl_sq in '' | *[!0-9]*) hl_sq='' ;; esac
+    if [ -n "$hl_sq" ] && [ -n "$hl_own_seq" ]; then
+      [ "$hl_sq" -lt "$hl_own_seq" ] || continue
+    else
+      # A row or a launch with no sequence (an older row, an adopted session)
+      # falls back to the launch time; a row launched in the same second counts.
+      hl_at=$(row_get "$f" launched)
+      case $hl_at in '' | *[!0-9]*) hl_at=0 ;; esac
+      [ "$hl_at" -le "$hl_when" ] || continue
+    fi
     [ "$(row_get "$f" kind)" != mission-control ] || continue
     hl_p=$(row_get "$f" program)
     [ -n "$hl_p" ] || continue
