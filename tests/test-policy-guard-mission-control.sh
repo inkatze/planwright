@@ -179,7 +179,7 @@ for c in "cp -S .bak $KB/real.md $KB/s2.md" "cp -S.tmp $KB/real.md $KB/s3.md" "c
   expect defer "[mission-control] a backup suffix is a value, read as no repository write: ${c%% "$KB"*}"
 done
 pg mission-control "sed -i -- s/a/b/ $UNIT/README.md" "$SCRATCH"
-expect deny "[mission-control] after --, sed's first word is still its script and the file is read"
+expect deny "[mission-control] sed -i -- still refuses its in-place file inside a repository"
 pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"
 expect defer "[mission-control] a here-string is read as a command only on a shell's or runner's own line"
 pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"
