@@ -1989,6 +1989,8 @@ review_state_call_ok() {
     */./* | */../* | *//* | */) return 1 ;;
   esac
   [ "${cw[0]}" = "$h/.claude/scripts/review-state.sh" ] && [ "${sw[0]}" = "${cw[0]}" ] || return 1
+  # A tracked assignment (REVIEW_STATE_ROOT, HOME) could move the state it keeps.
+  [ "$VAR_C" -eq 0 ] || return 1
   if [ -n "$REC_WT" ]; then
     case $h/ in
       "$REC_WT"/*) return 1 ;;
@@ -2030,17 +2032,15 @@ review_state_call_ok() {
 # the paths to relative ones inside the worktree.
 
 # mix_path_inert <path>: the path names a file mix does not execute: an image
-# or a PDF by its extension, or a text document unless the base reads one as
-# code (MIX_DOCS_INERT, set by mix_tree_clean). The build and dependency
-# directories are never inert: ignored, they can hold code a worker planted,
-# which mix loads.
-MIX_DOCS_INERT=0
+# or a PDF by its extension. A text document is not inert, since a base can read
+# one at compile time or doctest it by spellings no pattern lists, and the build
+# and dependency directories are not either: ignored, they can hold code a
+# worker planted, which mix loads.
 mix_path_inert() {
   lower "$1"
   case $LOWER in
     '' | *[[:cntrl:]]*) return 1 ;;
     *.png | *.jpg | *.jpeg | *.gif | *.ico | *.pdf) return 0 ;;
-    *.md | *.markdown | *.txt | *.rst) [ "$MIX_DOCS_INERT" = 1 ] ;;
     *) return 1 ;;
   esac
 }
@@ -2066,7 +2066,10 @@ mix_tags_plain() {
 # differs from the trusted PR base.
 mix_tree_clean() {
   local base=$REC_BASE sha mb st
-  local -a gitc=(git_plain -c core.fsmonitor=false --no-optional-locks -C "$REC_WT")
+  # The work tree is named on the command line and the submodule setting is
+  # pinned, so neither core.worktree nor diff.ignoreSubmodules in the
+  # repository's config can show the diff a different tree or hide a change.
+  local -a gitc=(git_plain -c core.fsmonitor=false -c diff.ignoreSubmodules=none --no-optional-locks --work-tree="$REC_WT" -C "$REC_WT")
   [[ $base =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+$ ]] || return 1
   case $base in
     *..* | */ | *//* | */. | */./* | *.lock) return 1 ;;
@@ -2075,20 +2078,12 @@ mix_tree_clean() {
   [[ $sha =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
   mb=$("${gitc[@]}" merge-base "$sha" HEAD 2>/dev/null) || return 1
   [[ $mb =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
-  # A base that compiles or doctests a text document runs what the document
-  # holds, so no document is inert there.
-  MIX_DOCS_INERT=0
-  "${gitc[@]}" grep -q -E 'doctest_file|@external_resource|File\.|Code\.|EEx\.' "$mb" -- '*.ex' '*.exs' 2>/dev/null
-  case $? in
-    1) MIX_DOCS_INERT=1 ;;
-    *) ;;
-  esac
   # A tracked file flagged assume-unchanged or skip-worktree (a tag other
   # than H) is one the diff below cannot see change.
   "${gitc[@]}" ls-files -v -z 2>/dev/null | mix_tags_plain
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
-  "${gitc[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv "$mb" -- 2>/dev/null | mix_paths_inert
+  "${gitc[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv --ignore-submodules=none "$mb" -- 2>/dev/null | mix_paths_inert
   st=("${PIPESTATUS[@]}")
   [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
   "${gitc[@]}" ls-files -o --exclude-standard -z 2>/dev/null | mix_paths_inert
@@ -2147,7 +2142,7 @@ mix_run_ok() {
   for ((i = 2; i < cwn; i++)); do
     w=${cw[i]}
     if [ "$expect" = 1 ]; then
-      [[ $w =~ ^[A-Za-z0-9_.:-]{1,64}$ ]] || return 1
+      [[ $w =~ ^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,63}$ ]] || return 1
       expect=0
       continue
     fi
@@ -2155,7 +2150,7 @@ mix_run_ok() {
       test:--trace | test:--failed | test:--stale | test:--cover | test:--warnings-as-errors | test:--no-start | test:--no-compile | test:--no-deps-check | test:--raise | test:--color | test:--no-color) ;;
       test:--seed | test:--max-failures | test:--only | test:--exclude | test:--include | test:--timeout | test:--slowest | test:--max-cases | test:--partitions) expect=1 ;;
       test:--seed=* | test:--max-failures=* | test:--only=* | test:--exclude=* | test:--include=* | test:--timeout=* | test:--slowest=* | test:--max-cases=* | test:--partitions=*)
-        [[ ${w#*=} =~ ^[A-Za-z0-9_.:-]{1,64}$ ]] || return 1
+        [[ ${w#*=} =~ ^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,63}$ ]] || return 1
         ;;
       format:--check-formatted | format:--dry-run | format:--no-deps-check) ;;
       test:-* | format:-* | ci:*) return 1 ;;

@@ -1047,9 +1047,8 @@ authenticated account itself, on the unit's own open pull request.
 paths of the worktree, run unprompted only while the diff of the worktree
 against the merge base with `refs/remotes/<pr_base>`, the untracked and ignored
 files, and the assume-unchanged and skip-worktree flags show nothing but
-images and documents (documents only where the base never doctests one,
-declares one as an external resource, or calls `File`, `Code` or `EEx`). Code
-the PR adds or changes keeps prompting, so committed code cannot be run
+images. Anything else the PR adds or changes keeps prompting, documents
+included (a base can read one as code), so committed code cannot be run
 unprompted, and so does an ignored `_build` or `deps` directory, which can hold
 planted code. Step records keep the rule above: a `--start` or `--end` the
 caller supplies prompts.

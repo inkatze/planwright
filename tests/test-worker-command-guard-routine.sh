@@ -123,6 +123,13 @@ assert_defer "an end-of-options word" "$RS lock status -- --repo o/r --pr 1" Bas
 assert_defer "a substitution in a value" "$RS lock status --repo \$(id) --pr 1" Bash "$WT"
 assert_defer "an unresolved variable" "$RS lock status --repo \$R --pr 1" Bash "$WT"
 assert_defer "an environment prefix" "REVIEW_STATE_ROOT=$WT $RS sessions" Bash "$WT"
+assert_defer "a tracked assignment before it" "REVIEW_STATE_ROOT=$WT; $RS sessions" Bash "$WT"
+HOOK_ENV=("${HOOK_ENV[@]}" "HOME=$WT/inner")
+mkdir -p "$WT/inner/.claude/scripts"
+: >"$WT/inner/.claude/scripts/review-state.sh"
+assert_defer "a HOME inside the worktree" "$WT/inner/.claude/scripts/review-state.sh sessions" Bash "$WT"
+HOOK_ENV=("${HOOK_ENV[@]}" "HOME=relative-home")
+assert_defer "a relative HOME" "relative-home/.claude/scripts/review-state.sh sessions" Bash "$WT"
 # shellcheck disable=SC2088 # the unexpanded tilde is the case under test
 assert_defer "a tilde path" "~/.claude/scripts/review-state.sh sessions" Bash "$WT"
 assert_defer "a bare name a worker could shadow" "review-state.sh sessions" Bash "$WT"
@@ -222,11 +229,23 @@ assert_defer "a directory with no mix.exs" "mix test" Bash "$WT/sub"
 mkdir -p "$CS/outside"
 printf 'x\n' >"$CS/outside/mix.exs"
 assert_defer "a mix project outside the worktree" "mix test" Bash "$CS/outside"
-# A markdown-only change executes nothing.
+# A text document is not inert: a base can read or doctest one by spellings no
+# pattern lists.
 printf 'more\n' >>"$WT/README.md"
-assert_allow "an uncommitted markdown change" "mix test" Bash "$WT"
+assert_defer "an uncommitted markdown change" "mix test" Bash "$WT"
 commit_wt docs
-assert_allow "a committed markdown change" "mix test" Bash "$WT"
+assert_defer "a committed markdown change" "mix test" Bash "$WT"
+mkwt mix-deleted
+rm "$WT/lib/a.ex"
+assert_defer "a deleted tracked file" "mix test" Bash "$WT"
+mkwt mix-worktree-config
+printf 'defmodule C do\nend\n' >"$WT/test/c_test.exs"
+mkdir -p "$CS/clean-tree"
+fixture_git -C "$WT" archive HEAD | tar -x -C "$CS/clean-tree"
+fixture_git -C "$WT" config core.worktree "$CS/clean-tree"
+assert_defer "a core.worktree that points git at another tree" "mix test" Bash "$WT"
+mkwt mix-flag-value
+assert_defer "a flag value that is another flag" "mix test --seed --trace" Bash "$WT"
 
 echo "### class 4, the unsafe cases: code that differs from the PR base never runs unprompted"
 mkwt mix-commit-test
@@ -277,21 +296,9 @@ mkwt mix-deps
 mkdir -p "$WT/deps/dep/lib"
 printf 'defmodule Evil do\nend\n' >"$WT/deps/dep/lib/evil.ex"
 assert_defer "ignored dependencies may hold planted code" "mix test" Bash "$WT"
-mkwt mix-doctest
-printf 'doctest_file("README.md")\n' >"$WT/test/d_test.exs"
-commit_wt "a base that doctests a document"
-fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
-printf 'iex> 1\n' >>"$WT/README.md"
-assert_defer "a document the base doctests is code" "mix test" Bash "$WT"
-mkwt mix-moduledoc
-printf '@moduledoc File.read!("README.md")\n' >"$WT/lib/m.ex"
-commit_wt "a base that reads a document at compile time"
-fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
-printf 'iex> 1\n' >>"$WT/README.md"
-assert_defer "a document the base reads at compile time is code" "mix test" Bash "$WT"
 mkwt mix-evalfile
-printf 'Code.eval_file("rules.txt")\n' >"$WT/test/e_test.exs"
-commit_wt "a base that evaluates a text file"
+printf 'import Code\neval_file("rules.txt")\n' >"$WT/test/e_test.exs"
+commit_wt "a base that evaluates a text file through an import"
 fixture_git -C "$WT" update-ref refs/remotes/origin/main HEAD
 printf 'x\n' >"$WT/rules.txt"
 assert_defer "a text file the base evaluates is code" "mix test" Bash "$WT"
@@ -341,6 +348,7 @@ assert_defer "a write, then mix, joined by &&" "printf x > lib/b.ex && mix test"
 assert_defer "a write, then mix, joined by ;" "printf x > lib/b.ex; mix test" Bash "$WT"
 assert_defer "tee, then mix" "echo x | tee lib/b.ex && mix test" Bash "$WT"
 assert_defer "a repository script, then mix" "bash scripts/ok.sh && mix test" Bash "$WT"
+assert_defer "a path-prefixed repository script, then mix" "$WT/scripts/ok.sh && mix test" Bash "$WT"
 mkwt mix-no-record
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PATH=$STUB:$PATH" "HOME=$HOME_DIR")
 assert_defer "no session record" "mix test" Bash "$WT"
