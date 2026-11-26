@@ -38,18 +38,18 @@ failures=0
 assert_exit() {
   # assert_exit <label> <expected-exit> <actual-exit>
   if [ "$2" -eq "$3" ]; then
-    echo "ok: $1"
+    printf 'ok: %s\n' "$1"
   else
-    echo "FAIL: $1 (expected exit $2, got $3)" >&2
+    printf 'FAIL: %s (expected exit %s, got %s)\n' "$1" "$2" "$3" >&2
     failures=$((failures + 1))
   fi
 }
 assert_contains() {
   # assert_contains <label> <needle> <haystack>
   case "$3" in
-    *"$2"*) echo "ok: $1" ;;
+    *"$2"*) printf 'ok: %s\n' "$1" ;;
     *)
-      echo "FAIL: $1 (missing '$2')" >&2
+      printf "FAIL: %s (missing '%s')\n" "$1" "$2" >&2
       echo "----- output -----" >&2
       printf '%s\n' "$3" >&2
       echo "------------------" >&2
@@ -61,26 +61,26 @@ assert_absent() {
   # assert_absent <label> <needle> <haystack>
   case "$3" in
     *"$2"*)
-      echo "FAIL: $1 (output leaked '$2')" >&2
+      printf "FAIL: %s (output leaked '%s')\n" "$1" "$2" >&2
       failures=$((failures + 1))
       ;;
-    *) echo "ok: $1" ;;
+    *) printf 'ok: %s\n' "$1" ;;
   esac
 }
 
 # finish <suite> — report the tally and exit with it.
 finish() {
   if [ "$failures" -ne 0 ]; then
-    echo "$failures test(s) failed" >&2
+    printf '%s test(s) failed\n' "$failures" >&2
     exit 1
   fi
-  echo "all $1 tests passed"
+  printf 'all %s tests passed\n' "$1"
 }
 
 # The deliverables these suites exercise must exist before any scenario runs.
 for f in "$SCAN" "$SEEDER"; do
   if [ ! -x "$f" ]; then
-    echo "FAIL: $f missing or not executable" >&2
+    printf 'FAIL: %s missing or not executable\n' "$f" >&2
     exit 1
   fi
 done
