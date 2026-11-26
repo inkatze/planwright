@@ -1,26 +1,14 @@
 #!/bin/bash
-# Tests that no push to main can cancel another push's workflow run.
-#
-# scripts/release-publish.sh refuses to tag unless every check on the release
-# commit succeeded (rl_ci_state in scripts/release-lib.sh). With ci.yml's
-# concurrency keyed on github.ref and cancel-in-progress on, each later merge
-# to main cancelled the release commit's still-running macOS jobs, and the
-# publish then refused. A shared group with cancel-in-progress off is not
-# enough either: GitHub keeps one pending run per group and cancels it when a
-# newer one queues, so a release run waiting behind another push is dropped.
-#
-# So, for every push-triggered workflow whose checks the release gate judges:
-#   P1  each `cancel-in-progress:` is `false` or cancels pull_request runs only;
-#   P2  each concurrency group gives a push run a group of its own commit.
-# The release-window workflow is out of scope because the gate excludes its
-# lock check by workflow name; the name is read from release-lib.sh so the two
-# cannot drift. release-please is exempt from P2 only: its fixed group keeps
-# two runs from editing the release PR at once, and each run takes seconds.
-#
-# The canonical spellings are matched exactly rather than evaluated, so an
-# equivalent expression written another way fails loud and is respelled.
-#
-# Portable bash 3.2 floor; runs under /bin/bash in CI.
+# No push to main may cancel another push's run: release-publish.sh tags only
+# when every check on the release commit succeeded (rl_ci_state), so a merge
+# cancelling the release commit's macOS jobs blocks the release. For each
+# push-triggered workflow that gate judges (all but the lock workflow it
+# excludes by name, read from release-lib.sh):
+#   P1  `cancel-in-progress:` is `false` or cancels pull_request runs only;
+#   P2  a push run gets a group of its own commit, since a group keeps one
+#       pending run and cancels it when a newer one queues.
+# release-please is exempt from P2 only: its fixed group stops two runs editing
+# the release PR at once. Canonical spellings are matched, not evaluated.
 set -u
 unset CDPATH
 LC_ALL=C
@@ -31,6 +19,7 @@ RELEASE_LIB="$REPO_ROOT/scripts/release-lib.sh"
 
 CANCEL_PR_ONLY="\${{ github.event_name == 'pull_request' }}"
 GROUP_PER_COMMIT="\${{ github.event_name == 'pull_request' && github.ref || github.sha }}"
+GROUP_PER_REF="\${{ github.ref }}"
 P2_EXEMPT="release-please"
 
 failures=0
@@ -157,7 +146,7 @@ EOF
 violations() { grep -v '^checked ' "$1" || true; }
 
 # --- the defect shape fails both properties ---------------------------------
-fixture "$work/before" true 'ci-${{ github.ref }}'
+fixture "$work/before" true "ci-$GROUP_PER_REF"
 check_dir "$work/before" >"$work/out.before"
 if violations "$work/out.before" | grep -q ' P1 ' && violations "$work/out.before" | grep -q ' P2 '; then
   pass "the ref-keyed group with cancel-in-progress on fails P1 and P2"
@@ -165,7 +154,7 @@ else
   fail "the defect shape was not caught: $(cat "$work/out.before")"
 fi
 
-fixture "$work/nocancel" false 'ci-${{ github.ref }}'
+fixture "$work/nocancel" false "ci-$GROUP_PER_REF"
 check_dir "$work/nocancel" >"$work/out.nocancel"
 if violations "$work/out.nocancel" | grep -q ' P2 ' && ! violations "$work/out.nocancel" | grep -q ' P1 '; then
   pass "turning cancellation off without a per-commit group still fails P2"
@@ -173,7 +162,7 @@ else
   fail "a shared push group with cancellation off was not caught by P2 alone: $(cat "$work/out.nocancel")"
 fi
 
-fixture "$work/comment" "true  # $CANCEL_PR_ONLY" "ci-\${{ github.ref }}  # $GROUP_PER_COMMIT"
+fixture "$work/comment" "true  # $CANCEL_PR_ONLY" "ci-$GROUP_PER_REF  # $GROUP_PER_COMMIT"
 check_dir "$work/comment" >"$work/out.comment"
 if violations "$work/out.comment" | grep -q ' P1 ' && violations "$work/out.comment" | grep -q ' P2 '; then
   pass "a trailing comment naming the canonical value satisfies neither property"
@@ -192,7 +181,7 @@ fi
 
 # --- scope ------------------------------------------------------------------
 if [ -n "$lock_workflow" ]; then
-  fixture "$work/lock" true 'release-window-${{ github.ref }}' "$lock_workflow"
+  fixture "$work/lock" true "release-window-$GROUP_PER_REF" "$lock_workflow"
   check_dir "$work/lock" >"$work/out.lock"
   if [ ! -s "$work/out.lock" ]; then
     pass "the excluded lock workflow is out of scope"
