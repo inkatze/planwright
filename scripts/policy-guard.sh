@@ -5731,13 +5731,14 @@ RE_MC_DATA_SCRATCHVAR='^\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)
 RE_MC_DATA_MEMORY='^(~|\$HOME|\$\{HOME\}|/[^$`*?[{]*)/\.c[l]aude/(projects/[^/$`*?[{]+/memory|tasks)/'
 # A word that runs the text it is handed, so quoted text stays in view.
 RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|python3?|perl|ruby|node|xargs|ssh)([^[:alnum:]_-]|$)'
-# A cluster that may end in env's -S, in the screen's opening tests (which only
-# decide whether a command is read at all).
+# A cluster that may end in env's -S, loosely, where a match only decides how a
+# command is read: the screen's opening tests and its quoted-redirect test.
 RE_MC_SPLIT_S='-[A-Za-z]*S'
-# env, past its options and the values -u, -C and -a take, at a cluster
-# ending in its -S with the string glued on (env -Scp, env -iS'tee f'): the
-# string runs as a command (mc_env_split).
-RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSa[:space:]-]*[uCa][[:space:]]+[^[:space:];&|]+|--(u|ch|ar)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^[:space:]]*))*)[[:space:]]+-[A-Za-z]*S[^[:space:]]'
+# env, past its options and the values -u, -C, -a and BSD's -P, -L and -U take
+# (and --unset, --chdir and --argv0 in any prefix), at its first cluster
+# reaching -S before another value letter, with the string glued on (env -Scp,
+# env -iS'tee f'): the string runs as a command (mc_env_split).
+RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^-S[:space:]][^S[:space:]]*|--[^[:space:]]*))*)[[:space:]]+-[ABD-KMNOQRTV-Zb-tv-z0-9]*S[^[:space:]]'
 # A write verb in unparsed text; sed counts only with an in-place flag.
 RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
@@ -5782,6 +5783,9 @@ RE_MC_RUNNER_CMD='(^|[;&|(){}!]|'$'\n'')[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[
 # in-place editors (mc_inplace_targets) have their own text form,
 # RE_MC_INPLACE_*, kept in step with that parser's verbs.
 RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-])(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([^[:alnum:]_-]|$)'
+# The same verbs glued to a cluster that may end in env's -S, for the opening
+# test alone; keep the list in step with RE_MC_WRITE_WORDS.
+RE_MC_SPLIT_WORDS=$RE_MC_SPLIT_S'(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)'
 # The same verbs as whole words among a runner's text: a script or file named
 # after a verb (install.sh, sort.py) is no verb.
 # shellcheck disable=SC2016 # a regex; the backquote is literal
@@ -6375,16 +6379,28 @@ mc_inplace_unparsed() {
 }
 
 # mc_env_split <text> — in MC_ES, the text with each env -S string glued to
-# its cluster parted off as a word of its own (RE_MC_ENV_SPLIT). Run it outside
-# nocasematch: a lowercase s is no -S, and a word env does not open is no
-# string of its (git log -Scp).
+# its cluster parted off as a statement of its own (RE_MC_ENV_SPLIT). Run it
+# outside nocasematch: a lowercase s is no -S, and a word env does not open is
+# no string of its (git log -Scp). Each match is consumed, so the scan is
+# linear; past its bound every capital S is parted instead (fail closed).
 mc_env_split() {
-  local t=$1 m
+  local t=$1 out='' m n=0
+  case $t in *[Ee][Nn][Vv]*S*) ;; *)
+    MC_ES=$t
+    return 0
+    ;;
+  esac
   while [[ $t =~ $RE_MC_ENV_SPLIT ]]; do
+    n=$((n + 1))
+    if [ "$n" -gt 64 ]; then
+      t=${t//S/S ; }
+      break
+    fi
     m=${BASH_REMATCH[0]}
-    t=${t/"$m"/"${m%?} ${m: -1}"}
+    out+=${t%%"$m"*}${m%?}' ; '
+    t=${m: -1}${t#*"$m"}
   done
-  MC_ES=$t
+  MC_ES=$out$t
 }
 
 # mc_inplace_text <text> [word] — 0 when the text, its quotes and escapes
@@ -7127,6 +7143,15 @@ XEOF_DOC
   MC_NODOC=$out
 }
 
+# mc_env_glued_s <option word> — 0 when env's short option cluster reaches its
+# -S before any other letter that takes a value, with the string glued on.
+mc_env_glued_s() {
+  local c=${1#-} pre
+  case $1 in --*) return 1 ;; esac
+  pre=${c%%[uCSaPLU]*}
+  [ "${c:${#pre}:1}" = S ] && [ -n "${c:$((${#pre} + 1))}" ]
+}
+
 # mc_wrap_opt_value <wrapper> <option word> — 0 when the wrapper's option
 # takes the next word as its value: a long one with no = (in any prefix
 # getopt_long takes), or a short cluster whose first value letter ends it.
@@ -7159,7 +7184,8 @@ mc_wrap_opt_value() {
       ;;
     -?*)
       case $1 in
-        env) vl=uCSa ;;
+        # BSD's -P (and FreeBSD's -L and -U) take a value too.
+        env) vl=uCSaPLU ;;
         nice) vl=n ;;
         timeout) vl=sk ;;
         stdbuf) vl=ioe ;;
@@ -7186,11 +7212,13 @@ mc_wrap_opt_value() {
 # leaves when it drops a leading command or exec. MC_XARGS=1 when xargs is
 # among the wrappers. With `exact`, each wrapper option is read as getopt
 # reads it (a cluster's value letter, a long option's value in the next
-# word); without it, as the posture screen always has, whose refusals rest
-# on that reading.
+# word), and an env -S cluster with its string glued on ends the reading at
+# that word, its index also in MC_ENV_SI (-1 for none); without it, as the
+# posture screen always has, whose refusals rest on that reading.
 mc_unwrap() {
   local i=0 n=${#SW[@]} wrap exact=${1:-}
   MC_XARGS=0
+  MC_ENV_SI=-1
   while [ "$i" -lt "$n" ]; do
     # exec's -a takes a name; after a dropped time, GNU time's -f and -o take
     # a format and a file.
@@ -7210,6 +7238,12 @@ mc_unwrap() {
       if [ "$exact" = exact ]; then
         case ${SW[$i]} in
           -?*)
+            # env's string glued to its -S is the command it runs.
+            if [ "$wrap" = env ] && mc_env_glued_s "${SW[$i]}"; then
+              MC_ENV_SI=$i
+              MC_VI=$i
+              return 0
+            fi
             ! mc_wrap_opt_value "$wrap" "${SW[$i]}" || i=$((i + 1))
             i=$((i + 1))
             continue
@@ -7849,7 +7883,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx envsi outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -7869,9 +7903,8 @@ mc_settings_screen() {
     *)
       if [ "$named" = 0 ]; then
         k=1
-        mc_env_split "${t//[\"\'\\]/}"
         shopt -s nocasematch
-        [[ $MC_ES =~ $RE_MC_WRITE_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_INPLACE_NAMES ]] && k=0
+        [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_SPLIT_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_INPLACE_NAMES ]] && k=0
         shopt -u nocasematch
         [ "$k" = 0 ] || return 0
         k=0
@@ -8120,6 +8153,7 @@ XEOF_RUN
     fi
     mc_unwrap exact
     vx=$MC_VI
+    envsi=$MC_ENV_SI
     mc_unwrap
     vi=$MC_VI
     # A runner (a wrapper, xargs, a shell, find and the like) hands text to
@@ -8134,6 +8168,8 @@ XEOF_RUN
       ci=''
       for w in "${SW[@]}"; do
         w=${w//[\"\'\\]/}
+        # env's string glued to its -S opens a command of its own.
+        [ "$k" != "$envsi" ] || w="${w%%S*}S ; ${w#*S}"
         # The command found is vetted by its operands below; xargs's is not.
         if [ "$k" != 0 ] && [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ]; then
           lc "$w"
