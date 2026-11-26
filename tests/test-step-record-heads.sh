@@ -17,7 +17,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 RUN="$repo_root/scripts/step-run.sh"
 SR="$repo_root/scripts/step-record.sh"
-SP="$repo_root/scripts/step-pool.sh"
 TAB=$(printf '\t')
 # shellcheck source=tests/lib/step-run-fixture.sh
 . "$here/lib/step-run-fixture.sh"
@@ -89,6 +88,25 @@ r=$(sr new-run)
 w "$r" skill-a skill applied --head "$h0"
 [ "$WRC" -eq 0 ] && [ "$(field "$r" head)" = "$h0" ] && [ "$(field "$r" end-head)" = "$h1" ]
 verdict $? "an applied skill step with its start head given records it, and HEAD as the end" "rc $WRC err: $(cat "$tmp/err")"
+r=$(sr new-run)
+w "$r" prompt-a prompt applied
+[ "$WRC" -eq 2 ] && grep -q -- '--head' "$tmp/err" && grep -q 'prompt step changed the head' "$tmp/err"
+verdict $? "an applied prompt step with no --head and no begin record is refused" "rc $WRC err: $(cat "$tmp/err")"
+r=$(sr new-run)
+w "$r" cmd-a command applied --end-head "$h0"
+[ "$WRC" -eq 0 ] && [ "$(field "$r" head)" = "$h1" ]
+verdict $? "a command step with no --head and no begin record takes HEAD unrefused" "rc $WRC err: $(cat "$tmp/err")"
+r=$(sr new-run)
+w "$r" skill-a skill skipped --skip-code missing --skip-reason gone --end-head "$h0"
+[ "$WRC" -eq 0 ] && [ "$(field "$r" head)" = "$h1" ]
+verdict $? "a skipped skill step is not refused for an end head other than HEAD" "rc $WRC err: $(cat "$tmp/err")"
+
+# A begin record's head that names no commit is refused, not recorded.
+r=$(sr new-run)
+printf 'head\t%s\n' deadbeefdeadbeefdeadbeefdeadbeefdeadbeef >"$wt/.claude/steps/$r/runner-pending-pre-pr-skill-b"
+w "$r" skill-b skill passed
+[ "$WRC" -eq 2 ] && grep -q deadbeefdeadbeefdeadbeefdeadbeefdeadbeef "$tmp/err" && [ -z "$(recs "$r" pre-pr)" ]
+verdict $? "a begin record naming no commit is refused and nothing is stored" "rc $WRC err: $(cat "$tmp/err")"
 
 # The run's own begin record supplies the start head.
 fresh

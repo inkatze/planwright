@@ -18,8 +18,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 RUN="$repo_root/scripts/step-run.sh"
 SR="$repo_root/scripts/step-record.sh"
-SP="$repo_root/scripts/step-pool.sh"
-TAB=$(printf '\t')
 # shellcheck source=tests/lib/step-run-fixture.sh
 . "$here/lib/step-run-fixture.sh"
 
@@ -65,6 +63,7 @@ case $got in *gamma*) ok "config-get.sh reads the adopter layer in a session wit
 
 # The launcher hands on location variables and scrubs the per-call value overlays only.
 scrub=$(sed -n "s/^  scrub='\(.*\)'\$/\1/p" "$repo_root/scripts/mission-control-launch.sh")
+[ -n "$scrub" ] || fail "the launch scrub line was not found in mission-control-launch.sh"
 for v in PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_CONFIG_STRICT_OVERLAYS; do
   case $scrub in *"-u $v"*) ok "the launch scrub still removes $v" ;; *) fail "the launch scrub no longer removes $v: $scrub" ;; esac
 done
@@ -160,6 +159,33 @@ bare_ctx env PLANWRIGHT_STEP_WORKTREE=/nonexistent/elsewhere "$SR" --worktree "$
 rc=$?
 [ "$rc" -eq 2 ] && grep -q '/nonexistent/elsewhere' "$tmp/err" && grep -qF "$wtp" "$tmp/err"
 verdict $? "step-record.sh refuses an exported worktree that disagrees with git, naming both" "rc $rc err: $(cat "$tmp/err")"
+for v in write supersede regenerate status; do
+  bare_ctx env PLANWRIGHT_STEP_BRANCH=planwright/other/task-9 "$SR" --worktree "$wt" "$v" >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  [ "$rc" -eq 2 ] && grep -q 'planwright/other/task-9' "$tmp/err" && grep -q 'planwright/flight/demo-0123abcd' "$tmp/err"
+  verdict $? "step-record.sh $v refuses an exported branch that disagrees with git" "rc $rc err: $(cat "$tmp/err")"
+done
+
+# A tag sharing the branch's name does not change the derived branch.
+git -C "$wt" tag planwright/flight/demo-0123abcd
+r=$(sr new-run)
+hosted_show "$r"
+grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' "$tmp/show.show.env" \
+  && grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=flight' "$tmp/show.show.env"
+verdict $? "a tag named like the branch leaves the derived branch and kind intact" "rc $HRC env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
+git -C "$wt" tag -d planwright/flight/demo-0123abcd >"$tmp/out"
+
+# A directory inside the worktree is not its own top: git's answer there is
+# another work tree's, so nothing is derived from it and nothing is refused.
+mkdir -p "$wt/plain"
+plain=$(cd -P "$wt/plain" && pwd -P)
+# shellcheck disable=SC2016 # expanded by the inner shell
+got=$(bare_ctx env PLANWRIGHT_STEP_BRANCH=elsewhere sh -c \
+  '. "$1"; step_context_derive "$2" t; printf "%s|%s" "$PLANWRIGHT_STEP_BRANCH" "${PLANWRIGHT_STEP_UNIT_KIND:-}"' \
+  sh "$repo_root/scripts/step-context.sh" "$plain" 2>"$tmp/err")
+[ "$got" = 'elsewhere|' ]
+verdict $? "a worktree that is not its own top derives no branch or kind" "got: $got err: $(cat "$tmp/err")"
+rm -rf "$wt/plain"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

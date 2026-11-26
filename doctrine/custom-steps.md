@@ -146,18 +146,19 @@ Every step receives exactly these twelve fields:
 | `PLANWRIGHT_STEP_PREV_HEAD` | the start head (a full commit id, as both heads are) of the latest head move by an earlier step at the same point in the run, a `resume` skip carrying its record's move; empty when none |
 | `PLANWRIGHT_STEP_NEW_HEAD` | that move's end head; empty when none |
 
-`step-run.sh` (bar `audit`) and `step-record.sh` (`new-run`, `write`,
-`supersede`, `regenerate`, `status`) fill what git already knows when it is unset or
-empty: `PLANWRIGHT_STEP_WORKTREE` (the literal worktree path, never `$PWD`),
-`PLANWRIGHT_STEP_BRANCH` (`git symbolic-ref --short HEAD`),
-`PLANWRIGHT_STEP_BASE_BRANCH` (`main`), and `PLANWRIGHT_STEP_UNIT_KIND` from
-the branch namespace (`planwright/flight/…` a flight, `planwright/<spec>/spec`
-a spec, `planwright/<spec>/task-…` a task). An exported value that disagrees
-with git (a launch record's included) is refused with exit 2, naming both.
-The spec, task ids, and PR number are never derived.
+`step-run.sh` (every verb but `audit`) and `step-record.sh` (`new-run`,
+`write`, `supersede`, `regenerate`, `status`) fill what git knows when it is
+unset or empty: `PLANWRIGHT_STEP_WORKTREE` (the literal worktree path, never
+`$PWD`), `PLANWRIGHT_STEP_BRANCH` (the branch HEAD names, in a worktree that
+is its own top), `PLANWRIGHT_STEP_UNIT_KIND` from the branch namespace
+(`planwright/flight/…` a flight, `planwright/<spec>/spec` a spec,
+`planwright/<spec>/task-…` a task), and `PLANWRIGHT_STEP_BASE_BRANCH` as
+`main`, which a repository on another base exports. An exported value that
+disagrees with git (a launch record's included) is refused with exit 2,
+naming both. The spec, task ids, and PR number are never derived.
 
 A step record's `--head` defaults to the begin record's head, else HEAD for
-a step that left it unchanged, and a skill step that changed the head must
+a step that left it unchanged; a skill or prompt step that changed it must
 pass it. A given sha must be the full id of a commit in the worktree's
 repository.
 

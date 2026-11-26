@@ -6,10 +6,13 @@
 #
 #   step_context_derive <worktree> [<program name for messages>]
 #     <worktree> is the unit's worktree, absolute and canonical.
-#       PLANWRIGHT_STEP_WORKTREE    <worktree> itself
-#       PLANWRIGHT_STEP_BRANCH      `git symbolic-ref --short HEAD` (none on a
-#                                   detached HEAD)
-#       PLANWRIGHT_STEP_BASE_BRANCH main
+#       PLANWRIGHT_STEP_WORKTREE    <worktree> itself; an exported path that
+#                                   resolves to it is replaced by it
+#       PLANWRIGHT_STEP_BRANCH      the branch HEAD names (none on a detached
+#                                   HEAD, or when <worktree> is not the top of
+#                                   its own work tree)
+#       PLANWRIGHT_STEP_BASE_BRANCH main (not derived: a repository whose base
+#                                   is another branch exports it)
 #       PLANWRIGHT_STEP_UNIT_KIND   flight for planwright/flight/<id>, spec for
 #                                   planwright/<spec>/spec, task for
 #                                   planwright/<spec>/task-<ids>; none for any
@@ -37,14 +40,29 @@ step_context_derive() {
       /*) scd_canon=$(cd -P -- "$scd_cur" 2>/dev/null && pwd -P) || scd_canon='' ;;
       *) scd_canon='' ;;
     esac
-    [ "$scd_canon" = "$scd_wt" ] \
-      || scd_bad="$scd_bad PLANWRIGHT_STEP_WORKTREE is '$scd_cur' but the worktree is '$scd_wt' (a literal absolute path);"
+    if [ "$scd_canon" = "$scd_wt" ]; then
+      PLANWRIGHT_STEP_WORKTREE=$scd_wt
+      export PLANWRIGHT_STEP_WORKTREE
+    else
+      scd_bad="$scd_bad PLANWRIGHT_STEP_WORKTREE is '$scd_cur' but the worktree is '$scd_wt' (a literal absolute path);"
+    fi
   fi
 
-  scd_branch=$(
-    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
-    git -C "$scd_wt" symbolic-ref --short HEAD 2>/dev/null
-  ) || scd_branch=''
+  # A directory inside another repository would answer with that repository's
+  # branch, so only a worktree that is its own top is asked. The full ref is
+  # read because --short turns ambiguous when a tag shares the branch's name.
+  scd_ref=$(
+    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE \
+      GIT_CONFIG_PARAMETERS GIT_CEILING_DIRECTORIES
+    [ "${PW_UNTRUSTED_GIT:-}" = 1 ] || unset GIT_CONFIG_COUNT
+    scd_top=$(git -C "$scd_wt" rev-parse --show-toplevel 2>/dev/null) \
+      && scd_top=$(cd -P -- "$scd_top" 2>/dev/null && pwd -P) \
+      && [ "$scd_top" = "$scd_wt" ] || exit 0
+    git -C "$scd_wt" symbolic-ref -q HEAD 2>/dev/null
+  ) || scd_ref=''
+  scd_branch=''
+  case $scd_ref in refs/heads/?*) scd_branch=${scd_ref#refs/heads/} ;; esac
   if [ -n "$scd_branch" ]; then
     scd_cur=${PLANWRIGHT_STEP_BRANCH:-}
     if [ -z "$scd_cur" ]; then

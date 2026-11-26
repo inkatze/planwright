@@ -153,7 +153,8 @@
 # and then, from git (scripts/step-context.sh), WORKTREE, BRANCH, BASE_BRANCH
 # (main), and UNIT_KIND from the branch namespace, so the worker runs this
 # script with no variable prefix. An exported value that disagrees with git
-# exits 2 naming both; SPEC, TASK_IDS, and PR_NUMBER stay as exported. Any other
+# exits 2 naming both, on every verb but audit, which derives nothing; SPEC,
+# TASK_IDS, and PR_NUMBER stay as exported. Any other
 # PLANWRIGHT_STEP_* name in the environment (resolve-steps.sh --check-env
 # judges it) is a misspelling: every verb but resolve exits 2 naming it and
 # its right spelling, and resolve only warns.
@@ -168,7 +169,8 @@
 # else the wait report's.
 #
 # Runner state lives beside the run's records as `runner-*` files, which
-# step-record.sh never reads: runner-rows-<point>, runner-resume
+# step-record.sh never reads but for a pending begin's head (the start head
+# of a write that omits --head): runner-rows-<point>, runner-resume
 # (`<first run><TAB><point><TAB><chain runs>`), and
 # runner-pending-<point>-<step>, each written through a temporary file and
 # refused as a symbolic link. They are untrusted like the records: a row runs
@@ -177,7 +179,9 @@
 # Exit: 0 the step passed or was skipped, or the verb succeeded · 1 the step
 # failed (its record written) · 2 usage, a refused argument, or a row that is
 # not a resolved command step of the verb's hosting (nothing recorded or
-# taken), or a misspelled PLANWRIGHT_STEP_* name on any verb but resolve · 4 a record, state, or slot operation failed (a release that fails
+# taken), a misspelled PLANWRIGHT_STEP_* name on any verb but resolve, an
+# exported context that disagrees with git on any verb but audit, or a broken
+# install missing step-context.sh · 4 a record, state, or slot operation failed (a release that fails
 # after the record is written included) · 128+n a signal stopped `command`.
 # resolve exits as resolve-steps.sh did, save its own 2 and 4, and warns on a
 # misspelled PLANWRIGHT_STEP_* name without changing its exit.
@@ -449,11 +453,13 @@ launch_context() {
 launch_context
 # What git knows fills any field still unset; an exported one that disagrees
 # with git is refused.
-[ -r "$script_dir/step-context.sh" ] || die 2 "step-context.sh is missing or unreadable (broken install)"
-# shellcheck source=scripts/step-context.sh
-. "$script_dir/step-context.sh"
-
-[ "$verb" = audit ] || step_context_derive "$worktree" step-run || exit 2
+if [ "$verb" != audit ]; then
+  [ -f "$script_dir/step-context.sh" ] && [ -r "$script_dir/step-context.sh" ] \
+    || die 2 "step-context.sh is missing or unreadable (broken install)"
+  # shellcheck source=scripts/step-context.sh
+  . "$script_dir/step-context.sh"
+  step_context_derive "$worktree" step-run || exit 2
+fi
 cache="$worktree/.claude/steps"
 
 sr() (
