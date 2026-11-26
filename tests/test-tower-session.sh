@@ -185,6 +185,7 @@ else
   fail "the handshake's body exited $rc: $out"
 fi
 for act in "$ACTIVATE" "$ACTIVATE_TOWER"; do
+  mark "$FRESH"
   mv "$S/policy-guard.sh" "$S/policy-guard.sh.off"
   ts_bash "$FRESH" "$act"
   reason_has 'NOT ACTIVE: the policy guard' "the handshake is NOT ACTIVE when the policy guard beside it is missing: $act"
