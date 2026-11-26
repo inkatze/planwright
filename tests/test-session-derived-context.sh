@@ -18,6 +18,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
 RUN="$repo_root/scripts/step-run.sh"
 SR="$repo_root/scripts/step-record.sh"
+# SP and TAB are read by the sourced fixture.
+SP="$repo_root/scripts/step-pool.sh"
+TAB=$(printf '\t')
 # shellcheck source=tests/lib/step-run-fixture.sh
 . "$here/lib/step-run-fixture.sh"
 
