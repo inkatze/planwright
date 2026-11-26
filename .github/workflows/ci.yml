@@ -413,21 +413,24 @@ jobs:
           path: ${{ runner.temp }}/timing-report.tsv
           overwrite: true
 
-  # The aggregate status, joining every job on every platform. It always runs,
-  # so a failed, skipped, or cancelled job above fails it rather than leaving
-  # it skipped, which branch protection reads as passing; under `!cancelled()`
-  # a run cancelled while this job waited would skip it. A matrix job's result
-  # is success only when every one of its shards succeeded, and a failed plan
-  # skips every planned shard, which fails it too. Then it runs the timing
-  # gate (`check:test-time` in `mise run check`) over every Linux shard's
-  # report at once: the gate needs one row per test file, which only the union
-  # holds, and its budgets are the Ubuntu runner's. On a ready flip that
+  # The aggregate status, joining every job on every platform. It runs unless
+  # its run was cancelled, so a failed, skipped, or cancelled job above fails
+  # it rather than leaving it skipped, which branch protection reads as
+  # passing; a timed-out job reads as cancelled here and fails it too. When a
+  # newer run on the same ref cancels this one, the job ends cancelled like
+  # every job of that run still waiting on its needs, not red beside the live
+  # run, and branch protection never reads cancelled as passing. A matrix
+  # job's result is success only when every one of its shards succeeded, and a
+  # failed plan skips every planned shard, which fails it too. Then it runs
+  # the timing gate (`check:test-time` in `mise run check`) over every Linux
+  # shard's report at once: the gate needs one row per test file, which only
+  # the union holds, and its budgets are the Ubuntu runner's. On a ready flip that
   # reuses a prior run (the plan job's reuse step), the suite jobs are
   # skipped, the gate stands on that run's evidence and names it, and the
   # timing gate, which that run's own check job passed, does not run again.
   check:
     needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite, alpine-smoke]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
