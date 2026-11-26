@@ -129,9 +129,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   truncated<TAB><what>                a forge list that came back at its
                                       cap of 100 (checks, labels, review
                                       threads), so it may have been cut, or
-                                      a changed-file list, walked past the
-                                      cap, that failed or came back short of
-                                      the forge's count
+                                      a changed-file list not shown to hold
+                                      exactly the forge's count of files
+                                      (no count given, or a walk past the
+                                      cap that failed or came back with
+                                      fewer or more)
   bodyline<TAB><text>                 one per line of the pull request body
   report<TAB><text>                   a session's own claim: read, never
                                       counted
