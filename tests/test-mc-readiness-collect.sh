@@ -146,52 +146,60 @@ hasnt "a failed attempt read leaves no attempt row" "botattempt${tab}4475.3"
 has "and the other attempts are still read" "botattempt${tab}4476.1${tab}PR-Agent"
 has "and its marker is still collected" "botmark${tab}github-actions[bot]${tab}4475.3${tab}"
 mv "$tmp/attempt-4475-3.json.keep" "$tmp/attempt-4475-3.json"
-
-# A superseded run: two ci runs started together on the head, the older one
-# cancelled by the newer. The cancelled one's matrix jobs are reported under
-# their unexpanded names, which the live run's shard names never supersede,
-# and its check job ties the live one's start. Once a later run of the same
-# workflow on the head has passed, the cancelled run's checks are no flip
-# condition; a cancelled run with no passing successor still is.
-mv "$tmp/pr.json" "$tmp/pr.json.keep"
-# superseded_pr <rollup entries> — the pull request read with that rollup.
-superseded_pr() {
-  printf '{"headRefOid": "%s", "labels": [], "files": [{"path": "src/app.c"}], "body": "", "isDraft": false, "statusCheckRollup": [%s]}\n' \
-    "$head" "$1" >"$tmp/pr.json"
-}
-# ci_job <run id> <name> <conclusion> — one ci check run of that run.
-ci_job() {
-  printf '{"__typename": "CheckRun", "name": "%s", "workflowName": "ci", "status": "COMPLETED", "conclusion": "%s", "startedAt": "2026-11-26T10:34:03Z", "detailsUrl": "https://github.com/acme/web/actions/runs/%s/job/1"}' \
-    "$2" "$3" "$1"
-}
-# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
-placeholder='test (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
-cancelled_run="$(ci_job 601 lint CANCELLED), $(ci_job 601 "$placeholder" CANCELLED), $(ci_job 601 check CANCELLED)"
-live_run="$(ci_job 780 lint SUCCESS), $(ci_job 780 'test (shard 1/2)' SUCCESS), $(ci_job 780 'test (shard 2/2)' SUCCESS), $(ci_job 780 check SUCCESS)"
-superseded_pr "$cancelled_run, $live_run"
-PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-superseded"
-expect_rc "collect over a head with a superseded ci run" 0
-c=$(cat "$tmp/collected-superseded" 2>/dev/null)
-hasnt "a run superseded by a passing one on the head leaves no cancelled check" "${tab}CANCELLED"
-has "and the passing run's check is what is judged" "check${tab}check${tab}SUCCESS"
-mc_run mc-readiness.sh walk --evidence "$tmp/collected-superseded" --conditions "$tmp/no-cond"
-expect_no_out "and the walk raises no failed check for it" "fail${tab}check${tab}"
-superseded_pr "$cancelled_run"
-PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-lone"
-c=$(cat "$tmp/collected-lone" 2>/dev/null)
-has "a cancelled run with no passing successor still counts" "check${tab}check${tab}CANCELLED"
-mc_run mc-readiness.sh walk --evidence "$tmp/collected-lone" --conditions "$tmp/no-cond"
-expect_out "and the walk names its cancelled check" "fail${tab}check${tab}check is CANCELLED"
-superseded_pr "$(ci_job 601 lint CANCELLED), $(ci_job 601 check CANCELLED), $(ci_job 780 lint SUCCESS), $(ci_job 780 check FAILURE)"
-PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-redsucc"
-c=$(cat "$tmp/collected-redsucc" 2>/dev/null)
-has "a successor that did not pass supersedes nothing" "check${tab}lint${tab}CANCELLED"
-mv "$tmp/pr.json.keep" "$tmp/pr.json"
 printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
 c=$(cat "$tmp/collected-pa" 2>/dev/null)
 hasnt "a workflow naming the PR-Agent image only in a comment states no bot-review requirement" "require${tab}pr-agent"
 rm -f "$repo/.github/workflows/pr-agent.yml"
+
+# A superseded run: two ci runs started together on the head, the older one
+# cancelled by the newer. The cancelled one's matrix jobs are reported under
+# their unexpanded names, which the live run's shard names never supersede,
+# and its check job ties the live one's start. Once a later run of the same
+# workflow on the head passed the same job, the cancellation is no flip
+# condition; a cancelled run with no passing successor still is, and nothing
+# but a cancellation is ever dropped.
+mv "$tmp/pr.json" "$tmp/pr.json.keep"
+superseded_pr() { # superseded_pr <rollup entries>: the pull request read with that rollup
+  printf '{"headRefOid": "%s", "labels": [], "files": [{"path": "src/app.c"}], "body": "", "isDraft": false, "statusCheckRollup": [%s]}\n' \
+    "$head" "$1" >"$tmp/pr.json"
+}
+ci_check_run() { # ci_check_run <run id> <name> <conclusion> [<started>]: one ci check run of that workflow run, by default started with its run's peers
+  printf '{"__typename": "CheckRun", "name": "%s", "workflowName": "ci", "status": "COMPLETED", "conclusion": "%s", "startedAt": "%s", "detailsUrl": "https://github.com/acme/web/actions/runs/%s/job/1"}' \
+    "$2" "$3" "${4:-2026-11-26T10:34:03Z}" "$1"
+}
+collect_superseded() { # collect_superseded <label> <out name>: collect over the rollup superseded_pr wrote
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/$2"
+  expect_rc "$1" 0
+  c=$(cat "$tmp/$2" 2>/dev/null)
+}
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix names, verbatim
+{
+  placeholder='test (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+  mac_placeholder='macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+}
+cancelled_run="$(ci_check_run 601 lint CANCELLED), $(ci_check_run 601 "$placeholder" CANCELLED), $(ci_check_run 601 check CANCELLED)"
+live_run="$(ci_check_run 780 lint SUCCESS), $(ci_check_run 780 'test (shard 1/2)' SUCCESS), $(ci_check_run 780 'test (shard 2/2)' SUCCESS), $(ci_check_run 780 check SUCCESS)"
+superseded_pr "$cancelled_run, $live_run"
+collect_superseded "collect over a head with a superseded ci run" collected-superseded
+hasnt "a run superseded by a passing one on the head leaves no cancelled check" "${tab}CANCELLED"
+has "and the passing run's check is what is judged" "check${tab}check${tab}SUCCESS"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-superseded" --conditions "$tmp/no-cond"
+expect_no_out "and the walk raises no failed check for it" "fail${tab}check${tab}"
+superseded_pr "$cancelled_run"
+collect_superseded "collect over a head with a lone cancelled run" collected-lone
+has "a cancelled run with no passing successor still counts" "check${tab}check${tab}CANCELLED"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-lone" --conditions "$tmp/no-cond"
+expect_out "and the walk names its cancelled check" "fail${tab}check${tab}check is CANCELLED"
+superseded_pr "$(ci_check_run 601 lint CANCELLED), $(ci_check_run 601 check CANCELLED), $(ci_check_run 780 lint SUCCESS), $(ci_check_run 780 check FAILURE)"
+collect_superseded "collect over a head whose successor failed" collected-redsucc
+has "a successor's failed job supersedes nothing" "check${tab}check${tab}FAILURE"
+superseded_pr "$(ci_check_run 601 'test (shard 1/2)' SUCCESS), $(ci_check_run 601 'macos-suite (shard 1/4)' SUCCESS), $(ci_check_run 601 macos-smoke SUCCESS), $(ci_check_run 601 check SUCCESS), $(ci_check_run 780 "$placeholder" SKIPPED 2026-11-26T11:00:00Z), $(ci_check_run 780 "$mac_placeholder" SKIPPED 2026-11-26T11:00:00Z), $(ci_check_run 780 macos-smoke SKIPPED 2026-11-26T11:00:00Z), $(ci_check_run 780 check SUCCESS 2026-11-26T11:00:00Z)"
+collect_superseded "collect over a head a ready flip reused" collected-reuse
+has "a reused run keeps the earlier run's macOS passes" "check${tab}macos-suite (shard 1/4)${tab}SUCCESS"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-reuse" --conditions "$tmp/no-cond"
+expect_no_out "and the walk raises no failed check for the reused head" "fail${tab}check${tab}"
+mv "$tmp/pr.json.keep" "$tmp/pr.json"
 # The payload the ready-flip guard is asked about names the pull request and the
 # repository as two separate arguments of one format.
 if grep -qF "}}' \"\$3\" \"\$2\" >\"\$cl_tmp/payload\"" "$repo_root/scripts/mc-readiness.sh"; then ok "the guard payload takes the pull request and the repository as separate arguments"; else fail "the guard payload's printf arguments are malformed"; fi

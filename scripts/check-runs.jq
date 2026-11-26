@@ -1,10 +1,13 @@
 # check-runs.jq — the one selection of a pull request's check runs that
 # scripts/ready-guard.sh, scripts/ready-flip.sh and scripts/mc-readiness.sh
 # judge readiness by. Each prepends this file to its own program, so a fix here
-# reaches all three.
+# reaches all three. The release gate (rl_ci_state in scripts/release-lib.sh)
+# reads no selection: it judges every check on the commit, strictly.
 #
-# A check run listed in $base_state as <workflow>/<name> is left out first.
-# Only the latest run of each check context counts: a re-run supersedes the
+# A cancelled check that a newer run of its workflow made obsolete is dropped
+# first (drop_superseded_cancels, below). Then a check run listed in
+# $base_state as <workflow>/<name> is left out of the flip conditions, and
+# only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
 # unset time as 0001-01-01). Two runs of one context started in the same
 # second (gh reports whole seconds) are told apart by outcome, the one that did
@@ -28,29 +31,40 @@ def check_passed: if .context != null then .state == "SUCCESS"
 # macOS jobs at a head where they already passed (or failed).
 def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name // "") | startswith("macos-"));
 
+# A job's family is its name up to the first space: a matrix job's shards and
+# the unexpanded name it is reported under when skipped or cancelled share it.
+def check_family: (.name // "") | split(" ")[0];
+
 # A skipped matrix job is reported under its unexpanded name, which a later
 # run's expanded shard names never supersede; so a skipped macOS entry is
-# dropped when a shard of the same job (the name up to the first space) passed.
-def mac_family: (.name // "") | split(" ")[0];
+# dropped when a shard of the same job passed.
+def mac_family: check_family;
 
-# A run a newer run of its workflow cancelled on the same head reports checks
-# that newer run never replaces: a matrix job's are named by its unexpanded
-# placeholder, and its other jobs tie the newer run's start to the second. So
-# once a later run (a higher run id) of the same workflow on the head has every
-# check finished and passed, the older run's checks are dropped. A cancelled
-# run with no such successor still counts, and so does any run a successor that
-# failed or is still running follows. Rollup entries with no run id in their
-# details URL, and status contexts, are kept as they are.
-def run_id: ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? | .id | tonumber) // null;
-def run_check_ok: (.status // "COMPLETED") == "COMPLETED"
-  and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED");
-def drop_superseded_runs: . as $all
-  | [ $all[] | select(.context == null and (.workflowName // "") != "")
-      | {w: .workflowName, r: run_id, ok: run_check_ok} | select(.r != null) ]
-  | group_by([.w, .r]) | map({w: .[0].w, r: .[0].r, ok: all(.[]; .ok)}) as $runs
-  | $all | map(select(. as $e | ($e | run_id) as $id
-      | ($e.context != null or $id == null)
-        or (($runs | any(.[]; .w == ($e.workflowName // "") and .r > $id and .ok)) | not)));
+# The workflow run a check run belongs to, from its details URL; null for a
+# status context or a check run with no such URL.
+def workflow_run: if .context != null then null
+  else ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? | .id) // null end;
+
+# When a newer run on the head cancels an older run of its workflow, the older
+# run's checks end CANCELLED and the newer run never replaces them: a matrix
+# job's are named by its unexpanded placeholder, and the rest tie the newer
+# run's start to the second, where a tie goes to the check that did not pass.
+# So a finished CANCELLED check is dropped when another workflow run of the
+# same workflow has a check of the same family that passed and started no
+# earlier. Only cancellations go: a failure, a check still running, and a pass
+# are never dropped, whatever ran after them, so a later failing re-run and a
+# reused run's earlier macOS passes count as before. A cancellation with no
+# such successor still counts.
+def drop_superseded_cancels:
+  [.[] | {entry: ., run: workflow_run, family: check_family, started: check_started, passed: check_passed}] as $rows
+  | [$rows[]
+      | . as $row
+      | select(($row.run != null and ($row.entry.workflowName // "") != ""
+          and ($row.entry.status // "COMPLETED") == "COMPLETED" and ($row.entry.conclusion // "") == "CANCELLED"
+          and any($rows[]; .run != null and .run != $row.run and .passed
+            and (.entry.workflowName // "") == $row.entry.workflowName
+            and .family == $row.family and .started >= $row.started)) | not)
+      | .entry];
 
 # A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
 # base branch, not the pull request, so it is no flip condition. The caller
@@ -64,7 +78,7 @@ def base_state_check: .context == null and (.status // "COMPLETED") == "COMPLETE
 # An array of rollup entries in, the base-state checks whose latest finished run
 # did not pass out: what the operator bypasses at merge, named by each reader's
 # ready report.
-def bypassed_check_runs: drop_superseded_runs | [.[] | select(base_state_check)] | to_entries
+def bypassed_check_runs: drop_superseded_cancels | [.[] | select(base_state_check)] | to_entries
   | group_by(.value | check_context)
   | map(max_by([(.value | check_started), .key]))
   | sort_by(.key) | map(.value) | map(select(check_passed | not));
@@ -73,7 +87,7 @@ def bypassed_check_runs: drop_superseded_runs | [.[] | select(base_state_check)]
 # order the rollup listed them. A check run naming no workflow (one an app
 # posts) is its own context: two such checks sharing a name may come from
 # different apps, so neither may supersede the other.
-def latest_check_runs: drop_superseded_runs | map(select(base_state_check | not)) | to_entries
+def latest_check_runs: drop_superseded_cancels | map(select(base_state_check | not)) | to_entries
   | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
   | map(max_by([(if .value | mac_skip then 0 else 1 end), (.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
   | sort_by(.key) | map(.value)

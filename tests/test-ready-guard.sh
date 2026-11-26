@@ -1072,18 +1072,32 @@ run_checks "checks (default): a failure started in the same second as a success 
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a failure started in the same second as a success of its context denies, listed before it" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
-# guard_run_job <run id> <name> <conclusion> — one ci check run of that run,
-# every one started in the same second, as two runs queued together are.
-guard_run_job() {
-  printf '{"name":"%s","workflowName":"ci","status":"COMPLETED","conclusion":"%s","startedAt":"2026-11-26T10:34:03Z","detailsUrl":"https://github.com/acme/widgets/actions/runs/%s/job/1"}' \
-    "$2" "$3" "$1"
+ci_check_run() { # ci_check_run <run id> <name> <conclusion> [<started>] [<workflow>] [<status>]: one check run of that workflow run, by default a ci one started with its run's peers
+  printf '{"name":"%s","workflowName":"%s","status":"%s","conclusion":"%s","startedAt":"%s","detailsUrl":"https://github.com/acme/widgets/actions/runs/%s/job/1"}' \
+    "$2" "${5:-ci}" "${6:-COMPLETED}" "$3" "${4:-2026-11-26T10:34:03Z}" "$1"
 }
-# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
-GUARD_CANCELLED="$(guard_run_job 601 'test (shard ${{ matrix.shard }}/${{ strategy.job-total }})' CANCELLED),$(guard_run_job 601 check CANCELLED)"
-run_checks "checks (default): a run superseded by a passing run of its workflow at the head passes" defer \
-  "$GUARD_CANCELLED,$(guard_run_job 780 'test (shard 1/2)' SUCCESS),$(guard_run_job 780 check SUCCESS)"
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix names, verbatim
+{
+  SHARDS='test (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+  MAC_SHARDS='macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+}
+SUPERSEDED="$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 check CANCELLED)"
+run_checks "checks (default): a run's cancellations, superseded by a passing run of its workflow at the head, pass" defer \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check SUCCESS)"
 run_checks "checks (default): a cancelled run with no passing successor denies" deny \
-  "$GUARD_CANCELLED" 'is CANCELLED'
+  "$SUPERSEDED" 'job-total[ }]*[)] is CANCELLED'
+run_checks "checks (default): a successor that has not reported the job yet supersedes nothing" deny \
+  "$SUPERSEDED,$(ci_check_run 780 lint SUCCESS),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" 'check is CANCELLED'
+run_checks "checks (default): a successor still running supersedes nothing" deny \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check '' 0001-01-01T00:00:00Z ci IN_PROGRESS)" 'check is PENDING'
+run_checks "checks (default): another workflow's passing check of the same name supersedes nothing" deny \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check SUCCESS '' lint)" 'check is CANCELLED'
+run_checks "checks (default): an older run's failure stays though a later run passed" deny \
+  "$(ci_check_run 601 lint FAILURE),$(ci_check_run 601 check FAILURE),$(ci_check_run 780 check SUCCESS 2026-11-26T10:40:00Z)" 'lint is FAILURE'
+run_checks "checks (default): a re-run of the older run failing after the newer run passed denies" deny \
+  "$(ci_check_run 780 check SUCCESS),$(ci_check_run 601 check FAILURE 2026-11-26T13:03:00Z)" 'check is FAILURE'
+run_checks "checks (default): a reused run's skips keep the earlier run's macOS passes" defer \
+  "$(ci_check_run 601 'test (shard 1/2)' SUCCESS),$(ci_check_run 601 'macos-suite (shard 1/4)' SUCCESS),$(ci_check_run 601 macos-smoke SUCCESS),$(ci_check_run 601 check SUCCESS),$(ci_check_run 780 "$SHARDS" SKIPPED 2026-11-26T11:00:00Z),$(ci_check_run 780 "$MAC_SHARDS" SKIPPED 2026-11-26T11:00:00Z),$(ci_check_run 780 macos-smoke SKIPPED 2026-11-26T11:00:00Z),$(ci_check_run 780 check SUCCESS 2026-11-26T11:00:00Z)"
 many=$(
   i=0
   while [ $i -lt 100 ]; do

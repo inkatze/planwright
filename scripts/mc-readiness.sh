@@ -59,8 +59,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       its latest run only (a re-run
                                       supersedes the runs before it), but
                                       not a check ready_base_state_checks
-                                      names (it describes the base);
-                                      SUCCESS, NEUTRAL and SKIPPED pass
+                                      names (it describes the base), nor a
+                                      cancelled check a later run of its
+                                      workflow on the head superseded by
+                                      passing the same job; SUCCESS,
+                                      NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or
