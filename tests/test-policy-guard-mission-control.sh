@@ -169,12 +169,14 @@ expect defer "[mission-control] a quoted prose line starting with an editor's na
 for c in "cp $KB/real.md $UNIT/README.md -S .bak" "mv $KB/real.md $UNIT/README.md --suffix .bak" \
   "cp $KB/real.md $UNIT/README.md -bS .bak" "cp -S.tmp $KB/real.md $UNIT/README.md" \
   "cp -bS.attic $KB/real.md $UNIT/README.md" "cp -St $KB/real.md $UNIT/README.md" \
-  "cp -- $KB/real.md -S $UNIT/README.md" "mv -- $KB/real.md --suffix $UNIT/README.md"; do
+  "cp -- $KB/real.md -S $UNIT/README.md" "mv -- $KB/real.md --suffix $UNIT/README.md" \
+  "cp --suffix=.bak $KB/real.md $UNIT/README.md"; do
   pg mission-control "$c" "$SCRATCH"
   l=${c//"$KB"\//}
   expect deny "[mission-control] a backup suffix is no destination: ${l//"$UNIT"\//<repo>/}"
 done
-for c in "cp -S .bak $KB/real.md $KB/s2.md" "cp -S.tmp $KB/real.md $KB/s3.md" "cp -bS.attic $KB/real.md $KB/s4.md"; do
+for c in "cp -S .bak $KB/real.md $KB/s2.md" "cp -S.tmp $KB/real.md $KB/s3.md" "cp -bS.attic $KB/real.md $KB/s4.md" \
+  "cp --suffix=.bak $KB/real.md $KB/s5.md"; do
   pg mission-control "$c" "$SCRATCH"
   expect defer "[mission-control] a backup suffix is a value, read as no repository write: ${c%% "$KB"*}"
 done
