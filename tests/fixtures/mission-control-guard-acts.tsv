@@ -390,6 +390,16 @@ deny	repo-write	bash	-	edits no repository	env -Sawk -i inplace 1 @UNIT@/README.
 deny	repo-write	bash	-	edits no repository	env -S awk -i inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	env --split-string=awk -i inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	hands a write verb	env -S'tee\_@UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	env -S'perl\_-pi\_-e1' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env --split-string awk -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env --split=awk -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	echo @UNIT@/README.md | env -S'-u X' xargs perl -pi -e1
+deny	repo-write	bash	-	edits no repository	echo @UNIT@/README.md | env --chdir=/srv/Sites xargs perl -pi -e1
+deny	repo-write	bash	-	hands a write verb	env --sp 'sudo tee' @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	echo @UNIT@/README.md | env -S xargs tee
+deny	repo-write	bash	-	edits no repository	echo $(env --split-string=perl -pi -e1 @UNIT@/README.md)
+defer	read	bash	-	-	env -S 'git log -Stee'
+defer	read	bash	-	-	env --chdir=/srv/Sites git status
 deny	repo-write	bash	-	hands a write verb	bash <<< 'env -Stee @UNIT@/README.md'
 deny	repo-write	bash	-	edits no repository	env -u HOME -Sperl -pi -e1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	env -P /usr/bin perl -pi -e1 @UNIT@/README.md

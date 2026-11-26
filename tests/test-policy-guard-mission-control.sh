@@ -191,6 +191,9 @@ c=''
 for i in $(seq 1 65); do c="${c}env -Sx; "; done
 pg mission-control "bash -c \"${c}git log -Stee\"" "$SCRATCH"
 expect deny "[mission-control] past the bound on env -S strings in text, the screen refuses"
+reason_has 'hands a write verb' "[mission-control] the bound's refusal is the wrapped-writer one"
+pg mission-control "bash -c \"${c}perl -Mstrict -e1 -Si $UNIT/README.md\"" "$SCRATCH"
+expect deny "[mission-control] past the bound, an editor whose switches hold an S still refuses"
 pg mission-control "echo x | tee of=$SCRATCH/cl/agents/x.md" "$UNIT"
 expect deny "[mission-control] an of= word read as written inside a repository still refuses past the prefix"
 reason_has 'settings or configuration file' "[mission-control] the of= settings write keeps the settings reason"
