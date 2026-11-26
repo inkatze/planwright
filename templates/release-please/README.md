@@ -101,11 +101,16 @@ the release commit, the publish step will not tag. Two ways forward:
   rollup it emits a stderr note recording that it published without positive CI
   confirmation (`require_ci=false`), so the relaxation stays auditable.
 
-The gate also counts a **cancelled** check as failing. A CI workflow with the
+Keep the release commit's CI run from being cancelled. A CI workflow with the
 common per-branch `concurrency` group and `cancel-in-progress: true` lets the
-next merge cancel the release commit's run, and publish then refuses. Give the
-release commit's push a group of its own with cancellation off, as planwright's
-own `.github/workflows/ci.yml` does.
+next merge cancel that run: cancelled mid-flight it leaves a failing check, and
+dropped while still queued it leaves no check at all (verdict `none`, which
+`require_ci: false` lets publish through). Either way the release commit has
+no positive CI. Give the release commit's push a group keyed by its own commit
+(for example `ci-release-${{ github.sha }}`) with cancellation off, as
+planwright's own `.github/workflows/ci.yml` does. That workflow spots the
+release commit by its subject, which is the release PR's title only under a
+squash merge.
 
 This obligation applies only if you publish with planwright core's script; a
 bring-your-own publish step gates however you wrote it.
