@@ -15,7 +15,6 @@ test-resolve-steps.sh	52.250
 test-tower-queue-picklist.sh	49.798
 test-policy-guard-kickoff-shapes.sh	46.200
 test-check-echo-discipline.sh	45.220
-test-check-purged-identifiers.sh	44.625
 test-inception-gate.sh	44.599
 test-flight-dispatch.sh	43.904
 test-ready-flip-handin.sh	43.300
@@ -324,6 +323,7 @@ test-fleet-audit.sh	3.597
 test-resolve-rule-doc.sh	3.579
 test-permission-matcher.sh	3.540
 test-main-currency.sh	3.522
+test-check-purged-identifiers.sh	3.300
 test-tower-statusline-waiting.sh	3.281
 test-worktree-hookspath-wiring.sh	3.279
 test-fleet-task-brief.sh	3.266
@@ -359,6 +359,7 @@ test-mc-eval-cadence.sh	2.752
 test-builder-guards.sh	2.751
 test-spec-drift-check.sh	2.681
 test-check-test-vacuity.sh	2.626
+test-check-purged-identifiers-seeds.sh	2.600
 test-substrate-bakeoff-b.sh	2.592
 test-mission-control-profile.sh	2.583
 test-run-tests-order.sh	2.582
@@ -382,6 +383,7 @@ test-token-spend.sh	2.236
 test-obs-record.sh	2.208
 test-fleet-streamjson-pending.sh	2.175
 test-mc-posture.sh	2.151
+test-check-purged-identifiers-hook.sh	2.100
 test-fleet-attention-render-change.sh	2.098
 test-mc-default-duties.sh	2.089
 test-worker-command-guard-audit.sh	2.072

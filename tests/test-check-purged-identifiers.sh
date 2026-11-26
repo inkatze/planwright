@@ -14,9 +14,11 @@
 #     reach by design, while tracked paths and symlink targets are in it;
 #   - a tree with nothing scannable in it fails CLOSED per REQ-H1.3.
 #
-# The message screens, the seeds and wiring, and the scan of this repository's
-# own tree are the -hook, -seeds and -own-tree siblings of this file, all
-# sharing tests/lib/purged-identifiers-harness.sh.
+# The message screens and the seeds and wiring are the -hook and -seeds
+# siblings of this file, all sharing tests/lib/purged-identifiers-harness.sh.
+# The scan of this repository's own tree is `check:purged-identifiers`, not a
+# test: it hashes every word window of every tracked file, the costliest run
+# by far, and the check already requires it to pass.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck source=tests/lib/purged-identifiers-harness.sh

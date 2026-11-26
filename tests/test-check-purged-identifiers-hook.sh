@@ -6,8 +6,7 @@
 # match, while a --verbose scissors diff is screened out first so a
 # remediation commit is not refused for the diff it removes. The hook fails
 # closed without its scanner or seed, and an empty range or message fails
-# closed. The tree scan and the seeds have sibling suites sharing
-# tests/lib/purged-identifiers-harness.sh.
+# closed. Sibling suites share tests/lib/purged-identifiers-harness.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck source=tests/lib/purged-identifiers-harness.sh
