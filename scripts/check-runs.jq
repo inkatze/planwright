@@ -33,6 +33,25 @@ def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name 
 # dropped when a shard of the same job (the name up to the first space) passed.
 def mac_family: (.name // "") | split(" ")[0];
 
+# A run a newer run of its workflow cancelled on the same head reports checks
+# that newer run never replaces: a matrix job's are named by its unexpanded
+# placeholder, and its other jobs tie the newer run's start to the second. So
+# once a later run (a higher run id) of the same workflow on the head has every
+# check finished and passed, the older run's checks are dropped. A cancelled
+# run with no such successor still counts, and so does any run a successor that
+# failed or is still running follows. Rollup entries with no run id in their
+# details URL, and status contexts, are kept as they are.
+def run_id: ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? | .id | tonumber) // null;
+def run_check_ok: (.status // "COMPLETED") == "COMPLETED"
+  and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED");
+def drop_superseded_runs: . as $all
+  | [ $all[] | select(.context == null and (.workflowName // "") != "")
+      | {w: .workflowName, r: run_id, ok: run_check_ok} | select(.r != null) ]
+  | group_by([.w, .r]) | map({w: .[0].w, r: .[0].r, ok: all(.[]; .ok)}) as $runs
+  | $all | map(select(. as $e | ($e | run_id) as $id
+      | ($e.context != null or $id == null)
+        or (($runs | any(.[]; .w == ($e.workflowName // "") and .r > $id and .ok)) | not)));
+
 # A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
 # base branch, not the pull request, so it is no flip condition. The caller
 # passes the array with --argjson base_state; a status context is never one.
@@ -45,7 +64,7 @@ def base_state_check: .context == null and (.status // "COMPLETED") == "COMPLETE
 # An array of rollup entries in, the base-state checks whose latest finished run
 # did not pass out: what the operator bypasses at merge, named by each reader's
 # ready report.
-def bypassed_check_runs: [.[] | select(base_state_check)] | to_entries
+def bypassed_check_runs: drop_superseded_runs | [.[] | select(base_state_check)] | to_entries
   | group_by(.value | check_context)
   | map(max_by([(.value | check_started), .key]))
   | sort_by(.key) | map(.value) | map(select(check_passed | not));
@@ -54,7 +73,7 @@ def bypassed_check_runs: [.[] | select(base_state_check)] | to_entries
 # order the rollup listed them. A check run naming no workflow (one an app
 # posts) is its own context: two such checks sharing a name may come from
 # different apps, so neither may supersede the other.
-def latest_check_runs: map(select(base_state_check | not)) | to_entries
+def latest_check_runs: drop_superseded_runs | map(select(base_state_check | not)) | to_entries
   | group_by(if .value.context == null and (.value.workflowName // "") == "" then ["solo", .key] else (.value | check_context) end)
   | map(max_by([(if .value | mac_skip then 0 else 1 end), (.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
   | sort_by(.key) | map(.value)

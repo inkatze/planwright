@@ -146,6 +146,47 @@ hasnt "a failed attempt read leaves no attempt row" "botattempt${tab}4475.3"
 has "and the other attempts are still read" "botattempt${tab}4476.1${tab}PR-Agent"
 has "and its marker is still collected" "botmark${tab}github-actions[bot]${tab}4475.3${tab}"
 mv "$tmp/attempt-4475-3.json.keep" "$tmp/attempt-4475-3.json"
+
+# A superseded run: two ci runs started together on the head, the older one
+# cancelled by the newer. The cancelled one's matrix jobs are reported under
+# their unexpanded names, which the live run's shard names never supersede,
+# and its check job ties the live one's start. Once a later run of the same
+# workflow on the head has passed, the cancelled run's checks are no flip
+# condition; a cancelled run with no passing successor still is.
+mv "$tmp/pr.json" "$tmp/pr.json.keep"
+# superseded_pr <rollup entries> — the pull request read with that rollup.
+superseded_pr() {
+  printf '{"headRefOid": "%s", "labels": [], "files": [{"path": "src/app.c"}], "body": "", "isDraft": false, "statusCheckRollup": [%s]}\n' \
+    "$head" "$1" >"$tmp/pr.json"
+}
+# ci_job <run id> <name> <conclusion> — one ci check run of that run.
+ci_job() {
+  printf '{"__typename": "CheckRun", "name": "%s", "workflowName": "ci", "status": "COMPLETED", "conclusion": "%s", "startedAt": "2026-11-26T10:34:03Z", "detailsUrl": "https://github.com/acme/web/actions/runs/%s/job/1"}' \
+    "$2" "$3" "$1"
+}
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+placeholder='test (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+cancelled_run="$(ci_job 601 lint CANCELLED), $(ci_job 601 "$placeholder" CANCELLED), $(ci_job 601 check CANCELLED)"
+live_run="$(ci_job 780 lint SUCCESS), $(ci_job 780 'test (shard 1/2)' SUCCESS), $(ci_job 780 'test (shard 2/2)' SUCCESS), $(ci_job 780 check SUCCESS)"
+superseded_pr "$cancelled_run, $live_run"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-superseded"
+expect_rc "collect over a head with a superseded ci run" 0
+c=$(cat "$tmp/collected-superseded" 2>/dev/null)
+hasnt "a run superseded by a passing one on the head leaves no cancelled check" "${tab}CANCELLED"
+has "and the passing run's check is what is judged" "check${tab}check${tab}SUCCESS"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-superseded" --conditions "$tmp/no-cond"
+expect_no_out "and the walk raises no failed check for it" "fail${tab}check${tab}"
+superseded_pr "$cancelled_run"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-lone"
+c=$(cat "$tmp/collected-lone" 2>/dev/null)
+has "a cancelled run with no passing successor still counts" "check${tab}check${tab}CANCELLED"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-lone" --conditions "$tmp/no-cond"
+expect_out "and the walk names its cancelled check" "fail${tab}check${tab}check is CANCELLED"
+superseded_pr "$(ci_job 601 lint CANCELLED), $(ci_job 601 check CANCELLED), $(ci_job 780 lint SUCCESS), $(ci_job 780 check FAILURE)"
+PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-redsucc"
+c=$(cat "$tmp/collected-redsucc" 2>/dev/null)
+has "a successor that did not pass supersedes nothing" "check${tab}lint${tab}CANCELLED"
+mv "$tmp/pr.json.keep" "$tmp/pr.json"
 printf '# jobs:\n#   image: pragent/pr-agent@sha256:0\njobs: {}\n' >"$repo/.github/workflows/pr-agent.yml"
 PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/collected-pa"
 c=$(cat "$tmp/collected-pa" 2>/dev/null)

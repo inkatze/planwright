@@ -1072,6 +1072,18 @@ run_checks "checks (default): a failure started in the same second as a success 
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a failure started in the same second as a success of its context denies, listed before it" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
+# guard_run_job <run id> <name> <conclusion> — one ci check run of that run,
+# every one started in the same second, as two runs queued together are.
+guard_run_job() {
+  printf '{"name":"%s","workflowName":"ci","status":"COMPLETED","conclusion":"%s","startedAt":"2026-11-26T10:34:03Z","detailsUrl":"https://github.com/acme/widgets/actions/runs/%s/job/1"}' \
+    "$2" "$3" "$1"
+}
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+GUARD_CANCELLED="$(guard_run_job 601 'test (shard ${{ matrix.shard }}/${{ strategy.job-total }})' CANCELLED),$(guard_run_job 601 check CANCELLED)"
+run_checks "checks (default): a run superseded by a passing run of its workflow at the head passes" defer \
+  "$GUARD_CANCELLED,$(guard_run_job 780 'test (shard 1/2)' SUCCESS),$(guard_run_job 780 check SUCCESS)"
+run_checks "checks (default): a cancelled run with no passing successor denies" deny \
+  "$GUARD_CANCELLED" 'is CANCELLED'
 many=$(
   i=0
   while [ $i -lt 100 ]; do
