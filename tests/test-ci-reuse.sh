@@ -188,10 +188,11 @@ mac_step() {
 }
 
 # gate <REUSE_RUN> <MAC_RUN> <test> <alpine> <macos-suite> <macos-smoke>
-# [<alpine-smoke>]: the check job's gate step, lint and plan succeeded; the
-# Alpine smoke takes the Alpine suite's result unless given its own.
+# [<alpine-smoke>]: the check job's gate step, lint and plan succeeded unless
+# GATE_LINT or GATE_PLAN says otherwise; the Alpine smoke takes the Alpine
+# suite's result unless given its own.
 gate() {
-  LINT_RESULT=success PLAN_RESULT=success REUSE_RUN="$1" MAC_RUN="$2" \
+  LINT_RESULT="${GATE_LINT:-success}" PLAN_RESULT="${GATE_PLAN:-success}" REUSE_RUN="$1" MAC_RUN="$2" \
     TEST_RESULT="$3" ALPINE_RESULT="$4" MACOS_RESULT="$5" MACOS_SMOKE_RESULT="$6" \
     ALPINE_SMOKE_RESULT="${7-$4}" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=acme/widgets \
@@ -275,7 +276,7 @@ check_job_if() {
   ' "$CI_YML"
 }
 # check_outcome <job if> <run cancelled> <lint> <plan> <test> <alpine>
-# <macos-suite> <macos-smoke> — the check job's conclusion. A job whose `if:`
+# <macos-suite> <macos-smoke>: the check job's conclusion. A job whose `if:`
 # is false when its run is cancelled ends cancelled, as the waiting jobs of a
 # cancelled run do; one that runs takes its gate step's result.
 check_outcome() {
@@ -291,12 +292,8 @@ check_outcome() {
       return
       ;;
   esac
-  LINT_RESULT="$3" PLAN_RESULT="$4" REUSE_RUN="" MAC_RUN=true \
-    TEST_RESULT="$5" ALPINE_RESULT="$6" MACOS_RESULT="$7" MACOS_SMOKE_RESULT="$8" \
-    ALPINE_SMOKE_RESULT="$6" \
-    GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=acme/widgets \
-    GITHUB_STEP_SUMMARY="$STUB_DIR/gate-summary" \
-    bash -e "$tmp/step-gate.sh" >"$STUB_DIR/gate-log" 2>&1 && echo success || echo failure
+  GATE_LINT="$3" GATE_PLAN="$4" gate "" true "$5" "$6" "$7" "$8"
+  if [ "$gate_rc" -eq 0 ]; then echo success; else echo failure; fi
 }
 CHECK_IF="$(check_job_if)"
 # shellcheck disable=SC2016 # literal GitHub expressions
