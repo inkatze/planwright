@@ -292,7 +292,7 @@ chmod +x "$TRBIN/tr"
 for spec in 'could not be read \(exit 5\)|gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc' \
   'merges a pull request|gh api -X PUT Repos/acme/widgets/pulls/42/merge' \
   'could not be read \(exit 5\)|gh api -X POST repos/acme/widgets/branches/main/rename -f new_name=old' \
-  'merges a pull request|GH api -X PUT repos/acme/widgets/pulls/42/merge' \
+  'names gh by a path or another spelling|GH api -X PUT repos/acme/widgets/pulls/42/merge' \
   'could not be read \(exit 5\)|Git push origin main'; do
   PG_PATH="$TRBIN:$PATH" pg worker "${spec#*|}"
   expect deny "[worker] with a failing tr: ${spec#*|}"

@@ -220,15 +220,16 @@ spec_family() {
   shopt -s nocasematch
   case $1 in
     planwright/?*/?*)
-      rest=${1#planwright/}
+      rest=${1#*/}
       spec=${rest%%/*}
       leaf=${rest#*/}
-      case $spec in flight | *[!a-z0-9-]* | -*) spec='' ;; esac
+      # Both cases spelled: a negated bracket does not fold under nocasematch.
+      case $spec in flight | *[!A-Za-z0-9-]* | -*) spec='' ;; esac
       if [ -n "$spec" ]; then
         case $leaf in
           spec-rework) rc=0 ;;
           amendment-?*)
-            case ${leaf#amendment-} in *[!0-9]*) ;; *) rc=0 ;; esac
+            case ${leaf#*-} in *[!0-9]*) ;; *) rc=0 ;; esac
             ;;
         esac
       fi

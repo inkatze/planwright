@@ -626,8 +626,9 @@ done
 
 # A commit an amendment branch also holds is not reworded elsewhere: that
 # would fork the spec branch's history.
-g push -q origin "$BAD:refs/heads/planwright/demo/amendment-3"
-rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$W/a")
+HELD=$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")
+g push -q origin "$HELD:refs/heads/planwright/demo/amendment-3"
+rc=$(rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
 if [ "$rc" = 1 ] && grep -q 'amendment-3, which is protected or a spec branch' "$tmp/err"; then
   ok "reword refuses a commit an amendment branch also holds"
 else
