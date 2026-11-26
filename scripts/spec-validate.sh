@@ -126,7 +126,8 @@
 # ignored. The baseline for stable-ID and
 # terminal-state checks defaults to origin/main when it resolves (it is
 # skipped quietly otherwise: a brand-new repo with no remote degrades
-# gracefully per REQ-K1.7); --baseline makes it explicit and fatal when
+# gracefully per REQ-K1.7); IDs are compared against the merge base of HEAD
+# and the baseline, and no merge base is fatal; --baseline makes it explicit and fatal when
 # unresolvable. --check-id validates a proposed spec identifier string,
 # full-string, for skills to call before any path or command is formed
 # (REQ-A1.8); the hostile input is never echoed back.
@@ -1096,10 +1097,20 @@ baseline_checks() {
     return 0
   fi
 
-  old_req=$(git -C "$bdir" show "$baseline:./requirements.md" 2>/dev/null) || old_req=
-  old_des=$(git -C "$bdir" show "$baseline:./design.md" 2>/dev/null) || old_des=
-  old_tsk=$(git -C "$bdir" show "$baseline:./tasks.md" 2>/dev/null) || old_tsk=
-  old_ts=$(git -C "$bdir" show "$baseline:./test-spec.md" 2>/dev/null) || old_ts=
+  # The comparison point is the merge base of HEAD and the baseline, not the
+  # baseline's tip: an ID the baseline gained after this branch was cut is
+  # not this branch's removal. No merge base fails closed (unrelated or
+  # truncated history cannot show what the branch removed).
+  if ! bbase=$(git -C "$bdir" merge-base HEAD "$baseline" 2>/dev/null) \
+    || [ -z "$bbase" ]; then
+    printf '%s\n' "spec-validate: no merge base between HEAD and $baseline (unrelated or shallow history); cannot tell what this branch removed" >&2
+    exit 2
+  fi
+
+  old_req=$(git -C "$bdir" show "$bbase:./requirements.md" 2>/dev/null) || old_req=
+  old_des=$(git -C "$bdir" show "$bbase:./design.md" 2>/dev/null) || old_des=
+  old_tsk=$(git -C "$bdir" show "$bbase:./tasks.md" 2>/dev/null) || old_tsk=
+  old_ts=$(git -C "$bdir" show "$bbase:./test-spec.md" 2>/dev/null) || old_ts=
   old_req_def=
 
   # The current bundle's `## Changelog` body, loaded once for both escapes that

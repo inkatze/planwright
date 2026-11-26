@@ -230,6 +230,71 @@ else
   fail "a refused event left a file behind"
 fi
 
+# list sanitizes each row's text and mark without starting a process per row:
+# a store of hundreds of events is read on every panel redraw, so a fork per
+# row is a fork storm. The shim logs every tr start; none may happen, and the
+# bytes printed are the ones the sanitizing tr gave.
+shim=$tmp/shim
+mkdir -p "$shim" "$fleet/attention/mission-control/alpha/marks/worker-1"
+real_tr=$(command -v tr)
+cat >"$shim/tr" <<EOF
+#!/bin/sh
+echo started >>"$tmp/tr.log"
+exec "$real_tr" "\$@"
+EOF
+chmod +x "$shim/tr"
+store_ev=$fleet/attention/mission-control/alpha/events
+store_mk=$fleet/attention/mission-control/alpha/marks/worker-1
+printf '90000\tsan-kind\tsan-one\ta\205b\237c\200\240d\n' >"$store_ev/e90000.0001ab"
+printf '90000\tsan-kind\tsan-two\tplain\n' >"$store_ev/e90000.0002ab"
+printf '90000\tsan-kind\tsan-three\tplain\n' >"$store_ev/e90000.0003ab"
+printf '90000\tsan-kind\tsan-four\tplain\n' >"$store_ev/e90000.0004ab"
+printf '\001\177\200\205\237\n' >"$store_mk/e90000.0001ab"
+printf 'sta\001\033g\177\205\037\200ed\n' >"$store_mk/e90000.0002ab"
+printf 'submitted\n' >"$store_mk/e90000.0003ab"
+# The shim must be able to fail the check below: a direct tr run logs.
+rm -f "$tmp/tr.log"
+printf 'x' | PATH="$shim:$PATH" tr x y >/dev/null
+if [ -s "$tmp/tr.log" ]; then
+  ok "the tr shim logs a tr start"
+else
+  fail "the tr shim did not log a direct tr run, so a quiet log proves nothing"
+fi
+rm -f "$tmp/tr.log"
+PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha --target worker-1 e90000.0001ab e90000.0002ab e90000.0003ab e90000.0004ab
+expect_rc "list with a target over sanitized rows" 0
+want=$(printf 'e90000.0001ab\t90000\tsan-kind\tsan-one\tabc\240d\t-\ne90000.0002ab\t90000\tsan-kind\tsan-two\tplain\tstaged\ne90000.0003ab\t90000\tsan-kind\tsan-three\tplain\tsubmitted\ne90000.0004ab\t90000\tsan-kind\tsan-four\tplain\t-')
+if [ "$OUT" = "$want" ]; then
+  ok "list strips control and C1 bytes from text and mark, and a mark with none left reads -"
+else
+  fail "list sanitized rows differently: got $(printf '%s' "$OUT" | od -An -c | tr -s ' ' | head -c 600)"
+fi
+if [ ! -s "$tmp/tr.log" ]; then
+  ok "list starts no tr per row"
+else
+  fail "list started tr $(grep -c . "$tmp/tr.log") times over four rows"
+fi
+rm -f "$tmp/tr.log"
+PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha e90000.0001ab
+expect_rc "list with no target over a sanitized row" 0
+if [ "$OUT" = "$(printf 'e90000.0001ab\t90000\tsan-kind\tsan-one\tabc\240d')" ] && [ ! -s "$tmp/tr.log" ]; then
+  ok "list without a target strips the same bytes and starts no tr"
+else
+  fail "list without a target: got $(printf '%s' "$OUT" | od -An -c | head -c 300), tr log: $(cat "$tmp/tr.log" 2>&1)"
+fi
+
+# A mark file past the bound is sanitized by one tr rather than by the
+# quadratic expansion; the answer is the same.
+printf '90000\tsan-kind\tsan-five\tplain\n' >"$store_ev/e90000.0005ab"
+printf '%05000d\n' 0 | "$real_tr" 0 '\205' >"$store_mk/e90000.0005ab"
+rm -f "$tmp/tr.log"
+PATH="$shim:$PATH" mc_run mc-event.sh list --program alpha --target worker-1 e90000.0005ab
+if [ "$OUT" = "$(printf 'e90000.0005ab\t90000\tsan-kind\tsan-five\tplain\t-')" ] && [ -s "$tmp/tr.log" ]; then
+  ok "a mark past the bound reads the same and is stripped by tr"
+else
+  fail "a long mark: got $(printf '%s' "$OUT" | od -An -c | head -c 200), tr log: $(cat "$tmp/tr.log" 2>&1)"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-mc-event: $failures failure(s)" >&2
   exit 1

@@ -120,7 +120,9 @@
 # attributable without inference.
 #
 # `death-handle` is the presence surface's own grammar — `process <pid>` or
-# `tmux-window <session> <window>` — plus the literal `none` for a rung that
+# `tmux-window <session> <window>`, the latter followed by the issuing tmux
+# server and the window's name where the writer pinned them
+# (scripts/tmux-identity-lib.sh) — plus the literal `none` for a rung that
 # spawns no process (the `print` rung: REQ-D1.8 exempts it from reaping, and
 # recording that fact is not the same as leaving the column blank). TWO READER
 # OBLIGATIONS come with it. `none` is NOT an evidence class:
@@ -193,7 +195,10 @@
 #                                             one is retired; 2 when that
 #                                             record is malformed. A row that
 #                                             would not change is not written.
-#   fleet-state.sh registry                  print the registry records.
+#   fleet-state.sh registry                  print the registry records:
+#                                             nothing, exit 0, when no
+#                                             registry exists yet; 2 when
+#                                             one exists but cannot be read.
 #   fleet-state.sh bound-incr <max>           check-and-increment the fleet
 #                                             counter under the bound (0 granted
 #                                             + new count on stdout, 1 at bound).
@@ -368,12 +373,27 @@ valid_death_handle() {
       [ "${#vdh_pid}" -le 10 ]
       ;;
     "tmux-window "*)
+      # <session> <window>, then the issuing server (`<pid>.<start time>`)
+      # and window name where the writer pinned them
+      # (scripts/tmux-identity-lib.sh, not sourced here: every fixture
+      # install of this store would need it; keep this in step with its
+      # tmux_valid_server and tmux_valid_name).
       vdh_rest=${vdh_v#tmux-window }
-      case $vdh_rest in
-        *" "*) ;;
+      # shellcheck disable=SC2086 # the handle's tokens, split (globbing is off)
+      set -- $vdh_rest
+      case $# in
+        2) ;;
+        4)
+          case $3 in
+            *.*.* | .* | *. | *[!0-9.]*) return 1 ;;
+            *.*) ;;
+            *) return 1 ;;
+          esac
+          [ "${#3}" -le 40 ] && valid_tmux_token "$4" || return 1
+          ;;
         *) return 1 ;;
       esac
-      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      [ "$vdh_rest" = "$*" ] && valid_tmux_token "$1" && valid_tmux_token "$2"
       ;;
     *) return 1 ;;
   esac
@@ -1035,10 +1055,20 @@ case $cmd in
 
   registry)
     # Read a consistent snapshot: writers rename atomically, so a cat is never
-    # torn (read-during-write safe). Absent registry prints nothing.
-    if [ -f "$registry" ]; then
-      cat "$registry"
+    # torn (read-during-write safe). Only an absent registry reads as empty;
+    # anything else at the path that cannot be read fails, so no reader takes
+    # an unreadable registry for one naming no worker.
+    if [ ! -e "$registry" ] && [ ! -L "$registry" ]; then
+      exit 0
     fi
+    if [ ! -f "$registry" ]; then
+      printf '%s\n' "fleet-state: could not read the registry: it is not a regular file" >&2
+      exit 2
+    fi
+    cat "$registry" 2>/dev/null || {
+      printf '%s\n' "fleet-state: could not read the registry" >&2
+      exit 2
+    }
     exit 0
     ;;
 

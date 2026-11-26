@@ -313,6 +313,221 @@ env_run env PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_BRANCH=planwright/f
 grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=develop' "$tmp/show.show.env"
 verdict $? "a context the caller exports is never replaced by the record's" "env: $(cat "$tmp/show.show.env" 2>&1)"
 
+# --- a location in a git checkout runs only as that checkout's trusted commit holds it ---
+# The declaration names a file, not its content, and a worker can Write any
+# file in its worktree, so a location the checkout's trusted commit does not
+# hold is refused.
+fresh
+# The worktree by its own name: `wt` is also assigned inside a subshell further
+# up, which shellcheck reads as a change that may be lost.
+lw=$tmp/wt$n
+mkdir -p "$lw/tools" "$tmp/elsewhere" "$tmp/other/tools"
+printf '#!/bin/sh\nprintf ran >>"%s/ran"\n' "$tmp" >"$lw/tools/mark.sh"
+chmod +x "$lw/tools/mark.sh"
+# A committed symbolic link, so only the link itself is the reason to refuse.
+ln -s mark.sh "$lw/tools/lnk.sh"
+git -C "$lw" add tools && git -C "$lw" commit -q -m "chore: a step"
+cp "$lw/tools/mark.sh" "$tmp/elsewhere/mark.sh"
+ln -s "$tmp/elsewhere" "$lw/linked"
+# Another checkout, as the primary a worktree sits under is.
+cp "$lw/tools/mark.sh" "$tmp/other/tools/mark.sh"
+cp "$lw/tools/mark.sh" "$tmp/other/tools/kept.sh"
+git init -q "$tmp/other"
+git -C "$tmp/other" add tools
+git -C "$tmp/other" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  -c core.hooksPath=/dev/null commit -q -m "chore: tools"
+cp "$lw/tools/mark.sh" "$tmp/other/.git/inside.sh"
+loc_out() { printf 'out: %s' "$(cat "$tmp/loc.out" "$tmp/loc.err")"; }
+loc_run() {
+  rm -f "$tmp/ran"
+  catalog "loc|kind: command|target: $1"
+  config 'steps_pre_ci: [loc]'
+  _lr=$(sr new-run)
+  srun_loc resolve --run "$_lr" pre-ci --unattended >/dev/null 2>"$tmp/err"
+  srun_loc command --run "$_lr" --point pre-ci --step loc >"$tmp/loc.out" 2>"$tmp/loc.err"
+}
+# srun_loc: srun, under the worker session record LOC_REC names when it is set.
+LOC_REC=''
+srun_loc() {
+  if [ -n "$LOC_REC" ]; then
+    env_run env "PLANWRIGHT_WORKER_SESSION_RECORD=$LOC_REC" "$RUN" --worktree "$lw" "$@"
+  else
+    srun "$@"
+  fi
+}
+loc_ran() { loc_run "$1" && [ -s "$tmp/ran" ] && grep -q '^passed' "$tmp/loc.out"; }
+# loc_refused <location> [<phrase>]: the step fails without running, and its
+# refusal reads <phrase>: by default the one that names an edit as the remedy;
+# NO_TRUST for the one given where no commit is trusted at all.
+EDIT='not as its trusted commit holds it'
+NO_TRUST='trusts no commit of'
+loc_refused() {
+  ! loc_run "$1" && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
+    && grep -q "${2:-$EDIT}" "$tmp/loc.err"
+}
+loc_ran "$lw/tools/mark.sh"
+verdict $? "a committed, unmodified location runs" "$(loc_out)"
+loc_ran tools/mark.sh
+verdict $? "a committed location named relative to the worktree runs" "$(loc_out)"
+cp "$lw/tools/mark.sh" "$tmp/mark.orig"
+printf 'printf pwned >>"%s/ran"\n' "$tmp" >>"$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "a location edited since HEAD is refused before it runs" "$(loc_out)"
+git -C "$lw" add tools/mark.sh
+loc_refused "$lw/tools/mark.sh"
+verdict $? "a location staged but not committed is refused" "$(loc_out)"
+git -C "$lw" reset -q -- tools/mark.sh
+cp "$tmp/mark.orig" "$lw/tools/mark.sh"
+cp "$tmp/mark.orig" "$lw/tools/new.sh"
+chmod +x "$lw/tools/new.sh"
+loc_refused "$lw/tools/new.sh"
+verdict $? "a location HEAD does not hold is refused" "$(loc_out)"
+loc_refused "$lw/linked/mark.sh"
+verdict $? "a location spelled inside the worktree through a folder linked out of it is refused" "$(loc_out)"
+loc_refused "$lw/tools/lnk.sh"
+verdict $? "a location that is itself a symbolic link is refused" "$(loc_out)"
+loc_ran "$tmp/elsewhere/mark.sh"
+verdict $? "a location in no checkout keeps the declaration's trust" "$(loc_out)"
+loc_ran "$tmp/other/tools/kept.sh"
+verdict $? "a location another checkout commits unchanged runs" "$(loc_out)"
+printf 'printf pwned >>"%s/ran"\n' "$tmp" >>"$tmp/other/tools/mark.sh"
+loc_refused "$tmp/other/tools/mark.sh"
+verdict $? "a location another checkout holds, edited since its HEAD, is refused" "$(loc_out)"
+loc_refused "$tmp/other/.git/inside.sh"
+verdict $? "a location inside a checkout's git folder is refused" "$(loc_out)"
+catalog "loc|kind: command|target: $lw/tools/new.sh|hosting: in-session"
+config 'steps_pre_ci: [loc]'
+r=$(sr new-run)
+rm -f "$tmp/ran"
+srun resolve --run "$r" pre-ci --unattended >/dev/null 2>"$tmp/err"
+! srun begin --run "$r" --point pre-ci --step loc --owner "$(owner)" >"$tmp/loc.out" 2>"$tmp/loc.err" \
+  && grep -q '^failed' "$tmp/loc.out" && ! grep -q '^run' "$tmp/loc.out" \
+  && grep -q 'not as its trusted commit holds it' "$tmp/loc.err"
+verdict $? "a session-hosted step's begin refuses the location too, printing no line to run" "$(loc_out)"
+catalog "loc|kind: command|target: $lw/tools/mark.sh|hosting: in-session"
+r=$(sr new-run)
+srun resolve --run "$r" pre-ci --unattended >/dev/null 2>"$tmp/err"
+srun begin --run "$r" --point pre-ci --step loc --owner "$(owner)" >"$tmp/loc.out" 2>"$tmp/loc.err" \
+  && grep -q "^run.*$lw/tools/mark.sh" "$tmp/loc.out"
+verdict $? "a session-hosted step's begin prints the line of a committed location" "$(loc_out)"
+loc_ran "$lw/tools/mark.sh"
+verdict $? "the location put back byte for byte runs again" "$(loc_out)"
+
+# --- under a worker session record, the worktree is held to its base ---------
+# The worker can commit on its own branch, so in the worktree the record names
+# a location runs only as the merge base with the record's pr_base holds it.
+lwp=$(cd -P "$lw" && pwd -P)
+git -C "$lw" update-ref refs/remotes/origin/main HEAD~1
+printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+LOC_REC=$tmp/loc.record
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a record, a location the worker committed but the base lacks is refused" "$(loc_out)"
+git -C "$lw" update-ref refs/remotes/origin/main HEAD
+loc_ran "$lw/tools/mark.sh"
+verdict $? "under a record, a location the base holds runs" "$(loc_out)"
+loc_ran "$tmp/other/tools/kept.sh"
+verdict $? "under a record, another checkout is still held to its HEAD" "$(loc_out)"
+git -C "$lw" branch -q -d -r origin/main
+git -C "$lw" branch refs/remotes/origin/main HEAD
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record, a local branch standing in for the deleted base ref is refused" "$(loc_out)"
+git -C "$lw" branch -q -D refs/remotes/origin/main
+git -C "$lw" update-ref refs/remotes/origin/main HEAD
+printf 'worktree_root=%s\n' "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
+printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
+# An unusable record trusts nothing anywhere: the worker may still commit, and
+# the runner cannot tell where.
+loc_refused "$tmp/other/tools/kept.sh" "$NO_TRUST"
+verdict $? "under a record repeating worktree_root, another checkout is refused too" "$(loc_out)"
+for spec in "$lwp/|trailing slash" "$tmp/gone|a missing directory" "$tmp/elsewhere|a directory that is no checkout"; do
+  printf 'worktree_root=%s\npr_base=origin/main\n' "${spec%%|*}" >"$tmp/loc.record"
+  loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+  verdict $? "under a record whose worktree_root is not a canonical checkout (${spec#*|}), a location is refused" "$(loc_out)"
+done
+printf 'worktree_root=%s\npr_base=origin/main\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record repeating pr_base, a location is refused" "$(loc_out)"
+git -C "$lw" update-ref refs/remotes/o+x/main HEAD
+printf 'worktree_root=%s\npr_base=o+x/main\n' "$lwp" >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record whose pr_base names a remote outside its grammar, a location is refused" "$(loc_out)"
+git -C "$lw" update-ref -d refs/remotes/o+x/main
+{
+  printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp"
+  awk 'BEGIN { for (i = 0; i < 100; i++) printf "pad=%050d\n", i }'
+} >"$tmp/loc.record"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record past the size bound, a location is refused" "$(loc_out)"
+printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$lw/inside.record"
+LOC_REC=$lw/inside.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record stored inside the worktree it names, a location is refused" "$(loc_out)"
+rm -f "$lw/inside.record"
+mkdir -p "$tmp/scr"
+printf 'worktree_root=%s\npr_base=origin/main\nscratch_root=%s\n' "$lwp" "$tmp/scr" >"$tmp/scr/in.record"
+LOC_REC=$tmp/scr/in.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record stored inside the scratch root it names, a location is refused" "$(loc_out)"
+# A scratch root the guard drops (its name holds a control character) holds
+# no record by the guard's terms, so the runner keeps the record as the guard
+# does.
+sct="$tmp/scr${TAB}x"
+mkdir -p "$sct"
+printf 'worktree_root=%s\npr_base=origin/main\nscratch_root=%s\n' "$lwp" "$sct" >"$sct/in.record"
+LOC_REC=$sct/in.record
+loc_ran "$lw/tools/mark.sh"
+verdict $? "under a record inside a scratch root the guard drops, the base's location runs" "$(loc_out)"
+LOC_REC=$tmp/missing.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record path that does not exist, a location is refused" "$(loc_out)"
+# A relative record path would resolve from the worktree the runner enters.
+printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
+LOC_REC=../loc.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a relative record path, a location is refused" "$(loc_out)"
+ln -sf "$tmp/loc.record" "$tmp/link.record"
+LOC_REC=$tmp/link.record
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record that is a symbolic link, a location is refused" "$(loc_out)"
+LOC_REC=$tmp/loc.record
+git -C "$lw" symbolic-ref refs/remotes/origin/main "refs/heads/$(git -C "$lw" symbolic-ref --short HEAD)"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+verdict $? "under a record, the base's name as a symbolic ref is refused" "$(loc_out)"
+git -C "$lw" symbolic-ref --delete refs/remotes/origin/main
+git -C "$lw" update-ref refs/remotes/origin/main HEAD
+# A repository nested in the recorded worktree, whatever refs it carries.
+mkdir -p "$lw/sub/n/tools"
+cp "$tmp/mark.orig" "$lw/sub/n/tools/n.sh"
+chmod +x "$lw/sub/n/tools/n.sh"
+git init -q "$lw/sub/n"
+git -C "$lw/sub/n" add tools
+git -C "$lw/sub/n" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+  -c core.hooksPath=/dev/null commit -q -m "chore: nested"
+git -C "$lw/sub/n" update-ref refs/remotes/origin/main HEAD
+loc_refused "$lw/sub/n/tools/n.sh" "$NO_TRUST"
+verdict $? "under a record, a repository nested in its worktree is refused" "$(loc_out)"
+ln -s "$lw/sub/n/tools" "$tmp/nlink"
+loc_refused "$tmp/nlink/n.sh" "$NO_TRUST"
+verdict $? "under a record, that repository reached through a link outside the worktree is refused" "$(loc_out)"
+# With no record, as in the guard, the outer HEAD answers for a location
+# spelled inside the worktree, and a nested repository reached another way is
+# held to its own HEAD: the no-record residual.
+LOC_REC=''
+loc_refused "$lw/sub/n/tools/n.sh"
+verdict $? "with no record, a nested location spelled in the worktree is held to the outer HEAD" "$(loc_out)"
+loc_ran "$tmp/nlink/n.sh"
+verdict $? "with no record, a nested repository reached through a link is held to its own HEAD" "$(loc_out)"
+LOC_REC=$tmp/loc.record
+loc_ran "$lw/tools/mark.sh"
+verdict $? "under the usable record again, the base's location runs" "$(loc_out)"
+LOC_REC=''
+loc_ran "$lw/tools/mark.sh"
+verdict $? "with no record, the location is held to HEAD again" "$(loc_out)"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

@@ -136,10 +136,10 @@ Usage:
       what the first wake after the latest reset tells the operator, and
       nothing else: since the hold began, each landing (session-landed),
       each decision (an operator item of a kind an armed duty declares) and
-      each failure (stall-dead, stream-json-worker-dead, watcher-stopped,
-      and the drain's own failures), each launch --operator-asked took past
-      the hold (usage-bypass), and each entry the reset drain kept that
-      still waits, with its reason:
+      each failure (stall-dead, tmux-server-lost, stream-json-worker-dead,
+      watcher-stopped, and the drain's own failures), each launch
+      --operator-asked took past the hold (usage-bypass), and each entry
+      the reset drain kept that still waits, with its reason:
         landed|decision|failed|bypass|kept<TAB><subject><TAB><text>
 
 Exit codes: 0 done (held: held); 1 clear (held), a store that cannot be
@@ -766,7 +766,7 @@ report() {
       c = ""
       if ($3 == "session-landed") c = "landed"
       else if ($3 == "usage-bypass") c = "bypass"
-      else if ($3 == "stall-dead" || $3 == "stream-json-worker-dead" || $3 == "watcher-stopped") c = "failed"
+      else if ($3 == "stall-dead" || $3 == "tmux-server-lost" || $3 == "stream-json-worker-dead" || $3 == "watcher-stopped") c = "failed"
       else if ($3 in dk) c = "decision"
       if (c != "") { t = $5; gsub(/[^[:print:]]/, "", t); print c "\t" $4 "\t" t }
     }'

@@ -2,18 +2,24 @@
 # worker-settings-generate.sh — write the per-launch worker profile an opted-in
 # launch passes with --settings.
 #
-# Usage: worker-settings-generate.sh <worker-settings.json> <worktree> <out-file>
+# Usage: worker-settings-generate.sh [--mise-task-edit] [--lefthook-edit]
+#          <worker-settings.json> <worktree> <out-file>
 #
-# The four broad mise task-file denies (mise.toml, .mise.toml, mise-tasks/,
-# .mise-tasks/ at any depth) are replaced by literal denies of the same names
-# in every ancestor folder of the worktree and in the primary checkout, so only
-# the worktree's own task files open, and a PreToolUse hook on the file tools
-# (worker-mise-edit-guard.sh) refuses every task path outside the worktree,
-# which no path rule can express. Every other rule stays as shipped.
-# A worktree or primary path holding a pattern character, or a primary checkout
-# that cannot be named, is refused. Output: whole by rename, owner-only,
-# outside the worktree. What it opens and the residual risk:
-# docs/permission-matcher-model.md, "The mise task-file opt-in".
+# Each opt-in's broad path denies are replaced by literal denies of the same
+# names in every ancestor folder of the worktree and in the primary checkout,
+# so only the worktree's own files of that kind open, and a PreToolUse hook on
+# the file tools (worker-mise-edit-guard.sh) refuses every such path outside
+# the worktree, which no path rule can express. Every other rule stays as
+# shipped.
+#   --mise-task-edit  the four mise task-file names; the form with neither flag
+#   --lefthook-edit   lefthook/ and lefthook.* (lefthook-local and the dotted
+#                     variants stay denied)
+# A worktree or primary path holding a pattern character, a primary checkout
+# that cannot be named, or a missing or non-executable hook script is refused.
+# Output: whole by rename, owner-only,
+# outside the worktree. What each opens and the residual risk:
+# docs/permission-matcher-model.md, "The mise task-file opt-in" and "The
+# lefthook config opt-in".
 #
 # Exit: 0 written (the path is printed); 1 unusable input; 2 usage.
 set -uf
@@ -29,16 +35,57 @@ die() {
   exit "${2:-1}"
 }
 
-[ "$#" -eq 3 ] || die "usage: $me <worker-settings.json> <worktree> <out-file>" 2
+usage="usage: $me [--mise-task-edit] [--lefthook-edit] <worker-settings.json> <worktree> <out-file>"
+want_mise=0
+want_lefthook=0
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --mise-task-edit)
+      [ "$want_mise" = 0 ] || die "$usage" 2
+      want_mise=1
+      shift
+      ;;
+    --lefthook-edit)
+      [ "$want_lefthook" = 0 ] || die "$usage" 2
+      want_lefthook=1
+      shift
+      ;;
+    *) break ;;
+  esac
+done
+# Callers that pass no flag are the mise opt-in's, so none means --mise-task-edit.
+[ "$want_mise" = 1 ] || [ "$want_lefthook" = 1 ] || want_mise=1
+[ "$#" -eq 3 ] || die "$usage" 2
 profile=$1
 wt_arg=$2
 out=$3
 
 command -v jq >/dev/null 2>&1 || die "jq is required"
 [ -f "$profile" ] && [ -r "$profile" ] || die "cannot read the profile $profile"
-broad='["Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)"]'
+# The broad denies each opt-in replaces, the names they cover (the literal
+# ancestor denies' tails), and the hook's name-set arguments.
+broad='[]'
+names='[]'
+hook_args=''
+if [ "$want_mise" = 1 ]; then
+  broad=$(printf '%s' "$broad" | jq -c '. + ["Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)"]')
+  names=$(printf '%s' "$names" | jq -c '. + ["mise.toml",".mise.toml","mise-tasks/**",".mise-tasks/**"]')
+fi
+if [ "$want_lefthook" = 1 ]; then
+  broad=$(printf '%s' "$broad" | jq -c '. + ["Edit(//**/lefthook/**)","Edit(//**/lefthook.*)"]')
+  names=$(printf '%s' "$names" | jq -c '. + ["lefthook/**","lefthook.*"]')
+  # The mise-only form passes the hook no argument: its default is mise.
+  hook_args=' lefthook'
+  [ "$want_mise" = 0 ] || hook_args=' mise lefthook'
+fi
+# The hook is the only thing that closes these names outside the ancestors; a
+# missing or non-executable one is a launch the broad denies no longer cover.
+# The check reads the copy beside the generator; the launch preflight proves
+# the copy under the worker's own root, the one the profile runs.
+hook_script=$(dirname -- "$0")/worker-mise-edit-guard.sh
+[ -f "$hook_script" ] && [ -x "$hook_script" ] || die "the file-tool hook (worker-mise-edit-guard.sh) is missing or not executable beside this generator; the opt-in would leave its names open outside the worktree's ancestors"
 jq -e --argjson b "$broad" '(.permissions.deny | type == "array") and ([$b[] as $r | (.permissions.deny | index($r))] | all(. != null))' \
-  "$profile" >/dev/null 2>&1 || die "the profile is not JSON, or does not carry the four task-file deny rules to replace"
+  "$profile" >/dev/null 2>&1 || die "the profile is not JSON, or does not carry the broad deny rules the requested opt-ins replace"
 
 wt=$(cd -P -- "$wt_arg" 2>/dev/null && pwd -P) || die "not a directory: the worktree"
 top=$(GIT_OPTIONAL_LOCKS=0 git -C "$wt" rev-parse --show-toplevel 2>/dev/null </dev/null) || die "not a git worktree"
@@ -61,7 +108,7 @@ common=$(GIT_OPTIONAL_LOCKS=0 git -C "$wt" rev-parse --path-format=absolute --gi
 case $common in
   /*/.git) primary=${common%/.git} ;;
 esac
-[ -n "$primary" ] && [ -d "$primary" ] || die "cannot name the primary checkout (its git directory is not <checkout>/.git); its task files would stay open"
+[ -n "$primary" ] && [ -d "$primary" ] || die "cannot name the primary checkout (its git directory is not <checkout>/.git); its opted-in names would stay open"
 primary=$(cd -P -- "$primary" 2>/dev/null && pwd -P) || die "the primary checkout does not resolve"
 unsafe_path "$primary" && die "the primary checkout path holds a character a path rule would read as a pattern"
 
@@ -98,16 +145,16 @@ chmod 600 "$tmp" 2>/dev/null || {
   rm -f -- "$tmp"
   die "cannot make the output owner-only"
 }
-if ! jq --argjson b "$broad" --arg dirs "$dirs" --arg wt "$wt" --arg hook "\"\$CLAUDE_PLUGIN_ROOT\"/scripts/worker-mise-edit-guard.sh" '
+if ! jq --argjson b "$broad" --argjson names "$names" --arg dirs "$dirs" --arg wt "$wt" --arg args "$hook_args" --arg hook "\"\$CLAUDE_PLUGIN_ROOT\"/scripts/worker-mise-edit-guard.sh" '
   ($dirs | split("\n") | map(select(. != "") | if . == "/" then "" else . end)) as $anc
   | .permissions.deny |= (
       map(select(. as $d | ($b | index($d)) == null))
-      + [ $anc[] as $a | ("mise.toml", ".mise.toml", "mise-tasks/**", ".mise-tasks/**") as $n
+      + [ $anc[] as $a | $names[] as $n
           | "Edit(/" + $a + "/" + $n + ")" ]
     )
   | .hooks.PreToolUse += [{matcher: "Edit|Write|MultiEdit|NotebookEdit",
       hooks: [{type: "command",
-        command: ($hook + " '"'"'" + $wt + "'"'"'")}]}]' "$profile" >"$tmp" 2>/dev/null; then
+        command: ($hook + " '"'"'" + $wt + "'"'"'" + $args)}]}]' "$profile" >"$tmp" 2>/dev/null; then
   rm -f -- "$tmp"
   die "cannot generate the profile"
 fi

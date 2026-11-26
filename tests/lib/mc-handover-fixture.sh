@@ -8,6 +8,8 @@
 
 # The fixture resolves paths through a cd in a command substitution.
 unset CDPATH
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 
 for t in jq git ps; do
   command -v "$t" >/dev/null 2>&1 || {
@@ -65,19 +67,34 @@ program_beta_spec_root: $repo/specs
 program_beta_home: $bhome
 program_beta_duties: [alpha-duty]
 EOF
+# The shim records where each successor started and the adopter overlay it
+# was handed, under $SHIM_RECORD_DIR/<its --name>.
 cat >"$tmp/bin/claude" <<'SHIM'
 #!/bin/sh
+sn=''
+while [ "$#" -gt 0 ]; do
+  [ "$1" = --name ] && sn=$2
+  shift
+done
+if [ -n "$sn" ] && [ -d "${SHIM_RECORD_DIR:-}" ]; then
+  pwd -P >"$SHIM_RECORD_DIR/$sn.cwd"
+  printf '%s\n' "${PLANWRIGHT_ADOPTER_OVERLAY-<unset>}" >"$SHIM_RECORD_DIR/$sn.overlay"
+fi
 IFS= read -r line || line=''
 exit 0
 SHIM
 chmod +x "$tmp/bin/claude"
 
+mkdir -p "$tmp/shim"
+
 # run <script> <args...>: against the fixture, the shim on PATH, as the
-# Claude session RUN_SESSION names (none when unset). Sets RC, OUT, ERR.
+# Claude session RUN_SESSION names (none when unset), from RUN_CWD (default
+# the fixture repository), with RUN_OVERLAY as the adopter overlay (default
+# the fixture's). Sets RC, OUT, ERR.
 run() {
   r_script=$1
   shift
-  OUT=$(cd "$repo" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
+  OUT=$(cd "${RUN_CWD:-$repo}" && env -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA -u PLANWRIGHT_SKILLS_ROOT \
     -u PLANWRIGHT_CONFIG_DEFAULTS -u PLANWRIGHT_REPO_ROOT_CHECKED -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
     -u XDG_CONFIG_HOME -u TMUX -u TMUX_PANE -u PLANWRIGHT_MC_CHECKED -u PLANWRIGHT_MC_PROGRAM \
     -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE -u PLANWRIGHT_TOWER_ID \
@@ -85,9 +102,10 @@ run() {
     -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ID ${RUN_SESSION:+"CLAUDE_CODE_SESSION_ID=$RUN_SESSION"} \
     ${RUN_TMUX_PANE:+"TMUX=$tmp/tmux.sock,1,0" "TMUX_PANE=$RUN_TMUX_PANE"} \
     PATH="$tmp/bin:$PATH" PLANWRIGHT_ROOT="$core" PLANWRIGHT_REPO_ROOT="$repo" \
-    PLANWRIGHT_ADOPTER_OVERLAY="$adopter" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
+    PLANWRIGHT_ADOPTER_OVERLAY="${RUN_OVERLAY:-$adopter}" PLANWRIGHT_LOCAL_CONFIG="$tmp/absent.yml" \
     CLAUDE_DIR="$tmp/claude" HOME="$fixhome" PLANWRIGHT_FLEET_STATE_DIR="$fleet" \
     PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude" PLANWRIGHT_STREAMJSON_GUARD_PREFLIGHT=off \
+    SHIM_RECORD_DIR="$tmp/shim" \
     /bin/bash "$repo_root/scripts/$r_script" "$@" 2>"${RUN_ERR:-$tmp/stderr}")
   RC=$?
   ERR=$(cat "${RUN_ERR:-$tmp/stderr}")

@@ -23,12 +23,20 @@ must stay identical.
 The `plan` job's `mac_run` output decides whether the two macOS jobs run at
 all, and both carry `if: needs.plan.outputs.mac_run == 'true'`. It is true on
 a push, on a pull request that is not a draft, and on a draft that carries the
-`ci-macos` label; the `ready_for_review` and `labeled` pull-request events
-re-run CI when a draft is marked ready or labelled. A draft push alone skips
-both jobs. The `check` job accepts that skip only when `mac_run` is false, and
-the mission-control readiness check treats a skipped or absent macOS job as
-unmet. To get macOS green on a draft before the ready flip, add the
+`ci-macos` label, except on a ready flip that reuses a prior run (below); the
+`ready_for_review` and `labeled` pull-request events re-run CI when a draft is
+marked ready or labelled. A draft push alone skips both jobs. The `check` job
+accepts that skip only when `mac_run` is false, and the mission-control
+readiness check treats a skipped or absent macOS job as unmet unless the same
+job ran at that head. To get macOS green on a draft before the ready flip, add the
 `ci-macos` label first, wait for green, then mark the pull request ready.
+
+The ready flip's own run then skips the suite jobs, macOS included, when an
+earlier run already passed every one of them on the same head, base and
+`ci.yml` (`scripts/ci-reuse.sh`, called by the `plan` job); `check` names the
+run it stands on. A base that moved since, or anything short of that full
+match, runs every job again. A skipped macOS job never hides a pass or a
+failure of the same job at that head from the readiness check.
 
 ## How a run picks its runner
 
@@ -79,7 +87,8 @@ layers keep it off, and only the last two hold against a hostile fork:
 Trigger review: `ci.yml` fires only on `pull_request` and on `push` to
 `main`. No workflow here uses `pull_request_target` (the posture guard bans
 it). The one `workflow_run` workflow (`release-please.yml`) runs on
-`ubuntu-latest`, never the Mac, and every other workflow does too. Any new
+`ubuntu-latest`, never the Mac, and every other workflow's Ubuntu jobs run on
+hosted runners too. Any new
 trigger that can carry another
 repository's code must stay on hosted runners. The hook refuses everything
 but `push` and `pull_request`, so a new trigger is refused there by default.
@@ -126,13 +135,14 @@ it once: a pull request from a branch of this repository must pass the hook
 `GITHUB_EVENT_NAME=pull_request` and an event file whose head repository is a
 fork.
 
-## One job at a time, and the shard count
+## The shard count
 
-A runner takes one job at a time, so the self-hosted path runs the suite as a
-single shard (`[1]`) instead of the hosted path's four. Four shards on one
-runner would run one after another and repeat the setup each time. One shard
-already uses every core, because `scripts/run-tests.sh` runs as many test
-files at once as the machine has cores.
+The self-hosted path runs the same four shards (`[1, 2, 3, 4]`) as the hosted
+path, so the runners that are free each take a shard and no single job has to
+fit the whole suite inside its timeout (one shard holding the whole suite
+needed about 90 minutes). `scripts/run-tests.sh` runs as many test files at
+once as the machine has cores, so runners sharing one machine split its cores
+between their shards; each shard's job timeout leaves room for that.
 
 Estimate, from the last green `ci` run before this change (no queueing): the
 four hosted shards took 18, 24, 9 and 22 minutes on 3-core hosted Macs, about
@@ -146,8 +156,7 @@ Macs. This is an estimate; the first self-hosted runs measure it.
 More runner instances on the Mac do not add compute. Every instance runs as
 `gharunner`, and the suite's parallel ticket pool is per user, so the
 instances share one pool of 16. A second instance would only stop two pull
-requests' runs from waiting on each other. If it is added, raise the
-self-hosted shard count in the `mac` step to match. The Mac's other work (the
+requests' runs from waiting on each other. The Mac's other work (the
 fleet account's workers) competes with CI for the same cores.
 
 The runner app is persistent, not ephemeral: an ephemeral runner needs a

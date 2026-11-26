@@ -1080,3 +1080,379 @@ Lens-pass: the delta-scoped lens review recorded in this entry (three-agent
 fan-out over the spec artifact class, dispositions above)
 Anchor: `a39ae8aa5f50caf5ba2a2b0bad7820d6ab263e35` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-20 — A launched worker's leased rewrite of its own draft branch
+
+**Scope.** An amendment of the Active bundle (Task 14 in progress), the
+fifth entry in this log, walked against spec commit `f4963b00` on branch
+`planwright/human-gates/amendment-5`. Its seed is the operator's ruling on
+PR #1119: the leased rewrite push that PR first carried contradicted
+REQ-F1.1 to REQ-F1.3, REQ-G1.3, and D-8, so it was split out to wait on
+this amendment. The push verb, its guard grammar, and its tests are kept,
+unpushed, on the local branch
+`planwright/flight/mc-mc-fixes-lease-push-4e7a91c3`; Task 21 starts from
+them. The anchor matched and the validator was clean at pre-flight (0
+errors, 0 warnings). Config: defaults. The session ran as a relayed
+amendment walk (mission-control launch, scope `kickoff-human-gates-a5`),
+every question relayed to the operator through the hub; no harness log
+path was provided, so the structured turn log was skipped. Sections 2 to
+7 were walked as one delta.
+
+**Goal (section 2).** A worker mission control launched may rebase or
+otherwise reshape commits it already pushed to its own unit branch, and
+force-push the result through one guarded helper, only while that
+branch's PR is a draft, only with a lease on the exact pre-rewrite tip
+plus `--force-if-includes`, and only where the operator turned the
+`draft_rewrite` setting on. Ready PRs stay on the tower's same-turn path;
+another person's branch is never rewritten or merged. Glossary: the
+**draft-branch path** is REQ-F1.8's helper push; the **lease** is the
+explicit `--force-with-lease=<branch>:<sha>`; the **session record** is
+the launcher-written file the guard and helper read the knob from.
+
+**Operator decisions (sections 3 to 7), the operator's words as relayed.**
+
+- Q1, allow the draft-branch rewrite: first asked "who would be able to
+  force push rebases?" and described stalls rebasing work-machine branches;
+  then "2", on the three terms, including the local rebase of pushed
+  commits. The recommendation was to keep the prohibition, both times.
+- Q2, rebasing a coworker's branch: "oh no, I'm not doing that to other
+  people's branches. At most merging other peoples work into ours". No
+  follow-up and no observation.
+- Q3, rewriting a ready PR with confirmation (the operator's addition, "for
+  one that's already marked as ready it should be possible with the
+  operator's confirmation"): "1", the tower's same-turn path, no worker
+  route. In a repository the operator does not own, the operator's own
+  rules forbid even that path today; this bundle does not widen them.
+- Q4, merging a coworker's branch: "1", left out; their work arrives
+  through the base or a stacked PR's base.
+- Q5, the default: "1", `deny`, on per repository. The operator then noted
+  "planwright hasn't been great at prompting the operator to update
+  settings", which Q7 answers.
+- Q6, where the draft check sits: "1", at the push only; the local reshape
+  makes no host call.
+- Q7, how to ask: "One ask per repo + command (Recommended)".
+- Q8, who runs the enable command: "Mission control, on your yes".
+- Q9 (from the lens pass), which layers may enable it: "Repo-local or
+  machine-wide (Recommended)". The hub marked that option recommended; the
+  walk had recommended the machine-local file only.
+
+**Lens review pass (delta-scoped, meaning class).** The artifact class is
+**spec**, with the security lens added for this hard-disqualifier zone.
+The delta mints and supersedes requirements, so it is meaning-class.
+Three read-only Sonnet sub-agents fanned out over the delta, each carrying
+a lens group; the strongest findings were checked against
+`scripts/policy-guard.sh` (the worker's own-branch deletion is admitted),
+`scripts/worker-session-record.sh` (the `worker_base_merge` snapshot
+precedent), `config/worker-settings.json`, and the parked helper.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and internal consistency; ambiguity and interpretation forks; cross-file consistency and glossary drift | 21 | The floor sentence denying an act REQ-F1.6 permits; REQ-F1.6 binding the tower; REQ-F1.7's "that path" and "no session SHALL initiate it"; the out-of-scope bullet against the tower path; D-27 overclaiming coworker safety; "the push SHALL name no remote" against the helper's own git push; the dirty-tree and other refusals missing from one file or another; the Q8 citation; D-8's unscoped pointer; three pending pointers not repointed; the session tier, the mixed range and fixup; the knob's read location; the refusal trigger; the write scope; G1.5 wiring; the narrowing clause untestable; the legacy-id re-stamp; `--force-if-includes` inert beside an explicit lease; the stale options row |
+| Security and bypass completeness; decision-domain gaps | 14 | Delete-and-recreate publishing a rewrite with no lease; a worker's own script self-enabling the knob; environment overrides of the config read, the session record, and `gh`'s repository; the adopter and repo-tracked layers enabling it; a re-drafted reviewed PR and the flip race; the draft read bound to the wrong repository; other people's commits in the rewritten range; the reflog lease proving nothing about content; the launcher identity and a stacked base; the interaction with `unpushed_rewrite`; the enable command's hardening; mission control's yes being convention; no audit trail; a live knob changing a running worker |
+| Citation and coverage integrity; dead verification paths; testability; stale references | 15 | Task 21 unable to pass `mise run check` without the options row; test-spec crediting Task 21 with Task 22's wording; REQ-F1.10's check missing from Task 21; the other-write half of REQ-F1.11; the doctrine row owned by no REQ; the live-session signal undefined; the same three pointers; the legacy re-stamp; REQ-A1.2's policy list; REQ-F1.1's case under `allow`; the narrowing clause; the local-only branch named in the spec; the observation id; ID order |
+| Performance | n/a | Spec artifact class: no execution path |
+| Error handling and failure modes | n/a | Spec artifact class; the fail-closed refusals are the contract under review |
+
+Counts are the sub-agents' report totals before deduplication. One fork
+went to the operator (Q9, the layers). The rest were applied as the
+recommended fixes:
+
+- REQ-F1.6 rewritten: worker sessions only, a mission-control launcher
+  named in the record, fixup and `git pull --rebase` named, the range
+  holding only the branch's own commits, the upstream the PR base or the
+  branch's own remote branch, a mixed range needing both knobs, the knob
+  resolved once into the session record from the layers Q9 chose and read
+  only from there, the tower outside it.
+- REQ-F1.7: "the tower SHALL NOT initiate it", "the tower path covers" a
+  ready PR, and no worker path reaching another person's branch.
+- REQ-F1.8: the helper's command line, not its inner push; the
+  environment overrides cleared; a clean tree; the live-session signal
+  named; a missing reflog refusing; every replaced commit by the
+  repository's configured author; the push remote's repository passed to
+  `gh`; no PR based on the branch; the replaced commits printed and an
+  audit line; the worker's deletion of its own unit branch refused; the
+  flip race named as an accepted residual.
+- REQ-F1.9 fires only for want of the knob and names the next-launch
+  effect. REQ-F1.10 carries the legacy-id re-stamp. REQ-F1.11 gains the
+  atomic write, the audit line, the symlink, ownership, and gitignore
+  refusals, the Bash-write scope beside the profiles' file-tool denies,
+  and the adopter line as the operator's own edit.
+- REQ-A1.11 minted for the Policy row, with a scoped pointer on REQ-A1.2.
+  REQ-G1.14 names REQ-F1.6, the deletion deny, and the helper's approval.
+- D-27 rewritten to match, `--force-if-includes` stated as kept for the
+  pairing, not as a check; D-8's pointer scoped; D-9's widened to the
+  deletion deny; the decision-domains walk extended.
+- Tasks 21 and 22 rewritten (the options row moved into Task 21, Task 21
+  re-estimated at two days); the test-spec entries rewritten, REQ-F1.7
+  gaining a `[design-level]` line; the three further pending pointers
+  repointed; the Deferred bullet citing obs:9bed2b4e and gaining a doctor
+  line per enabled repository; the Sources entry naming no local branch.
+
+Declined, with reasons:
+
+- **Refuse once the PR has any review thread or comment.** The operator
+  chose Q1's three terms over the option that added this limit.
+- **Re-read the PR after the push and report a flip.** It cannot undo the
+  push and adds a second host call; the race is named as a residual.
+- **Bind mission control's yes mechanically (a TTY or token).** Mission
+  control's admission is the routed amendment's to design; this bundle
+  denies the command to every other agent tier.
+
+The **altitude check**: no altitude trigger in the amendment's Sources, so
+not applicable. The **ship-gate check**: mission control's half (dedupe,
+the recorded "no", the listings, its admitted write) carries a gated
+Deferred bullet and obs:9bed2b4e.
+
+**Residual, named for the operator.** A worker auto-approves running its
+repository's own scripts, and a script it wrote runs as the operator's
+user out of the guard's sight; it could overwrite the session record or
+force-push directly. That is true before this amendment. The planwright
+fix approving only scripts git tracks unmodified, in flight at the time
+of this walk, closes it.
+
+**Brief content this amendment makes stale** (the body above is
+append-only; these notes supersede it where they conflict):
+
+- Section 3: REQ-F1.1, REQ-F1.2, REQ-F1.3, and REQ-G1.3 superseded by
+  REQ-F1.6, REQ-F1.7, REQ-F1.10, and REQ-G1.14; REQ-F1.8, REQ-F1.9,
+  REQ-F1.11, and REQ-A1.11 minted; REQ-A1.2's policy list scoped.
+- Section 4 ledger: D-27 added, confirmed; D-8 superseded in part; D-9
+  scoped.
+- Section 5: `[test]` entries for every new REQ, `[design-level]` lines
+  for REQ-F1.7's narrowing clause and REQ-F1.9's mission-control half, one
+  `[manual]` `eval:skill` run for REQ-F1.10; mission control's admission
+  is the routed amendment's to test.
+- Section 6: Task 21 (two days) depends on Task 14; Task 22 (four hours)
+  on Task 21. Deliberate non-edge: Task 21 does not wait for Tasks 19 and
+  20, though all three edit `doctrine/human-gates.md` and its test; the
+  rows are separate and a forward merge resolves the overlap, which the
+  operator's need outweighs. The critical path is unchanged.
+- Section 7, new rows:
+  - (21) A worker rewrites someone else's work. The signal is a coworker
+    reporting a diverged branch; the mitigations are the own-commits
+    range, the author check, the lease, and the shared-branch refusal.
+  - (22) The opt-in is enabled without the operator. The signal is a
+    doctor line naming a layer the operator did not edit; the mitigations
+    are the launch-time record, the ignored repo-tracked layer, the
+    command denied to every other agent tier, and the residual's fix.
+  - (23) A flip lands between the draft read and the push. The signal is
+    a ready PR whose threads went outdated; the mitigation is the
+    seconds-wide window, accepted.
+  - (24) The mission-control follow-up lags. The signal is the Deferred
+    bullet at drain; the gap fails safe (the item hands the operator the
+    command).
+
+  Gap check: auth, secrets-configuration, concurrency, observability,
+  existing-seam reuse, human comprehension, and org-design are decided
+  (D-27's walk line); mission control's records are routed.
+
+**Pre-sign-off verification.**
+
+- **Post-lens stale-reference sweep.** Run after REQ-A1.11 was minted and
+  REQ-F1.6 to REQ-F1.11 and REQ-G1.14 re-scoped: the remaining REQ-F1.1,
+  REQ-F1.2, REQ-F1.3, and REQ-G1.3 mentions are the superseded records,
+  their test-spec headings, shipped task citations, and the "every case
+  holds" lines; every pending supersede pointer names the superseding IDs.
+- **Lint.** `markdownlint-cli2` over the brief and the four spec files: 0
+  issues.
+- **Recorded claims re-derived.** Requirement bullets and test-spec
+  entries pair one to one (the sorted ID lists compared equal).
+- **Enumeration cross-check.** The lens table's counts are the three
+  sub-agents' report totals before deduplication; REQ-F1.8's refusal list
+  is the decided rule for the helper, the test-spec cases its
+  verification, not a second enumeration.
+- **Validator.** 0 errors, 0 warnings once this anchor is recorded.
+
+**Sign-off.** Signed off 2026-11-20 by the operator ("Sign off", relayed
+by the hub from a picklist with no option preselected) after the approval
+summary. No status flip (the bundle is already signed); `**Last
+reviewed:**` set to 2026-11-20 on all four spec files.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (three-agent
+fan-out over the spec artifact class with the security lens, dispositions
+above)
+Anchor: `01b8e122f0583e2a041805756018137a337249dd` — computed as
+`scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-22 — Expression-only fixes carried with Task 21
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the Task 21 worker.
+The operator ruled on the Amendment 5 polish pass "Land as signed, carry
+all 12"; the ten that belong to Task 21 land here, items 4 and 5 staying
+with Task 22. None alters an accepted decision or a requirement's
+meaning; each states what the signed text already implied or repairs its
+wording:
+
+- REQ-F1.6: the PR base is the session record's `pr_base`, read with no
+  host call; the record is found at a path the launcher fixes from the
+  worktree, never through an environment variable (the operator's
+  ruling: a record an environment variable names could be a forged one,
+  defeating "never from the environment").
+- REQ-F1.8: the deletion refusal is scoped to the remote ref, its
+  spellings listed (`:<branch>`, `--delete`, `-d`, the `gh api` REST ref
+  delete, GraphQL `deleteRef`); a local `git branch -D` stays outside it.
+- REQ-G1.14: an unreadable or malformed record is named among the
+  helper's refusals.
+- REQ-A1.11 and D-27 gain the supersession markers their bodies already
+  state.
+- Task 21's Done-when and the REQ-F1.6, REQ-F1.8, and REQ-G1.14 test-spec
+  entries gain the matching cases: a record naming another launcher or
+  none, an unreadable or malformed record, an allowing record an
+  environment variable names, the deletion spellings, and a rewrite that
+  re-identifies a legacy checklist item.
+- A requirements line rewrapped, a doubled "and" dropped from the
+  Deferred bullet, and obs:9bed2b4e's wording repaired.
+
+**No lens pass** (expression-only): the contract is unchanged.
+Validator after the edit: 0 errors, one warning (REQ-A1.11 changed by its
+marker alone, which no verification path reads).
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-11-22
+("Expression-only fixes carried from the Amendment 5 polish pass").
+Anchor: `cb3588dd953acf56258b8c518776b768d4f62a31` — computed as
+`scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-25 — A worker keeps its spec branch current with a clean base merge
+
+Spec path `specs/human-gates`; walk started at `845c3455`; walkthrough date
+2026-11-25. Mode: amendment on a signed bundle, human-declared (the
+operator's hub picklist "Run it now (Recommended)"), run on branch
+`planwright/human-gates/amendment-6` as a relayed walk (scope
+`kickoff-human-gates-a6`), every question relayed through the hub, one plain
+question per turn. Validator at walk start: 0 errors, 0 warnings. The
+amendment admits the route mission-control's Amendment 21 specified (its
+REQ-I1.11, D-114) and held its builds draft for: a launched worker on a
+spec-branch pull request merges the PR base into that one branch and pushes
+only clean merges. Sections 2 to 7 were walked as one delta; no harness log
+path was provided, so the structured turn log was skipped.
+
+**Goal (section 2).** A worker launched on a sign-off, amendment or
+spec-rework pull request may keep that branch current with its base, by a
+merge it makes and a push the guard verifies, and nothing else: no spec
+edit, force, rewrite, deletion or other branch. Glossary: the **spec
+branches** are `planwright/<spec>/spec`, `planwright/<spec>/amendment-<n>`
+and `planwright/<spec>/spec-rework`; the **clean merge** is a two-parent
+merge of a base commit whose tree is exactly the clean merge of its
+parents. Visual-flight branches are the worker's own unit branch and
+already take the base merge and push (REQ-E1.1); nothing changes for them.
+
+**Operator decisions (sections 3 to 7), the operator's words as relayed.**
+
+- Already answered at mission-control Amendment 21 (Q4, "Hold builds until
+  both sign (Recommended)"): admit only the worker's clean base merge into
+  the one spec branch its launch record names, plus that branch's push;
+  the builds (#1140, #1155) stay draft until both amendments sign.
+- Q1, the spec-rework branch: first "what about visual flights?", answered
+  that they already work and are unchanged; then "Include spec-rework
+  (Recommended)".
+- Q2, the knob: "The existing base-merge setting (Recommended)", that is
+  `worker_base_merge`, with `deny` refusing the route too; no new knob.
+- Q3, a conflicting merge: first "Follow the conflict setting"; asked what
+  that does to a resolution commit the guard can never push, then "can/should
+  we soften this?"; shown the path-limited push, the side review branch and
+  keeping the push refused, "Keep it: fix locally, no push (Recommended)".
+  The resolution stays local, the push stays refused, the unit parks.
+- Q4, the doctrine rows: "Name all three spec branches (Recommended)": a
+  spec-branch push row naming the three branches, limited to clean merges
+  of the PR base, citing REQ-E1.4 and mission-control REQ-I1.11, with the
+  merge row's base-merge-only clause and #1140 made to match.
+
+**Numbering and checks.** Read against origin/main and every human-gates
+branch: the next free IDs were REQ-E1.4, D-28 and Task 23, and the bundle
+mints exactly those. Pull request #1140 changes the guard, the session
+record and the docs, not `config/worker-settings.json`: the worker profile
+still denies a plain push of the sign-off branch by glob, and a profile
+deny cannot be narrowed by an allow, so D-9 and REQ-G1.9 are scoped to
+guard-only on the one recorded branch, with the profile change in Task 23.
+
+**Spec edits.** `requirements.md`: REQ-E1.4 (supersedes REQ-E1.1 in part,
+with the `Superseded-by` line), notes on REQ-A1.6, REQ-E1.2, REQ-G1.9 and
+REQ-G1.13, the in-scope and out-of-scope lists, the changelog and Sources.
+`design.md`: D-28, a `Superseded-by` line on D-7, a note on D-9.
+`tasks.md`: Task 23. `test-spec.md`: the REQ-E1.4 entry and notes on the
+REQ-A1.6, REQ-E1.1, REQ-E1.2, REQ-G1.9 and REQ-G1.13 entries.
+
+**Lens review (delta-scoped, fan-out on Sonnet, read-only).** Four
+sub-agents covered the lens groups below; the altitude check found no
+trigger (not applicable) and the ship-gate check one prose-only
+out-of-band step.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases; error handling | 2 | REQ-E1.2 versus REQ-E1.4 on `resolve`; an unpushable local resolution with no recovery |
+| Security | 3 | the worker profile has no fail-closed suffix once the denies go; the deletion deny rides the same glob; the amendment and spec-rework branches were never profile-denied |
+| Performance; concurrency / state | none | no performance or state surface in a spec delta |
+| Naming, readability, structure | 1 | D-7 lacked its `Superseded-by` line |
+| Documentation | 2 | a stale sentence in the permission-matcher doc; the missing out-of-scope bullet |
+| Tests / verification | 3 | Task 23's guard cases belong to mission-control's tests; the REQ-E1.1 entry still denied the route; the REQ-E1.4 entry named no suite |
+| Cross-file consistency | 3 | REQ-G1.13 and REQ-G1.14 still said the opposite; the cross-copy test cited under a superseded ID; the #1140 reconciliation named only in prose |
+
+**Dispositions.** Every finding was applied as a spec edit: REQ-E1.2's note
+and the discard-and-restart sentence of REQ-E1.4; D-28's corrected profile
+scope, the fail-closed suffix and the deletion spellings carried into Task
+23; Task 23's guard cases moved to mission-control's REQ-I1.11 tests with
+the owner named; the REQ-E1.1, REQ-A1.6, REQ-G1.9 and REQ-G1.13 test-spec
+notes; the REQ-G1.13 and REQ-G1.14 notes and citations; D-7's marker; the
+out-of-scope bullet; Task 23's deliverable reworded so its doctrine text
+lands on top of whichever mission-control build has merged. None declined,
+none deferred.
+
+**Pre-flip verification.** Re-derived at sign-off: the validator reports 0
+errors and 0 warnings once the anchor below is recorded. No count or corpus
+claim is recorded here, so there is nothing to re-derive and no enumeration
+to convert.
+
+**Sign-off.** Signed off 2026-11-25 by the operator ("Sign off
+(Recommended)", relayed by the hub from a picklist) after the approval
+summary. No status flip (the bundle is already signed); `**Last
+reviewed:**` set to 2026-11-25 on all four spec files.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (four-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `61373053524e08090cd8d7e677779d457466f3a7` — computed as
+`scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-25 — Polish findings fixed before the ready flip
+
+A polish review pass on the pushed amendment returned findings after the
+sign-off above. The operator chose "Fix first, re-sign (Recommended)" over
+flipping as signed. The entry above says REQ-G1.14 got a note and
+citations; it had neither, and the note is added now (no citation line
+changed). Its anchor was also re-recorded once, after a markdown-lint fix.
+
+**Fixed.** REQ-E1.4 adopts mission-control REQ-I1.11's remaining terms: the
+local fast-forward to the PR head stays, the further local-state refusals
+apply, the core floor's `planwright/*/spec` entry is exempt for this route,
+and the kickoff session's own base merge is unchanged. The local resolution
+commit is discarded by hand by whoever resolves the conflict. The worker
+profile keeps deletion-only denies for the sign-off branch, because the
+relayed kickoff session runs under it; its new fail-closed suffix refuses
+every call those hooks cover. D-28 no longer says the guard already refuses
+amendment and spec-rework pushes. Task 23 starts only after pull requests
+1140 and 1155 merge, corrects `docs/getting-started.md`, names the wiring
+test for the fail-closed case and drops the tag-push case, which the guard
+does not screen. REQ-G1.13 and REQ-G1.14 notes and their test-spec entries
+are reconciled, and the conflict park behaviour is marked `[manual]`.
+
+**Declined.** "`resolve` needs a commit the guard refuses": the guard's
+commit classifier (`classify_git_commit` in `scripts/policy-guard.sh`) acts
+only on amend, squash and fixup, so a plain commit is not gated; the
+operator's conflict ruling stands.
+
+**Deferred.** Whether mission-control's suite covers the other-record and
+other-pull-request refusals the REQ-E1.4 test entry lists was not checked
+here; its build is where that is settled.
+
+**Sign-off.** Signed off 2026-11-25 by the operator ("Sign off
+(Recommended)", relayed by the hub). No status flip. The fixes themselves
+had no further lens pass.
+
+Class: meaning
+Lens-pass: the polish review recorded in this entry (one read-only
+sub-agent walking each lens, dispositions above)
+Anchor: `f2f3356a6f48996720c3f7dd9bab6459b26f982a` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

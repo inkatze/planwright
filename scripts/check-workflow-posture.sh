@@ -51,9 +51,13 @@
 #      privileged job fires and whose CI verdict it acts on.
 #
 # A separate consistency check, not a posture assertion: a workflow running the
-# PR-Agent image must set GITHUB_ACTION_CONFIG.PR_ACTIONS to the same set as its
-# first flow-style `types: [..]` list, because the action's default list omits
-# `synchronize` and it silently skips any action its list leaves out.
+# PR-Agent image must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or the dotted
+# spelling) to the same set as its first flow-style `types: [..]` list, since
+# the action silently skips any action its list leaves out. The types list
+# must carry ready_for_review (the run the ready flip fires) and nothing but
+# that and review_requested: the bot review runs once per pull request, not on
+# every push or edit, and a fix round after the flip asks for one more through
+# review_requested.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -152,14 +156,14 @@
 # `*.yml`/`*.yaml` pattern under the scanned directory, so no file CONTENT is
 # ever subject to expansion.
 #
-# THE PLATFORM MATRIX (--matrix, universal-binary REQ-B1.4, D-13). Given a
+# THE PLATFORM MATRIX (--matrix, universal-binary REQ-B1.6, D-13). Given a
 # workflow file name, a further assertion holds that file to the CI platform
 # matrix, failing closed when it is absent:
 #   - it carries an Ubuntu job (runs-on ubuntu-*, no container), a macOS job
 #     (runs-on macos-*, or `${{ needs.plan.outputs.mac_runner ==
 #     'self-hosted' && fromJSON('[…]') || 'macos-latest' }}` whose label list
 #     names "self-hosted" and "macOS", so only the plan job's routing picks a
-#     self-hosted Mac, with a hosted one as the fallback), and exactly one Alpine job (a
+#     self-hosted Mac, with a hosted one as the fallback), and at least one Alpine job (a
 #     container image whose last path component is alpine); any other
 #     runs-on, a matrix expression included, places a job on no platform;
 #   - every step blocks: no `continue-on-error` other than `false`, and no
@@ -172,8 +176,11 @@
 #     last fail silently;
 #   - no `if:`, job- or step-level and on every line of a multi-line value,
 #     names a platform (runner.os, runner.arch, matrix.os, or a platform
-#     word); the Alpine job carries no job-level `if:` at all, since a matrix
-#     job runs on every pull request, and a macOS job only the plan job's
+#     word); an Alpine job carries only the plan job's
+#     `needs.plan.outputs.suite_run == 'true'` (false only on a ready flip
+#     reusing a prior run that passed every suite job on the same head, base
+#     and workflow), alone, since a matrix job runs on every pull request,
+#     and a macOS job only the plan job's
 #     `needs.plan.outputs.mac_run == 'true'` (macOS runs on a push, a ready
 #     pull request or the ci-macos label, never on a draft push), alone and
 #     not counted as gating its `install smoke`; and a step the scope names
@@ -181,9 +188,11 @@
 #     beyond always(), !cancelled(), or success();
 #   - the Ubuntu and macOS sides each carry an `install smoke` step in a job
 #     with no job-level `if:` beyond those three;
-#   - every Alpine step is named, each name either `setup: <what>` or one of
-#     the scope REQ-B1.4 gives the job, with exactly one `shell suite`,
-#     exactly one `install smoke`, and at most one `bake-off harness`.
+#   - every step of every Alpine job is named, each name either `setup: <what>`
+#     or one of the scope REQ-B1.6 gives the jobs, with exactly one `shell
+#     suite`, exactly one `install smoke`, and at most one `bake-off harness`
+#     across all the Alpine jobs, and no Alpine job carrying the install smoke
+#     or the harness has a `strategy.matrix`.
 # The scope is held by step name, so a step doing other work under a
 # `setup: ` name passes; the name is what a reviewer reads, and the guard
 # holds the list of names, not what each command does. The swallowing forms
@@ -835,6 +844,10 @@ fi
 #   J <job>                         a job
 #   O <job> <runs-on>               the job's scalar runs-on
 #   C <job> <image>                 the job's container image
+#   M <job>                         a `strategy.matrix` on the job, or a
+#                                   `strategy:` whose value it cannot read
+#                                   (an expression, a flow mapping, or a
+#                                   block scalar), failing closed
 #   I <job> <line> <text>           job-level `if:` text, one per value line
 #   S <job> <seq>                   a step
 #   N <job> <seq> <name>            that step's name
@@ -919,12 +932,13 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
     cur = clean(key)
     if (cur !~ /^[A-Za-z_][A-Za-z0-9_-]*$/) printf "E\t%d\t%s\n", NR, "a job id outside GitHub's grammar"
     printf "J\t%s\n", cur
-    job_body = -1; in_steps = 0; in_container = 0; steps_item = -1; step_key = -1; seq = 0
+    job_body = -1; in_steps = 0; in_container = 0; in_strategy = 0; steps_item = -1; step_key = -1; seq = 0
     next
   }
   if (job_body < 0) job_body = indent
   if (indent == job_body && !isseq) {
-    in_steps = 0; in_container = 0
+    in_steps = 0; in_container = 0; in_strategy = 0
+    if (key == "strategy") { in_strategy = 1; if (val != "" && val !~ /^#/) printf "M\t%s\n", cur }
     if (key == "runs-on") printf "O\t%s\t%s\n", cur, clean(unquote(val))
     else if (key == "container") { if (val != "") printf "C\t%s\t%s\n", cur, clean(unquote(val)); else in_container = 1 }
     else if (key == "if") {
@@ -936,6 +950,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
     if (scalar) { bs = 1; bs_indent = kindent }
     next
   }
+  if (in_strategy && ((haskey && key == "matrix") || body ~ /^[{[]/)) printf "M\t%s\n", cur
   if (in_container && haskey && key == "image") { printf "C\t%s\t%s\n", cur, clean(unquote(val)); in_container = 0 }
   if (in_steps && indent >= job_body) {
     stepkey = 0
@@ -960,7 +975,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
 AWK_MATRIX
 
 # Judges the fact file in one pass and prints one violation per line. The
-# scope REQ-B1.4 gives the Alpine job is held by step name: a step named
+# scope REQ-B1.6 gives the Alpine jobs is held by step name: a step named
 # `setup: <what>` prepares the container and is the only other shape allowed.
 read -r -d '' awk_judge <<'AWK_JUDGE' || true
 function bare(t) {
@@ -970,17 +985,22 @@ function bare(t) {
   return t
 }
 function run_anyway(t) { t = bare(t); return (t == "always()" || t == "!cancelled()" || t == "success()") }
-# The one job-level `if:` a macOS job may carry: the plan job's verdict that
-# macOS runs for this event (a push, a ready pull request, or the ci-macos
-# label), compared to 'true' and nothing else.
-# bare() would strip the closing quote of a bare expression, so this trims
-# only whitespace and the ${{ }} wrapper.
-function mac_gate(t) {
+# A job-level `if:` as one plan output compared to 'true'. bare() would strip
+# the closing quote of a bare expression, so this trims only whitespace and
+# the ${{ }} wrapper.
+function plan_gate(t, output) {
   t = tolower(t)
   gsub(/^[ \t]+/, "", t); gsub(/[ \t]+$/, "", t)
   sub(/^\$\{\{[ \t]*/, "", t); sub(/[ \t]*\}\}$/, "", t)
-  return (t == "needs.plan.outputs.mac_run == 'true'")
+  return (t == "needs.plan.outputs." output " == 'true'")
 }
+# The one job-level `if:` a macOS job may carry: the plan job's verdict that
+# macOS runs for this event (a push, a ready pull request, or the ci-macos
+# label, never a ready flip reusing a prior run).
+function mac_gate(t) { return plan_gate(t, "mac_run") }
+# The one job-level `if:` an Alpine job may carry: the plan job's verdict
+# that the suite runs, false only when a ready flip reuses a prior run.
+function suite_gate(t) { return plan_gate(t, "suite_run") }
 function platform(t) { return tolower(t) ~ /runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin/ }
 function scope(n) { return (n == "shell suite" || n == "install smoke" || n == "bake-off harness") }
 # Reading nm[] by subscript would create the entry; every read goes through here.
@@ -1003,9 +1023,11 @@ $1 == "E" { v(file ":" $2 ": parse failure — " $3) }
 $1 == "J" { nj++; job[nj] = $2 }
 $1 == "O" { ro[$2] = $3 }
 $1 == "C" { if (!($2 in img)) img[$2] = $3 }
+$1 == "M" { sharded[$2] = 1 }
 $1 == "I" {
   jif[$2] = $3
   if (mac_gate($4)) macgate[$2] = 1
+  else if (suite_gate($4)) suitegate[$2] = 1
   else { other_if[$2] = 1; if (!run_anyway($4)) gated[$2] = 1 }
   if (platform($4)) v(file ":" $3 ": job '" $2 "' is gated by an `if:` naming a platform, so that platform can stop running it")
 }
@@ -1022,11 +1044,13 @@ END {
   nalpine = 0
   for (i = 1; i <= nj; i++) {
     j = job[i]; base = img[j]; sub(/.*\//, "", base)
-    if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++; alpine_job = (alpine_job == "" ? j : alpine_job " " j) }
+    if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++ }
     else if (img[j] == "" && mac_runs_on(ro[j])) kind[j] = "macos"
     else if (img[j] == "" && ro[j] ~ /^ubuntu-/) kind[j] = "ubuntu"
     if (kind[j] != "macos" && (j in macgate)) gated[j] = 1
-    if (((kind[j] == "macos" && (j in other_if)) || kind[j] == "alpine") && (j in jif))
+    if (kind[j] != "alpine" && (j in suitegate)) gated[j] = 1
+    if (((kind[j] == "macos" && ((j in other_if) || (j in suitegate))) ||
+         (kind[j] == "alpine" && ((j in other_if) || (j in macgate)))) && (j in jif))
       v(file ":" jif[j] ": platform job '" j "' carries a job-level `if:`; a matrix job runs on every pull request")
     for (s = 1; s <= ns[j]; s++) if (stepname(j, s) == "install smoke" && !gated[j]) smoke[kind[j]] = 1
     if (kind[j] != "") have[kind[j]] = 1
@@ -1039,23 +1063,29 @@ END {
   if (!have["ubuntu"]) v(file ": no Ubuntu job (runs-on ubuntu-*, no container) — the matrix needs Linux with glibc")
   if (!have["macos"]) v(file ": no macOS job (runs-on macos-*, or a self-hosted Mac falling back to one) — the matrix needs the system bash and BSD userland")
   if (nalpine < 1) v(file ": no Alpine job (a container image whose last path component is alpine) — the matrix needs musl with dash and busybox")
-  if (nalpine > 1) v(file ": more than one Alpine job (" alpine_job "), so the Alpine scope has no single job to hold to")
   if (have["ubuntu"] && !smoke["ubuntu"]) v(file ": no ungated Ubuntu job carries an `install smoke` step")
   if (have["macos"] && !smoke["macos"]) v(file ": no ungated macOS job carries an `install smoke` step")
-  if (nalpine == 1) {
-    j = alpine_job; suite = 0; smokes = 0; harness = 0
+  suite = 0; smokes = 0; harness = 0
+  for (a = 1; a <= nj; a++) {
+    j = job[a]
+    if (kind[j] != "alpine") continue
+    jsmoke = 0; jharness = 0
     for (s = 1; s <= ns[j]; s++) {
       if (!((j SUBSEP s) in nm)) { v(file ": Alpine job '" j "' has a step with no `name:`, so its place in the Alpine scope cannot be read"); continue }
       n = stepname(j, s)
       if (n == "shell suite") suite++
-      else if (n == "install smoke") smokes++
-      else if (n == "bake-off harness") harness++
+      else if (n == "install smoke") { smokes++; jsmoke = 1 }
+      else if (n == "bake-off harness") { harness++; jharness = 1 }
       else if (n !~ /^setup: ./)
         v(file ": Alpine job '" j "' step '" n "' is outside the Alpine scope (the shell suite, the bake-off harness, the install smoke, and `setup: ` steps); run it on Ubuntu and name it there")
     }
-    if (suite != 1) v(file ": Alpine job '" j "' carries " suite " `shell suite` step(s); the Alpine scope needs exactly one")
-    if (smokes != 1) v(file ": Alpine job '" j "' carries " smokes " `install smoke` step(s); the Alpine scope needs exactly one")
-    if (harness > 1) v(file ": Alpine job '" j "' carries " harness " `bake-off harness` steps; the Alpine scope allows one")
+    if ((jsmoke || jharness) && (j in sharded))
+      v(file ": Alpine job '" j "' has a `strategy.matrix` and carries the " (jsmoke ? "`install smoke`" : "`bake-off harness`") " step; a sharded job would run it once per shard")
+  }
+  if (nalpine >= 1) {
+    if (suite != 1) v(file ": the Alpine jobs carry " suite " `shell suite` step(s); the Alpine scope needs exactly one")
+    if (smokes != 1) v(file ": the Alpine jobs carry " smokes " `install smoke` step(s); the Alpine scope needs exactly one")
+    if (harness > 1) v(file ": the Alpine jobs carry " harness " `bake-off harness` steps; the Alpine scope allows one")
   }
 }
 AWK_JUDGE
@@ -1081,14 +1111,23 @@ fi
 # other shape fails closed.
 for ((i = 0; i < nfiles; i++)); do
   file="${files[i]}"
-  grep -Eqi '^[[:space:]]*[^#[:space:]].*(pragent/pr-agent|GITHUB_ACTION_CONFIG\.PR_ACTIONS)' "$file" || continue
+  grep -Eqi '^[[:space:]]*[^#[:space:]].*(pragent/pr-agent|GITHUB_ACTION_CONFIG(\.|__)PR_ACTIONS)' "$file" || continue
   trig="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
-  acts="$(sed -n "s/^[[:space:]]*GITHUB_ACTION_CONFIG\\.PR_ACTIONS:[[:space:]]*['\"]*\\[\\(.*\\)\\]['\"]*[[:space:]]*\$/\\1/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
+  acts="$(sed -En "s/^[[:space:]]*GITHUB_ACTION_CONFIG(\\.|__)PR_ACTIONS:[[:space:]]*['\"]*\\[(.*)\\]['\"]*[[:space:]]*\$/\\2/p" "$file" | head -n 1 | tr -d ' "' | tr ',' '\n' | sort -u)"
   if [ -z "$trig" ]; then
     fail "$file: a PR-Agent workflow needs a flow-style pull_request 'types: [..]' list the guard can read"
   elif [ -z "$acts" ]; then
-    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG.PR_ACTIONS as a JSON list; the default omits synchronize, so pushes after the PR opens are skipped"
+    fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or GITHUB_ACTION_CONFIG.PR_ACTIONS) as a JSON list naming the trigger types, because the action skips any action its list leaves out and its default list differs"
   else
+    # The bot review is paid for per run: it runs once per pull request, on the
+    # run the ready flip fires, and again only when asked for.
+    while IFS= read -r a; do
+      case $a in
+        ready_for_review | review_requested) ;;
+        *) fail "$file: a PR-Agent workflow must not trigger on '$a': it runs once per pull request, on ready_for_review, and again only on an explicit review_requested" ;;
+      esac
+    done <<<"$trig"
+    printf '%s\n' "$trig" | grep -qx -- ready_for_review || fail "$file: a PR-Agent workflow must trigger on ready_for_review, the one run the ready flip starts"
     while IFS= read -r a; do
       printf '%s\n' "$acts" | grep -qx -- "$a" || fail "$file: PR_ACTIONS omits '$a', which the workflow triggers on, so PR-Agent skips it"
     done <<<"$trig"

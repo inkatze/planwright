@@ -117,7 +117,8 @@ assert_defer "F1.3: git rm of an excluded path" "git rm -q mise.toml" Bash "$WT"
 assert_defer "F1.3: git commit -F a file outside" "git commit -F $OUT_DIR/x" Bash "$WT"
 assert_defer "F1.3: git commit opening an editor template" "git commit -t f" Bash "$WT"
 assert_defer "F1.3: git add -p is interactive" "git add -p" Bash "$WT"
-assert_defer "F1.3: git push gets no guard approval" "git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_allow "F1.3: a plain push of the unit branch is an own-unit act" "git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+assert_defer "F1.3: any other push gets no guard approval" "git push -u origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 assert_defer "F1.3: a write inside a substitution" "echo \$(touch build/x)" Bash "$WT"
 assert_defer "F1.3: a write inside fish -c" "fish -c 'touch build/x'" Bash "$WT"
 assert_defer "F1.3: a write from a payload directory outside the worktree" "touch x" Bash "$OUT_DIR"
@@ -131,6 +132,8 @@ assert_allow "F1.3: no PR base leaves the rest of the arm working" "touch build/
 under "$(record_with ob-othbase own-branch pr_base=origin/other)"
 assert_allow "F1.3: the recorded PR base is what the merge must name" "git merge origin/other" Bash "$WT"
 assert_defer "F1.3: and nothing else" "git merge origin/main" Bash "$WT"
+under "$(record_with ob-stacked own-branch stack_base=origin/feat/base)"
+assert_defer "F1.3: a stacked base the record names still prompts here" "git merge origin/feat/base" Bash "$WT"
 
 echo "### REQ-G1.8 — the unit branch is the record's, not the checkout's"
 under "$OB"
@@ -141,6 +144,13 @@ corpus_git switch -q "$CORPUS_UNIT_BRANCH"
 assert_allow "G1.8: back on the unit branch, the arm approves again" "git commit -m x" Bash "$WT"
 under "$(record_with ob-otherunit own-branch unit_branch=planwright/demo/task-2)"
 assert_defer "G1.8: a record naming another unit branch approves no git act" "git add -A" Bash "$WT"
+corpus_git switch -q -c planwright/demo/task-12a
+under "$(record_with ob-suffixed own-branch unit_branch=planwright/demo/task-12a)"
+assert_allow "G1.8: a suffixed task id (task-12a) is a unit branch the arm approves on" "git commit -m x" Bash "$WT"
+corpus_git switch -q -c planwright/demo/task-12ab
+under "$(record_with ob-suffixed2 own-branch unit_branch=planwright/demo/task-12ab)"
+assert_defer "G1.8: two suffix letters are outside the unit-branch grammar" "git commit -m x" Bash "$WT"
+corpus_git switch -q "$CORPUS_UNIT_BRANCH"
 
 echo "### REQ-B1.8 — a missing or unparseable field disables what reads it"
 under "$(record_with nounit own-branch unit_branch=)"
@@ -214,6 +224,26 @@ for c in "touch roles/files/mise/new.toml" "echo x >> roles/files/mise/offload.t
 done
 assert_allow "F1.6: editing a repo script stays approvable" "echo 'echo hi' >> scripts/ok.sh" Bash "$WT"
 assert_allow "F1.6: then running it" "bash scripts/ok.sh" Bash "$WT"
+# The hook judges a command before any of it runs, so a committed script is
+# what the base holds only until a write in the same command lands. Any write the
+# arm admits turns off the committed-script trust for that whole command,
+# whichever segment comes first.
+for c in "cp f scripts/ok.sh && sh scripts/ok.sh" "echo x > scripts/ok.sh && sh scripts/ok.sh" \
+  "mv f scripts/ok.sh && bash scripts/ok.sh" "sed -i s/a/b/ scripts/ok.sh && bash scripts/ok.sh" \
+  "sh scripts/ok.sh; cp f scripts/ok.sh; sh scripts/ok.sh" \
+  "for i in 1 2; do sh scripts/ok.sh; cp f scripts/ok.sh; done" \
+  "cp f tests/ok.bats && bats tests/ok.bats" "cp f scripts/ok.sh & sh scripts/ok.sh" \
+  "touch build/x && bash tests/ok.sh"; do
+  assert_defer "F1.6: a write and a committed script in one command: $c" "$c" Bash "$WT"
+done
+assert_allow "F1.6: a committed script with no write beside it" "umask 022 && bash tests/ok.sh" Bash "$WT"
+# Staging and committing change no worktree file, so a committed script beside
+# them keeps its trust; a git act that rewrites worktree files does not.
+assert_allow "F1.6: a commit, then a committed script" "git add f && git commit -m x && bash tests/ok.sh" Bash "$WT"
+assert_allow "F1.6: a commit with a message file, then a committed script" "git commit -F build/msg.txt && bash tests/ok.sh" Bash "$WT"
+for c in "git checkout -- scripts/ok.sh && sh scripts/ok.sh" "git restore scripts/ok.sh && sh scripts/ok.sh"; do
+  assert_defer "F1.6: a worktree-writing git act and a committed script: $c" "$c" Bash "$WT"
+done
 
 echo "### REQ-F1.5 — the floor holds under every policy value"
 for col in 1 2 3 4; do

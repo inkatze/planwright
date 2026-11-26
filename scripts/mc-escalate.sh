@@ -48,7 +48,7 @@ Usage:
       --pane reads the mission control's pane from a file instead of
       finding and capturing its tmux pane.
 
-WHAT IT RAISES. Two things, each held against
+WHAT IT RAISES. Three things, each held against
 mission_control_escalation_window (W):
   a request   a permission or question request of a live stream-json worker
               the launcher records for this program (mission-control-launch.sh
@@ -60,6 +60,19 @@ mission_control_escalation_window (W):
               age plus W, the operator at that age plus 2W. A worker with
               neither pidfile left is the keeper's alarm scan's to settle,
               never raised here.
+  a park      a stream-json worker, reviewer or ad-hoc session the
+              launcher records for this program parked on the operator, as
+              the session-keeper reads it (mc_operator_park in
+              scripts/mc-lib.sh: an operator wait in its registry row, a
+              pidfile left, its event log still ending at a turn of this
+              launch's result), a kickoff relay left out. Its age counts
+              from the later of that result and the wait's own epoch,
+              against mission_control_worker_completed_grace, the keeper's
+              own alarm for it: the hub hears it at that age plus W, the
+              operator at plus 2W. A message that starts its next turn
+              ends the park; a turn that ends parked again starts a new
+              one. A park whose state cannot be read keeps its record; one
+              whose alarm cannot be read keeps it too, and fails the pass.
   the dialog  this program's mission control showing an open dialog in its
               tmux pane: a permission prompt, a select menu, or auto mode's
               own confirmation after blocked actions (kind auto-mode), which
@@ -92,12 +105,14 @@ through the notification seam (fleet-attention.sh notify, keyed per
 escalation), so a push is only as good as the notification_channel the
 operator chose, and the line names that channel. Each level is recorded in
 <runtime>/escalate/sent as it is raised, never twice, and dropped once its
-request is no longer pending or its dialog closes; what a pass could not
+request is no longer pending, its park ends (an answer starts the worker's
+next turn, or its wait is cleared) or its dialog closes; what a pass could not
 read keeps its record. One pass runs at a time; a second, or one while
 scripts/mc-pane-answer.sh delivers an answer, prints `busy`.
 
 Output, one line each, tab separated:
   request <worker> <request id> <age> owner|hub|operator
+  park <worker> <age> owner|hub|operator
   self dialog|auto-mode|clear|absent|ambiguous|unreadable <seconds held> owner|hub|operator [<pane>]
   escalated hub <subject>
   escalated operator <subject> <channel>
@@ -309,7 +324,7 @@ rank_of() { # rank_of <seconds past the start>: sets RANK (0, 1 or 2) and LEVEL
 CARRY_ALL_REQUESTS=0
 CARRY_WORKERS=""
 if ! LIST=$(/bin/bash "$script_dir/mission-control-launch.sh" list 2>/dev/null); then
-  printf '%s\n' "$prog: the launcher's list cannot be read; no request is raised this pass" >&2
+  printf '%s\n' "$prog: the launcher's list cannot be read; no request or park is raised this pass" >&2
   failed=1
   CARRY_ALL_REQUESTS=1
   LIST=""
@@ -357,6 +372,42 @@ done <<EOF
 $WORKERS
 EOF
 
+# --- parks -----------------------------------------------------------------
+# The park alarm is read at the first park, so a bad value fails this section
+# alone, never the requests or the dialog.
+PARK_ALARM=""
+for w in $(mc_park_candidates "$PROGRAM" "$LIST"); do
+  mc_valid_handle "$w" || continue
+  park=$(mc_operator_park "$FLEET_HOME" "$w")
+  case $park in
+    unknown)
+      CARRY_WORKERS="$CARRY_WORKERS$w$NL"
+      continue
+      ;;
+    parked*) since=${park#parked	} ;;
+    *) continue ;;
+  esac
+  if [ -z "$PARK_ALARM" ]; then
+    if park_raw=$(mc_knob mission_control_worker_completed_grace mc_parse_cadence); then
+      PARK_ALARM=$(mc_seconds "$park_raw")
+    else
+      PARK_ALARM=-
+    fi
+  fi
+  if [ "$PARK_ALARM" = - ]; then
+    failed=1
+    CARRY_WORKERS="$CARRY_WORKERS$w$NL"
+    continue
+  fi
+  age=$((NOW - since))
+  [ "$age" -ge 0 ] || age=0
+  rank_of $((age - PARK_ALARM))
+  printf 'park\t%s\t%s\t%s\n' "$w" "$age" "$LEVEL"
+  raise "park	$w	$since" "$RANK" "$w" \
+    "mission control $PROGRAM has left worker $w parked on the operator ${age}s, past its own alarm at ${PARK_ALARM}s: reach mission control $PROGRAM, whose worker-parked-on-operator event quotes what the worker waits on, or tell the operator" \
+    "$PROGRAM mission control: worker $w has been parked on you ${age}s with no answer"
+done
+
 # --- the session's own dialog ----------------------------------------------
 # read_self: the dialog record through msp_record; an unreadable one fails
 # the pass and sets self_unread.
@@ -383,7 +434,7 @@ elif PS_TABLE=$(bounded /bin/sh -c "$MSP_PS_CMD" 2>/dev/null); then
   case $S_PID in
     absent | ambiguous) S_STATE=$S_PID ;;
     *)
-      if PANES=$(bounded tmux list-panes -a -F '#{pane_id}	#{pane_pid}' 2>/dev/null) \
+      if PANES=$(bounded tmux list-panes -a -F '#{pane_id} #{pane_pid}' 2>/dev/null) \
         && S_PANE=$(msp_pane_of "$S_PID" "$PS_TABLE" "$PANES") \
         && S_TEXT=$(bounded tmux capture-pane -p -t "$S_PANE" 2>/dev/null); then
         have_pane=1
@@ -455,7 +506,7 @@ KEPT=$(printf '%s\n' "$SENT_NOW" | LIVE=$LIVE CW=$CARRY_WORKERS CA=$CARRY_ALL_RE
   }
   NF >= 2 {
     k = $1; for (i = 2; i < NF; i++) k = k "\t" $i
-    keep = (k in live) || ($1 == "request" && (ENVIRON["CA"] == "1" || ($2 in carry))) || ($1 == "self" && ENVIRON["CS"] == "1")
+    keep = (k in live) || (($1 == "request" || $1 == "park") && (ENVIRON["CA"] == "1" || ($2 in carry))) || ($1 == "self" && ENVIRON["CS"] == "1")
     if (keep && !($0 in seen)) { seen[$0] = 1; print }
   }')
 if [ "$KEPT" != "$(cat "$SENT" 2>/dev/null)" ]; then

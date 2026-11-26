@@ -7,6 +7,8 @@ set -u
 unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$REPO_ROOT/tests/lib/hermetic-env.sh"
 COST="$REPO_ROOT/scripts/review-cost.sh"
 
 failures=0
@@ -90,13 +92,16 @@ printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, bogus): #11 b.
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #13 b.sh: a fix the pass missed" >"$T/archive/2026-10-05-review-miss-0000aaaa.md"
 cp "$T/archive/2026-10-05-review-miss-0000aaaa.md" "$ledger/"
 printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, runtime-tracing): #10 a.sh: the same fix a bot thread already records" >"$ledger/2026-10-05-review-miss-0000dddd.md"
-# An unreadable fragment counts as malformed; root reads it anyway, so the
-# case only exists for an ordinary user.
+# An unreadable fragment counts as malformed; a user who reads it anyway would
+# count it as a real entry, so there it is removed and the case skipped.
 unreadable=0
-if [ "$(id -u)" -ne 0 ]; then
-  printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #10 c.sh: unreadable" >"$ledger/2026-10-05-review-miss-0000cccc.md"
-  chmod 000 "$ledger/2026-10-05-review-miss-0000cccc.md"
+printf '%s\n' "- 2026-10-05 [planwright] review-miss(correctness, pruned): #10 c.sh: unreadable" >"$ledger/2026-10-05-review-miss-0000cccc.md"
+chmod 000 "$ledger/2026-10-05-review-miss-0000cccc.md"
+if hermetic_access_denied r "$ledger/2026-10-05-review-miss-0000cccc.md"; then
   unreadable=1
+else
+  rm -f "$ledger/2026-10-05-review-miss-0000cccc.md"
+  echo "skip: unreadable ledger fragment: the running user still reads $ledger/2026-10-05-review-miss-0000cccc.md under mode 000"
 fi
 
 base="$T/baselines.tsv"
@@ -188,12 +193,14 @@ mkdir -p "$T/oddproj"
 printf '%s\n' '{"type":"assistant","message":"x"}' '{"type":"assistant","timestamp":"t","message":{"id":"m","usage":{"input_tokens":5},"content":[{"type":"tool_use","name":"Bash","input":{"command":7}}]}}' >"$T/oddproj/odd.jsonl"
 "$COST" --history "$hist" --transcripts "$T/oddproj" --ledger-dir "$ledger" >/dev/null 2>&1
 assert_exit "a transcript line of an unexpected shape is skipped, not fatal" 0 $?
-if [ "$(id -u)" -ne 0 ]; then
-  mkdir -p "$T/badproj"
-  printf '%s\n' '{}' >"$T/badproj/locked.jsonl"
-  chmod 000 "$T/badproj/locked.jsonl"
+mkdir -p "$T/badproj"
+printf '%s\n' '{}' >"$T/badproj/locked.jsonl"
+chmod 000 "$T/badproj/locked.jsonl"
+if hermetic_access_denied r "$T/badproj/locked.jsonl"; then
   "$COST" --history "$hist" --transcripts "$T/badproj" --ledger-dir "$ledger" >/dev/null 2>&1
   assert_exit "an unreadable transcript is refused, never undercounted" 2 $?
+else
+  echo "skip: unreadable transcript: the running user still reads $T/badproj/locked.jsonl under mode 000"
 fi
 "$COST" --history "$T/absent.json" --transcripts "$proj" >/dev/null 2>&1
 assert_exit "an unreadable history is a usage error" 2 $?

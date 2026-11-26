@@ -1,7 +1,7 @@
 # Mission control — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -487,6 +487,7 @@ later planwright bundles implement, D-12).
   the code review steps (2026-11-05, Sources); the spec-drift audit
   (Sources).)*
   *(Amended at Amendment 6, 2026-11-09: the readiness check also refuses an unapproved operator-visible change, REQ-F1.18, adding a condition and never narrowing the cadence; a spec-only pull request is on no listed path.)*
+  *(Amended at Amendment 21, 2026-11-22: a legacy bundle the spec-only pull request touches reads as signed off with no anchor, exactly as REQ-D1.18 defines one.)*
 - **REQ-D1.10** A session of a kind that changes a repository (worker,
   reviewer, ad-hoc, kickoff) SHALL run in its own worktree: one the dispatch
   machinery creates at launch, off the default branch or on the unit's
@@ -534,6 +535,38 @@ later planwright bundles implement, D-12).
   no spec and giving no reasons. A check that cannot run refuses.
   *(Cites: D-45; the operator's request (2026-11-07, Sources); the
   spec-drift audit (Sources).)*
+  **Superseded-by: REQ-D1.18** (2026-11-22) — a finished bundle that
+  predates kickoff reads as signed off with no anchor.
+- **REQ-D1.18** (supersedes REQ-D1.13) The readiness check SHALL refuse a
+  flip of a pull request that changes behaviour a spec describes unless the
+  same pull request edits that spec (changes its anchored content) and the
+  edited spec's latest sign-off anchor matches its content at the pull
+  request's head (the operator signed the edit off in a relayed kickoff).
+  It SHALL also refuse when the spec-drift check flags the pull request: a
+  changed file some spec lists as a task deliverable, with that spec's
+  anchored content unchanged and no reason line naming that file in the
+  pull request's covering-spec statement (D-45). A changed file that is a
+  deliverable of a task the pull request's own task trailer names is that
+  task's work and is never flagged. A pull request with no statement is
+  read as covering no spec and giving no reasons. A check that cannot run
+  refuses. One exception holds wherever the readiness check reads a
+  bundle's sign-off, here and in REQ-D1.14's spec-only hold: a **legacy
+  bundle**, one finished before kickoff existed, reads as signed off with
+  no anchor, and its evidence row names it legacy. A bundle is legacy only
+  when its `requirements.md` is `Done` at the head, it has no kickoff brief
+  at the head, the pull request deletes no brief for it, and the pull
+  request's base, read at the base commit the forge reports for the pull
+  request when readiness runs (its `baseRefOid`) and never from a local
+  ref, holds no brief for it and holds its `requirements.md` as `Done` or
+  with no Status line. Such a bundle's content may change in the pull
+  request with no sign-off, since it has no anchor to compare. A bundle the
+  pull request adds, a Draft, Ready or Active bundle with no brief, a pull
+  request naming no base, and a base that cannot be read at that commit
+  each refuse with their reason; a brief that exists is always
+  anchor-checked.
+  *(Cites: D-45; the operator's request (2026-11-07, Sources); the
+  spec-drift audit (Sources); the legacy-bundle report and the Amendment
+  21 rulings (2026-11-22, Sources).)*
 - **REQ-D1.15** A unit whose kind is on `mission_control_direct_dispatch_kinds`
   (shipped: a review skill run on a pull request, and read-only checks: a
   spec-walkthrough render, a goal-evidence session, a read-only audit;
@@ -776,6 +809,26 @@ later planwright bundles implement, D-12).
   own confirmation. An item with no done-condition is refused at add.
   *(Cites: D-56; REQ-F1.10; the follow-up ledger report (2026-11-10,
   Sources).)*
+  **Superseded-by: REQ-F1.26** (2026-11-20)
+- **REQ-F1.26** (supersedes REQ-F1.19; extends REQ-F1.10) Every operator
+  ask that carries an action, and every duty or promise mission control
+  takes on, SHALL be recorded by code and not from the session's memory.
+  Asks SHALL be recorded in control-plane's request ledger, as control-plane
+  REQ-J1.1 to REQ-J1.7 specify: each arrival is captured by code before the
+  model acts on it, closes only with evidence it cites (the follow-up item
+  the ask became among them), holds the first stop of a turn that received
+  it while it is open, and makes the handover refuse while it is open; the
+  hold and the refusal ship recording only and enforce on the operator's
+  configuration (control-plane REQ-J1.12). That
+  ledger is the one code home for the record, replacing this bundle's own
+  intake rows, and it is the store REQ-F1.24's register names for asks. Work
+  mission control takes on SHALL be a follow-up ledger item carrying an
+  owner, a trigger and a done-condition: a command whose exit status says
+  done, an event of an emitted class (REQ-F1.22), a date, or the operator's
+  own confirmation. An item with no done-condition is refused at add.
+  *(Cites: D-56; REQ-F1.10, REQ-F1.22, REQ-F1.24; control-plane REQ-J1.1 to
+  REQ-J1.7, REQ-J1.12, D-22, D-25 (Sources); the follow-up ledger report
+  (2026-11-10, Sources).)*
 - **REQ-F1.20** Overdue items SHALL lead the status. An item is overdue when
   its trigger has fired and it is still open and unacknowledged
   (REQ-F1.21). The panel and every plain-language status answer list the
@@ -1034,6 +1087,43 @@ later planwright bundles implement, D-12).
   this one push only once the routed human-gates amendment lands (Task 31).
   *(Cites: D-36; audit item 4 (Sources); the operator priority (2026-11-04)
   (Sources).)*
+  *(Amended at Amendment 21, 2026-11-22: the kickoff push, published through `scripts/kickoff-spec-push.sh`, stays the only route for a spec edit; a worker's clean base-merge push onto a spec-branch pull request's branch is a separate route, REQ-I1.11.)*
+- **REQ-I1.11** A **spec-branch pull request** is one whose head is a
+  spec's sign-off branch `planwright/<spec>/spec`, an amendment branch
+  `planwright/<spec>/amendment-<n>` or a spec-rework branch
+  `planwright/<spec>/spec-rework`; its **base** here is the remote's default
+  branch (main), and one based elsewhere gets no route. A worker whose
+  launch-written session record names such a branch SHALL be able to keep
+  it current, while `worker_base_merge` (human-gates REQ-E1.1) resolves
+  `allow`, through two acts and no other merge or push there: merging the
+  base into it, as the command's only act, and pushing it by explicit
+  refspec, as the command's only act, when the push fast-forwards the pull
+  request's head as the remote reports it and every commit it adds that the
+  base lacks is a two-parent merge whose second parent is a commit of the
+  base and whose tree is exactly the clean merge of its parents, on a
+  first-parent line starting at that head. Both acts SHALL run only in the
+  session's own linked worktree holding that branch; SHALL refuse when the
+  base or the head cannot be read from the remote; and SHALL refuse on
+  local state that could make the guard read something other than what git
+  merges or the push sends (a rewritten or overridden transport, a merge
+  driver, an attributes file, a replace ref, a graft, a shallow clone, or a
+  git too old to read attributes from an empty tree). On the sign-off
+  branch the protected-set read SHALL exempt only the core floor's own
+  `planwright/*/spec` entry, so a `protected_branches` addition matching
+  the branch still refuses. One push MAY carry several successive merges,
+  and a push adding no commit is admitted. Any other commit, one touching
+  only the spec's own bundle files included, SHALL be refused: spec edits
+  stay the kickoff session's (REQ-I1.8) under the operator's sign-off, and
+  a base merge that does not resolve cleanly goes to that session or the
+  operator. The local fast-forward to the pull request's own head that the
+  guard already admits on an amendment or spec-rework branch is unchanged.
+  The route SHALL grant no force, rewrite, deletion or other branch, and its
+  builds SHALL stay draft until the human-gates batch
+  amendment admitting this merge and push (against human-gates REQ-E1.1
+  and the composition row REQ-A1.6 owns) is signed; the spec-rework branch
+  is included subject to that batch's answer on it.
+  *(Cites: D-114; the operator's spec-branch sync ruling (2026-11-18,
+  Sources); the Amendment 21 rulings (2026-11-22, Sources).)*
 
 ## REQ-J — Knobs
 
@@ -1423,6 +1513,75 @@ the runner works, never a list that grows and is forgotten.
   table of every check.
   *(Cites: D-69; REQ-P1.13; the outcome-audit report (2026-11-13,
   Sources).)*
+- **REQ-P1.15** Each program SHALL keep a **commitment store**: durable
+  rows in its program home, each naming an id, **when** (a calendar day,
+  `YYYY-MM-DD`, with a time of day carried as text where one is stated), the
+  **event** (what is owed to whom), at least one **required pull request**
+  (each `owner/repo#n`), the commitment's own state (open or closed) and
+  the operator's words that stated it, quoted. `add` SHALL allocate the id (`commit-<n>`),
+  never take one, and SHALL refuse a pull request outside `owner/repo#n`,
+  an id the program's operator-stated dates file already uses, and any text
+  holding a control byte, a tab or a newline; every printer SHALL strip
+  control bytes. Only the **holding mission control**, the live holder of
+  the program's name as `mc-handover.sh holder` reports it and matching the
+  session given, SHALL add, change or close a commitment, and only on the
+  operator's stated word; a worker, any other session, a stale holder or no
+  holder SHALL be refused. A commitment SHALL close only through a close
+  naming a reason, `delivered`, `waived` or `moved`, and a note; a row SHALL
+  never be deleted, and a close of a commitment already closed SHALL be
+  refused. An acknowledgement (REQ-P1.17) of a closed commitment SHALL be a
+  no-op that passes, and a repeated one idempotent. Every verb SHALL write
+  under the store's lock, and the store follows the follow-up ledger's row
+  format and writer rules (REQ-K1.5). **Overdue**, for a commitment, means
+  its day has passed while it is open (REQ-P1.16).
+  *(Cites: D-115; REQ-K1.5; the work-machine commitments report
+  (2026-11-23, Sources); the Amendment 22 rulings (2026-11-23, Sources).)*
+- **REQ-P1.16** The commitment store SHALL be the one place a dated
+  commitment's date is kept: the deadline-watch duty (D-27) SHALL read each
+  open commitment's date as one more source under every mode of the
+  program's deadlines fact class, `cited` included, the commitment's id as
+  its unit, so an open commitment is urgent inside
+  `mission_control_deadline_horizon` whole UTC days and overdue once past
+  (a time of day does not move the day), and a closed one SHALL drop out.
+  The operator-stated dates the duty already keeps SHALL read and rank as
+  before, an id clash with them being impossible (REQ-P1.15), and no new
+  knob is added.
+  *(Cites: D-115, D-27; the Amendment 22 rulings (2026-11-23, Sources).)*
+- **REQ-P1.17** `mc-handover.sh write` SHALL read the commitment store and
+  carry each open commitment as an `item` line whose id is the commitment's
+  id. `verify` and the operator's `resume` SHALL read the store, print every
+  open commitment (id, when, event, required pull requests) and mark every
+  one the handover file lacks, as a commitment added after the file was
+  written is. `take` and `resume` SHALL refuse while the session has not
+  acknowledged every open commitment the store holds, by its own id, one
+  acknowledgement per commitment, each recorded with the acknowledging
+  session and the time, and the refusal SHALL name each unacknowledged id.
+  An acknowledgement belongs to the session that gave it, so a later
+  successor SHALL acknowledge again, and an overdue open commitment SHALL
+  still gate the take.
+  *(Cites: D-115, D-68; REQ-F1.21, REQ-P1.8; the Amendment 22 rulings
+  (2026-11-23, Sources).)*
+- **REQ-P1.18** Each runner pass SHALL record, for every open commitment,
+  each required pull request's live state as one read of that pull request
+  from the forge (open, draft, merged or closed, and its checks passing,
+  failing, pending or absent) where the session reads it, and SHALL raise
+  an event for a commitment when one of its pull requests changes state, and
+  once a UTC day while the commitment is inside
+  `mission_control_deadline_horizon` days of its date or overdue, with the
+  id, date and states in the event and never the event text or the quoted
+  words. The panel and the first turn after silence SHALL list every open
+  commitment with the deadline-watch's other dates, earliest first. A
+  commitment whose
+  required pull requests have all merged SHALL be reported `ready to close`
+  and SHALL stay open until a close (REQ-P1.15). A pull request whose state
+  cannot be read SHALL show as `unknown` with the reason and SHALL raise an
+  event of the failure class, pushed to the operator through the
+  notification channel (REQ-P1.2); a not-found read carries that reason,
+  and `change` is the remedy for a renamed or moved pull request. It SHALL
+  NOT block a take, and the pass SHALL still report the commitment's other
+  pull requests.
+  *(Cites: D-115, D-27; REQ-P1.2, REQ-F1.10; the Amendment 22 rulings
+  (2026-11-23, Sources).)*
 
 ## Changelog
 
@@ -1640,6 +1799,41 @@ the runner works, never a list that grows and is forgotten.
   with a miss ledger and a caught-by report (REQ-P1.11 to REQ-P1.14, D-69,
   Tasks 82 and 83), the unrelayed-question case as the audit's first
   fixture.
+- 2026-11-20 — Amendment 20 (meaning-class, on the Active bundle, relayed
+  by the hub): control-plane's request ledger, signed in its Amendment 2,
+  builds this bundle's unbuilt intake rows, turn-end check and handover
+  self-check. REQ-F1.26 supersedes REQ-F1.19 and points asks at the
+  request ledger (control-plane REQ-J1.1 to REQ-J1.7), whose turn-end
+  check holds the first stop of a turn once rather than every stop
+  (control-plane D-25). The follow-up item rules REQ-F1.19 carried are
+  kept, unchanged. Task 51 is parked out of scope as carried by
+  control-plane Tasks 5.1 to 5.3; D-56 gains a note (see the kickoff
+  brief's Amendment 20). Numbering follows the open amendment branches
+  (Amendments 11 to 19 are unmerged).
+- 2026-11-22 — Amendment 21 (meaning-class, on the Active bundle, relayed
+  by the hub): REQ-I1.11 lets a worker on a spec-branch pull request
+  (sign-off, amendment or spec-rework) push clean merges of the base and
+  nothing else, held until the human-gates batch amendment admits the
+  merge; REQ-D1.18 supersedes REQ-D1.13 with the legacy-bundle exception
+  PR #1142 shipped, read at the pull request's base commit. D-114, Tasks
+  148 and 149, notes on REQ-I1.8, REQ-D1.14, D-33, D-36, D-45 and Tasks
+  19, 35, 36 and 37 (see the kickoff brief's Amendment 21). Numbering follows
+  spec-pipeline's ID ledger of unlanded reservations.
+- 2026-11-23 — Expression-only (data hygiene): the legacy-bundle report's
+  Sources entry names the adopter generically instead of by project name,
+  meaning unchanged (see the kickoff brief's re-anchor after Amendment 21).
+- 2026-11-23 — Amendment 22 (meaning-class, on the Active bundle, relayed
+  by the hub): a commitment store per program, one list the deadline-watch
+  duty reads its dates from (REQ-P1.15, REQ-P1.16), carried by the handover
+  file with `verify` printing it and `take` refusing until each open
+  commitment is acknowledged by id (REQ-P1.17), and a per-pass report of
+  each required pull request's live state (REQ-P1.18). D-115, Tasks 150 to
+  152, a note on D-27 (see the kickoff brief's Amendment 22). Numbering
+  follows spec-pipeline's ID ledger of unlanded reservations.
+- 2026-11-24 — Expression-only (review wording): five readings in the
+  Amendment 22 text made unambiguous (the commitment's own state, close
+  among the holder-only acts, every missing commitment marked), meaning
+  unchanged (see the kickoff brief's re-anchor after Amendment 22).
 
 ## Sources
 
@@ -1709,6 +1903,15 @@ the runner works, never a list that grows and is forgotten.
   custom-steps, human-gates, model-allocation, quota-handling,
   custom-spec-location, interaction-style, autopilot-reflex, bootstrap
   (REQ-K1.8 options reference; D-21 fold rule), security-posture.
+- **control-plane Amendment 2 (2026-11-19)** — the request ledger in
+  `specs/control-plane/`, signed 2026-11-19 and merged 2026-11-20: capture
+  of every arrival by code, closes that cite checked evidence, a hold on a
+  turn's first stop, and the handover's check against the ledger
+  (control-plane REQ-J1.1 to REQ-J1.7, REQ-J1.12, D-22 to D-26, Tasks 5.1
+  to 5.3), the hold and the refusal shipping recording only. Its
+  D-22 carries REQ-F1.19's unbuilt intake rows and records this bundle's
+  own amendment as the point Task 51 is marked carried; its D-25 rejects
+  holding every stop.
 - **The mission-control audit (2026-11-04)** — a read-only audit of the
   shipped mission control at release 0.65.0, kept with the operator's
   records, listing gaps between the bundle and what an operator meets.
@@ -1877,3 +2080,43 @@ the runner works, never a list that grows and is forgotten.
 - **The duty-ledger report (2026-11-13)** — relayed through the hub, the operator's top priority: "I myself trusted too much you would do that and ended up wasting an entire week at work." Their definition: a duty is something that has to be monitored and fulfilled until completed, whose moment may not be known in advance, so a program must be ready; items may be re-validated recurrently, and the ledger must not be a list that grows and is forgotten. One program's ledger held about twenty open items, mostly past their dates and never re-checked; another had event triggers no script emits. Framed REQ-F1.25, REQ-P1.1 to REQ-P1.6, D-65 to D-67. A pinned altitude claim: the duty ledger is a core, default-on planwright duty, not a per-machine habit.
 - **The crossed-decisions report (2026-11-13)** — relayed through the hub, the operator: "How do you keep crossing decisions? That's been another huge core miss." A handover brief handed the operator a publish step long ruled the hub's, and a settled PR-Agent ruling was re-asked. Framed REQ-P1.7 to REQ-P1.10, D-68.
 - **The outcome-audit report (2026-11-13)** — relayed through the hub, the operator: "Also I have always identified core issues for you; which is a core issue itself." Nothing audits outcomes or learns from a miss the operator caught; a kickoff session's question sat unrelayed about 25 minutes. Framed REQ-P1.11 to REQ-P1.14, D-69.
+- **The operator's spec-branch sync ruling (2026-11-18)** — relayed
+  through the hub: "Narrow it". A worker on a spec's sign-off pull request
+  may push a strict forward merge of main, and nothing else, onto that one
+  spec branch, so a moved main no longer goes to the operator; PR #1140
+  builds it. Framed REQ-I1.11, D-114.
+- **The legacy-bundle report (2026-11-22)** — readiness refused every
+  bundle without a kickoff brief, including an adopter's finished auth
+  bundle, which predates kickoff, and so held that adopter's pull requests
+  that touch it. PR
+  #1142 shipped the exception on the operator's "Flip now, decide at
+  review", reading the base from a local ref. Framed REQ-D1.18.
+- **The Amendment 21 rulings (2026-11-22)** — relayed through the hub,
+  the operator's words: "Allow both (Recommended)" (one push may carry
+  several clean merges, and an empty push is admitted); "No, base merges
+  only (Recommended)" (an amendment or spec-rework worker pushes no spec
+  edit); "Record + read the PR base (Recommended)" (the legacy exception is
+  recorded, read at the pull request's base commit); "Hold builds until
+  both sign (Recommended)" (the merge waits for a routed human-gates
+  amendment, and its pull requests stay draft until both are signed).
+  Framed REQ-I1.11, REQ-D1.18, Tasks 148 and 149.
+- **The work-machine commitments report (2026-11-23)** — a mission-control
+  successor on the work machine dropped a dated customer deadline that sat
+  as one line of handover prose; the operator there said, "You are not
+  doing anything to make this mechanical." Asked: a first-class store of
+  commitments (when, the event, the required pull requests), carried by the
+  handover, printed by `verify`, reported each pass with each pull request's
+  live state, and gating `take` until acknowledged. Framed REQ-P1.15 to
+  REQ-P1.18, D-115.
+- **The Amendment 22 rulings (2026-11-23)** — relayed through the hub, the
+  operator's words: "One list (Recommended)" (commitments are the one place
+  a date is kept; the deadline watcher reads them); "Name each one
+  (Recommended)" (a successor acknowledges every open commitment by its
+  id); "A session closes it with a reason (Recommended)" (ready to close is
+  reported, a session closes with a note, a merge never closes one);
+  "Mission control, on your word (Recommended)" (only the holding mission
+  control records a commitment, quoting the operator); "Say so loudly
+  (Recommended)" (an unreadable pull request shows as unknown and raises an
+  alert, without blocking a take); "On change or near the date
+  (Recommended)" (an event on a state change, and daily inside the urgent
+  window). Framed REQ-P1.15 to REQ-P1.18, D-115, Tasks 150 to 152.

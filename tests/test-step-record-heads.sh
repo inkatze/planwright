@@ -2,8 +2,8 @@
 # Tests for step-record.sh write's head handling: heads default from git when
 # omitted, a head recorded by the run's own begin record is preferred for the
 # step's start, an omitted start head on a skill step that changed the head is
-# refused rather than guessed, a given sha must be a commit reachable from
-# HEAD (a short one only when unique, stored in full).
+# refused rather than guessed, and a given sha must be the full id of a commit
+# in the worktree's repository.
 #
 #   ./tests/test-step-record-heads.sh
 # shellcheck disable=SC2319,SC2154 # verdicts judge the condition just before; the fixture sets wt and bin
@@ -51,14 +51,13 @@ w "$r" skill-a skill passed
 verdict $? "omitted heads default to HEAD for a step that left it unchanged" "rc $WRC err: $(cat "$tmp/err")"
 
 r=$(sr new-run)
-w "$r" skill-a skill passed --head "$(printf '%s' "$h0" | cut -c1-10)" --end-head "$(printf '%s' "$h1" | cut -c1-12)"
-[ "$WRC" -eq 0 ] && [ "$(field "$r" head)" = "$h0" ] && [ "$(field "$r" end-head)" = "$h1" ]
-verdict $? "a unique short sha is accepted and stored in full" "rc $WRC err: $(cat "$tmp/err") head: $(field "$r" head)"
-
+w "$r" skill-a skill passed --head "$(printf '%s' "$h0" | cut -c1-10)"
+[ "$WRC" -eq 2 ] && grep -q -- '--head' "$tmp/err" && grep -Fq 'git rev-parse HEAD' "$tmp/err"
+verdict $? "a short sha is refused, naming the full-sha fix" "rc $WRC err: $(cat "$tmp/err")"
 r=$(sr new-run)
-w "$r" skill-a skill passed --head "$(printf '%s' "$h0" | cut -c1-3)"
-[ "$WRC" -eq 2 ] && grep -q "head" "$tmp/err"
-verdict $? "a sha too short to be an abbreviation is refused" "rc $WRC err: $(cat "$tmp/err")"
+w "$r" skill-a skill passed --head "$h0" --end-head "$(printf '%s' "$h1" | cut -c1-12)"
+[ "$WRC" -eq 2 ] && grep -q -- '--end-head' "$tmp/err"
+verdict $? "a short end head is refused" "rc $WRC err: $(cat "$tmp/err")"
 
 r=$(sr new-run)
 w "$r" skill-a skill passed --head "0000000000000000000000000000000000000000"
@@ -70,13 +69,9 @@ commit elsewhere
 hx=$(head_of)
 git -C "$wt" checkout -q -
 r=$(sr new-run)
-w "$r" skill-a skill passed --head "$hx"
-[ "$WRC" -eq 2 ] && grep -q "$hx" "$tmp/err" && grep -qi 'reachable\|not a commit on' "$tmp/err"
-verdict $? "a commit not reachable from HEAD is refused naming it" "rc $WRC err: $(cat "$tmp/err")"
-r=$(sr new-run)
-w "$r" skill-a skill passed --head "$h1" --end-head "$hx"
-[ "$WRC" -eq 2 ] && grep -q "$hx" "$tmp/err"
-verdict $? "an end head not reachable from HEAD is refused naming it" "rc $WRC err: $(cat "$tmp/err")"
+w "$r" skill-a skill applied --head "$h1" --end-head "$hx"
+[ "$WRC" -eq 0 ] && [ "$(field "$r" end-head)" = "$hx" ]
+verdict $? "a commit of the repository off the current branch is accepted as a head" "rc $WRC err: $(cat "$tmp/err")"
 
 # A skill step that changed the head and has no begin record is not guessed at.
 r=$(sr new-run)
@@ -113,10 +108,10 @@ commit one
 git -C "$wt" branch deadbee "$(git -C "$wt" rev-parse HEAD~1)"
 r=$(sr new-run)
 w "$r" skill-a skill passed --head deadbee
-[ "$WRC" -eq 2 ] && grep -q deadbee "$tmp/err"
+[ "$WRC" -eq 2 ] && grep -q 'not a full commit id' "$tmp/err"
 verdict $? "a hex-looking ref name is refused rather than read as an abbreviation" "rc $WRC err: $(cat "$tmp/err")"
 
-# A command step that rewrites history still records: the runner's own start head is exempt from reachability.
+# A command step that rewrites history still records its start head.
 fresh
 catalog "amend|kind: command|target: $bin/amend.sh"
 config 'steps_pre_pr: [amend]'

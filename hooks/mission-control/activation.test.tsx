@@ -164,13 +164,16 @@ test('a retired record with no exit marker stands down without ending the sessio
 
 // A released predecessor ends itself once its turn is over: its own mod runs
 // /exit, so the operator's own session needs no other session to close it.
+// Its wake target is not handed back to the relay, which would keep waking a
+// session that has ended.
 test('a record retired for exit stands the panel down and ends the session', async ($, on) => {
   const w = world(on)
   await boot($, w)
   w.set({ records: { [`${SESSION}.exit`]: 'exit' } })
   await w.clock.advance(10_000)
   await w.clock.settle()
-  expect(ran(w, 'mc-wake.sh', 'target').at(-1)).not.toContain('--mod')
+  expect(ran(w, 'mc-wake.sh', 'target').filter(r => !r.includes('--mod'))).toEqual([])
+  expect(ran(w, 'mc-wake.sh', 'target').some(r => r.includes('--mod'))).toBe(true)
   expect(ran(w, 'mc-panel.sh', 'retire').at(-1)).toEqual(expect.arrayContaining(['--session', SESSION]))
   expect(w.commandRuns).toEqual(['exit'])
   await w.clock.advance(60_000)
