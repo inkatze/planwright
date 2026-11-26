@@ -413,6 +413,7 @@ expect_fail "a refusal names the jq the check resolved" "jq: $real_jq"
 
 # stub_jq <dir> <body>: a jq at <dir>/jq running the sh <body>, with REAL the
 # real jq and the call count kept in STUB_COUNT.
+# shellcheck disable=SC2016 # stub source, expanded when the stub runs
 stub_jq() {
   rm -rf "$1"
   mkdir -p "$1"
@@ -420,6 +421,7 @@ stub_jq() {
     "$real_jq" "$2" >"$1/jq"
   chmod 755 "$1/jq"
 }
+# shellcheck disable=SC2016 # stub source, expanded when the stub runs
 flaky='if [ "$n" -ge "$STUB_FAIL_FROM" ] && [ "$n" -le "$STUB_FAIL_TO" ]; then echo "stub: fork failed" >&2; exit 1; fi
 exec "$REAL" "$@"'
 stub_jq "$tmp/flaky" "$flaky"
