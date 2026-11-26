@@ -63,9 +63,11 @@ uncommented() { sed 's/#.*$//' "$1"; }
 # defect state. Comments are stripped first, so
 # `types: [opened]  # TODO: add edited` cannot satisfy the C2 scan below —
 # over-matching here would be a false PASS, the one direction that hides the
-# defect this file exists to catch.
+# defect this file exists to catch. block_body <file> <key> mark also prints a
+# `#block` line where each block starts, for a reader folding a value across
+# lines; no stripped line can read `#block`.
 block_body() {
-  uncommented "$1" | awk -v key="$2" '
+  uncommented "$1" | awk -v key="$2" -v mark="${3:-}" '
     {
       n = match($0, /[^ ]/)
       if (n == 0) next
@@ -73,10 +75,7 @@ block_body() {
       if ($0 ~ "^[[:space:]]*" key ":[[:space:]]*$") {
         inblock = 1
         blockindent = indent
-        # Marks where one block ends and the next begins, for readers that
-        # fold a value across lines; comments are stripped, so no real line
-        # can be this one.
-        print "#block"
+        if (mark != "") print "#block"
         next
       }
       if (inblock && indent <= blockindent) inblock = 0
@@ -92,35 +91,72 @@ block_body() {
 # concurrency group at all.
 #
 # A block-scalar value (`group: >-` and the like) is its deeper lines joined by
-# spaces. That is source text, while GitHub keys a group on the evaluated
-# value, so each `format('<text>{0}', <expr>)` the value can evaluate to is
-# also emitted as `<text>${{ <expr> }}`: an expression choosing between
+# spaces, and the scalar form `concurrency: <group>` is read too. Those are
+# source text, while GitHub keys a group on the evaluated value, so each
+# `format('<text>{0}…', <arg>…)` the value can evaluate to is also emitted
+# with every `{n}` replaced by `${{ <arg n> }}`: an expression choosing between
 # `ci-release-<sha>` and `ci-<ref>` then still collides with a plain
-# `ci-${{ github.ref }}` in another workflow.
+# `ci-${{ github.ref }}` in another workflow. A flow-mapping `concurrency:` is
+# not read, and fails C3 by name below.
 concurrency_groups() {
-  # q carries the two YAML quote characters so the single-quoted awk program
-  # below never has to contain one.
-  block_body "$1" concurrency | awk -v q="\"'" '
-    function emit(v, sq, call, rest, lit, expr) {
+  {
+    uncommented "$1" | sed -n 's/^[[:space:]]*concurrency:[[:space:]]*\([^[:space:]{].*\)$/group: \1/p'
+    block_body "$1" concurrency mark
+  } | awk -v q="\"'" '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    # Literal replacement: gsub would read an `&` in an argument as the match.
+    function replace_all(s, from, to,   at, out) {
+      out = ""
+      while ((at = index(s, from)) > 0) {
+        out = out substr(s, 1, at - 1) to
+        s = substr(s, at + length(from))
+      }
+      return out s
+    }
+    # One evaluated spelling per format() call in v, its arguments found by
+    # depth and quote state rather than by pattern, so a nested call or a
+    # comma inside a string is read whole.
+    function emit(v,   sq, at, i, c, depth, inq, nargs, arg, out, n, seen) {
       if (v == "") return
       print v
+      seen[v] = 1
       sq = substr(q, 2, 1)
-      call = "format[(]" sq "[^" sq "]*[{]0[}]" sq ", *[^)]*[)]"
-      rest = v
-      while (match(rest, call)) {
-        lit = substr(rest, RSTART, RLENGTH)
-        rest = substr(rest, RSTART + RLENGTH)
-        expr = lit
-        sub("^format[(]" sq, "", lit)
-        sub(/[{]0[}].*$/, "", lit)
-        sub(/^[^,]*, */, "", expr)
-        sub(/[)]$/, "", expr)
-        print lit "${{ " expr " }}"
+      at = index(v, "format(")
+      while (at > 0) {
+        i = at + length("format(")
+        depth = 1
+        inq = 0
+        nargs = 1
+        arg[1] = ""
+        for (; i <= length(v) && depth > 0; i++) {
+          c = substr(v, i, 1)
+          if (c == sq) inq = !inq
+          else if (!inq && c == "(") depth++
+          else if (!inq && c == ")") { depth--; if (depth == 0) break }
+          else if (!inq && depth == 1 && c == ",") { arg[++nargs] = ""; continue }
+          arg[nargs] = arg[nargs] c
+        }
+        out = trim(arg[1])
+        if (depth == 0 && substr(out, 1, 1) == sq && substr(out, length(out), 1) == sq) {
+          out = substr(out, 2, length(out) - 2)
+          out = replace_all(out, sq sq, sq)
+          for (n = 0; n < nargs - 1; n++) out = replace_all(out, "{" n "}", "${{ " trim(arg[n + 2]) " }}")
+          if (!(out in seen)) {
+            print out
+            seen[out] = 1
+          }
+        }
+        v = substr(v, i + 1)
+        at = index(v, "format(")
       }
     }
     folding {
       match($0, /^[[:space:]]*/)
-      if ($0 != "#block" && RLENGTH > gindent) {
+      if (RLENGTH > gindent) {
         sub(/^[[:space:]]+/, "")
         folded = folded (folded == "" ? "" : " ") $0
         next
@@ -197,8 +233,14 @@ done
 # other regardless of which workflow queued the run.
 groups=""
 group_count=0
+group_files=0
 for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
   [ -f "$wf" ] || continue
+  if uncommented "$wf" | grep -qE '^[[:space:]]*concurrency:[[:space:]]*[{]'; then
+    fail "C3 ${wf#"$REPO_ROOT"/} declares a flow-mapping concurrency block, which
+    this reader does not parse; write it as a block mapping"
+  fi
+  [ -n "$(concurrency_groups "$wf")" ] && group_files=$((group_files + 1))
   # Fed by here-doc rather than a pipe: a `while read` on the right-hand side
   # of a pipe runs in a subshell, and the counter and failure tally raised in
   # the body would be discarded with it.
@@ -219,16 +261,16 @@ $(concurrency_groups "$wf")
 EOF
 done
 
-if [ "$group_count" -ge 2 ]; then
-  pass "C3 $group_count concurrency group(s) declared across workflows, all distinct"
+if [ "$group_files" -ge 2 ]; then
+  pass "C3 $group_count group string(s) from $group_files workflows compared, all distinct"
 else
-  fail "C3 only $group_count concurrency group(s) found —
+  fail "C3 only $group_files workflow(s) declare a concurrency group —
     too few for the uniqueness check to mean anything"
 fi
 
-# C3 is only as good as the strings it compares: ci.yml's group is a folded
-# expression, so the reader must yield its evaluated branches, never the bare
-# block indicator.
+# C3 is only as good as the strings the reader yields. ci.yml's group is a
+# folded expression, so it must read as the groups it evaluates to, never the
+# bare block indicator; each fixture below pins one reading path.
 ci_groups="$(concurrency_groups "$WORKFLOW_DIR/ci.yml")"
 # shellcheck disable=SC2016 # literal GitHub expressions
 if printf '%s\n' "$ci_groups" | grep -qxF 'ci-${{ github.ref }}' \
@@ -236,9 +278,40 @@ if printf '%s\n' "$ci_groups" | grep -qxF 'ci-${{ github.ref }}' \
   && ! printf '%s\n' "$ci_groups" | grep -qE '^[>|]'; then
   pass "C3 reads ci.yml's folded group as the groups it evaluates to"
 else
-  fail "C3 read ci.yml's concurrency group as:
+  fail "C3 should read ci.yml's group as ci-\${{ github.ref }} and
+    ci-release-\${{ github.sha }} with no bare block indicator, but read:
 $ci_groups"
 fi
+
+fixtures="$(mktemp -d "${TMPDIR:-/tmp}/test-pr-title-trigger.XXXXXX")" || exit 1
+trap 'rm -rf "$fixtures"' EXIT
+# reads_as <label> <expected group, one line> <workflow line>... — the reader
+# must yield the expected group from a workflow made of the given lines.
+reads_as() {
+  local label="$1" want="$2" got
+  shift 2
+  printf '%s\n' "$@" >"$fixtures/wf.yml"
+  got="$(concurrency_groups "$fixtures/wf.yml")"
+  if printf '%s\n' "$got" | grep -qxF "$want"; then
+    pass "C3 reader: $label"
+  else
+    fail "C3 reader: $label — expected '$want' among:
+$got"
+  fi
+}
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  reads_as "a folded group ends at the next concurrency block" 'job-${{ github.ref }}' \
+    'concurrency:' '  cancel-in-progress: true' '  group: >-' '    top-${{ github.ref }}' \
+    'jobs:' '  x:' '    concurrency:' '      group: job-${{ github.ref }}'
+  reads_as "a folded group at the end of the file is read" 'ci-${{ github.ref }}' \
+    'concurrency:' '  group: >-' "    \${{ format('ci-{0}', github.ref) }}"
+  reads_as "format() with a nested call, spacing and two placeholders" \
+    'ci-${{ fromJSON('"'"'"x"'"'"') }}-${{ github.sha }}' \
+    'concurrency:' "  group: \${{ format('ci-{0}-{1}' , fromJSON('\"x\"') , github.sha ) }}"
+  reads_as "the scalar concurrency form is read" 'ci-${{ github.ref }}' \
+    'concurrency: ci-${{ github.ref }}'
+}
 
 # --- C4: the metadata gate is not the code gate ------------------------------
 # The two must stay in separate workflows. Sharing one workflow puts both on a
