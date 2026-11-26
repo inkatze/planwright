@@ -648,13 +648,11 @@ fleet_usage_sustained_loss_count: 3
 # Per-window percentage thresholds mapping usage to a rung (>= at the threshold
 # trips it). `off` disables a rung. Each window's enabled thresholds MUST be
 # strictly ascending and within 1-100 (validated; a non-monotonic or
-# out-of-range set is refused), except that rungs at 100, the wall, may repeat:
-# a window's top rungs can be parked at 100, where they trip only at the wall,
-# though no rung below 100 may follow one. The session window has no defer-all
-# threshold — it is capped at defer-heavy by design (a session spike never
-# proactively halts the fleet; the reactive backstop catches a genuine session
-# wall). The weekly window escalates harder and earlier and alone can reach
-# defer-all (hitting the weekly wall can halt work for days).
+# out-of-range set is refused). The session
+# window has no defer-all threshold — it is capped at defer-heavy by design (a
+# session spike never proactively halts the fleet; the reactive backstop catches
+# a genuine session wall). The weekly window escalates harder and earlier and
+# alone can reach defer-all (hitting the weekly wall can halt work for days).
 fleet_usage_session_downshift: 50
 fleet_usage_session_reduce_concurrency: 70
 fleet_usage_session_defer_heavy: 85
