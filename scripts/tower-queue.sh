@@ -2424,9 +2424,10 @@ Q_PUSH_SAFE_OPTIONS="-u --set-upstream -v --verbose -q --quiet -n --dry-run --po
 # the first word is `git` and the second `push` (so no `-c`, no `-C`, no
 # wrapper), the remote is a plain name (never a URL: the protected names mean
 # nothing in another repository), every refspec carries a non-empty
-# destination that is a branch name (`src:dst` with both halves, or a bare
-# name that is not `HEAD` or `@`, with `refs/heads/` or `heads/` stripped and
-# any other `refs/` kind refused), and no destination is protected
+# destination that is a branch name (`src:dst` with both halves, with
+# `refs/heads/` or `heads/` stripped and any other `refs/` kind refused; a bare
+# name reaches the operator, since git reads its destination from
+# configuration and local refs this parse cannot see), and no destination is protected
 # (is_protected_branch, which includes a spec branch). Quotes are removed
 # first, as in push_reaches_protected, and for the same reason.
 push_parses_safe() {
@@ -2474,6 +2475,10 @@ push_parses_safe() {
             *:*) exit 1 ;;
           esac
           ;;
+        # A bare name's destination is configuration's: remote.<r>.push,
+        # push.default=upstream's branch.<b>.merge, or the branch a local
+        # symbolic ref of that name resolves to.
+        *) exit 1 ;;
       esac
       _pd=${_pd#refs/heads/}
       _pd=${_pd#heads/}

@@ -283,21 +283,25 @@ for res in 'git push' 'git push origin' 'git push origin :' 'git push origin :fe
   'git push git@github.com:x/y.git feature' 'git push https://example/x.git feature' \
   'git push origin feature:refs/tags/v1' 'git push origin feature:refs/for/main' \
   'sudo git push origin feature' 'command git push origin feature' \
-  'git push origin feature --' 'git push origin ""'; do
+  'git push origin feature --' 'git push origin ""' \
+  'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
+  'git push origin feature -v' 'git push origin refs/heads/feature' 'git push origin heads/feature' \
+  'git push upstream fix-1' 'git push origin planwright/human-gates/task-5' \
+  'git push origin feature:feature x'; do
   rc=0
   run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
     || fail "'$res', a push with no positively parsed safe destination, was not refused (exit $rc, '$(cat "$tmp/o")')"
   grep -q 'positively named' "$errf" || fail "the refusal of '$res' did not say why"
 done
-echo "ok: a push whose destination cannot be positively named reaches the operator"
+echo "ok: a push whose destination cannot be positively named reaches the operator, a bare branch name included (remote.<r>.push, push.default=upstream or a local symbolic ref can send it elsewhere)"
 
 # The rule the operator actually wanted still works, in every admitted shape.
-for okp in 'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
-  'git push origin feature -v' 'git push origin main:feature' 'git push origin refs/heads/feature' \
-  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1' \
-  'git push origin planwright/human-gates/task-5' 'git push origin planwright/human-gates/spec-notes' \
-  'git push origin planwright/a/b/spec'; do
+for okp in 'git push origin feature/thing:feature/thing' 'git push origin "feature/thing:feature/thing"' \
+  'git push -u origin feature:feature' 'git push origin feature:feature -v' 'git push origin main:feature' \
+  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1:fix-1' \
+  'git push origin HEAD:planwright/human-gates/task-5' 'git push origin x:planwright/human-gates/spec-notes' \
+  'git push origin x:planwright/a/b/spec'; do
   run match --decision "$push_rule" --command "$okp" >"$tmp/o" \
     || fail "an ordinary branch push ('$okp') did not match (exit $?, '$(cat "$tmp/o")')"
   [ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push ('$okp') printed '$(cat "$tmp/o")'"
