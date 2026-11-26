@@ -1031,17 +1031,30 @@ tokenize() {
 # --------------------------------------------------------------------------
 # Small helpers.
 
-# fold_lower <text> — set FOLD to the text with A-Z folded to a-z, which is all
-# tr's [:upper:] covers under this guard's LC_ALL=C. Expansion, not tr: a tr
-# that failed folded every name to empty, so nothing matched and the call
-# deferred. Under nocasematch a substitution also rewrites the lower-case
-# letter, to itself.
+# fold_lower <text> — set FOLD to the text with A-Z folded to a-z, all that
+# tr's [:upper:] covers under this guard's LC_ALL=C. A tr that fails would fold
+# every name to empty, so nothing would match and the call would defer. Short
+# text folds by expansion. Long text, where the substitutions grow with the
+# square of its matches, takes tr's output only when it ends in the sentinel
+# at the input's length, and folds by expansion otherwise. Under nocasematch a
+# substitution also rewrites the lower-case letter, to itself.
 FOLD_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
 FOLD_LOW=abcdefghijklmnopqrstuvwxyz
 fold_lower() {
-  local i=0
+  local i=0 out
   FOLD=$1
-  case $FOLD in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;; *) return 0 ;; esac
+  case $FOLD in *[A-Z]*) ;; *) return 0 ;; esac
+  if [ "${#FOLD}" -gt 4096 ]; then
+    out=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || out=''
+    case $out in
+      *x)
+        if [ "${#out}" = "$((${#1} + 1))" ]; then
+          FOLD=${out%x}
+          return 0
+        fi
+        ;;
+    esac
+  fi
   while [ "$i" -lt 26 ]; do
     FOLD=${FOLD//${FOLD_UP:$i:1}/${FOLD_LOW:$i:1}}
     i=$((i + 1))
@@ -3357,6 +3370,51 @@ norm_endpoint() {
   printf '%s' "$e"
 }
 
+# gql_mask <query> — set GQL_MASK to the query with each string literal's
+# contents blanked, every offset kept, so a key is read only where GraphQL
+# reads one, not inside a commit message. 1 when a string does not close, or a
+# block string carries the escaped delimiter \""", whose misreading would
+# swap what is string and what is query for the rest of it.
+gql_mask() {
+  local s=$1 pre inner seg bs
+  GQL_MASK=''
+  while :; do
+    case $s in *'"'*) ;; *)
+      GQL_MASK=$GQL_MASK$s
+      return 0
+      ;;
+    esac
+    pre=${s%%\"*}
+    GQL_MASK=$GQL_MASK$pre
+    s=${s:${#pre}}
+    case $s in
+      '"""'*)
+        s=${s:3}
+        case $s in *'"""'*) ;; *) return 1 ;; esac
+        inner=${s%%'"""'*}
+        case $inner in *\\) return 1 ;; esac
+        s=${s:$((${#inner} + 3))}
+        GQL_MASK=$GQL_MASK'"""'${inner//?/ }'"""'
+        ;;
+      *)
+        s=${s:1}
+        inner=''
+        while :; do
+          case $s in *'"'*) ;; *) return 1 ;; esac
+          seg=${s%%\"*}
+          s=${s:$((${#seg} + 1))}
+          inner=$inner$seg
+          # An odd run of backslashes before the quote escapes it.
+          bs=${seg##*[!\\]}
+          [ "$((${#bs} % 2))" = 1 ] || break
+          inner=$inner'"'
+        done
+        GQL_MASK=$GQL_MASK'"'${inner//?/ }'"'
+        ;;
+    esac
+  done
+}
+
 classify_gh_api() {
   local si=$1 k=$2 eff=$3 eff_ok=$4 n=${#SW[@]} w wl name val endopts=0
   local method='' method_lit=1 nfields=0 endpoint='' endpoint_lit=1 npos=0 help=0
@@ -3593,7 +3651,7 @@ classify_gh_api() {
 
   ep=$(norm_endpoint "$endpoint")
   case $ep in
-    *%* | *..* | *//* | . | ./* | */. | */./*)
+    *%* | *..* | *//* | */ | . | ./* | */. | */./*)
       ghapi_opaque 'its path carries a percent escape, a dot segment, or an empty segment'
       return 0
       ;;
@@ -3602,7 +3660,7 @@ classify_gh_api() {
   # GraphQL writes that name a branch: the target must be a literal branch
   # name in the query, checked against the protected set.
   case $all_fields in
-    *createCommitOnBranch* | *createRef*)
+    *createCommitOnBranch* | *createRef* | *createLinkedBranch*)
       # A variable or a comment in the query can carry the real target while
       # a literal one decoys the read, so either refuses.
       case $query_text in
@@ -3622,25 +3680,35 @@ classify_gh_api() {
       # GraphQL ignores a comma and a byte-order mark as it ignores white
       # space, so a key can stand apart from its colon or its value by one,
       # and a block string, an escape or a node id hides the name. Every
-      # occurrence of a key that can carry the target is read wherever it
-      # stands, and one whose value is not a plain string refuses, so a
-      # literal name elsewhere in the query cannot stand in for it.
-      local kre='(^|[^A-Za-z0-9_])(branchName|qualifiedName|name|id)[[:space:],]*:[[:space:],]*' key
-      rest=${query_text//$'\357\273\277'/ }
+      # occurrence of a key that can carry the target outside a string is
+      # read wherever it stands, and one whose value is not a plain string
+      # refuses, so a literal name elsewhere in the query cannot stand in for
+      # it. The byte-order mark becomes three blanks, keeping each offset.
+      local kre='(^|[^A-Za-z0-9_])(branchName|qualifiedName|name|id)[[:space:],]*:[[:space:],]*' key m pre off=0 qs
+      qs=${query_text//$'\357\273\277'/   }
+      gql_mask "$qs" || {
+        ghapi_opaque 'its query carries a string that does not close, or a block string with an escaped delimiter'
+        return 0
+      }
+      rest=$GQL_MASK
       while [[ $rest =~ $kre ]]; do
         key=${BASH_REMATCH[2]}
-        rest=${rest#*"${BASH_REMATCH[0]}"}
+        m=${BASH_REMATCH[0]}
+        pre=${rest%%"$m"*}
+        off=$((off + ${#pre} + ${#m}))
+        rest=${GQL_MASK:$off}
         if [ "$key" = id ]; then
-          ghapi_opaque 'it names the branch it commits to by node id, which the guard cannot resolve to a name'
+          ghapi_opaque 'it names a target by node id, which the guard cannot resolve to a branch name'
           return 0
         fi
-        t=''
-        case $rest in
-          '"""'*) ;;
+        t=${qs:$off}
+        case $t in
+          '"""'*) t='' ;;
           '"'*'"'*)
-            t=${rest#\"}
+            t=${t#\"}
             t=${t%%\"*}
             ;;
+          *) t='' ;;
         esac
         case $t in
           '' | *\\*)
@@ -3649,7 +3717,10 @@ classify_gh_api() {
             ;;
         esac
         t=${t#refs/heads/}
-        case $t in refs/*) continue ;; esac
+        case $t in
+          refs/*) continue ;;
+          heads/?*) targets="$targets ${t#heads/}" ;;
+        esac
         targets="$targets $t"
       done
       case "$targets" in
@@ -3667,13 +3738,10 @@ classify_gh_api() {
   # REST paths, matched case-insensitively. repositories/<id>/ reaches the
   # same routes as repos/<owner>/<repo>/, so it is read as that prefix.
   local lp seg_count
-  lp=$(lower "$ep")
-  case $lp in
-    repositories/*/*)
-      ep="repos/-/${ep#*/}"
-      lp="repos/-/${lp#*/}"
-      ;;
-  esac
+  fold_lower "$ep"
+  case $FOLD in repositories/*/*) ep="repos/-/${ep#*/}" ;; esac
+  fold_lower "$ep"
+  lp=$FOLD
   local IFS_save=$IFS
   IFS=/
   # shellcheck disable=SC2086 # split on / on purpose (noglob is on)
@@ -5559,10 +5627,12 @@ check_root_unpushed() {
     || emit_deny 'this history rewrite names a commit a remote-tracking ref already contains; pushed history stays append-only - refusing. Add a new commit instead.'
 }
 
-# merge_dst <dir> <branch> — set MD to the remote branch that
-# push.default=upstream sends <branch> to: branch.<branch>.merge as written,
-# which the remote reads outside refs/ (heads/ included) as the branch it
-# names. Empty when unset, or a ref outside refs/heads/.
+# merge_dst <dir> <branch> — set MD to the branch named by
+# branch.<branch>.merge, where push.default=upstream sends <branch>: a
+# refs/heads/ value is that branch, and a value outside refs/ is the branch it
+# spells, heads/ dropped, since the remote resolves it so. Empty when unset or
+# a ref outside refs/heads/. A bare push checks it whatever push.default says,
+# so a stricter read never depends on that setting.
 merge_dst() {
   local m
   MD=''
@@ -5609,19 +5679,17 @@ eval_push() {
         ;;
     esac
     targets[${#targets[@]}]=$cb
-    upstream_of "$dir" "$cb"
-    [ -z "$UP_BRANCH" ] || targets[${#targets[@]}]=$UP_BRANCH
     merge_dst "$dir" "$cb"
     [ -z "$MD" ] || targets[${#targets[@]}]=$MD
   else
-    local mapped=0 rp pd src
+    local named_src=0 rp pd src
     for r in $refs; do
       case $r in
         *:*) dst=${r#*:} ;;
         HEAD | @) dst=$r ;;
         *)
           dst=$r
-          mapped=1
+          named_src=1
           ;;
       esac
       [ -n "$dst" ] || emit_deny 'this git push carries a refspec with an empty destination, which the guard does not read - refusing (fail closed).'
@@ -5642,17 +5710,28 @@ eval_push() {
     # it, forcing it when that refspec carries a +, else under
     # push.default=upstream (or tracking) to branch.<source>.merge; HEAD is
     # never mapped.
-    if [ "$mapped" = 1 ]; then
+    if [ "$named_src" = 1 ]; then
       rp=$(gitq "$dir" config --get-all "remote.$remote.push") || rp=''
       [ -z "$rp" ] \
         || emit_deny "this git push names a refspec with no destination, and remote.$(sanitize_printable "$remote" '<remote>').push is configured, which git applies to it (another destination, or a + that forces it) and the guard does not read - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
       pd=$(gitq "$dir" config --get push.default) || pd=''
       case $(lower "$pd") in
         upstream | tracking)
+          # A full refs/heads/ name is that branch; a shorter one may be the
+          # branch it spells or, after heads/, the one git also tries, so
+          # both are read.
           for r in $refs; do
             case $r in *:* | HEAD | @) continue ;; esac
-            src=${r#refs/heads/}
-            merge_dst "$dir" "${src#heads/}"
+            case $r in
+              refs/heads/*) src=${r#refs/heads/} ;;
+              heads/?*)
+                src=${r#heads/}
+                merge_dst "$dir" "$r"
+                [ -z "$MD" ] || targets[${#targets[@]}]=$MD
+                ;;
+              *) src=$r ;;
+            esac
+            merge_dst "$dir" "$src"
             [ -z "$MD" ] || targets[${#targets[@]}]=$MD
           done
           ;;

@@ -164,9 +164,16 @@ for tier in worker tower; do
     expect defer "[$tier] an explicit destination, HEAD, or another remote is not mapped: $cmd"
   done
 done
-gitq -C "$PCFG" config remote.origin.push +refs/heads/planwright/demo/task-1:refs/heads/planwright/demo/task-1
 pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
-expect deny "[worker] a + in remote.origin.push forces the no-colon refspec"
+reason_has 'remote\.origin\.push is configured' "[worker] the mapped-refspec deny names the push configuration"
+# Any configured push refspec refuses, the self-map and the forcing + alike:
+# the guard does not read what it maps to.
+for pr in refs/heads/planwright/demo/task-1:refs/heads/planwright/demo/task-1 \
+  +refs/heads/planwright/demo/task-1:refs/heads/planwright/demo/task-1; do
+  gitq -C "$PCFG" config remote.origin.push "$pr"
+  pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
+  expect deny "[worker] remote.origin.push=$pr refuses the no-colon refspec"
+done
 gitq -C "$PCFG" config --unset remote.origin.push
 pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
 expect defer "[worker] with no push refspec configured the no-colon push still defers"
@@ -203,9 +210,39 @@ for pd in upstream tracking; do
     expect defer "[worker] push.default=$pd leaves an explicit destination alone: $cmd"
   done
 done
+gitq -C "$UPCFG" config push.default upstream
+pg tower 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
+expect deny "[tower] push.default=upstream sends the named source to branch.<b>.merge=main"
 gitq -C "$UPCFG" config push.default current
 pg worker 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
 expect defer "[worker] push.default=current sends the named source to its own name"
+gitq -C "$UPCFG" config push.default upstream
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-1
+pg worker 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
+expect defer "[worker] push.default=upstream to the named source's own name still defers"
+for m in refs/tags/main refs/remotes/origin/main; do
+  gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge "$m"
+  for cmd in 'git push' 'git push origin planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect defer "[worker] branch.<b>.merge=$m names no branch, so it adds no target: $cmd"
+  done
+done
+for m in bad..name heads/; do
+  gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge "$m"
+  for cmd in 'git push' 'git push origin planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect deny "[worker] branch.<b>.merge=$m names no branch the guard checks: $cmd"
+    reason_has 'branch\.<branch>\.merge, which names a destination' "[worker] the merge-value deny says why: $m, $cmd"
+  done
+done
+# A source spelled heads/<x> may be the branch heads/<x> or the branch <x>;
+# git takes whichever exists, so both merge values are read.
+gitq -C "$UPCFG" branch heads/x
+gitq -C "$UPCFG" config branch.heads/x.merge refs/heads/main
+for cmd in 'git push origin heads/x' 'git push origin refs/heads/heads/x'; do
+  pg worker "$cmd" "$UPCFG" "$UPCFG"
+  expect deny "[worker] the branch heads/x's own merge value is read: $cmd"
+done
 
 # --- a cd that may not run --------------------------------------------------
 
