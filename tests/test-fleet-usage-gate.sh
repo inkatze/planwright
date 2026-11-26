@@ -969,17 +969,19 @@ fleet_usage_weekly_defer_all: 100
 EOF
 [ "$(rung_of 10 99)" = normal ] || fail "weekly rungs all at 100 must run the ladder and leave 99% normal"
 [ "$(rung_of 10 100)" = defer-all ] || fail "weekly rungs all at 100 must reach defer-all at the wall"
-reset_state
-cat >"$mlocal_cfg" <<'EOF'
-fleet_usage_weekly_reduce_concurrency: 100
+top_parked='fleet_usage_weekly_reduce_concurrency: 100
 fleet_usage_weekly_defer_heavy: 100
 fleet_usage_weekly_defer_all: 100
 fleet_usage_session_reduce_concurrency: 100
-fleet_usage_session_defer_heavy: 100
-EOF
+fleet_usage_session_defer_heavy: 100'
 # 90% is defer-heavy under the default rungs in either window, so these
-# readings tell the parked set from the defaults.
+# readings tell the parked set from the defaults. Each window starts fresh: a
+# held downshift would mask a reading the gate wrongly ranked lower.
+reset_state
+printf '%s\n' "$top_parked" >"$mlocal_cfg"
 [ "$(rung_of 10 90)" = downshift ] || fail "weekly top rungs at 100 must leave 90% at the 60 downshift"
+reset_state
+printf '%s\n' "$top_parked" >"$mlocal_cfg"
 [ "$(rung_of 90 10)" = downshift ] || fail "session top rungs at 100 must leave 90% at the 50 downshift"
 [ "$(rung_of 100 10)" = defer-heavy ] || fail "session top rungs at 100 must reach defer-heavy at the wall"
 # evaluate validates thresholds only with a reading to judge, so give it one.
