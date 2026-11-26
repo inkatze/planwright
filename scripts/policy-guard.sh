@@ -5826,7 +5826,8 @@ signoff_transport_stock() {
 # the PR head and the remote's default branch as the remote itself reports
 # them, a fast-forward whose every new commit off that base lies on the
 # first-parent line and is a two-parent merge of a base commit whose tree is
-# the clean merge of its parents. SPC_WHY says why not.
+# the clean merge of its parents. SPC_WHY says why not. Its caller has
+# already refused the push unless worker_base_merge is allow (eval_push).
 SPC_WHY=''
 signoff_push_check() {
   local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 sig=0 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
