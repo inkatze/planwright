@@ -56,8 +56,8 @@
 # Exit: 0 success, or clearance granted · 1 persist found no usable reading
 # (nothing written), or clearance not granted · 2 usage · 4/5 propagated from
 # the knob resolver, 4 also when a window's thresholds are a set the usage
-# gate refuses (outside 1-100, or not strictly ascending up its ladder, only
-# rungs at 100 repeating) · 5 also when the throttle's ceiling cannot be read
+# gate refuses (outside 1-100, or not strictly ascending up its ladder, though
+# rungs at 100 may repeat) · 5 also when the throttle's ceiling cannot be read
 # · 6 a runtime failure (no fleet home, no clock, a link or non-regular file
 # where the frame goes, a write).
 #

@@ -334,7 +334,8 @@ win "$out" weekly | grep -q "${TAB}29${TAB}above$" || fail "boundary: the weekly
 pass "a reading exactly at its threshold is above it"
 
 # A threshold set the usage gate refuses as malformed (out of range, or not
-# strictly ascending below 100 up its ladder) never clears a hold either.
+# strictly ascending up its ladder, where only rungs at 100 may repeat) never
+# clears a hold either.
 new_home malformed
 put a $((NOW - 60)) 0.80 $((NOW + HOUR)) 0.10 $((NOW + 86400))
 for bad in 'fleet_usage_session_downshift: 90' 'fleet_usage_weekly_downshift: 150' \

@@ -665,9 +665,9 @@ ascending_thresholds() {
 
 # resolve_thresholds: resolve every per-window threshold through the overlay
 # (REQ-E1.6) and validate each enabled one within 1-100 and ordered per window
-# as ascending_thresholds checks. A threshold is never 0 (the resolver refuses it), unlike a usage
-# PERCENTAGE, which may legitimately be 0. A malformed set is a fail-closed
-# config error (exit 4). Sets the S_*/W_* globals.
+# as ascending_thresholds checks. A threshold is never 0 (the resolver refuses
+# it), unlike a usage PERCENTAGE, which may legitimately be 0. A malformed set
+# is a fail-closed config error (exit 4). Sets the S_*/W_* globals.
 resolve_thresholds() {
   S_DS=$(resolve_knob threshold fleet_usage_session_downshift 50) || exit $?
   S_RC=$(resolve_knob threshold fleet_usage_session_reduce_concurrency 70) || exit $?

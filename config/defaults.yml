@@ -651,10 +651,9 @@ fleet_usage_sustained_loss_count: 3
 # out-of-range set is refused), except that rungs at 100, the wall, may repeat:
 # a window's top rungs can be parked at 100, where they trip only at the wall,
 # though no rung below 100 may follow one (`off` is what disables a rung). The
-# session
-# window has no defer-all threshold — it is capped at defer-heavy by design (a
-# session spike never proactively halts the fleet; the reactive backstop catches
-# a genuine session wall). The weekly window escalates harder and earlier and
+# session window has no defer-all threshold — it is capped at defer-heavy by
+# design (a session spike never proactively halts the fleet; the reactive
+# backstop catches a genuine session wall). The weekly window escalates harder and earlier and
 # alone can reach defer-all (hitting the weekly wall can halt work for days).
 fleet_usage_session_downshift: 50
 fleet_usage_session_reduce_concurrency: 70
