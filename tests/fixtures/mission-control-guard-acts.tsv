@@ -388,6 +388,12 @@ deny	repo-write	bash	-	edits no repository	xargs --delimiter x perl -pi -e 1 @UN
 defer	read	bash	-	-	sudo -u root perl -pi -e 1 @SCRATCH@/kb/a.md
 defer	read	bash	-	-	sudo -Hu root cat @UNIT@/README.md
 defer	read	bash	-	-	timeout --signal KILL 5 perl -ne 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "sudo -u root perl -pi -e1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	eval "sudo -u root perl -pi -e1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "timeout -s KILL 5 ed -s @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "env -u HOME vi @UNIT@/README.md"
+defer	read	bash	-	-	bash -c "sudo -u root cat @UNIT@/README.md"
+defer	read	bash	-	-	bash -c "sudo -u root grep -e ed @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); gawk -W load=inplace 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	x=$(date); sh -c 'ed -s @UNIT@/README.md'

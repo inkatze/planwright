@@ -5781,7 +5781,8 @@ MC_WRAPPED_DENY='mission control writes no settings or configuration file, and t
 MC_REPO_DENY='mission control edits no repository, and this command writes a path that lies inside one (read as written and followed on disk, from every directory the command may run in); every change goes through a session it dispatches.'
 MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs an in-place editor (perl -i, ruby -i, awk with the inplace extension, ed, ex or vi) behind another command (xargs, find, a shell, eval, or a runner such as flock or ssh), in a here-document or here-string a shell reads, or in text the guard cannot parse, so it cannot read the files it rewrites - refusing (fail closed). Run the editor as its own command with its files spelled out; every repository change goes through a session it dispatches.'
 # An in-place editor run in text: its name opening a statement (past
-# assignments, keywords, a wrapper and its options, and a directory prefix),
+# assignments, keywords, a wrapper and its options with a value each may
+# take, and a directory prefix),
 # so a word that is only an argument (grep ex, find -name vi) is none. perl or
 # ruby with a switch cluster reaching i past flag letters only, awk or gawk
 # including the inplace extension, and the line editors and vi, whose every
@@ -5791,7 +5792,7 @@ MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs
 # text holding a case statement (mc_inplace_text). An opaque runner opening a
 # statement puts the tool at any of its later words (RE_MC_INPLACE_OPAQUE).
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_INPLACE_LEAD='(^|[;&|({]|'$'\n''|(^|[[:space:]=])`|[[:space:]]-(exec|execdir|ok|okdir)[[:space:]])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|then|do|else|elif|if|while|until|!|eval|env|nice|nohup|timeout|stdbuf|setsid|sudo|doas|exec|command|builtin|time|xargs|busybox|-[^[:space:]]*|[0-9][^[:space:]]*)[[:space:]]+)*([^[:space:];&|()]*/)?'
+RE_MC_INPLACE_LEAD='(^|[;&|({]|'$'\n''|(^|[[:space:]=])`|[[:space:]]-(exec|execdir|ok|okdir)[[:space:]])[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*|then|do|else|elif|if|while|until|!|eval|env|nice|nohup|timeout|stdbuf|setsid|sudo|doas|exec|command|builtin|time|xargs|busybox|-[^[:space:]]*([[:space:]]+[^-[:space:];&|()][^[:space:];&|()]*)?|[0-9][^[:space:]]*)[[:space:]]+)*([^[:space:];&|()]*/)?'
 # The tool as any word, for the words a runner may run as a command whose
 # place among them the guard cannot tell (flock <lock> <command>, ssh <host>).
 RE_MC_INPLACE_WORD_LEAD='(^|[[:space:]])([^[:space:]]*/)?'
