@@ -45,13 +45,13 @@ case $verb in
     [ -z "${FAKE_LOAD_DOWN:-}" ] || exit 255
     echo "${FAKE_LOAD:-0.5} ${FAKE_CORES:-16}"
     ;;
-  inuse)
-    [ -z "${FAKE_INUSE_DOWN:-}" ] || exit 255
-    if [ -n "${FAKE_INUSE_RAW+x}" ]; then
-      printf '%s\n' "$FAKE_INUSE_RAW"
+  capacity)
+    [ -z "${FAKE_CAP_DOWN:-}" ] || exit 255
+    if [ -n "${FAKE_CAP_RAW+x}" ]; then
+      printf '%s\n' "$FAKE_CAP_RAW"
       exit 0
     fi
-    echo "${FAKE_HID_NS:--} ${FAKE_CONSOLE:-fleet} ${FAKE_LOGIN:-fleet}"
+    echo "load=0.5 cores=16 mem_free_mb=8000 idle_secs=${FAKE_IDLE:-unavailable}"
     ;;
   compute)
     if [ -n "${FAKE_NOSTART:-}" ]; then
@@ -70,7 +70,7 @@ export FAKE_CHANNEL_LOG="$tmp/channel.log"
 
 defaults="$tmp/defaults.yml"
 local_cfg="$tmp/local.yml"
-printf 'fleet_compute_host: local\nfleet_compute_load_cap: 0.4\nfleet_compute_idle_threshold: 600\nfleet_compute_account:\nfleet_compute_timeout:\n' >"$defaults"
+printf 'fleet_compute_host: local\nfleet_compute_load_cap: 0.4\nfleet_compute_timeout:\n' >"$defaults"
 export PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$local_cfg" PLANWRIGHT_REPO_ROOT="$tmp"
 # Pinned independently of the plugin-data home, which the sentinel redirects
 # only when it is set; the adopter overlay otherwise falls back to the real home.
@@ -158,79 +158,61 @@ assert_eq "another early exit is the result, not a rerun" 1 "$CODE"
 FAKE_NOSTART=2 run --check -- "$tmp/lcmd" a
 assert_eq "a refusal before the command started reruns locally" "local ran a" "$OUT"
 
-# A Mac a person is using yields to the local host.
-printf 'fleet_compute_host: mac\n' >"$local_cfg"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=fleet run --check -- "$tmp/lcmd" a
-assert_eq "an idle host with only the fleet console user takes the run" "remote ran" "$OUT"
-FAKE_HID_NS=- FAKE_CONSOLE=- run --check -- "$tmp/lcmd" a
-assert_eq "a host with no HID or console reading takes the run" "remote ran" "$OUT"
-FAKE_HID_NS=5000000000 run --check -- "$tmp/lcmd" a
-assert_eq "recent HID input runs locally" "local ran a" "$OUT"
-has "the in-use fallback is announced" "compute-route: warning: compute host is in use" "$ERR"
-assert_eq "one in-use warning line" 1 "$(printf '%s\n' "$ERR" | grep -c 'warning')"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
-assert_eq "another console user runs locally" "local ran a" "$OUT"
-has "the console user is named" "console user alice" "$ERR"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=root run --check -- "$tmp/lcmd" a
-assert_eq "the login window (root) is not a person" "remote ran" "$OUT"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=loginwindow run --check -- "$tmp/lcmd" a
-assert_eq "the loginwindow console owner is not a person" "remote ran" "$OUT"
-FAKE_HID_NS=- FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
-assert_eq "with no HID reading another console user still runs locally" "local ran a" "$OUT"
-FAKE_HID_NS=99999999999999999999999 run --check -- "$tmp/lcmd" a
-assert_eq "a reading too large for test(1) counts as long idle" "remote ran" "$OUT"
-case $ERR in *'llegal'* | *'integer'*) fail "and leaves no test(1) error" ;; *) ok "and leaves no test(1) error" ;; esac
+# A registry host marked shared takes the run only while its owner is away:
+# input idle for the host's own registry idle time, and no hold switch.
+reg="$tmp/reg/hosts"
+mkdir -p "$tmp/reg"
+host_line() { printf 'host mac account=fleet ceiling=2 %s\n' "$1" >"$reg"; }
+printf 'fleet_compute_host: mac\nremote_hosts_file: %s\n' "$reg" >"$local_cfg"
+host_line 'shared=no'
+FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
+assert_eq "a host the registry does not mark shared is never held" "remote ran" "$OUT"
+case $LOG in *capacity*) fail "and its idle time is never asked" ;; *) ok "and its idle time is never asked" ;; esac
+host_line 'shared=yes idle=5'
+FAKE_IDLE=600 run --check -- "$tmp/lcmd" a
+assert_eq "a shared host idle past its own registry time takes the run" "remote ran" "$OUT"
+FAKE_IDLE=300 run --check -- "$tmp/lcmd" a
+assert_eq "input exactly that long ago counts as away" "remote ran" "$OUT"
+FAKE_IDLE=299 run --check -- "$tmp/lcmd" a
+assert_eq "a shared host used within its registry time runs locally" "local ran a" "$OUT"
+has "the owner's use is announced" "compute-route: warning: compute host is shared and its owner is using it" "$ERR"
+assert_eq "one warning line" 1 "$(printf '%s\n' "$ERR" | grep -c 'warning')"
+host_line 'shared=yes'
+FAKE_IDLE=500 run --check -- "$tmp/lcmd" a
+assert_eq "a shared host with no idle field takes the registry default" "local ran a" "$OUT"
+FAKE_IDLE=700 run --check -- "$tmp/lcmd" a
+assert_eq "and admits input older than it" "remote ran" "$OUT"
+run --check -- "$tmp/lcmd" a
+assert_eq "a shared host whose idle time is unavailable runs locally" "local ran a" "$OUT"
+has "and says the owner's absence cannot be read" "idle time is unavailable" "$ERR"
+host_line 'shared=yes hold=yes'
+FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
+assert_eq "a shared host on hold runs locally" "local ran a" "$OUT"
+has "and names the hold" "compute host is on hold" "$ERR"
+host_line 'shared=no hold=yes'
+run --check -- "$tmp/lcmd" a
+assert_eq "the hold switch holds an unshared host too" "local ran a" "$OUT"
+host_line 'shared=yes'
 FAKE_LOAD=8 FAKE_CORES=8 run --check -- "$tmp/lcmd" a
-has "the busy host is passed over" "compute host is busy (load 8 on 8 cores" "$ERR"
-case $LOG in *inuse*) fail "a busy host is never asked the in-use probe" ;; *) ok "a busy host is never asked the in-use probe" ;; esac
-FAKE_INUSE_DOWN=1 run --check -- "$tmp/lcmd" a
-assert_eq "a failed in-use probe falls back like an unreachable host" "local ran a" "$OUT"
-has "a failed in-use probe is announced as unreachable" "compute host unreachable" "$ERR"
-for raw in '' 'abc fleet fleet' '3600000000000 fleet' '3600000000000 fleet fleet extra' '3600000000000 a/b fleet'; do
-  FAKE_INUSE_RAW=$raw run --check -- "$tmp/lcmd" a
-  assert_eq "a malformed in-use reading ('$raw') runs locally" "local ran a" "$OUT"
-  has "a malformed in-use reading ('$raw') is announced as unreachable" "compute host unreachable" "$ERR"
+has "a busy shared host is passed over as busy" "compute host is busy (load 8 on 8 cores" "$ERR"
+case $LOG in *capacity*) fail "and is never asked its idle time" ;; *) ok "and is never asked its idle time" ;; esac
+FAKE_CAP_DOWN=1 run --check -- "$tmp/lcmd" a
+assert_eq "a failed idle probe on a shared host runs locally" "local ran a" "$OUT"
+has "a failed idle probe is announced as unreachable" "compute host unreachable" "$ERR"
+for raw in '' 'load=0.5 cores=16' 'idle_secs=abc' 'idle_secs=-5' 'idle_secs=1.5'; do
+  FAKE_CAP_RAW=$raw run --check -- "$tmp/lcmd" a
+  assert_eq "a malformed capacity line ('$raw') on a shared host runs locally" "local ran a" "$OUT"
 done
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 60\n' >"$local_cfg"
-FAKE_HID_NS=120000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a lowered threshold admits input older than it" "remote ran" "$OUT"
-FAKE_HID_NS=60000000000 run --check -- "$tmp/lcmd" a
-assert_eq "input exactly the threshold ago counts as idle" "remote ran" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: abc\n' >"$local_cfg"
-FAKE_HID_NS=300000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a malformed threshold reads as the default" "local ran a" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 10000000000\n' >"$local_cfg"
-FAKE_HID_NS=1000000000 run --check -- "$tmp/lcmd" a
-assert_eq "an overlong threshold reads as the default, never an overflow" "local ran a" "$OUT"
-FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
-assert_eq "an overlong threshold admits input older than the default" "remote ran" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 99999999\n' >"$local_cfg"
-FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
-assert_eq "the largest accepted threshold is kept, not reset to the default" "local ran a" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 100000000\n' >"$local_cfg"
-FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a nine-digit threshold reads as the default" "remote ran" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 3600\n' >"$local_cfg"
-FAKE_HID_NS=1800000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a raised threshold turns away input younger than it" "local ran a" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0\n' >"$local_cfg"
-FAKE_HID_NS=1000000000 FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
-assert_eq "threshold 0 turns the in-use probe off" "remote ran" "$OUT"
-case $LOG in *inuse*) fail "threshold 0 never asks the in-use probe" ;; *) ok "threshold 0 never asks the in-use probe" ;; esac
-printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0600\n' >"$local_cfg"
-FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a zero-padded threshold reads as the default" "remote ran" "$OUT"
-FAKE_HID_NS=500000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a zero-padded threshold 0600 is never read as octal (384s)" "local ran a" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_account: alice\n' >"$local_cfg"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=alice FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
-assert_eq "the account knob names the fleet console user" "remote ran" "$OUT"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=fleet FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
-assert_eq "the account knob outranks the ssh login" "local ran a" "$OUT"
-printf 'fleet_compute_host: mac\nfleet_compute_account: a/b\n' >"$local_cfg"
-FAKE_HID_NS=3600000000000 FAKE_CONSOLE=fleet FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
-assert_eq "a malformed account knob reads as the ssh login" "remote ran" "$OUT"
+printf 'host other account=fleet ceiling=2 shared=yes\n' >"$reg"
+FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
+assert_eq "a host missing from the registry is not shared" "remote ran" "$OUT"
+printf 'host mac account=fleet\n' >"$reg"
+run --check -- "$tmp/lcmd" a
+assert_eq "a registry the helper refuses runs locally" "local ran a" "$OUT"
+has "and names the registry" "host registry" "$ERR"
 printf 'fleet_compute_host: mac\n' >"$local_cfg"
+FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
+assert_eq "with no registry configured no host is shared" "remote ran" "$OUT"
 
 # Targets the channel would refuse, and out-of-range knobs, never reach it as is.
 run --task 'a.b' -- "$tmp/lcmd" a

@@ -602,31 +602,6 @@ assert_eq "load exits 0" 0 "$CODE"
 case $OUT in [0-9]*" 8") ok "load prints the load and the core count" ;; *) fail "load prints the load and the core count ($OUT)" ;; esac
 rm -f "$bin/getconf"
 
-# the inuse verb reports HID idle time, the console owner and the login.
-cat >"$bin/ioreg" <<'IOREG'
-#!/bin/sh
-echo '    | |   "HIDIdleTime" = 4200000000'
-IOREG
-printf '#!/bin/sh\necho alice\n' >"$bin/stat"
-chmod +x "$bin/ioreg" "$bin/stat"
-run --host mac inuse
-assert_eq "inuse exits 0" 0 "$CODE"
-assert_eq "inuse prints idle ns, console user and login" "4200000000 alice $(id -un)" "$OUT"
-cat >"$bin/ioreg" <<'IOREG'
-#!/bin/sh
-echo '    | |   "HIDIdleTime" = abc'
-IOREG
-printf '#!/bin/sh\necho "a b"\n' >"$bin/stat"
-run --host mac inuse
-assert_eq "unparseable readings print as -" "- - $(id -un)" "$OUT"
-printf '#!/bin/sh\n:\n' >"$bin/ioreg"
-printf '#!/bin/sh\nexit 1\n' >"$bin/stat"
-run --host mac inuse
-assert_eq "missing readings print as -" "- - $(id -un)" "$OUT"
-rm -f "$bin/ioreg" "$bin/stat"
-run --host mac inuse extra
-assert_eq "inuse takes no arguments" 2 "$CODE"
-
 # (c) a run that leaves a read-only directory is still removed.
 run_in "$lrepo" compute --test tests/test-ro.sh
 assert_eq "a run leaving a read-only directory exits 0" 0 "$CODE"

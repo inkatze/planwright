@@ -52,10 +52,6 @@ Verbs (each runs on the remote host, through its own planwright and tools):
                                 "unavailable", never zero
   load                          print the remote's one-minute load average
                                 and core count, one line, for a placement check
-  inuse                         print "<HID idle ns> <console user> <login>"
-                                (HIDIdleTime from ioreg -c IOHIDSystem and the
-                                /dev/console owner, each "-" when the remote
-                                has none; login is the account ssh ran as)
   compute [--worktree <abs-dir>] (--check | --task <name> | --test <tests/test-x.sh>)
           [--timeout <secs>]    push the worktree's HEAD commit (never its
                                 uncommitted changes; every object the remote
@@ -180,7 +176,7 @@ worker_ok() {
 }
 stdin_verb=0
 case $verb in
-  root | load | inuse | version | capacity)
+  root | load | version | capacity)
     [ $# -eq 0 ] || usage
     ;;
   stop)
@@ -470,16 +466,6 @@ if [ "$verb" = load ]; then
     exit 3
   fi
   printf '%s %s\n' "$fr_load" "$fr_cores"
-  exit 0
-fi
-if [ "$verb" = inuse ]; then
-  fr_hid=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/"HIDIdleTime"/ { print $NF; exit }')
-  fr_con=$(stat -f %Su /dev/console 2>/dev/null) || fr_con=''
-  fr_me=$(id -un 2>/dev/null) || fr_me=''
-  case $fr_hid in '' | *[!0-9]*) fr_hid=- ;; esac
-  case $fr_con in '' | *[!A-Za-z0-9._-]*) fr_con=- ;; esac
-  case $fr_me in '' | *[!A-Za-z0-9._-]*) fr_me=- ;; esac
-  printf '%s %s %s\n' "$fr_hid" "$fr_con" "$fr_me"
   exit 0
 fi
 if [ "$verb" = capacity ]; then
