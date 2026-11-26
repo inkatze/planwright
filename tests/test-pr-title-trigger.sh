@@ -99,6 +99,8 @@ block_body() {
 # `ci-${{ github.ref }}` in another workflow. A flow-mapping `concurrency:` is
 # not read, and fails C3 by name below.
 concurrency_groups() {
+  # q carries the two YAML quote characters so the single-quoted awk program
+  # below never has to contain one.
   {
     uncommented "$1" | sed -n 's/^[[:space:]]*concurrency:[[:space:]]*\([^[:space:]{].*\)$/group: \1/p'
     block_body "$1" concurrency mark
@@ -240,7 +242,8 @@ for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
     fail "C3 ${wf#"$REPO_ROOT"/} declares a flow-mapping concurrency block, which
     this reader does not parse; write it as a block mapping"
   fi
-  [ -n "$(concurrency_groups "$wf")" ] && group_files=$((group_files + 1))
+  wf_groups="$(concurrency_groups "$wf")"
+  [ -n "$wf_groups" ] && group_files=$((group_files + 1))
   # Fed by here-doc rather than a pipe: a `while read` on the right-hand side
   # of a pipe runs in a subshell, and the counter and failure tally raised in
   # the body would be discarded with it.
@@ -257,7 +260,7 @@ for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
     groups="$groups
 $g_fold"
   done <<EOF
-$(concurrency_groups "$wf")
+$wf_groups
 EOF
 done
 
