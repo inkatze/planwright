@@ -44,6 +44,9 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/w
 expect_no_out "the walk holds it for no cadence" "fail${tab}cadence"
 expect_no_out "nor for a gate-data step" "fail${tab}step"
 expect_out "while the guard still binds" "fail${tab}guard${tab}ready-guard"
+SP_TOTAL=140 spec_pr "$sh_ready" specs/demo/requirements.md specs/demo/design.md specs/_observations/entries/e.md
+hasnt "a file list short of the forge's count is no spec-only scope" "scope${tab}"
+has "and is marked truncated" "truncated${tab}files"
 printf '# Specs\n' >"$repo/specs/README.md"
 sh_ready=$(commit_specs)
 spec_pr "$sh_ready" specs/_observations/entries/e.md specs/README.md
