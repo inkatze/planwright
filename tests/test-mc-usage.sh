@@ -88,7 +88,7 @@ exit 0
 SHIM
 chmod +x "$tmp/bin/claude"
 export PATH="$tmp/bin:$PATH" SHIM_DIR="$tmp/shim" SHIM_OWNER=$$
-write_tracked() { # write_tracked [<extra line>]
+write_tracked() { # write_tracked [<extra lines>]
   cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
 program_alpha_repositories: [$repo]

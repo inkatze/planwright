@@ -339,7 +339,8 @@ pass "a reading exactly at its threshold is above it"
 new_home malformed
 put a $((NOW - 60)) 0.80 $((NOW + HOUR)) 0.10 $((NOW + 86400))
 for bad in 'fleet_usage_session_downshift: 90' 'fleet_usage_weekly_downshift: 150' \
-  'fleet_usage_weekly_defer_all: 80'; do
+  'fleet_usage_weekly_defer_all: 80' 'fleet_usage_weekly_reduce_concurrency: 60' \
+  "$(printf 'fleet_usage_weekly_reduce_concurrency: 100\nfleet_usage_weekly_defer_heavy: 90')"; do
   printf '%s\n' "$bad" >"$local_cfg"
   rc=0
   out=$(cf clearance --since "$SINCE" --now "$NOW" 2>/dev/null) || rc=$?
@@ -382,15 +383,7 @@ out=$(cf clearance --since "$SINCE" --now "$NOW" 2>&1) || rc=$?
 [ "$rc" = 1 ] || fail "wall: a weekly reading over its lowest rung cleared with the top rungs at 100 (exit $rc): $out"
 win "$out" weekly | grep -q "${TAB}60${TAB}above$" || fail "wall: parked top rungs moved the weekly threshold off its lowest rung: $out"
 win "$out" session | grep -q "${TAB}50${TAB}below$" || fail "wall: parked session top rungs moved the session threshold off its lowest rung: $out"
-for bad in "$(printf 'fleet_usage_weekly_reduce_concurrency: 100\nfleet_usage_weekly_defer_heavy: 90')" \
-  'fleet_usage_weekly_reduce_concurrency: 60'; do
-  printf '%s\n' "$bad" >"$local_cfg"
-  rc=0
-  out=$(cf clearance --since "$SINCE" --now "$NOW" 2>/dev/null) || rc=$?
-  : >"$local_cfg"
-  [ "$rc" = 4 ] || fail "wall: '$bad' exited $rc, not 4: $out"
-done
-pass "rungs at 100 may share the wall; other repeats and descents are refused"
+pass "rungs at 100 may repeat, still trip at the wall, and leave the lowest rung in place"
 
 # Two workers storing a frame in the same second see the same reset; the
 # higher reading wins whichever directory find lists first, so the tie can
