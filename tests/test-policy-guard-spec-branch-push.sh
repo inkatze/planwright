@@ -325,6 +325,25 @@ fi
 am "git push origin HEAD:refs/heads/$SB"
 push_ok "[worker, spec worktree] two merges of main in a row push"
 
+echo "# the spec-rework branch refuses what the amendment branch does"
+rec "unit_branch=$MYFL" "spec_branch=$RW"
+at_pr_head "$KO" "$RW"
+gitq -C "$KO" merge -q --no-commit --no-ff origin/main
+commit_file "$KO" specs/demo/requirements.md 'edited inside the merge'
+ko "git push origin HEAD:refs/heads/$RW"
+expect deny "[worker, spec_branch=$RW] a merge carrying an edit denies"
+reason_has 'clean merge' "[worker, spec_branch=$RW] the refusal names the clean merge"
+merged "$KO" "$RW"
+commit_file "$KO" README.md 'a commit after the merge'
+ko "git push origin HEAD:refs/heads/$RW"
+expect deny "[worker, spec_branch=$RW] a plain commit on top of a clean merge denies"
+merged "$KO" "$RW"
+PLANWRIGHT_WORKER_SESSION_RECORD=$NOREC pg worker "git push origin HEAD:refs/heads/$RW" "$KO" "$KO"
+rule_denies "[worker, no spec_branch] the clean merge pushed from the spec-rework worktree denies"
+ko "git push --force origin HEAD:refs/heads/$RW"
+expect deny "[worker, spec_branch=$RW] a forced push denies"
+rec "unit_branch=$MYFL" "spec_branch=$SB"
+
 echo "# worker_base_merge deny refuses the push"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: deny' 'unpushed_rewrite: allow'
 am "git push origin HEAD:refs/heads/$SB"
