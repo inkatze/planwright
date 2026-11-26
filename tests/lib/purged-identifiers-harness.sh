@@ -110,14 +110,3 @@ seed_into() {
   printf '%s\n' "$@" \
     | (cd "$repo" && "$SEEDER" >/dev/null 2>&1)
 }
-
-# wired_repo <name> — a fixture repo carrying this branch's githooks/ and the
-# scanner beside them, wired the way scripts/wire-githooks.sh wires a clone.
-wired_repo() {
-  d="$(new_repo "$1")"
-  mkdir -p "$d/scripts" "$d/config"
-  cp -R "$REPO_ROOT/githooks" "$d/githooks"
-  cp "$SCAN" "$d/scripts/"
-  git -C "$d" config core.hooksPath githooks
-  printf '%s' "$d"
-}

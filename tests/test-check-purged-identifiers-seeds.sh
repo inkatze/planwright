@@ -11,7 +11,7 @@
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
 # shellcheck source=tests/lib/purged-identifiers-harness.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib/purged-identifiers-harness.sh"
+. "$(cd "$(dirname "$0")" && pwd)/lib/purged-identifiers-harness.sh" || exit 1
 
 # ---------------------------------------------------------------------------
 # Seed-file fail-closed posture (REQ-H1.3, REQ-B1.2). Each of these is a

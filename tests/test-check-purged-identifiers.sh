@@ -23,7 +23,7 @@
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 unset CDPATH
 # shellcheck source=tests/lib/purged-identifiers-harness.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib/purged-identifiers-harness.sh"
+. "$(cd "$(dirname "$0")" && pwd)/lib/purged-identifiers-harness.sh" || exit 1
 
 # ---------------------------------------------------------------------------
 # Tree scan: detection, and the report withholding the match.
