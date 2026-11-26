@@ -171,10 +171,9 @@ trap 'stop 129' HUP
 trap 'stop 130' INT
 trap 'stop 143' TERM
 
-# The load probe, bounded by a watchdog: ConnectTimeout covers only the connect
+# Each probe is bounded by a watchdog: ConnectTimeout covers only the connect
 # phase, and a host that accepts the connection and then stalls would hang the
 # gate here instead of passing the host over.
-# probe <verb> <out-file>: one bounded channel call; 0 when it answered.
 probe_run() {
   /bin/sh "$channel" --host "$host" "$1" >"$2" 2>/dev/null </dev/null &
   child=$!
@@ -192,11 +191,13 @@ probe_run() {
   watchdog=''
   return "$_prc"
 }
-unreachable() {
+fall_back() {
   rm -rf "$work"
-  warn "compute host unreachable; running locally"
+  warn "$1; running locally"
+  shift
   run_here "$@"
 }
+unreachable="compute host unreachable"
 
 probe=''
 probe_run load "$work/probe" && probe=$(sed -n '1p' "$work/probe")
@@ -204,34 +205,30 @@ load=${probe%% *}
 cores=${probe#* }
 case $load in '' | *[!0-9.]* | *.*.* | .) probe='' ;; esac
 case $cores in '' | *[!0-9]*) probe='' ;; esac
-[ -n "$probe" ] || unreachable "$@"
+[ -n "$probe" ] || fall_back "$unreachable" "$@"
 if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c > cap) }'; then
-  rm -rf "$work"
-  warn "compute host is busy (load $load on $cores cores, cap $cap per core); running locally"
-  run_here "$@"
+  fall_back "compute host is busy (load $load on $cores cores, cap $cap per core)" "$@"
 fi
 
 # A person at the host's keyboard, or logged in at its console, has the machine.
 if [ "$idle_secs" -gt 0 ]; then
-  probe_run inuse "$work/inuse" || unreachable "$@"
+  probe_run inuse "$work/inuse" || fall_back "$unreachable" "$@"
   hid=''
   console=''
   login=''
   read -r hid console login <"$work/inuse" || :
-  case $hid in '-') ;; '' | *[!0-9]*) unreachable "$@" ;; esac
-  [ -n "$account" ] || account=$login
-  if [ "$hid" != - ] && [ "${hid:-0}" -lt $((idle_secs * 1000000000)) ] 2>/dev/null; then
-    rm -rf "$work"
-    warn "compute host is in use (input within the last ${idle_secs}s, threshold fleet_compute_idle_threshold); running locally"
-    run_here "$@"
+  case $hid in '-') ;; '' | *[!0-9]*) fall_back "$unreachable" "$@" ;; esac
+  for field in "$console" "$login"; do
+    case $field in '' | *[!A-Za-z0-9._-]*) fall_back "$unreachable" "$@" ;; esac
+  done
+  fleet_account=${account:-$login}
+  # HIDIdleTime is nanoseconds; a reading too large for test(1) is long idle.
+  if [ "$hid" != - ] && [ "$hid" -lt $((idle_secs * 1000000000)) ] 2>/dev/null; then
+    fall_back "compute host is in use (input within the last ${idle_secs}s, threshold fleet_compute_idle_threshold)" "$@"
   fi
   case $console in
-    '' | - | root | loginwindow | "$account") ;;
-    *)
-      rm -rf "$work"
-      warn "compute host is in use (console user $console is not the fleet account); running locally"
-      run_here "$@"
-      ;;
+    - | root | loginwindow | "$fleet_account") ;;
+    *) fall_back "compute host is in use (console user $console is not the fleet account)" "$@" ;;
   esac
 fi
 

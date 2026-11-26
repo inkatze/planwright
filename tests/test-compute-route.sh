@@ -47,6 +47,10 @@ case $verb in
     ;;
   inuse)
     [ -z "${FAKE_INUSE_DOWN:-}" ] || exit 255
+    if [ -n "${FAKE_INUSE_RAW+x}" ]; then
+      printf '%s\n' "$FAKE_INUSE_RAW"
+      exit 0
+    fi
     echo "${FAKE_HID_NS:--} ${FAKE_CONSOLE:-fleet} ${FAKE_LOGIN:-fleet}"
     ;;
   compute)
@@ -169,26 +173,48 @@ assert_eq "another console user runs locally" "local ran a" "$OUT"
 has "the console user is named" "console user alice" "$ERR"
 FAKE_HID_NS=3600000000000 FAKE_CONSOLE=root run --check -- "$tmp/lcmd" a
 assert_eq "the login window (root) is not a person" "remote ran" "$OUT"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=loginwindow run --check -- "$tmp/lcmd" a
+assert_eq "the loginwindow console owner is not a person" "remote ran" "$OUT"
+FAKE_HID_NS=- FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
+assert_eq "with no HID reading another console user still runs locally" "local ran a" "$OUT"
+FAKE_LOAD=8 FAKE_CORES=8 run --check -- "$tmp/lcmd" a
+case $LOG in *inuse*) fail "a busy host is never asked the in-use probe" ;; *) ok "a busy host is never asked the in-use probe" ;; esac
 FAKE_INUSE_DOWN=1 run --check -- "$tmp/lcmd" a
 assert_eq "a failed in-use probe falls back like an unreachable host" "local ran a" "$OUT"
 has "and is announced as unreachable" "compute host unreachable" "$ERR"
+for raw in '' 'abc fleet fleet' '3600000000000 fleet' '3600000000000 fleet fleet extra' '3600000000000 a/b fleet'; do
+  FAKE_INUSE_RAW=$raw run --check -- "$tmp/lcmd" a
+  assert_eq "a malformed in-use reading ('$raw') runs locally" "local ran a" "$OUT"
+  has "and is announced as unreachable ('$raw')" "compute host unreachable" "$ERR"
+done
 printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 60\n' >"$local_cfg"
 FAKE_HID_NS=120000000000 run --check -- "$tmp/lcmd" a
 assert_eq "a lowered threshold admits input older than it" "remote ran" "$OUT"
+FAKE_HID_NS=60000000000 run --check -- "$tmp/lcmd" a
+assert_eq "input exactly the threshold ago counts as idle" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: abc\n' >"$local_cfg"
+FAKE_HID_NS=300000000000 run --check -- "$tmp/lcmd" a
+assert_eq "a malformed threshold reads as the default" "local ran a" "$OUT"
 printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 3600\n' >"$local_cfg"
 FAKE_HID_NS=1800000000000 run --check -- "$tmp/lcmd" a
 assert_eq "a raised threshold turns away input younger than it" "local ran a" "$OUT"
 printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0\n' >"$local_cfg"
 FAKE_HID_NS=1000000000 FAKE_CONSOLE=alice run --check -- "$tmp/lcmd" a
 assert_eq "threshold 0 turns the in-use probe off" "remote ran" "$OUT"
+case $LOG in *inuse*) fail "and the probe is never asked" ;; *) ok "and the probe is never asked" ;; esac
 printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 0600\n' >"$local_cfg"
 FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
-assert_eq "a zero-padded threshold reads as the default, never octal" "remote ran" "$OUT"
-FAKE_HID_NS=300000000000 run --check -- "$tmp/lcmd" a
-assert_eq "and the default 600 still turns away input younger than it" "local ran a" "$OUT"
+assert_eq "a zero-padded threshold reads as the default" "remote ran" "$OUT"
+FAKE_HID_NS=500000000000 run --check -- "$tmp/lcmd" a
+assert_eq "never as octal 0600 (384s)" "local ran a" "$OUT"
 printf 'fleet_compute_host: mac\nfleet_compute_account: alice\n' >"$local_cfg"
 FAKE_HID_NS=3600000000000 FAKE_CONSOLE=alice FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
 assert_eq "the account knob names the fleet console user" "remote ran" "$OUT"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=fleet FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
+assert_eq "and outranks the ssh login" "local ran a" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_account: a/b\n' >"$local_cfg"
+FAKE_HID_NS=3600000000000 FAKE_CONSOLE=fleet FAKE_LOGIN=fleet run --check -- "$tmp/lcmd" a
+assert_eq "a malformed account knob reads as the ssh login" "remote ran" "$OUT"
 printf 'fleet_compute_host: mac\n' >"$local_cfg"
 
 # Targets the channel would refuse, and out-of-range knobs, never reach it as is.
