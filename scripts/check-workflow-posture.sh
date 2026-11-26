@@ -998,7 +998,7 @@ function plan_gate(t, output) {
 # macOS runs for this event (a push, a ready pull request, or the ci-macos
 # label, never a ready flip reusing a prior run).
 function mac_gate(t) { return plan_gate(t, "mac_run") }
-# The one job-level `if:` the Alpine job may carry: the plan job's verdict
+# The one job-level `if:` an Alpine job may carry: the plan job's verdict
 # that the suite runs, false only when a ready flip reuses a prior run.
 function suite_gate(t) { return plan_gate(t, "suite_run") }
 function platform(t) { return tolower(t) ~ /runner\.os|runner\.arch|matrix\.os|macos|ubuntu|alpine|linux|windows|darwin/ }
