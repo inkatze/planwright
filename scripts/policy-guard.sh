@@ -5725,11 +5725,15 @@ RE_MC_DATA_SCRATCHVAR='^\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)
 RE_MC_DATA_MEMORY='^(~|\$HOME|\$\{HOME\}|/[^$`*?[{]*)/\.c[l]aude/(projects/[^/$`*?[{]+/memory|tasks)/'
 # A word that runs the text it is handed, so quoted text stays in view.
 RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|python3?|perl|ruby|node|xargs|ssh)([^[:alnum:]_-]|$)'
-# A cluster ending in env's -S, whose string runs as a command: the word glued
-# to it (-Scp, -iS'tee f') opens that command, so it bounds a verb's name.
+# A cluster that may end in env's -S, in the screen's opening tests (which only
+# decide whether a command is read at all).
 RE_MC_SPLIT_S='-[A-Za-z]*S'
+# env, past its options and the values -u, -C and -a take, at a cluster
+# ending in its -S with the string glued on (env -Scp, env -iS'tee f'): the
+# string runs as a command (mc_env_split).
+RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSa[:space:]-]*[uCa][[:space:]]+[^[:space:];&|]+|--(u|ch|ar)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^[:space:]]*))*)[[:space:]]+-[A-Za-z]*S[^[:space:]]'
 # A write verb in unparsed text; sed counts only with an in-place flag.
-RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
+RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
 RE_MC_REBIND='(^|[^[:alnum:]_])(eval|printf[[:space:]]+-v|declare|typeset|local|read|mapfile|readarray|unset|source|export[[:space:]]+-n)([^[:alnum:]_]|$)|\$\{!'
 MC_SETTINGS_DENY='mission control writes no settings or configuration file, and this command names one, or could through an expansion, in a form that is not a plain read - refusing. Read it with a plain reader such as cat, grep or jq, and hand a settings change to the operator ready to apply.'
@@ -5771,11 +5775,11 @@ RE_MC_RUNNER_CMD='(^|[;&|(){}!]|'$'\n'')[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[
 # dispatch: a verb missing here is screened bare but not behind a runner. The
 # in-place editors (mc_inplace_targets) have their own text form,
 # RE_MC_INPLACE_*, kept in step with that parser's verbs.
-RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([^[:alnum:]_-]|$)'
+RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-])(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([^[:alnum:]_-]|$)'
 # The same verbs as whole words among a runner's text: a script or file named
 # after a verb (install.sh, sort.py) is no verb.
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([[:space:];&|)`}]|$)'
+RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/])(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([[:space:];&|)`}]|$)'
 MC_UNPARSED_DENY='mission control writes no settings or configuration file, and this command runs a write verb or writer in text the guard cannot parse (a command substitution, say), so it cannot read the target - refusing (fail closed). Run the write in a command of its own, with no substitution.'
 MC_WRAPPED_DENY='mission control writes no settings or configuration file, and this command hands a write verb to another command (behind a wrapper, xargs, a shell or find) whose targets the guard cannot read - refusing (fail closed). Run the write verb on its own with its target spelled out.'
 MC_REPO_DENY='mission control edits no repository, and this command writes a path that lies inside one (read as written and followed on disk, from every directory the command may run in); every change goes through a session it dispatches.'
@@ -6362,6 +6366,19 @@ mc_inplace_unparsed() {
   mc_inplace_text "$MC_RT"
 }
 
+# mc_env_split <text> — in MC_ES, the text with each env -S string glued to
+# its cluster parted off as a word of its own (RE_MC_ENV_SPLIT). Run it outside
+# nocasematch: a lowercase s is no -S, and a word env does not open is no
+# string of its (git log -Scp).
+mc_env_split() {
+  local t=$1 m
+  while [[ $t =~ $RE_MC_ENV_SPLIT ]]; do
+    m=${BASH_REMATCH[0]}
+    t=${t/"$m"/"${m%?} ${m: -1}"}
+  done
+  MC_ES=$t
+}
+
 # mc_inplace_text <text> [word] — 0 when the text, its quotes and escapes
 # dropped, runs an in-place editor (RE_MC_INPLACE_*_TOOL): in command position
 # (RE_MC_INPLACE_LEAD), or with `word` as any word (RE_MC_INPLACE_WORD_LEAD).
@@ -6376,12 +6393,8 @@ mc_inplace_text() {
   fi
   re='(^|[;&|(){}[:space:]])case[[:space:]]'
   [[ $t =~ $re ]] && t=${t//[)]/;}
-  # env's -S string, glued to its cluster, is a word of its own. This test
-  # stays in its letter case: a lowercase s is no -S.
-  re='(^|[[:space:]])('$RE_MC_SPLIT_S')([^[:space:]])'
-  while [[ $t =~ $re ]]; do
-    t=${t/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}${BASH_REMATCH[2]} ${BASH_REMATCH[3]}"}
-  done
+  mc_env_split "$t"
+  t=$MC_ES
   re=$lead$RE_MC_INPLACE_PERL_TOOL
   [[ $t =~ $re ]] && return 0
   shopt -s nocasematch
@@ -7847,8 +7860,9 @@ mc_settings_screen() {
     *)
       if [ "$named" = 0 ]; then
         k=1
+        mc_env_split "${t//[\"\'\\]/}"
         shopt -s nocasematch
-        [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_INPLACE_NAMES ]] && k=0
+        [[ $MC_ES =~ $RE_MC_WRITE_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_INPLACE_NAMES ]] && k=0
         shopt -u nocasematch
         [ "$k" = 0 ] || return 0
         k=0
@@ -7923,9 +7937,10 @@ mc_settings_screen() {
         # a shell or runner the compound holds on an earlier line.
         re='(^|[;&|])[[:space:]]*([})]|done|fi|esac)([[:space:]&<>][^;|]*)?<<<'
         if [[ $w =~ $RE_MC_INTERPRETER || $w =~ $RE_MC_RUNNER_CMD ]]; then
+          mc_env_split "${t//[\"\'\\]/}"
           shopt -s nocasematch
           k=1
-          [[ ${t//[\"\'\\]/} =~ $RE_MC_RUNNER_WORDS ]] && k=0
+          [[ $MC_ES =~ $RE_MC_RUNNER_WORDS ]] && k=0
           shopt -u nocasematch
           [ "$k" = 1 ] || emit_deny "$MC_WRAPPED_DENY"
           ! mc_inplace_text "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
@@ -8007,7 +8022,9 @@ XEOF_RUN
         esac
         ;;
     esac
-    [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
+    mc_env_split "${t//[\"\'\\]/}"
+    local es=$MC_ES
+    [[ $es =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
     ! mc_inplace_unparsed "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
     # link(1) makes a hard link, to a link too; prose says "link", so only a
     # statement it opens counts.
@@ -8018,7 +8035,7 @@ XEOF_RUN
     re='(^|[^[:alnum:]_.-])((sort|c[u]rl)[^;&|]*[[:space:]](-[A-Za-z]*o|--output)|w[g]et[^;&|]*[[:space:]](-[A-Za-z]*[OP]|--output-document|--directory-prefix)|(g?tar|unzip)([^[:alnum:]_-]|$))'
     shopt -s nocasematch
     k=1
-    [[ ${t//[\"\'\\]/} =~ $re ]] && k=0
+    [[ $es =~ $re ]] && k=0
     shopt -u nocasematch
     [ "$k" = 1 ] || emit_deny "$MC_UNPARSED_DENY"
     mc_copy_hazard 0
@@ -8036,7 +8053,8 @@ XEOF_RUN
     # shellcheck disable=SC2016 # literal patterns
     case ${W[$k]} in
       *'$('* | *'`'*)
-        [[ ${W[$k]//[\"\'\\]/} =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
+        mc_env_split "${W[$k]//[\"\'\\]/}"
+        [[ $MC_ES =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
         ! mc_inplace_text "${W[$k]}" || emit_deny "$MC_REPO_WRAPPED_DENY"
         ;;
     esac
@@ -8135,7 +8153,7 @@ XEOF_RUN
             case $w in
               -S* | -[!-]*S*)
                 ! mc_inplace_text "${w#*S}" || emit_deny "$MC_REPO_WRAPPED_DENY"
-                # The glued string hides a write verb from the word scan below.
+                # A string glued to any runner's -S cluster counts too.
                 shopt -s nocasematch
                 [[ " ${w#*S} " =~ $RE_MC_RUNNER_WORDS ]] && emit_deny "$MC_WRAPPED_DENY"
                 shopt -u nocasematch
@@ -8157,6 +8175,8 @@ XEOF_RUN
         ;;
       esac
       m=1
+      mc_env_split "$c"
+      c=$MC_ES
       shopt -s nocasematch
       [[ $c =~ $RE_MC_RUNNER_WORDS ]] && m=0
       shopt -u nocasematch
