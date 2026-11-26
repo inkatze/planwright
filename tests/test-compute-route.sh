@@ -204,6 +204,9 @@ FAKE_HID_NS=1000000000 run --check -- "$tmp/lcmd" a
 assert_eq "an overlong threshold reads as the default, never an overflow" "local ran a" "$OUT"
 FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
 assert_eq "an overlong threshold admits input older than the default" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 99999999\n' >"$local_cfg"
+FAKE_HID_NS=700000000000 run --check -- "$tmp/lcmd" a
+assert_eq "the largest accepted threshold is kept, not reset to the default" "local ran a" "$OUT"
 printf 'fleet_compute_host: mac\nfleet_compute_idle_threshold: 3600\n' >"$local_cfg"
 FAKE_HID_NS=1800000000000 run --check -- "$tmp/lcmd" a
 assert_eq "a raised threshold turns away input younger than it" "local ran a" "$OUT"
