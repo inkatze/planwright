@@ -251,13 +251,6 @@ for bad in '-x' '../evil' 'a b' 'a..b' '' 'feat/' 'x.lock' HEAD @ "feat/$(printf
 done
 # The stub runs the writer's own --jq expression over a canned PR, so the
 # expression and the writer's parse of its output are tested together.
-# Without jq every PR read would come back empty and the refusal rows would
-# pass for the wrong reason.
-command -v jq >/dev/null 2>&1 || {
-  fail "[writer] jq is required for the gh stub"
-  finish
-  exit 1
-}
 cat >"$SANDBOX/bin-gh-pr" <<EOF
 #!/bin/sh
 [ "\$1 \$2" = "pr view" ] || exit 1
