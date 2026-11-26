@@ -14,7 +14,7 @@
 #
 # Exit 0 ONLY when every branch is outside the set; every other exit refuses the
 # act: 1 protected, 2 usage or an invalid branch name, 4 a malformed set, and
-# 5 any other read failure (a broken install). The clear answer is the zero
+# 5 any other read or tool failure (a broken install). The clear answer is the zero
 # exit so a caller that tests only for success fails closed.
 set -uf
 
@@ -35,15 +35,20 @@ fi
   exit 2
 }
 
-# fold <text> — set FOLDED to the text case-folded on both sides, as the tower
-# queue's push screen folds it: `Main` is `main` on a case-insensitive
-# filesystem, and over-refusing is the safe direction. A tr that fails or
-# prints nothing would fold every name to empty and match no entry, so it is a
-# broken install.
+# fold <text> — set FOLDED to the text case-folded. Names and entries both
+# fold, as the tower queue's push screen folds them: `Main` is `main` on a
+# case-insensitive filesystem, and over-refusing is the safe direction. A tr
+# that fails, or prints less than it was given, would fold a name short of
+# itself or to empty and match no entry, so it is a broken install. The
+# sentinel keeps trailing newlines, so the lengths compare.
 fold() {
-  if FOLDED=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') && { [ -n "$FOLDED" ] || [ -z "$1" ]; }; then
-    return 0
-  fi
+  FOLDED=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || FOLDED=''
+  case $FOLDED in
+    *x)
+      FOLDED=${FOLDED%x}
+      [ "${#FOLDED}" != "${#1}" ] || return 0
+      ;;
+  esac
   printf '%s\n' "protected-branch: tr could not case-fold a name (broken install); refusing" >&2
   exit 5
 }

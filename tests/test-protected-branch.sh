@@ -273,22 +273,37 @@ with_layers /bin/sh "$dirhelper/protected-branch.sh" feature-x >/dev/null 2>&1 |
 [ "$rc" = 5 ] || fail "broken install: an echo-safety.sh directory exited $rc, expected 5"
 echo "ok: an echo-safety.sh directory is a broken install (exit 5)"
 
-# A tr that fails, or prints nothing, folded every name to empty, which matched
-# no entry and answered "unprotected"; it is a broken install instead.
-for kind in fails empty; do
+# A tr that fails, prints nothing, or prints less would fold a name short of
+# itself and match no entry, answering "unprotected"; it is a broken install
+# instead. The last stub folds names but drops the set's entries.
+real_tr=$(command -v tr)
+for kind in fails empty truncates entry-only; do
   mkdir -p "$tmp/tr-$kind"
+  # shellcheck disable=SC2016 # the stubs' own text, expanded when they run
   case $kind in
     fails) printf '#!/bin/sh\nexit 1\n' >"$tmp/tr-$kind/tr" ;;
     empty) printf '#!/bin/sh\ncat >/dev/null\n' >"$tmp/tr-$kind/tr" ;;
+    truncates) printf '#!/bin/sh\n%s "$@" | head -c 2\n' "$real_tr" >"$tmp/tr-$kind/tr" ;;
+    entry-only) printf '#!/bin/sh\nin=$(cat)\ncase $in in main) exit 1 ;; esac\nprintf %%s "$in" | %s "$@"\n' "$real_tr" >"$tmp/tr-$kind/tr" ;;
   esac
   chmod +x "$tmp/tr-$kind/tr"
   for b in main Main feature-x refs/heads/main; do
     rc=0
-    PATH="$tmp/tr-$kind:$PATH" pb "$b" >/dev/null 2>&1 || rc=$?
+    err=$(PATH="$tmp/tr-$kind:$PATH" pb "$b" 2>&1 >/dev/null) || rc=$?
     [ "$rc" = 5 ] || fail "a tr that $kind: '$b' exited $rc, expected 5"
+    case $err in
+      *"tr could not case-fold"*) ;;
+      *) fail "a tr that $kind: '$b' did not name the fold failure: $err" ;;
+    esac
   done
 done
-echo "ok: a tr that fails or prints nothing is a broken install (exit 5)"
+echo "ok: a tr that fails, prints nothing, or prints less is a broken install (exit 5)"
+nl_name=$(printf '\nx')
+nl_name=${nl_name%x}
+rc=0
+pb "$nl_name" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "a newline-only name exited $rc, expected 2 (an invalid name, not a broken install)"
+echo "ok: a newline-only name is an invalid name, not a fold failure"
 
 [ ! -s "$host_log" ] || fail "a host call was made: $(cat "$host_log")"
 echo "ok: no host call in the stubbed call log"
