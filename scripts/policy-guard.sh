@@ -8219,8 +8219,9 @@ XEOF_RUN
         else
           w=${w//[\"\'\\]/}
         fi
-        # The command found is vetted by its operands below; xargs's is not.
-        if [ "$k" != 0 ] && [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ]; then
+        # The command found is vetted by its operands below; xargs's is not,
+        # nor a word past env's -S string, whose command the string names.
+        if [ "$k" != 0 ] && [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ] && [ "$envsi" -lt 0 ]; then
           lc "$w"
           [[ " ${LC##*/} " =~ $RE_MC_RUNNER_WORDS ]] && w=CMD
         fi
