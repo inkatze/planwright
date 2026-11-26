@@ -1,7 +1,7 @@
 # Human gates — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -697,6 +697,42 @@ every surface it restates exists.
 - **Dependencies:** 21
 - **Citations:** D-27 · REQ-F1.9, REQ-F1.11
 - **Estimated effort:** 4 hours
+
+### Task 23 — The spec-branch route in the doctrine and the worker profile
+
+- **Deliverables:** `doctrine/human-gates.md`'s spec-branch push row
+  naming the sign-off, amendment and spec-rework branches and limiting a
+  worker's route to clean merges of the PR base, citing REQ-E1.4 and
+  mission-control REQ-I1.11, and its base-merge row's base-merge-only
+  clause, starting only after mission-control's builds (pull requests 1140
+  and 1155) have both merged, so their text and this one are one and the
+  guard already refuses what the profile stops denying;
+  `config/worker-settings.json` with the sign-off branch's plain-push
+  denies replaced by deletion-only ones and a fail-closed suffix, worded
+  for a worker, added to the worker's policy-guard hooks; the REQ-G1.13
+  fixture rows for the worker tier's spec-branch pushes;
+  `docs/getting-started.md`'s sentence on the profile's spec-branch push
+  denies corrected;
+  `docs/options-reference.md` and `docs/permission-matcher-model.md`
+  stating that `worker_base_merge` governs the route, with the latter's
+  sentence that the worker profile holds spec-branch writes as denies
+  corrected, and the profile's `_about` text matching.
+- **Done when:** the doctrine test finds the row naming all three branches
+  and both citations; the cross-copy fixture test shows the worker profile
+  no longer denies a plain push of the sign-off branch and still denies
+  its deletion spellings, and that the guard refuses a spec-branch push or
+  deletion by a worker with no record;
+  `tests/test-worker-settings-hook-wiring.sh` shows a push is refused when
+  the guard hook cannot run; the doctrine, profile and fail-closed checks
+  each fail first against main;
+  `check-instructions.sh` and `mise run check` pass. The guard cases (the
+  recorded branch's clean merge push admitted; no record, another record,
+  force, non-merge and hand-resolved commits refused; `deny` refusing both
+  acts; a conflict leaving the push refused) are verified by
+  mission-control's REQ-I1.11 tests, not here.
+- **Dependencies:** 22
+- **Citations:** D-28 · REQ-E1.4, REQ-G1.9, REQ-G1.13, REQ-A1.6
+- **Estimated effort:** 3 hours
 
 ## Awaiting input
 

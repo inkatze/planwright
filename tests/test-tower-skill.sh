@@ -525,6 +525,42 @@ else
   ok "no absolute survival claim"
 fi
 
+# --- the activation handshake runs the tower spelling (fleet-hardening REQ-I1.4)
+# A spelling that is not the whole command marks nothing, so the skill must
+# carry the tower one exactly, and never the orchestrate (bare) one.
+tower_spelling='scripts/tower-session.sh activate tower'
+runs_tower_spelling() { printf '%s' "$1" | grep -qF -- "$tower_spelling"; }
+# runs_bare_spelling <text>: an activate left over once every whole tower
+# spelling is masked out.
+runs_bare_spelling() { printf '%s' "$1" | sed -E 's/tower-session\.sh activate tower([^A-Za-z0-9_-]|$)/tower-session.sh TOWER\1/g' | grep -q 'tower-session\.sh activate'; }
+if runs_tower_spelling "$flat"; then
+  ok "the skill runs the tower handshake spelling"
+else
+  fail "the skill does not run '$tower_spelling'"
+fi
+if runs_bare_spelling "$flat"; then
+  fail "the skill runs the bare (orchestrate) handshake spelling"
+else
+  ok "the skill runs no bare handshake spelling"
+fi
+if runs_tower_spelling 'run scripts/tower-session.sh activate'; then
+  fail "probe: the bare spelling is accepted as the tower one"
+else
+  ok "probe: the bare spelling is not the tower one"
+fi
+for probe in 'run scripts/tower-session.sh activate`.' 'run scripts/tower-session.sh activate the session' 'run scripts/tower-session.sh activate towers'; do
+  if runs_bare_spelling "$probe"; then
+    ok "probe: a bare spelling is caught: $probe"
+  else
+    fail "probe: a bare spelling is missed: $probe"
+  fi
+done
+if runs_bare_spelling 'run scripts/tower-session.sh activate tower here'; then
+  fail "probe: the tower spelling is taken for a bare one"
+else
+  ok "probe: the tower spelling is not taken for a bare one"
+fi
+
 # --- self-check: the vacuity probes --------------------------------------------
 # Each probe feeds a deliberately violating string through the same predicate
 # the live check uses and expects it to be caught, so a check that would pass
