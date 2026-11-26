@@ -710,7 +710,7 @@ alpine_smoke_block="$(job_block alpine-smoke)"
     "su suite -c '/bin/sh scripts/install-smoke.sh'"
   assert_not_contains "the Alpine smoke job is not sharded" "$alpine_smoke_block" "matrix:"
   suite_image="$(printf '%s\n' "$alpine_block" | grep -m1 'image: alpine')"
-  assert_contains "the Alpine suite names a digest-pinned image" "$suite_image" 'image: alpine:'
+  assert_contains "the Alpine suite names an Alpine image" "$suite_image" 'image: alpine:'
   assert_contains "the Alpine suite's image is pinned by digest" "$suite_image" '@sha256:'
   assert_contains "the Alpine smoke runs on the suite's pinned image" "$alpine_smoke_block" "$suite_image"
   assert_contains "the Alpine smoke asserts dash is /bin/sh" "$alpine_smoke_block" 'test "$(readlink -f /bin/sh)" = /usr/bin/dash'
