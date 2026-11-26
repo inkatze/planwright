@@ -246,6 +246,24 @@ git -C "$wt" branch -m planwright/flight/demo-0123abcd
 catalog "show|kind: command|target: $bin/show.sh"
 config 'steps_pre_pr: [show]'
 
+# A session rendering a skill or prompt step's preamble with no worktree
+# exported gets the context git knows; outside a work tree it stays empty.
+RS="$repo_root/scripts/resolve-steps.sh"
+got=$(cd "$wt" && bare_ctx "$RS" pre-pr --preamble 2>"$tmp/err")
+printf '%s\n' "$got" | grep -qx "PLANWRIGHT_STEP_WORKTREE=$wtp" \
+  && printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' \
+  && printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=main' \
+  && printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=flight'
+verdict $? "the preamble with no worktree exported carries the worktree, branch, base and kind" "got: $got err: $(cat "$tmp/err")"
+(cd "$wt" && bare_ctx env PLANWRIGHT_STEP_BRANCH=elsewhere "$RS" pre-pr --preamble >"$tmp/out" 2>"$tmp/err")
+rc=$?
+[ "$rc" -eq 6 ] && grep -q elsewhere "$tmp/err" && grep -q 'planwright/flight/demo-0123abcd' "$tmp/err"
+verdict $? "a preamble whose exported branch disagrees with git exits 6 naming both" "rc $rc err: $(cat "$tmp/err")"
+mkdir -p "$tmp/nogit"
+got=$(cd "$tmp/nogit" && bare_ctx "$RS" pre-pr --preamble 2>"$tmp/err")
+printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_WORKTREE=' && printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_BRANCH='
+verdict $? "a preamble rendered outside a work tree leaves those fields empty" "got: $got err: $(cat "$tmp/err")"
+
 # A refusal never prints a control byte an exported value carried.
 esc=$(printf '\033')
 bare_ctx env PLANWRIGHT_STEP_BRANCH="bad${esc}[31mname" "$SR" --worktree "$wt" new-run >"$tmp/out" 2>"$tmp/err"

@@ -1363,8 +1363,10 @@ got=$(eval "$OUT sh -c 'printf %s \"\$PLANWRIGHT_STEP_PREV_RECORD\"'")
 [ "$got" = "it's here" ]
 verdict "the rendered prefix round-trips through a POSIX shell" "prefix round-trip: got '$got'"
 # An absent field renders empty, never unset: with nothing exported every
-# value but the point is the empty string.
-OUT=$(run pre-spec-ready-flip --preamble 2>/dev/null)
+# value but the point is the empty string. Outside a work tree, since inside
+# one the worktree, branch, base and kind are filled from git.
+mkdir -p "$tmp/nogit"
+OUT=$(cd "$tmp/nogit" && run pre-spec-ready-flip --preamble 2>/dev/null)
 printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=' \
   && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_TASK_IDS=' \
   && printf '%s\n' "$OUT" | grep -qx 'PLANWRIGHT_STEP_POINT=pre-spec-ready-flip' \

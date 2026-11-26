@@ -1,8 +1,9 @@
 # shellcheck shell=sh
 # step-context.sh — sourced, never run: fills the step-context variables git
 # already knows when the caller left them unset, and refuses one a caller
-# exported that disagrees with git. step-run.sh and step-record.sh source it,
-# so a worker runs either bare, with no PLANWRIGHT_STEP_* prefix.
+# exported that disagrees with git. step-run.sh, step-record.sh, and
+# resolve-steps.sh --preamble source it, so a worker runs each bare, with no
+# PLANWRIGHT_STEP_* prefix; each maps the refusal to its own exit code.
 #
 #   step_context_derive <worktree> [<program name for messages>]
 #     <worktree> is the unit's worktree, absolute and canonical.
@@ -52,16 +53,10 @@ step_context_derive() {
   # A directory inside another repository would answer with that repository's
   # branch, so only a worktree that is its own top is asked. The full ref is
   # read because --short turns ambiguous when a tag shares the branch's name.
-  scd_ref=$(
-    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE \
-      GIT_CONFIG_PARAMETERS GIT_CEILING_DIRECTORIES
-    [ "${PW_UNTRUSTED_GIT:-}" = 1 ] || unset GIT_CONFIG_COUNT
-    scd_top=$(git -C "$scd_wt" rev-parse --show-toplevel 2>/dev/null) \
-      && scd_top=$(cd -P -- "$scd_top" 2>/dev/null && pwd -P) \
-      && [ "$scd_top" = "$scd_wt" ] || exit 0
-    git -C "$scd_wt" symbolic-ref -q HEAD 2>/dev/null
-  ) || scd_ref=''
+  scd_ref=''
+  if scd_top=$(step_context_top "$scd_wt") && [ "$scd_top" = "$scd_wt" ]; then
+    scd_ref=$(step_context_git -C "$scd_wt" symbolic-ref -q HEAD 2>/dev/null) || scd_ref=''
+  fi
   scd_branch=''
   case $scd_ref in refs/heads/?*) scd_branch=${scd_ref#refs/heads/} ;; esac
   if [ -n "$scd_branch" ]; then
@@ -98,6 +93,24 @@ step_context_derive() {
   fi
 
   [ -z "$scd_bad" ] && return 0
-  printf '%s\n' "$scd_me:$(printf '%s' "$scd_bad" | tr -d '\000-\037\177\200-\237') an exported value that disagrees with git is refused; unset it or fix it" >&2
+  printf '%s\n' "$scd_me:$(printf '%s' "$scd_bad" | tr -d '\000-\037\177\200-\237') an exported value that disagrees with git is refused; unset or correct it, or the launch record it came from" >&2
   return 2
+}
+
+# step_context_git <args>: git with every inherited variable that would point
+# it at another repository, object store, or config cleared, a guarded
+# caller's driver settings excepted.
+step_context_git() (
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE \
+    GIT_CONFIG_PARAMETERS GIT_CEILING_DIRECTORIES
+  [ "${PW_UNTRUSTED_GIT:-}" = 1 ] || unset GIT_CONFIG_COUNT
+  exec git "$@"
+)
+
+# step_context_top [<dir>]: prints the canonical top of the work tree <dir>
+# (the working directory by default) lies in; fails outside one.
+step_context_top() {
+  sct_top=$(step_context_git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null) || return 1
+  (cd -P -- "$sct_top" 2>/dev/null && pwd -P)
 }

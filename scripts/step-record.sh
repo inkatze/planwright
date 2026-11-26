@@ -1302,7 +1302,7 @@ cmd_write() {
   # A step record resolves an omitted head once the kind and outcome are known.
   if [ "$head_given" -eq 0 ]; then
     begin_head "$run" "$point" "$step" \
-      || bad --head "not given, and the run's begin record for this step holds no full commit id; pass the head the step started on"
+      || bad --head "not given, and the run's begin record for this step is no regular file holding a full commit id; pass the head the step started on"
     if [ -n "$BEGIN_HEAD" ]; then
       names_commit "$BEGIN_HEAD" \
         || bad --head "not given, and the run's begin record for this step names $BEGIN_HEAD, no commit in the worktree's repository; pass the head the step started on"
