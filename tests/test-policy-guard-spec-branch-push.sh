@@ -330,6 +330,11 @@ rec "unit_branch=$MYFL" "spec_branch=$RW"
 at_pr_head "$KO" "$RW"
 gitq -C "$KO" merge -q --no-commit --no-ff origin/main
 commit_file "$KO" specs/demo/requirements.md 'edited inside the merge'
+if [ "$(git -C "$KO" rev-list --count --merges "origin/$RW..HEAD")" = 1 ]; then
+  pass "setup: the spec-rework edited-merge fixture built one merge"
+else
+  fail "setup: the spec-rework edited-merge fixture did not build its merge"
+fi
 ko "git push origin HEAD:refs/heads/$RW"
 expect deny "[worker, spec_branch=$RW] a merge carrying an edit denies"
 reason_has 'clean merge' "[worker, spec_branch=$RW] the refusal names the clean merge"
@@ -337,11 +342,19 @@ merged "$KO" "$RW"
 commit_file "$KO" README.md 'a commit after the merge'
 ko "git push origin HEAD:refs/heads/$RW"
 expect deny "[worker, spec_branch=$RW] a plain commit on top of a clean merge denies"
+reason_has 'not a two-parent merge' "[worker, spec_branch=$RW] the refusal names the non-merge commit"
 merged "$KO" "$RW"
+ko "git push origin HEAD:refs/heads/$RW"
+push_ok "[worker, spec_branch=$RW] control: the clean merge itself pushes"
 PLANWRIGHT_WORKER_SESSION_RECORD=$NOREC pg worker "git push origin HEAD:refs/heads/$RW" "$KO" "$KO"
 rule_denies "[worker, no spec_branch] the clean merge pushed from the spec-rework worktree denies"
 ko "git push --force origin HEAD:refs/heads/$RW"
 expect deny "[worker, spec_branch=$RW] a forced push denies"
+reason_has 'force' "[worker, spec_branch=$RW] the refusal names the force"
+at_pr_head "$KO" "$RW"
+ko 'git merge origin/main'
+expect defer "[worker, spec_branch=$RW] control: the base merge on the spec-rework branch is admitted"
+merged "$KO" "$RW"
 rec "unit_branch=$MYFL" "spec_branch=$SB"
 
 echo "# worker_base_merge deny refuses the push"
@@ -359,9 +372,18 @@ expect deny "[worker, spec_branch=$RW] worker_base_merge deny refuses the spec-r
 reason_has 'worker_base_merge is deny' "[worker, spec_branch=$RW] the refusal names the knob"
 ko 'git merge origin/main'
 expect deny "[worker, spec_branch=$RW] worker_base_merge deny refuses the spec-rework merge"
+reason_has 'worker_base_merge is deny' "[worker, spec_branch=$RW] the merge refusal names the knob"
 rec "unit_branch=$MYFL" "spec_branch=$SB"
 am 'git merge origin/main'
 expect deny "[worker, spec worktree] worker_base_merge deny refuses the amendment merge"
+reason_has 'worker_base_merge is deny' "[worker, spec worktree] the merge refusal names the knob"
+am "git push origin HEAD:refs/heads/$RW"
+rule_denies "[worker, spec worktree] under deny a spec PR branch the record does not name keeps the rule's refusal"
+launch "git push origin HEAD:$MYFL"
+expect defer "[worker] under deny a push of the flight branch is untouched"
+set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: bogus' 'unpushed_rewrite: allow'
+am "git push origin HEAD:refs/heads/$SB"
+expect deny "[worker, spec worktree] a malformed worker_base_merge refuses the merge push"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 am "git push origin HEAD:refs/heads/$SB"
 push_ok "[worker, spec worktree] with the knob back to allow the push is admitted again"
