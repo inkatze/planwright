@@ -132,7 +132,10 @@
 # rendered block to a skill or prompt step's launch prompt or invocation. The
 # block is one field per line, `NAME=value`, between two delimiter lines
 # matched as whole lines; PLANWRIGHT_STEP_POINT is taken from <point>, every
-# other value from the environment, an unset one rendered empty:
+# other value from the environment, an unset one rendered empty; with no
+# worktree exported, inside a git work tree the worktree, branch, base branch,
+# and kind are filled from it as scripts/step-context.sh does (a disagreeing
+# export exits 6):
 #   planwright-step-context-begin
 #   PLANWRIGHT_STEP_SPEC=<spec>
 #   PLANWRIGHT_STEP_TASK_IDS=<ids>
@@ -499,6 +502,22 @@ if [ $((preamble + prefix + line_mode)) -gt 0 ]; then
     done
   fi
   refuse() { die 6 "refused context value in PLANWRIGHT_STEP_$1 ($2); the step fails"; }
+  # A session renders a skill or prompt step's preamble itself, so with no
+  # worktree exported the fields git knows are filled from the work tree it
+  # runs in, as step-run.sh fills them for the prefix and line it renders.
+  if [ "$preamble" -eq 1 ] && [ -z "${PLANWRIGHT_STEP_WORKTREE:-}" ]; then
+    rs_wt=$(
+      unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_CEILING_DIRECTORIES
+      git rev-parse --show-toplevel 2>/dev/null
+    ) && rs_wt=$(cd -P -- "$rs_wt" && pwd -P) || rs_wt=''
+    if [ -n "$rs_wt" ]; then
+      [ -f "$script_dir/step-context.sh" ] && [ -r "$script_dir/step-context.sh" ] \
+        || die 2 "step-context.sh is missing or unreadable (broken install)"
+      # shellcheck source=scripts/step-context.sh
+      . "$script_dir/step-context.sh"
+      step_context_derive "$rs_wt" resolve-steps || exit 6
+    fi
+  fi
   for f in $CONTEXT_FIELDS; do
     if [ "$f" = POINT ]; then
       v="$point"

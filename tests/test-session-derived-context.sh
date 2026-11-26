@@ -209,6 +209,50 @@ got=$(bare_ctx env PLANWRIGHT_STEP_BRANCH=elsewhere sh -c \
 verdict $? "a worktree that is not its own top derives no branch or kind" "got: $got err: $(cat "$tmp/err")"
 rm -rf "$wt/plain"
 
+# Kinds follow the guards' unit-branch grammar: one segment after the spec or
+# flight, and planwright/flight/task-* no unit.
+for nb in planwright/flight/task-1 planwright/a/b/spec planwright/a/b/task-1; do
+  git -C "$wt" branch -m "$nb"
+  r=$(sr new-run)
+  hosted_show "$r"
+  grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=' "$tmp/show.show.env"
+  verdict $? "$nb derives no unit kind" "rc $HRC env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
+done
+git -C "$wt" branch -m planwright/flight/demo-0123abcd
+
+# A step that moves the branch still gets its record, whole or between begin and end.
+cat >"$bin/mover.sh" <<'EOF'
+#!/bin/sh
+git -C "$PLANWRIGHT_STEP_WORKTREE" branch -m planwright/flight/moved-0123abcd
+EOF
+chmod +x "$bin/mover.sh"
+catalog "mover|kind: command|target: $bin/mover.sh" "held|kind: command|target: $bin/show.sh|hosting: in-session"
+config 'steps_pre_pr: [mover, held]'
+moved_ctx() { bare_ctx env PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd PLANWRIGHT_STEP_UNIT_KIND=flight "$@"; }
+r=$(sr new-run)
+moved_ctx "$RUN" --worktree "$wt" resolve --run "$r" pre-pr --unattended >"$tmp/rows" 2>"$tmp/err"
+moved_ctx "$RUN" --worktree "$wt" command --run "$r" --point pre-pr --step mover >"$tmp/out" 2>>"$tmp/err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -q '^passed' "$tmp/out" && [ -n "$(sr list --run "$r" --point pre-pr)" ]
+verdict $? "a command step that renames the branch still gets its record" "rc $rc out: $(cat "$tmp/out") err: $(cat "$tmp/err")"
+git -C "$wt" branch -m planwright/flight/demo-0123abcd
+moved_ctx "$RUN" --worktree "$wt" begin --run "$r" --point pre-pr --step held --owner "$(owner)" >"$tmp/out" 2>"$tmp/err"
+git -C "$wt" branch -m planwright/flight/moved-0123abcd
+moved_ctx "$RUN" --worktree "$wt" end --run "$r" --point pre-pr --step held --exit 0 >"$tmp/out" 2>>"$tmp/err"
+rc=$?
+[ "$rc" -eq 0 ] && grep -q '^passed' "$tmp/out"
+verdict $? "end records a step that renamed the branch after begin" "rc $rc out: $(cat "$tmp/out") err: $(cat "$tmp/err")"
+git -C "$wt" branch -m planwright/flight/demo-0123abcd
+catalog "show|kind: command|target: $bin/show.sh"
+config 'steps_pre_pr: [show]'
+
+# A refusal never prints a control byte an exported value carried.
+esc=$(printf '\033')
+bare_ctx env PLANWRIGHT_STEP_BRANCH="bad${esc}[31mname" "$SR" --worktree "$wt" new-run >"$tmp/out" 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && ! grep -q "$esc" "$tmp/err" && grep -q 'bad\[31mname' "$tmp/err"
+verdict $? "the disagreement message strips control bytes from the values it names" "rc $rc err: $(cat "$tmp/err")"
+
 # An exported path that resolves to the worktree is accepted and replaced by it.
 ln -s "$wt" "$tmp/wt-link"
 r=$(sr new-run)

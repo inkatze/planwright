@@ -606,7 +606,9 @@ set_head_from_worktree() {
 begin_head() {
   BEGIN_HEAD=''
   bh_f="$cache/$1/runner-pending-$2-$3"
-  [ -f "$bh_f" ] && [ ! -L "$bh_f" ] || return 0
+  [ -e "$bh_f" ] || [ -L "$bh_f" ] || return 0
+  [ -f "$bh_f" ] && [ ! -L "$bh_f" ] || return 2
+  # The "h" prefix tells a head line with an empty value from no head line.
   bh_h=$(awk -F '\t' '$1 == "head" { print "h" $2; exit }' "$bh_f") || return 2
   [ -n "$bh_h" ] || return 0
   bh_h=${bh_h#h}

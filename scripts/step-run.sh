@@ -153,7 +153,8 @@
 # and then, from git (scripts/step-context.sh), WORKTREE, BRANCH, BASE_BRANCH
 # (main), and UNIT_KIND from the branch namespace, so the worker runs this
 # script with no variable prefix. An exported value that disagrees with git
-# exits 2 naming both, on every verb but audit, which derives nothing; SPEC,
+# exits 2 naming both, on every verb but audit, which derives nothing (end,
+# run after its step, takes the branch and kind afresh from git); SPEC,
 # TASK_IDS, and PR_NUMBER stay as exported. Any other
 # PLANWRIGHT_STEP_* name in the environment (resolve-steps.sh --check-env
 # judges it) is a misspelling: every verb but resolve exits 2 naming it and
@@ -454,6 +455,9 @@ launch_context
 # What git knows fills any field still unset; an exported one that disagrees
 # with git is refused.
 if [ "$verb" != audit ]; then
+  # end runs after its step: the branch and kind the context carried were
+  # checked at begin, and a step that moved the branch still gets its record.
+  [ "$verb" != end ] || unset PLANWRIGHT_STEP_BRANCH PLANWRIGHT_STEP_UNIT_KIND
   [ -f "$script_dir/step-context.sh" ] && [ -r "$script_dir/step-context.sh" ] \
     || die 2 "step-context.sh is missing or unreadable (broken install)"
   # shellcheck source=scripts/step-context.sh

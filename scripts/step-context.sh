@@ -16,7 +16,8 @@
 #       PLANWRIGHT_STEP_UNIT_KIND   flight for planwright/flight/<id>, spec for
 #                                   planwright/<spec>/spec, task for
 #                                   planwright/<spec>/task-<ids>; none for any
-#                                   other branch
+#                                   other branch, planwright/flight/task-*
+#                                   included
 #     A variable set non-empty is kept when it equals what git says, and
 #     refused (return 2, both values on stderr) when it differs. The base
 #     branch has nothing to disagree with, and the spec, task ids, and PR
@@ -72,7 +73,10 @@ step_context_derive() {
       scd_bad="$scd_bad PLANWRIGHT_STEP_BRANCH is '$scd_cur' but git's branch is '$scd_branch';"
     fi
     scd_kind=''
+    # As the guards read unit branches: one segment after the spec or flight,
+    # and planwright/flight/task-* no unit at all.
     case $scd_branch in
+      planwright/flight/task-* | planwright/*/*/*) ;;
       planwright/flight/?*) scd_kind=flight ;;
       planwright/?*/spec) scd_kind=spec ;;
       planwright/?*/task-?*) scd_kind=task ;;
