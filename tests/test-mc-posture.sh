@@ -524,6 +524,13 @@ if OUT=$(/bin/bash "$POSTURE" --help 2>&1) && case $OUT in usage:*) true ;; *) f
 else
   fail "--help did not print the usage with exit 0"
 fi
+help_flat=$(printf '%s\n' "$OUT" | tr '\n' ' ' | tr -s ' ')
+case $help_flat in
+  *"Every reason ends with (jq: <path>), the jq resolved from PATH when the check starts."*)
+    ok "--help says how every reason ends"
+    ;;
+  *) fail "--help does not say every reason ends with the jq's path" ;;
+esac
 OUT=$(/bin/bash "$POSTURE" 2>&1)
 [ "$?" = 2 ] && ok "no verb is a usage error" || fail "no verb did not exit 2"
 OUT=$(/bin/bash "$POSTURE" check --bogus 2>&1)

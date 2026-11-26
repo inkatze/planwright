@@ -43,9 +43,9 @@ Output, tab separated, one line:
   posture  pass
   posture  fail  <one-line reason>
 
-Every reason ends naming the jq resolved from PATH, once, at the start. A
-layer whose jq run fails is read once more before it fails; a failure that
-stands names jq's exit status and its stderr.
+Every reason ends with (jq: <path>), the jq resolved from PATH when the
+check starts. A layer whose jq run fails is read once more before it fails;
+a failure that stands names jq's exit status and its stderr.
 
 Exit codes: 0 pass; 1 fail; 2 usage, or jq, sed, awk or grep absent.
 HELP
