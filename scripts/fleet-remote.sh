@@ -51,11 +51,11 @@ Verbs (each runs on the remote host, through its own planwright and tools):
                                 (input idle time off macOS, say) is
                                 "unavailable", never zero
   load                          print the remote's one-minute load average
+                                and core count, one line, for a placement check
   inuse                         print "<HID idle ns> <console user> <login>"
                                 (HIDIdleTime from ioreg -c IOHIDSystem and the
                                 /dev/console owner, each "-" when the remote
                                 has none; login is the account ssh ran as)
-                                and core count, one line, for a placement check
   compute [--worktree <abs-dir>] (--check | --task <name> | --test <tests/test-x.sh>)
           [--timeout <secs>]    push the worktree's HEAD commit (never its
                                 uncommitted changes; every object the remote
