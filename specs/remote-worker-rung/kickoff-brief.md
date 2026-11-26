@@ -133,3 +133,56 @@ Class: meaning
 Lens-pass: section 8, whole-bundle lens review above (every finding dispositioned)
 Anchor: `bafbcc088159cf16c98a54b8e1be4d10207a5402` — computed as
 `scripts/spec-anchor.sh specs/remote-worker-rung`
+
+## Amendment log
+
+### Amendment 1 (2026-11-23)
+
+Human-declared amendment on a Ready bundle, relayed through mission control;
+every answer below is the operator's quoted pick. One batch covers both asks.
+
+**Decisions.**
+
+1. Per-repository compute host: "Keep per-project settings (Recommended)".
+   Each repository's own machine-local settings name its host and the
+   user-level setting is the fallback; no new map (REQ-G1.7, D-17).
+2. Raw test and type-check commands: "A list in settings (Recommended)". A
+   settings list pairs a whole command with a named project task and the
+   router sends a match through the compute verb; no worker guard (REQ-G1.8,
+   REQ-G1.9, D-18).
+
+**Minted.** REQ-G1.7 to REQ-G1.9, D-17, D-18 and Task 12 (depends on Task 11).
+Nothing superseded; REQ-G1.5 and Task 11 stand unchanged.
+
+**Calls the operator did not pick (put to them in the sign-off question).**
+Matching is on the whole command only, since the compute verb carries a task
+name and no arguments; a list entry can only name a task the committed
+project already defines, which keeps the fixed verb set and task grammar.
+The pattern list's encoding is left to Task 12.
+
+**Lens review.** Delta-scoped and walked inline (declared: three requirements,
+two decisions and one task over a single script; the Discovery-Rigor fan-out
+was not launched). Lens-coverage table:
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | Whole-command match: extra arguments cannot ride the task verb, so they run here (REQ-G1.9). Applied. |
+| Security | none | A list entry names a task, never a host command; D-4 and D-16 stand. |
+| Error handling and failure modes | none | Unmatched, prefix-only and out-of-grammar names fall back local. |
+| Performance | n/a | Spec text only. |
+| Concurrency / state | n/a | No shared state added. |
+| Naming, readability, structure | none | New IDs follow the bundle's grammar. |
+| Documentation | none | Changelog, Sources and the tasks intro updated. |
+| Tests / verification | none | REQ-G1.7 to G1.9 each carry a test-spec entry. |
+| Cross-file consistency | 1 | REQ-G1.7's resolved host must still pass REQ-G1.5 and REQ-G1.6; clause added. Applied. |
+
+Altitude check: the bundle's altitude decision (D-1) stands and Task 12 is a
+mechanism task on the claimed altitude. Ship-gate check: no out-of-band fix is
+named. Stale-reference sweep over the bundle: clean. Lint: 0 errors. Validator
+before the anchor re-record: the anchor mismatch only, which this entry
+re-records.
+
+Class: meaning
+Lens-pass: Amendment 1 lens review above (every finding dispositioned)
+Anchor: `2ac9929275b978e6c5ae262a4cbd85f09b138d5f` — computed as
+`scripts/spec-anchor.sh specs/remote-worker-rung`

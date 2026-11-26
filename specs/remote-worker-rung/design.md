@@ -1,7 +1,7 @@
 # Remote worker rung — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-11
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -294,6 +294,42 @@ how that is handled. The operator accepted the exposure for the first host
 account, and the code is the operator's own branches); the registry entry
 records that acceptance, and a host with no recorded stance takes no compute.
 A login-free account or home stays available as the other recorded stance.
+
+### D-17: The compute host resolves per repository through the config layers  (K)
+
+**Decision:** A repository's own machine-local settings file names its compute
+host; the user-level single setting is the fallback. No repository-to-host map
+is built: the layers already give a per-repository value, and the amendment
+records it as the rule and tests it (two repositories resolve to two hosts).
+
+**Alternatives considered:**
+- A first-class map from repository to alias. Rejected because: it adds a
+  second source of the same value that can disagree with the per-repository
+  file, and the layers already answer the question.
+
+**Chosen because:** the operator chose it (2026-11-23); it adds nothing to
+maintain.
+
+### D-18: A settings list of command patterns routes raw commands, with no worker guard  (K)
+
+**Decision:** The configuration holds an ordered list of entries, each pairing
+a raw command (its whole word list) with the name of a project task. The
+router, after its built-in shapes find no match, compares the command and
+sends a whole match through the compute verb as that task. An entry names a
+task the committed project already defines; it never carries a command for the
+host to run, so D-4's fixed verb set and D-16's task grammar stand. A command
+with extra arguments, or no entry, runs here as it does today.
+
+**Alternatives considered:**
+- A worker guard that stops raw test commands and tells the worker to rerun
+  them through the router. Rejected because: it widens the command guard, stops
+  workers mid-work, and still needs the same command-to-task list underneath.
+- Letting a list entry carry the command itself for the host to run. Rejected
+  because: that is the arbitrary remote command D-4 and D-16 refuse.
+
+**Chosen because:** the operator chose it (2026-11-23); the router is already
+the one place that decides local or remote, and the list keeps the approval
+surface unchanged.
 
 ## Cross-cutting concerns
 

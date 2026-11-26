@@ -1314,3 +1314,145 @@ Changelog: requirements.md `## Changelog` entry dated 2026-11-22
 ("Expression-only fixes carried from the Amendment 5 polish pass").
 Anchor: `cb3588dd953acf56258b8c518776b768d4f62a31` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-25 — A worker keeps its spec branch current with a clean base merge
+
+Spec path `specs/human-gates`; walk started at `845c3455`; walkthrough date
+2026-11-25. Mode: amendment on a signed bundle, human-declared (the
+operator's hub picklist "Run it now (Recommended)"), run on branch
+`planwright/human-gates/amendment-6` as a relayed walk (scope
+`kickoff-human-gates-a6`), every question relayed through the hub, one plain
+question per turn. Validator at walk start: 0 errors, 0 warnings. The
+amendment admits the route mission-control's Amendment 21 specified (its
+REQ-I1.11, D-114) and held its builds draft for: a launched worker on a
+spec-branch pull request merges the PR base into that one branch and pushes
+only clean merges. Sections 2 to 7 were walked as one delta; no harness log
+path was provided, so the structured turn log was skipped.
+
+**Goal (section 2).** A worker launched on a sign-off, amendment or
+spec-rework pull request may keep that branch current with its base, by a
+merge it makes and a push the guard verifies, and nothing else: no spec
+edit, force, rewrite, deletion or other branch. Glossary: the **spec
+branches** are `planwright/<spec>/spec`, `planwright/<spec>/amendment-<n>`
+and `planwright/<spec>/spec-rework`; the **clean merge** is a two-parent
+merge of a base commit whose tree is exactly the clean merge of its
+parents. Visual-flight branches are the worker's own unit branch and
+already take the base merge and push (REQ-E1.1); nothing changes for them.
+
+**Operator decisions (sections 3 to 7), the operator's words as relayed.**
+
+- Already answered at mission-control Amendment 21 (Q4, "Hold builds until
+  both sign (Recommended)"): admit only the worker's clean base merge into
+  the one spec branch its launch record names, plus that branch's push;
+  the builds (#1140, #1155) stay draft until both amendments sign.
+- Q1, the spec-rework branch: first "what about visual flights?", answered
+  that they already work and are unchanged; then "Include spec-rework
+  (Recommended)".
+- Q2, the knob: "The existing base-merge setting (Recommended)", that is
+  `worker_base_merge`, with `deny` refusing the route too; no new knob.
+- Q3, a conflicting merge: first "Follow the conflict setting"; asked what
+  that does to a resolution commit the guard can never push, then "can/should
+  we soften this?"; shown the path-limited push, the side review branch and
+  keeping the push refused, "Keep it: fix locally, no push (Recommended)".
+  The resolution stays local, the push stays refused, the unit parks.
+- Q4, the doctrine rows: "Name all three spec branches (Recommended)": a
+  spec-branch push row naming the three branches, limited to clean merges
+  of the PR base, citing REQ-E1.4 and mission-control REQ-I1.11, with the
+  merge row's base-merge-only clause and #1140 made to match.
+
+**Numbering and checks.** Read against origin/main and every human-gates
+branch: the next free IDs were REQ-E1.4, D-28 and Task 23, and the bundle
+mints exactly those. Pull request #1140 changes the guard, the session
+record and the docs, not `config/worker-settings.json`: the worker profile
+still denies a plain push of the sign-off branch by glob, and a profile
+deny cannot be narrowed by an allow, so D-9 and REQ-G1.9 are scoped to
+guard-only on the one recorded branch, with the profile change in Task 23.
+
+**Spec edits.** `requirements.md`: REQ-E1.4 (supersedes REQ-E1.1 in part,
+with the `Superseded-by` line), notes on REQ-A1.6, REQ-E1.2, REQ-G1.9 and
+REQ-G1.13, the in-scope and out-of-scope lists, the changelog and Sources.
+`design.md`: D-28, a `Superseded-by` line on D-7, a note on D-9.
+`tasks.md`: Task 23. `test-spec.md`: the REQ-E1.4 entry and notes on the
+REQ-A1.6, REQ-E1.1, REQ-E1.2, REQ-G1.9 and REQ-G1.13 entries.
+
+**Lens review (delta-scoped, fan-out on Sonnet, read-only).** Four
+sub-agents covered the lens groups below; the altitude check found no
+trigger (not applicable) and the ship-gate check one prose-only
+out-of-band step.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases; error handling | 2 | REQ-E1.2 versus REQ-E1.4 on `resolve`; an unpushable local resolution with no recovery |
+| Security | 3 | the worker profile has no fail-closed suffix once the denies go; the deletion deny rides the same glob; the amendment and spec-rework branches were never profile-denied |
+| Performance; concurrency / state | none | no performance or state surface in a spec delta |
+| Naming, readability, structure | 1 | D-7 lacked its `Superseded-by` line |
+| Documentation | 2 | a stale sentence in the permission-matcher doc; the missing out-of-scope bullet |
+| Tests / verification | 3 | Task 23's guard cases belong to mission-control's tests; the REQ-E1.1 entry still denied the route; the REQ-E1.4 entry named no suite |
+| Cross-file consistency | 3 | REQ-G1.13 and REQ-G1.14 still said the opposite; the cross-copy test cited under a superseded ID; the #1140 reconciliation named only in prose |
+
+**Dispositions.** Every finding was applied as a spec edit: REQ-E1.2's note
+and the discard-and-restart sentence of REQ-E1.4; D-28's corrected profile
+scope, the fail-closed suffix and the deletion spellings carried into Task
+23; Task 23's guard cases moved to mission-control's REQ-I1.11 tests with
+the owner named; the REQ-E1.1, REQ-A1.6, REQ-G1.9 and REQ-G1.13 test-spec
+notes; the REQ-G1.13 and REQ-G1.14 notes and citations; D-7's marker; the
+out-of-scope bullet; Task 23's deliverable reworded so its doctrine text
+lands on top of whichever mission-control build has merged. None declined,
+none deferred.
+
+**Pre-flip verification.** Re-derived at sign-off: the validator reports 0
+errors and 0 warnings once the anchor below is recorded. No count or corpus
+claim is recorded here, so there is nothing to re-derive and no enumeration
+to convert.
+
+**Sign-off.** Signed off 2026-11-25 by the operator ("Sign off
+(Recommended)", relayed by the hub from a picklist) after the approval
+summary. No status flip (the bundle is already signed); `**Last
+reviewed:**` set to 2026-11-25 on all four spec files.
+
+Class: meaning
+Lens-pass: the delta-scoped lens review recorded in this entry (four-agent
+fan-out over the spec artifact class, dispositions above)
+Anchor: `61373053524e08090cd8d7e677779d457466f3a7` — computed as
+`scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-25 — Polish findings fixed before the ready flip
+
+A polish review pass on the pushed amendment returned findings after the
+sign-off above. The operator chose "Fix first, re-sign (Recommended)" over
+flipping as signed. The entry above says REQ-G1.14 got a note and
+citations; it had neither, and the note is added now (no citation line
+changed). Its anchor was also re-recorded once, after a markdown-lint fix.
+
+**Fixed.** REQ-E1.4 adopts mission-control REQ-I1.11's remaining terms: the
+local fast-forward to the PR head stays, the further local-state refusals
+apply, the core floor's `planwright/*/spec` entry is exempt for this route,
+and the kickoff session's own base merge is unchanged. The local resolution
+commit is discarded by hand by whoever resolves the conflict. The worker
+profile keeps deletion-only denies for the sign-off branch, because the
+relayed kickoff session runs under it; its new fail-closed suffix refuses
+every call those hooks cover. D-28 no longer says the guard already refuses
+amendment and spec-rework pushes. Task 23 starts only after pull requests
+1140 and 1155 merge, corrects `docs/getting-started.md`, names the wiring
+test for the fail-closed case and drops the tag-push case, which the guard
+does not screen. REQ-G1.13 and REQ-G1.14 notes and their test-spec entries
+are reconciled, and the conflict park behaviour is marked `[manual]`.
+
+**Declined.** "`resolve` needs a commit the guard refuses": the guard's
+commit classifier (`classify_git_commit` in `scripts/policy-guard.sh`) acts
+only on amend, squash and fixup, so a plain commit is not gated; the
+operator's conflict ruling stands.
+
+**Deferred.** Whether mission-control's suite covers the other-record and
+other-pull-request refusals the REQ-E1.4 test entry lists was not checked
+here; its build is where that is settled.
+
+**Sign-off.** Signed off 2026-11-25 by the operator ("Sign off
+(Recommended)", relayed by the hub). No status flip. The fixes themselves
+had no further lens pass.
+
+Class: meaning
+Lens-pass: the polish review recorded in this entry (one read-only
+sub-agent walking each lens, dispositions above)
+Anchor: `f2f3356a6f48996720c3f7dd9bab6459b26f982a` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

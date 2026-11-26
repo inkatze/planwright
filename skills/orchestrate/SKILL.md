@@ -69,7 +69,9 @@ would-be prompt to Awaiting input), implied for non-interactive sessions.
 
 Run in order. Any halt records the unit (when one is selected) and ends the step,
 per **Halt → Awaiting input** below; simultaneous ones batch into the step
-report (D-45).
+report (D-45). Once per session, and at each on-request posture check, run
+`scripts/tower-session.sh activate`: the plugin hook marks the session an
+orchestrator and refuses it, never running it.
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional bare
    `<spec>` (alias `specs/<spec>`, one trailing slash allowed; `--meta`
@@ -487,13 +489,11 @@ These hold at every step, each list rule labelled with its
 
 ## Observations
 
-When something outside the current step's scope surfaces — a selection-policy gap,
-a backend rough edge, a config-model wrinkle, a drift in a shared script — record
-it through the shared helper: `scripts/obs-record.sh --slug <topic> --scope
+When something outside the current step's scope surfaces, record it through the
+shared helper: `scripts/obs-record.sh --slug <topic> --scope
 <repo> --text '<observation>'`. Commit the fragment within the step that produced
 it so the tree returns to clean; surface a non-zero exit rather than dropping it.
-Do not act on observations during the step; they are seed material for
-`/spec-draft`.
+Do not act on observations during the step; they seed `/spec-draft`.
 
 ## Maintenance
 
