@@ -77,8 +77,9 @@
 #        --base <branch> syncs a stacked PR's base branch instead of main: only the
 #        branch this session's launch record (stack_base, scripts/worker-session-record.sh)
 #        names, else exit 2
-#        converge-sync-main.sh --commit-resolution <spec>/<id>
+#        converge-sync-main.sh [--base <branch>] --commit-resolution <spec>/<id>
 #          [--commit-resolution <spec>/<id> ...] [<repo-dir>]
+#        (the same --base the conflicted sync was given)
 #
 # Output: tagged TSV records on stdout, a record's message (where it has one)
 # last and meant for a human:
