@@ -116,7 +116,7 @@ done
 # The flight namespace, a nested path, and a non-digit amendment suffix name
 # no spec's branch, so the tower may still rewrite them.
 for b in planwright/flight/amendment-log-fix planwright/flight/spec-rework planwright/a/b/amendment-1 \
-  planwright/demo/amendment-3b; do
+  planwright/demo/amendment-3b Planwright/Flight/amendment-1; do
   rc=$(rc_of fp confirm --branch "$b" --to "$TIP")
   if grep -q 'amendment or spec-rework branch' "$tmp/err"; then
     fail "confirm on '$b' was refused as a spec branch (exit $rc)"
@@ -629,7 +629,7 @@ done
 HELD=$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")
 g push -q origin "$HELD:refs/heads/planwright/demo/amendment-3"
 rc=$(rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
-if [ "$rc" = 1 ] && grep -q 'amendment-3, which is protected or a spec branch' "$tmp/err"; then
+if [ "$rc" = 1 ] && grep -q "amendment-3, a spec's amendment or spec-rework branch" "$tmp/err"; then
   ok "reword refuses a commit an amendment branch also holds"
 else
   fail "reword of a commit an amendment branch holds was not refused (exit $rc: $(cat "$tmp/err"))"

@@ -51,9 +51,8 @@
 #
 # Exit: 0 done (a push the remote took though it reported a failure
 # included, with a note); 1 refused (a dispatched worker, protected or a spec
-# branch, moved
-# since the confirmation or deleted or moved while pushing, nothing dropped,
-# not on the branch); 2 usage; 3 a git or remote failure.
+# branch, moved since the confirmation or deleted or moved while pushing,
+# nothing dropped, not on the branch); 2 usage; 3 a git or remote failure.
 #
 # Untrusted text (subjects, names) reaches the terminal only through
 # sanitize_printable or as jq-encoded JSON. Portable bash 3.2.
@@ -448,15 +447,24 @@ reword() {
   # a commit main now holds as safe to reword. Pruned, so a branch the remote
   # deleted neither refuses the reword nor blocks a new branch's fetch.
   git fetch --quiet --prune --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" 2>/dev/null \
-    || broken "fetching $(safe "$REMOTE")'s branches failed; which protected branches hold the commit is unknown"
+    || broken "fetching $(safe "$REMOTE")'s branches failed; which protected or spec branches hold the commit is unknown"
   local ref name rc
-  for ref in $(git for-each-ref --format='%(refname)' --contains "$COMMIT" "refs/remotes/$REMOTE/"); do
+  local holders
+  holders=$(git for-each-ref --format='%(refname)' --contains "$COMMIT" "refs/remotes/$REMOTE/") \
+    || broken "listing $(safe "$REMOTE")'s branches that hold the commit failed; which protected or spec branches hold it is unknown"
+  for ref in $holders; do
     name=${ref#refs/remotes/"$REMOTE"/}
     [ "$name" != "$BRANCH" ] && [ "$name" != HEAD ] || continue
+    if spec_family "$name"; then
+      refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), a spec's amendment or spec-rework branch; rewording it would fork that history"
+    fi
     rc=0
-    ! spec_family "$name" || rc=1
-    [ "$rc" != 0 ] || "$script_dir/protected-branch.sh" "$name" >/dev/null 2>&1 || rc=$?
-    [ "$rc" = 0 ] || refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected or a spec branch; rewording it would fork that history"
+    "$script_dir/protected-branch.sh" "$name" >/dev/null 2>&1 || rc=$?
+    case $rc in
+      0) ;;
+      1) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history" ;;
+      *) refuse "the protected set could not be read (protected-branch.sh exit $rc); refusing (fail closed)" ;;
+    esac
   done
 
   local map work c p parents np new tree sign='' gpgsign rc=0

@@ -38,12 +38,14 @@ fi
 # fold <text> — set FOLDED to the text case-folded. Names and entries both
 # fold, as the tower queue's push screen folds them: `Main` is `main` on a
 # case-insensitive filesystem, and over-refusing is the safe direction. A tr
-# that fails, or prints less than it was given, would fold a name short of
-# itself or to empty and match no entry, so it is a broken install. The
-# sentinel keeps trailing newlines, so the lengths compare.
+# that fails, prints less than it was given, or leaves an upper-case letter
+# would fold a name short of itself, to empty or not at all and match no
+# entry, so it is a broken install. The sentinel keeps trailing newlines, so
+# the lengths compare.
 fold() {
   FOLDED=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || FOLDED=''
   case $FOLDED in
+    *[A-Z]*) ;;
     *x)
       FOLDED=${FOLDED%x}
       [ "${#FOLDED}" != "${#1}" ] || return 0

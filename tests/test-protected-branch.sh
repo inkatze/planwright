@@ -298,6 +298,17 @@ for kind in fails empty truncates entry-only; do
   done
 done
 echo "ok: a tr that fails, prints nothing, or prints less is a broken install (exit 5)"
+# A tr that copies its input folds nothing: an upper-case name would never
+# match its entry.
+mkdir -p "$tmp/tr-identity"
+printf '#!/bin/sh\ncat\n' >"$tmp/tr-identity/tr"
+chmod +x "$tmp/tr-identity/tr"
+for b in Main refs/heads/MAIN Planwright/Demo/Spec; do
+  rc=0
+  PATH="$tmp/tr-identity:$PATH" pb "$b" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 5 ] || fail "a tr that folds nothing: '$b' exited $rc, expected 5"
+done
+echo "ok: a tr that folds nothing is a broken install (exit 5)"
 nl_name=$(printf '\nx')
 nl_name=${nl_name%x}
 rc=0
