@@ -709,11 +709,15 @@ alpine_smoke_block="$(job_block alpine-smoke)"
   assert_contains "the Alpine smoke runs once, in its own job, as the unprivileged user" "$alpine_smoke_block" \
     "su suite -c '/bin/sh scripts/install-smoke.sh'"
   assert_not_contains "the Alpine smoke job is not sharded" "$alpine_smoke_block" "matrix:"
-  assert_contains "the Alpine smoke runs on the suite's pinned image" "$alpine_smoke_block" \
-    "$(printf '%s\n' "$alpine_block" | grep -m1 'image: alpine')"
+  suite_image="$(printf '%s\n' "$alpine_block" | grep -m1 'image: alpine')"
+  assert_contains "the Alpine suite names a digest-pinned image" "$suite_image" 'image: alpine:'
+  assert_contains "the Alpine suite's image is pinned by digest" "$suite_image" '@sha256:'
+  assert_contains "the Alpine smoke runs on the suite's pinned image" "$alpine_smoke_block" "$suite_image"
   assert_contains "the Alpine smoke asserts dash is /bin/sh" "$alpine_smoke_block" 'test "$(readlink -f /bin/sh)" = /usr/bin/dash'
-  assert_contains "the Alpine smoke asserts awk is busybox" "$alpine_smoke_block" 'command -v awk'
-  assert_contains "the Alpine smoke asserts sed is busybox" "$alpine_smoke_block" 'command -v sed'
+  assert_contains "the Alpine smoke asserts awk is busybox" "$alpine_smoke_block" \
+    'test "$(readlink -f "$(command -v awk)")" = /bin/busybox'
+  assert_contains "the Alpine smoke asserts sed is busybox" "$alpine_smoke_block" \
+    'test "$(readlink -f "$(command -v sed)")" = /bin/busybox'
 }
 
 # scripts/refresh-test-durations-ci.sh picks the Linux shard jobs by the
