@@ -259,6 +259,67 @@ assert_lacks "no reuse: the gate names no reused run" "actions/runs/" "$(cat "$S
 gate "" false success success skipped skipped
 assert_eq "no reuse: a draft's macOS skip still passes the gate" 0 "$gate_rc"
 
+# ---------------------------------------------------------------------------
+# A superseded run. A newer run on the same ref cancels this one, so every job
+# still waiting on its needs ends cancelled. The check job must end that way
+# too rather than run and fail beside the live run, while a need that failed
+# or timed out (a timeout reads as cancelled in `needs`) in a run nobody
+# cancelled still fails it.
+# ---------------------------------------------------------------------------
+# check_job_if: the check job's own `if:`, as ci.yml writes it.
+check_job_if() {
+  awk '
+    $0 == "  check:" { in_job = 1; next }
+    in_job && /^  [a-z]/ { exit }
+    in_job && /^    if: / { sub(/^    if: /, ""); print; exit }
+  ' "$CI_YML"
+}
+# check_outcome <job if> <run cancelled> <lint> <plan> <test> <alpine>
+# <macos-suite> <macos-smoke> — the check job's conclusion. A job whose `if:`
+# is false when its run is cancelled ends cancelled, as the waiting jobs of a
+# cancelled run do; one that runs takes its gate step's result.
+check_outcome() {
+  case "$1:$2" in
+    "\${{ always() }}:"*) ;;
+    "\${{ !cancelled() }}:false") ;;
+    "\${{ !cancelled() }}:true")
+      echo cancelled
+      return
+      ;;
+    *)
+      echo "unmodelled if: $1"
+      return
+      ;;
+  esac
+  LINT_RESULT="$3" PLAN_RESULT="$4" REUSE_RUN="" MAC_RUN=true \
+    TEST_RESULT="$5" ALPINE_RESULT="$6" MACOS_RESULT="$7" MACOS_SMOKE_RESULT="$8" \
+    ALPINE_SMOKE_RESULT="$6" \
+    GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=acme/widgets \
+    GITHUB_STEP_SUMMARY="$STUB_DIR/gate-summary" \
+    bash -e "$tmp/step-gate.sh" >"$STUB_DIR/gate-log" 2>&1 && echo success || echo failure
+}
+CHECK_IF="$(check_job_if)"
+# shellcheck disable=SC2016 # literal GitHub expressions
+OLD_IF='${{ always() }}'
+superseded="true cancelled cancelled cancelled cancelled cancelled cancelled"
+# shellcheck disable=SC2086 # the case's results, one word each
+{
+  assert_eq "superseded: under always() the check job runs and fails beside the live run" \
+    failure "$(check_outcome "$OLD_IF" $superseded)"
+  assert_eq "superseded: ci.yml's check job ends cancelled, not red" \
+    cancelled "$(check_outcome "$CHECK_IF" $superseded)"
+}
+for job_if in "$OLD_IF" "$CHECK_IF"; do
+  assert_eq "live run under $job_if: a failed test job fails the check" \
+    failure "$(check_outcome "$job_if" false success success failure success success success)"
+  assert_eq "live run under $job_if: a timed-out test job fails the check" \
+    failure "$(check_outcome "$job_if" false success success cancelled success success success)"
+  assert_eq "live run under $job_if: a cancelled plan fails the check" \
+    failure "$(check_outcome "$job_if" false success cancelled skipped skipped skipped skipped)"
+  assert_eq "live run under $job_if: every job green passes the check" \
+    success "$(check_outcome "$job_if" false success success success success success success)"
+done
+
 # The newest qualifying run wins; one that does not qualify is passed over.
 new_case newest
 write_runs "$(run_json 902 "$HEAD_SHA" success 2026-11-14T12:00:00Z)" "$(run_json 901 "$HEAD_SHA" success 2026-11-14T11:00:00Z)"
