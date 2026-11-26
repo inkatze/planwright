@@ -58,5 +58,35 @@ reason_has 'shares its name' "the ambiguous-branch deny says why"
 pg worker 'git push origin planwright/demo/task-1:planwright/demo/task-1' "$TAGU"
 expect defer "[worker] a push naming its destination in full still defers beside a same-named tag"
 
+# --- legacy remotes and branches files (finding 2) --------------------------
+
+echo "# legacy remotes/ and branches/ files"
+LEG="$SANDBOX/legacy"
+clone_on "$LEG" planwright/demo/task-1 1
+mkdir -p "$LEG/.git/remotes" "$LEG/.git/branches"
+printf 'URL: %s\nPush: refs/heads/planwright/demo/task-1:refs/heads/main\n' "$ORIGIN" >"$LEG/.git/remotes/legacy"
+printf '%s#main\n' "$ORIGIN" >"$LEG/.git/branches/leg2"
+fixture 'a bare push to a remotes-file remote' "$LEG" legacy
+fixture 'a named push to a remotes-file remote' "$LEG" legacy planwright/demo/task-1
+fixture 'a bare push to a branches-file remote' "$LEG" leg2
+for tier in worker tower; do
+  for cmd in 'git push legacy' 'git push legacy planwright/demo/task-1' 'git push leg2' \
+    'git push -u leg2 HEAD' 'git push leg2 planwright/demo/task-1:planwright/demo/task-1'; do
+    pg "$tier" "$cmd" "$LEG"
+    expect deny "[$tier] $cmd, through a legacy remote file, denies"
+  done
+done
+reason_has 'legacy' "the legacy-remote deny names the file kind"
+gitq -C "$LEG" config branch.planwright/demo/task-1.remote leg2
+pg worker 'git push' "$LEG"
+expect deny "[worker] a bare push whose branch.<b>.remote names a branches-file remote denies"
+gitq -C "$LEG" config --unset branch.planwright/demo/task-1.remote
+pg worker 'git push origin planwright/demo/task-1' "$LEG"
+expect defer "[worker] a push to a config remote beside legacy files for other names still defers"
+LEGWT="$SANDBOX/legacy-linked"
+gitq -C "$LEG" worktree add -b planwright/demo/task-8 "$LEGWT" HEAD
+pg worker 'git push leg2' "$LEGWT"
+expect deny "[worker] a linked worktree reads its repository's legacy branches file too"
+
 no_gh_calls
 finish

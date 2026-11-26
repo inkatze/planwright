@@ -5914,6 +5914,27 @@ EOF
 
 CB_NONE='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
 
+# legacy_remote_check <dir> <remote> — deny a push to a remote a legacy
+# remotes/<name> or branches/<name> file names: git still reads a push mapping
+# from either (a Push: line, or <url>#<branch>, which pushes HEAD to <branch>),
+# even beside a configured remote of that name, and the guard reads only git
+# config. git reads them only for a name with no slash.
+legacy_remote_check() {
+  local out gd common f
+  case $2 in '' | . | .. | */*) return 0 ;; esac
+  out=$(gitq "$1" rev-parse --path-format=absolute --git-dir --git-common-dir) || out=''
+  case $out in
+    /*"$NL"/*) ;;
+    *) emit_deny 'the git directory this push runs in could not be read, so the guard cannot tell whether a legacy remotes/ or branches/ file maps its destination - refusing (fail closed). Run it from inside your worktree.' ;;
+  esac
+  gd=${out%%"$NL"*}
+  common=${out#*"$NL"}
+  for f in "$gd/remotes/$2" "$gd/branches/$2" "$common/remotes/$2" "$common/branches/$2"; do
+    [ ! -e "$f" ] && [ ! -L "$f" ] \
+      || emit_deny "this git push goes to $(sanitize_printable "$2" 'a remote'), which a legacy remotes/ or branches/ file in the repository's git directory names; git reads a push mapping from that file (another destination, main included) that the guard does not read - refusing (fail closed). Migrate it with git remote rename, or push to a configured remote."
+  done
+}
+
 eval_push() {
   local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb signoff=''
   del=${rest%%"$TAB"*}
@@ -5940,6 +5961,7 @@ eval_push() {
         rp=$(gitq "$dir" config --get-all "remote.$remote.push") || rp=''
         [ -z "$rp" ] \
           || emit_deny 'this git push names no branch and the remote carries a configured push refspec, which the guard does not read - refusing (fail closed). Name the branch.'
+        legacy_remote_check "$dir" "$remote"
         case $(lower "$(gitq "$dir" config --get "remote.$remote.mirror" || printf '')") in
           true | yes | on | 1)
             emit_deny 'this git push names no branch and the remote is configured as a mirror, so it pushes every ref, main included - refusing. Name the branch.'
@@ -5985,6 +6007,7 @@ eval_push() {
       fi
       targets[${#targets[@]}]=$dst
     done
+    legacy_remote_check "$dir" "$remote"
   fi
   [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
 }
