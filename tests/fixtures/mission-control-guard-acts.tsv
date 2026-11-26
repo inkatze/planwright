@@ -830,7 +830,8 @@ deny	settings-write	bash	-	leads to one on disk	tar -xzC @SCRATCH@/kb/lk-agents 
 deny	settings-write	bash	-	leads to one on disk	tar -xf @SCRATCH@/a.tar --directory=@SCRATCH@/kb/lk-agents
 deny	settings-write	bash	-	leads to one on disk	gtar -xf @SCRATCH@/a.tar -C @SCRATCH@/kb/lk-agents
 deny	settings-write	bash	-	leads to one on disk	gtar -xzC @SCRATCH@/kb/lk-agents -f @SCRATCH@/a.tgz
-deny	settings-write	bash	-	hands a write verb	sudo -u root gtar -xf @SCRATCH@/a.tar
+deny	settings-write	bash	-	leads to one on disk	sudo -u root gtar -xf @SCRATCH@/a.tar -C @SCRATCH@/kb/lk-agents
+deny	settings-write	bash	-	hands a write verb	flock @SCRATCH@/l gtar -xf @SCRATCH@/a.tar
 defer	read	bash	-	-	gtar -xf @UNIT@/a.tar -C @SCRATCH@/kb
 deny	settings-write	bash	-	cannot parse	echo $(gtar -xf @SCRATCH@/a.tar)
 deny	settings-write	bash	-	cannot parse	echo $(tar -xf @SCRATCH@/a.tar)
