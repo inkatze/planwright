@@ -7125,6 +7125,8 @@ XEOF_DOC
 # mc_wrap_opt_value <wrapper> <option word> — 0 when the wrapper's option
 # takes the next word as its value: a long one with no = (in any prefix
 # getopt_long takes), or a short cluster whose first value letter ends it.
+# mc_unwrap's own option table is the posture reading's: keep every option it
+# names here too, which may name more.
 mc_wrap_opt_value() {
   local c vl pre
   case $2 in
@@ -7158,7 +7160,8 @@ mc_wrap_opt_value() {
         stdbuf) vl=ioe ;;
         exec) vl=a ;;
         sudo) vl=ugCpUhrtDRTc ;;
-        xargs) vl=ILnPdEas ;;
+        # BSD's -J, -R and -S take a value too.
+        xargs) vl=ILnPdEasJRS ;;
         doas) vl=uCa ;;
         time) vl=fo ;;
         *) return 1 ;;
@@ -7210,6 +7213,7 @@ mc_unwrap() {
       fi
       case $wrap:${SW[$i]} in
         env:-u | env:-C | env:-S | env:--unset | env:--chdir | env:--split-string) i=$((i + 2)) ;;
+        # The posture reading's table; mc_wrap_opt_value holds all of it.
         nice:-n | timeout:-s | timeout:-k | stdbuf:-[ioe] | exec:-a) i=$((i + 2)) ;;
         sudo:-[ugCpUhrt] | xargs:-[ILnPdEas] | doas:-[uC] | time:-[fo]) i=$((i + 2)) ;;
         *:-* | env:*=* | sudo:*=*) i=$((i + 1)) ;;
