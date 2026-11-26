@@ -1044,7 +1044,7 @@ END {
   nalpine = 0
   for (i = 1; i <= nj; i++) {
     j = job[i]; base = img[j]; sub(/.*\//, "", base)
-    if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++; alpine_job = (alpine_job == "" ? j : alpine_job " " j) }
+    if (base ~ /^alpine([:@]|$)/) { kind[j] = "alpine"; nalpine++ }
     else if (img[j] == "" && mac_runs_on(ro[j])) kind[j] = "macos"
     else if (img[j] == "" && ro[j] ~ /^ubuntu-/) kind[j] = "ubuntu"
     if (kind[j] != "macos" && (j in macgate)) gated[j] = 1
