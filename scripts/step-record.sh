@@ -602,7 +602,8 @@ set_head_from_worktree() {
 
 # begin_head <run> <point> <step>: sets BEGIN_HEAD to the head step-run.sh's
 # begin recorded for the step, empty when there is none; returns 2 when the
-# begin record holds a head that is no full commit id.
+# begin record is no regular file, cannot be read, or holds a head line that
+# is empty or no full commit id.
 begin_head() {
   BEGIN_HEAD=''
   bh_f="$cache/$1/runner-pending-$2-$3"

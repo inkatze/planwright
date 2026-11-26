@@ -157,7 +157,8 @@ is its own top), `PLANWRIGHT_STEP_UNIT_KIND` from the unit-branch grammar
 `planwright/flight/task-*` none), and `PLANWRIGHT_STEP_BASE_BRANCH` as `main`,
 which a repository on another base exports. An exported value that disagrees
 with git (a launch record's included) is refused naming both, with exit 2
-(the preamble's exit 6). The spec, task ids, and PR number are never derived.
+(the preamble's exit 6); `step-run.sh end`, run after its step, takes the
+branch and kind afresh instead. The spec, task ids, and PR number are never derived.
 
 A step record's `--head` defaults to the begin record's head, else HEAD for
 a step that left it unchanged; a skill or prompt step that changed it must
