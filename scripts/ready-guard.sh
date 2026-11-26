@@ -1071,8 +1071,9 @@ readonly CHECKS_JQ='
 # when the latest run of every check on its head passed. For a pull_request
 # workflow that run built GitHub's merge ref, the head merged into the base.
 # Checks listed in ready_base_state_checks, and cancellations a later run
-# superseded, are left out (scripts/check-runs.jq). Any doubt denies: a failed or timed-out read, an answer about another head,
-# no check at all, or a check failing or still pending.
+# superseded, are left out (scripts/check-runs.jq). Any doubt denies: a failed
+# or timed-out read, an answer about another head, no check at all, or a check
+# failing or still pending.
 behind_checks() {
   local cwd=$1 head=$2 behind=$3 base why oid verdict runs_jq base_state
   base=$(sanitize_printable "$4" 'its base')

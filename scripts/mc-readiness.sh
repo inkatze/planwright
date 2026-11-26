@@ -60,10 +60,10 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       supersedes the runs before it), but
                                       not a check ready_base_state_checks
                                       names (it describes the base), nor a
-                                      cancelled check a later run of its
-                                      workflow on the head superseded by
-                                      passing the same job; SUCCESS,
-                                      NEUTRAL and SKIPPED pass
+                                      cancelled check that a later run of
+                                      its workflow on the head superseded
+                                      by succeeding at the same job;
+                                      SUCCESS, NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or
@@ -1109,8 +1109,8 @@ collect() {
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
       + (if (.conclusion // "") != "" then .conclusion else (.state // "PENDING") end | clean)),
     ((.statusCheckRollup // []) | latest_check_runs[]
-      | ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? // empty) as $r
-      | "runref\t" + ((.name // .context // "-") | clean) + "\t" + $r.id),
+      | (check_workflow_run // empty) as $r
+      | "runref\t" + ((.name // .context // "-") | clean) + "\t" + $r),
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")

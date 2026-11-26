@@ -1,8 +1,10 @@
 # check-runs.jq — the one selection of a pull request's check runs that
 # scripts/ready-guard.sh, scripts/ready-flip.sh and scripts/mc-readiness.sh
 # judge readiness by. Each prepends this file to its own program, so a fix here
-# reaches all three. The release gate (rl_ci_state in scripts/release-lib.sh)
-# reads no selection: it judges every check on the commit, strictly.
+# reaches all three.
+# The release gate (rl_ci_state in scripts/release-lib.sh) and mission
+# control's merge-ready candidate read (GitHub's combined rollup state) apply
+# none of this selection.
 #
 # A cancelled check that a newer run of its workflow made obsolete is dropped
 # first (drop_superseded_cancels, below). Then a check run listed in
@@ -31,39 +33,44 @@ def check_passed: if .context != null then .state == "SUCCESS"
 # macOS jobs at a head where they already passed (or failed).
 def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name // "") | startswith("macos-"));
 
-# A job's family is its name up to the first space: a matrix job's shards and
-# the unexpanded name it is reported under when skipped or cancelled share it.
-def check_family: (.name // "") | split(" ")[0];
-
 # A skipped matrix job is reported under its unexpanded name, which a later
 # run's expanded shard names never supersede; so a skipped macOS entry is
-# dropped when a shard of the same job passed.
-def mac_family: check_family;
+# dropped when a shard of the same job (the name up to the first space) passed.
+def mac_family: (.name // "") | split(" ")[0];
 
 # The workflow run a check run belongs to, from its details URL; null for a
 # status context or a check run with no such URL.
-def workflow_run: if .context != null then null
+def check_workflow_run: if .context != null then null
   else ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? | .id) // null end;
 
+def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED" and (.conclusion // "") == "CANCELLED";
+
+# The job a check run reports, its matrix suffix left off: `test (shard 1/2)`
+# and the unexpanded `test (shard ${{ matrix.shard }}/…)` are both `test`.
+def check_job: (.name // "") | sub(" [(].*[)]$"; "");
+
 # When a newer run on the head cancels an older run of its workflow, the older
-# run's checks end CANCELLED and the newer run never replaces them: a matrix
-# job's are named by its unexpanded placeholder, and the rest tie the newer
-# run's start to the second, where a tie goes to the check that did not pass.
-# So a finished CANCELLED check is dropped when another workflow run of the
-# same workflow has a check of the same family that passed and started no
-# earlier. Only cancellations go: a failure, a check still running, and a pass
-# are never dropped, whatever ran after them, so a later failing re-run and a
-# reused run's earlier macOS passes count as before. A cancellation with no
-# such successor still counts.
+# run's checks end CANCELLED. A cancelled matrix job is reported under its
+# unexpanded placeholder, which the newer run's shard names never replace, and
+# a cancelled job can tie the newer run's start to the second, where a tie goes
+# to the check that did not pass. So a finished CANCELLED check with a known
+# start is dropped when another workflow run of the same workflow has a check
+# that succeeded (SUCCESS or NEUTRAL, a skip running nothing) and started no
+# earlier, with the same name, or for a placeholder, of the same job. Only
+# cancellations go: a failure, a check still running, and a pass are never
+# dropped, whatever ran after them, so a later failing re-run and a reused
+# run's earlier macOS passes count as before. A cancellation with no such
+# successor still counts.
 def drop_superseded_cancels:
-  [.[] | {entry: ., run: workflow_run, family: check_family, started: check_started, passed: check_passed}] as $rows
+  [.[] | {entry: ., run: check_workflow_run, workflow: (.workflowName // ""), name: (.name // ""),
+    job: check_job, started: check_started, cancelled: check_cancelled,
+    succeeded: (((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL") and check_passed)}] as $rows
+  | [$rows[] | select(.succeeded and .run != null and .workflow != "")] as $successes
   | [$rows[]
       | . as $row
-      | select(($row.run != null and ($row.entry.workflowName // "") != ""
-          and ($row.entry.status // "COMPLETED") == "COMPLETED" and ($row.entry.conclusion // "") == "CANCELLED"
-          and any($rows[]; .run != null and .run != $row.run and .passed
-            and (.entry.workflowName // "") == $row.entry.workflowName
-            and .family == $row.family and .started >= $row.started)) | not)
+      | select(($row.cancelled and $row.run != null and $row.workflow != "" and $row.started != ""
+          and any($successes[]; .run != $row.run and .workflow == $row.workflow and .started >= $row.started
+            and (.name == $row.name or (($row.name | contains("${{")) and .job == $row.job)))) | not)
       | .entry];
 
 # A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
