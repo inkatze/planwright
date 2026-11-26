@@ -134,7 +134,9 @@
 #               protected set and denies a target inside it, a bare push's
 #               targets including branch.<b>.merge however it is spelled. A
 #               refspec naming a source with no destination denies where
-#               remote.<remote>.push is configured, since git maps it there.
+#               remote.<remote>.push is configured, since git maps it there,
+#               and under push.default=upstream (or tracking) also targets
+#               branch.<source>.merge.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -5557,6 +5559,24 @@ check_root_unpushed() {
     || emit_deny 'this history rewrite names a commit a remote-tracking ref already contains; pushed history stays append-only - refusing. Add a new commit instead.'
 }
 
+# merge_dst <dir> <branch> — set MD to the remote branch that
+# push.default=upstream sends <branch> to: branch.<branch>.merge as written,
+# which the remote reads outside refs/ (heads/ included) as the branch it
+# names. Empty when unset, or a ref outside refs/heads/.
+merge_dst() {
+  local m
+  MD=''
+  m=$(gitq "$1" config --get "branch.$2.merge") || m=''
+  case $m in
+    '') return 0 ;;
+    refs/heads/*) MD=${m#refs/heads/} ;;
+    refs/*) return 0 ;;
+    *) MD=${m#heads/} ;;
+  esac
+  valid_branch "$MD" \
+    || emit_deny "this git push sends $(sanitize_printable "$2" 'a branch') to branch.<branch>.merge, which names a destination the guard will not check ($(sanitize_printable "$m" 'unprintable')) - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
+}
+
 eval_push() {
   local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del remote refs r dst targets=() cb
   del=${rest%%"$TAB"*}
@@ -5591,22 +5611,10 @@ eval_push() {
     targets[${#targets[@]}]=$cb
     upstream_of "$dir" "$cb"
     [ -z "$UP_BRANCH" ] || targets[${#targets[@]}]=$UP_BRANCH
-    # push.default=upstream pushes to branch.<b>.merge as written, and the
-    # remote reads a name outside refs/ (heads/ included) as the branch it
-    # names.
-    local m
-    m=$(gitq "$dir" config --get "branch.$cb.merge") || m=''
-    case $m in
-      '' | refs/*) ;;
-      *)
-        m=${m#heads/}
-        valid_branch "$m" \
-          || emit_deny "this git push names no branch, and branch.$(sanitize_printable "$cb" '<branch>').merge names a destination the guard will not check ($(sanitize_printable "$m" 'unprintable')) - refusing (fail closed). Name the branch."
-        targets[${#targets[@]}]=$m
-        ;;
-    esac
+    merge_dst "$dir" "$cb"
+    [ -z "$MD" ] || targets[${#targets[@]}]=$MD
   else
-    local mapped=0 rp
+    local mapped=0 rp pd src
     for r in $refs; do
       case $r in
         *:*) dst=${r#*:} ;;
@@ -5631,11 +5639,24 @@ eval_push() {
       targets[${#targets[@]}]=$dst
     done
     # git sends a named source with no :<dst> where remote.<remote>.push maps
-    # it, forcing it when that refspec carries a +; HEAD is never mapped.
+    # it, forcing it when that refspec carries a +, else under
+    # push.default=upstream (or tracking) to branch.<source>.merge; HEAD is
+    # never mapped.
     if [ "$mapped" = 1 ]; then
       rp=$(gitq "$dir" config --get-all "remote.$remote.push") || rp=''
       [ -z "$rp" ] \
         || emit_deny "this git push names a refspec with no destination, and remote.$(sanitize_printable "$remote" '<remote>').push is configured, which git applies to it (another destination, or a + that forces it) and the guard does not read - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
+      pd=$(gitq "$dir" config --get push.default) || pd=''
+      case $(lower "$pd") in
+        upstream | tracking)
+          for r in $refs; do
+            case $r in *:* | HEAD | @) continue ;; esac
+            src=${r#refs/heads/}
+            merge_dst "$dir" "${src#heads/}"
+            [ -z "$MD" ] || targets[${#targets[@]}]=$MD
+          done
+          ;;
+      esac
     fi
   fi
   [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"

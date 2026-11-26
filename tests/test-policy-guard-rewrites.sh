@@ -188,6 +188,24 @@ expect defer "[worker] push.default=upstream to the branch's own name still defe
 gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge planwright/demo/task-1
 pg worker 'git push' "$UPCFG" "$UPCFG"
 expect defer "[worker] an unqualified merge naming the branch itself still defers"
+# A named source with no destination goes to branch.<source>.merge too, under
+# push.default=upstream or its alias tracking.
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge refs/heads/main
+for pd in upstream tracking; do
+  gitq -C "$UPCFG" config push.default "$pd"
+  for cmd in 'git push origin planwright/demo/task-1' 'git push -u origin planwright/demo/task-1' \
+    'git push origin heads/planwright/demo/task-1' 'git push origin refs/heads/planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect deny "[worker] push.default=$pd sends the named source to branch.<b>.merge=main: $cmd"
+  done
+  for cmd in 'git push origin planwright/demo/task-1:planwright/demo/task-1' 'git push origin HEAD:planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect defer "[worker] push.default=$pd leaves an explicit destination alone: $cmd"
+  done
+done
+gitq -C "$UPCFG" config push.default current
+pg worker 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
+expect defer "[worker] push.default=current sends the named source to its own name"
 
 # --- a cd that may not run --------------------------------------------------
 
