@@ -1907,8 +1907,9 @@ tower_wrapped_git_check() {
 # --------------------------------------------------------------------------
 # The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
 # sign-off branch, which the protected set (the spec branch) or the spec PR
-# branch rule (an amendment branch) otherwise refuses to every agent session
-# but the record-named worker's merge of main (eval_push). Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# branch rule (an amendment branch) otherwise refuses to every agent session;
+# eval_push's record-named merge push is the one other route there.
+# Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
 # hook's environment, which a command's inline assignment cannot change) names
 # that spec's kickoff may run it: kickoff-<spec>, from the spec branch or any of
 # its amendment branches (planwright/<spec>/amendment-<n>), or an amendment
@@ -5328,7 +5329,8 @@ kickoff_scope_names() {
 # spec_branch_checkout <dir> [<act, for a refusal>] — 0 when the session's
 # project directory is a linked worktree with a spec branch its launch names
 # checked out (the session record's spec_branch, or its kickoff scope's,
-# kickoff_scope_names) and <dir> is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
+# kickoff_scope_names) and <dir> is that same checkout; sets SBC_BRANCH,
+# SBC_SIGNOFF and SBC_RECORD (below). Any other state, a unit branch
 # included, is 1 and leaves the ordinary rules to decide. A kickoff's own
 # planwright/<spec>/spec is in the protected floor, which governs pushes; its
 # kickoff's sign-off push reaches it through the kickoff push helper, which
@@ -5343,7 +5345,7 @@ kickoff_scope_names() {
 # bare base merge.
 #
 # SBC_RECORD is 1 when the launch record, not a kickoff scope, names the
-# branch.
+# branch, whatever its kind; signoff_push_check admits a push only then.
 SBC_BRANCH=''
 SBC_SIGNOFF=0
 SBC_RECORD=0
@@ -5814,17 +5816,17 @@ signoff_transport_stock() {
 }
 
 # signoff_push_check <dir> <del> <alone> <remote> <src> <branch> — 0 when a
-# push to the sign-off branch the launch record names is a forward-merge of
-# main and nothing else: the command's only act, no delete, run in the
-# worktree holding the branch (spec_branch_checkout), the branch's own
+# push to the spec branch the launch record names (a sign-off, amendment-<n>
+# or spec-rework branch: is_signoff_branch, is_merge_route_branch; the name
+# predates the latter two) is a forward-merge of main and nothing else: the
+# command's only act, no delete, run in the worktree holding the branch
+# (spec_branch_checkout), worker_base_merge allow, the branch's own
 # remote over a stock transport, no local state that changes git's reads
 # (signoff_local_trusted), a HEAD or local-branch source, and, against
 # the PR head and the remote's default branch as the remote itself reports
 # them, a fast-forward whose every new commit off that base lies on the
 # first-parent line and is a two-parent merge of a base commit whose tree is
-# the clean merge of its parents. <branch> is the record's sign-off,
-# amendment or spec-rework branch (is_signoff_branch, is_merge_route_branch),
-# and worker_base_merge must be allow, as for the merge. SPC_WHY says why not.
+# the clean merge of its parents. SPC_WHY says why not.
 SPC_WHY=''
 signoff_push_check() {
   local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 sig=0 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
