@@ -143,7 +143,7 @@ esac
 
 branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || refuse "HEAD is detached; check out the unit branch first"
 # policy-guard.sh's is_unit_branch grammar; keep the two in step.
-re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$'
 re_flight='^planwright/flight/[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
 case $branch in planwright/flight/task-*) refuse "'$(safe "$branch")' is not a unit branch" ;; esac
 printf '%s\n' "$branch" | grep -Eq "$re_task|$re_flight" \
