@@ -645,9 +645,10 @@ window_rung() {
 }
 
 # ascending_thresholds <window> <t>...: exit 4 unless the enabled thresholds
-# are strictly ascending, so a rung switched `off` leaves the rest ordered.
-# Rungs at 100 may share it: 100 is the wall, where an override sets the rungs
-# it turns off; a rung below 100 after one is still refused.
+# are strictly ascending, so a rung switched `off` leaves the rest ordered,
+# except that rungs at 100, the wall, may repeat: an override parks a window's
+# top rungs there (they still trip at 100), and a rung below 100 after one is
+# refused.
 ascending_thresholds() {
   at_w=$1
   shift
@@ -663,8 +664,8 @@ ascending_thresholds() {
 }
 
 # resolve_thresholds: resolve every per-window threshold through the overlay
-# (REQ-E1.6) and validate each enabled one within 1-100 and strictly ascending
-# per window. A threshold is never 0 (the resolver refuses it), unlike a usage
+# (REQ-E1.6) and validate each enabled one within 1-100 and ordered per window
+# as ascending_thresholds checks. A threshold is never 0 (the resolver refuses it), unlike a usage
 # PERCENTAGE, which may legitimately be 0. A malformed set is a fail-closed
 # config error (exit 4). Sets the S_*/W_* globals.
 resolve_thresholds() {

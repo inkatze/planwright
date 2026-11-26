@@ -233,8 +233,8 @@ lowest() {
   lw_low=""
   for lw_v in "$@"; do
     [ "$lw_v" = off ] && continue
-    # 100 is the wall, so rungs set there (an override turning them off) may
-    # share it; a rung below 100 after one is still refused.
+    # As in the gate, rungs at 100, the wall, may repeat: an override parks a
+    # window's top rungs there, and refusing that set would pin a hold.
     [ "$lw_v" -gt "$lw_prev" ] || [ "$lw_v" = 100 ] || die 4 "the $lw_w thresholds are not strictly ascending, only rungs at 100 may repeat ($*)"
     lw_prev=$lw_v
     [ -n "$lw_low" ] || lw_low=$lw_v
