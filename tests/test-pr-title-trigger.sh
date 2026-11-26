@@ -235,7 +235,8 @@ done
 # other regardless of which workflow queued the run.
 groups=""
 group_count=0
-group_files=0
+group_workflows=0
+ci_groups=""
 for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
   [ -f "$wf" ] || continue
   if uncommented "$wf" | grep -qE '^[[:space:]]*concurrency:[[:space:]]*[{]'; then
@@ -243,7 +244,8 @@ for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
     this reader does not parse; write it as a block mapping"
   fi
   wf_groups="$(concurrency_groups "$wf")"
-  [ -n "$wf_groups" ] && group_files=$((group_files + 1))
+  [ -n "$wf_groups" ] && group_workflows=$((group_workflows + 1))
+  [ "${wf##*/}" = ci.yml ] && ci_groups="$wf_groups"
   # Fed by here-doc rather than a pipe: a `while read` on the right-hand side
   # of a pipe runs in a subshell, and the counter and failure tally raised in
   # the body would be discarded with it.
@@ -264,17 +266,16 @@ $wf_groups
 EOF
 done
 
-if [ "$group_files" -ge 2 ]; then
-  pass "C3 $group_count group string(s) from $group_files workflows compared, all distinct"
+if [ "$group_workflows" -ge 2 ]; then
+  pass "C3 $group_count group string(s) from $group_workflows workflows compared, all distinct"
 else
-  fail "C3 only $group_files workflow(s) declare a concurrency group —
+  fail "C3 only $group_workflows workflow(s) declare a concurrency group —
     too few for the uniqueness check to mean anything"
 fi
 
 # C3 is only as good as the strings the reader yields. ci.yml's group is a
 # folded expression, so it must read as the groups it evaluates to, never the
 # bare block indicator; each fixture below pins one reading path.
-ci_groups="$(concurrency_groups "$WORKFLOW_DIR/ci.yml")"
 # shellcheck disable=SC2016 # literal GitHub expressions
 if printf '%s\n' "$ci_groups" | grep -qxF 'ci-${{ github.ref }}' \
   && printf '%s\n' "$ci_groups" | grep -qxF 'ci-release-${{ github.sha }}' \

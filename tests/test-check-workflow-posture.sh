@@ -1925,17 +1925,19 @@ rel_assert_kind ordinary "$CI_GROUP" pull_request "chore: release 1.0.0" \
 rel_assert_kind release "\${{ (${RELEASE_PRED#"github.event_name == 'push' && ("}$GROUP_TAIL" \
   pull_request "chore: release 1.0.0" "without the push gate a pull_request run is judged release"
 
-# rel_case <name> <group> <cancel> [<indicator>] — a concurrency block whose two
-# values are one-line block scalars (`>-` by default), at $TMP/rel-<name>.yml.
+# rel_case <name> <group> <cancel> [<indicator>] [<job lines>] — a concurrency
+# block whose two values are one-line block scalars (`>-` by default), then
+# `jobs:` and any job lines given (newline-separated), at $TMP/rel-<name>.yml.
 rel_case() {
   printf '%s\n' '---' 'concurrency:' "  group: ${4:->-}" "    $2" \
     "  cancel-in-progress: ${4:->-}" "    $3" 'jobs:' >"$TMP/rel-$1.yml"
+  [ -z "${5:-}" ] || printf '%s\n' "$5" >>"$TMP/rel-$1.yml"
 }
-# rel_mutation <name> <group> <cancel> <reason> [<indicator>] — that block must
-# fail the check, and for its own reason.
+# rel_mutation <name> <group> <cancel> <reason> [<indicator>] [<job lines>] —
+# that block must fail the check, and for its own reason.
 rel_mutation() {
   local out rc
-  rel_case "$1" "$2" "$3" "${5:-}"
+  rel_case "$1" "$2" "$3" "${5:-}" "${6:-}"
   out="$(rel_check "$TMP/rel-$1.yml")"
   rc=$?
   assert_exit "release concurrency: mutation '$1' fails the check" 1 "$rc"
@@ -1967,14 +1969,9 @@ pred_other="$(rel_predicate 'chore(main): release ')"
   rel_mutation literal-spacing "\${{ $pred_spaced$GROUP_TAIL" "\${{ !($pred_spaced) }}" "$REL_NOT_TEN"
   rel_mutation other-title-prefix "\${{ $pred_other$GROUP_TAIL" "\${{ !($pred_other) }}" "$REL_NOT_TEN"
 }
-rel_case job-level "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}"
 # shellcheck disable=SC2016 # literal GitHub expressions
-printf '%s\n' '  x:' '    concurrency:' '      group: x-${{ github.ref }}' \
-  '      cancel-in-progress: true' >>"$TMP/rel-job-level.yml"
-out="$(rel_check "$TMP/rel-job-level.yml")"
-assert_exit "release concurrency: mutation 'job-level' fails the check" 1 $?
-assert_contains "release concurrency: mutation 'job-level' is refused because $REL_JOB_LEVEL" \
-  "$REL_JOB_LEVEL" "$out"
+rel_mutation job-level "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_JOB_LEVEL" '' \
+  "$(printf '%s\n' '  x:' '    concurrency:' '      group: x-${{ github.ref }}' '      cancel-in-progress: true')"
 
 # ---------------------------------------------------------------------------
 # The platform matrix (--matrix; universal-binary REQ-B1.6). Each case is the
