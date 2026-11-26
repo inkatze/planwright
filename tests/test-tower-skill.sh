@@ -555,7 +555,7 @@ for probe in 'run scripts/tower-session.sh activate`.' 'run scripts/tower-sessio
     fail "probe: a bare spelling is missed: $probe"
   fi
 done
-if runs_bare_spelling 'run `scripts/tower-session.sh activate tower` here'; then
+if runs_bare_spelling 'run scripts/tower-session.sh activate tower here'; then
   fail "probe: the tower spelling is taken for a bare one"
 else
   ok "probe: the tower spelling is not taken for a bare one"
