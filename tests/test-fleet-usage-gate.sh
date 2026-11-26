@@ -943,19 +943,50 @@ rm -rf "$awk_bin"
 echo "ok: mirror edge cases read as specified"
 
 # --- 40. The gate refuses what the resolver passes through: a threshold above
-#         100, and enabled session thresholds out of order around an off. ---
+#         100, enabled thresholds out of order around an off, and a rung below
+#         100 after a 100. ---
 reset_state
 write_mirror "{\"seven_day\":{\"used_percentage\":50,\"resets_at\":$in_day}}"
 for bad in 'fleet_usage_weekly_defer_all: 101' \
   "$(printf 'fleet_usage_session_downshift: 80\nfleet_usage_session_reduce_concurrency: off\nfleet_usage_session_defer_heavy: 70')" \
-  "$(printf 'fleet_usage_weekly_downshift: 80\nfleet_usage_weekly_reduce_concurrency: off\nfleet_usage_weekly_defer_heavy: 80')"; do
+  "$(printf 'fleet_usage_weekly_downshift: 80\nfleet_usage_weekly_reduce_concurrency: off\nfleet_usage_weekly_defer_heavy: 80')" \
+  "$(printf 'fleet_usage_weekly_reduce_concurrency: 100\nfleet_usage_weekly_defer_heavy: 90')"; do
   printf '%s\n' "$bad" >"$mlocal_cfg"
   rc=0
   run evaluate >/dev/null 2>&1 || rc=$?
   [ "$rc" = 4 ] || fail "the gate must refuse '$bad' with exit 4 (got $rc)"
 done
 rm -f "$mlocal_cfg"
-echo "ok: the gate refuses a threshold above 100 and out-of-order enabled thresholds"
+echo "ok: the gate refuses a threshold above 100, out-of-order enabled thresholds and a descent after a 100"
+
+# --- 40b. Rungs at 100, the wall, may repeat in either window, and still trip
+#          there (case 40 refuses a descent after one). ---
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_weekly_downshift: 100
+fleet_usage_weekly_reduce_concurrency: 100
+fleet_usage_weekly_defer_heavy: 100
+fleet_usage_weekly_defer_all: 100
+EOF
+[ "$(rung_of 10 99)" = normal ] || fail "weekly rungs all at 100 must run the ladder and leave 99% normal"
+[ "$(rung_of 10 100)" = defer-all ] || fail "weekly rungs all at 100 must reach defer-all at the wall"
+top_parked='fleet_usage_weekly_reduce_concurrency: 100
+fleet_usage_weekly_defer_heavy: 100
+fleet_usage_weekly_defer_all: 100
+fleet_usage_session_reduce_concurrency: 100
+fleet_usage_session_defer_heavy: 100'
+# 90% is defer-heavy under the default rungs in either window, so these
+# readings tell the parked set from the defaults. Each window starts fresh: a
+# held downshift would mask a reading the gate wrongly ranked lower.
+reset_state
+printf '%s\n' "$top_parked" >"$mlocal_cfg"
+[ "$(rung_of 10 90)" = downshift ] || fail "weekly top rungs at 100 must leave 90% at the 60 downshift"
+reset_state
+printf '%s\n' "$top_parked" >"$mlocal_cfg"
+[ "$(rung_of 90 10)" = downshift ] || fail "session top rungs at 100 must leave 90% at the 50 downshift"
+[ "$(rung_of 100 10)" = defer-heavy ] || fail "session top rungs at 100 must reach defer-heavy at the wall"
+rm -f "$mlocal_cfg"
+echo "ok: rungs at 100 may repeat in either window and trip at the wall"
 
 # --- 41. A dollar-budget account: spend_limit fills the weekly window when the
 #         account has no seven_day window, and is not read past its period. ---
