@@ -11,17 +11,13 @@ name: PR-Agent
 # pull_request_target.
 #
 # When it runs: once per head, on the draft, when a review is requested
-# (review_requested, which scripts/request-reviewer.sh sends) once every other
-# check on that head is green; the ready flip waits for that run to finish, so
-# a pull request is ready only when it can merge at once. A fix round that
-# changes code makes a new head and asks again. ready_for_review stays for a
-# pull request flipped with no review yet, and a head this workflow already
-# reviewed successfully is skipped (scripts/pr-agent-reviewed.sh), so the flip
-# after a draft's review fires no second paid run. Never on opened,
-# synchronize or reopened: each paid review is a review of a head that is
-# still changing. Any reviewer's request counts, since the event does not say
-# which. scripts/check-workflow-posture.sh enforces the trigger set and the
-# draft run.
+# (scripts/request-reviewer.sh) once every other check is green; the ready flip
+# waits for that run, so a ready pull request can merge at once. Any
+# reviewer's request counts. ready_for_review covers a pull request flipped
+# with no review yet; a head already reviewed is skipped
+# (scripts/pr-agent-reviewed.sh), so the flip fires no second paid run. Never
+# on opened, synchronize or reopened, a head still changing;
+# scripts/check-workflow-posture.sh enforces the triggers and the draft run.
 #
 # Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
 # repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS,
