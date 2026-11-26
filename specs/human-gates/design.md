@@ -1,7 +1,7 @@
 # Human gates — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -257,6 +257,8 @@ the approval gate survives every value.
 
 ### D-7: A worker merges its base into its own branch; conflicts are a knob  (N)
 
+Amended at Amendment 6, 2026-11-25: D-28 admits a clean base merge and its push on the one spec branch a launch record names; the exclusion of spec branches below stands for every other case.
+
 **Decision:** The allowance is the act "merge the PR base into the branch
 this session owns" (the base being the PR's base branch, or the branch the
 worktree was created from before a PR exists), governed by
@@ -294,6 +296,10 @@ local-main mutation.
 
 **Chosen because:** plain merge creates commits and rewrites nothing, so it
 never met the gate test; the scoping keeps the floor.
+
+**Superseded-by: D-28** (2026-11-25) — scoped to the spec-branch exclusion: a
+worker whose launch record names a spec branch may merge the PR base into
+that one branch and push only clean merges.
 
 ### D-8: Rewrite allowances — never-pushed local commits; force-push only on request  (N)
 
@@ -336,6 +342,8 @@ is a draft, under `draft_rewrite`, off by default. The never-pushed
 reshape, the tower path, and the human-run purge stand.
 
 ### D-9: Enforcement derives from the resolved policy; one spelling list; the protected set  (N)
+
+Amended at Amendment 6, 2026-11-25: the worker profile's plain-push denies of a spec branch become guard-only for the one branch a record names, D-28.
 
 **Decision:** Acts no value can permit stay in the deny profiles as the
 floor where a profile can express them (merge or rewrite of main, `master`,
@@ -1153,6 +1161,87 @@ Q1 to Q9 are the operator's answers recorded in the kickoff brief's
 and a draft branch only its own worker holds, holding only that worker's
 commits, published with a lease that refuses if anyone else moved it, sits
 on the near side of that line while the PR is a draft.
+
+### D-28: A worker keeps its spec branch current with a clean base merge and its push  (N, the operator's Amendment 6 rulings; supersedes D-7 in part, scopes D-9)
+
+**Decision:** A worker whose launch-written session record names one spec
+branch (a sign-off, amendment or spec-rework branch of the pull request it
+works on) may merge the PR base into it and push the result, and nothing
+else there. The merge is the command's only act; the push is by explicit
+refspec, the command's only act, and is admitted only when it fast-forwards
+the pull request's head and every commit it adds that the base lacks is a
+two-parent merge of the base whose tree is exactly the clean merge of its
+parents. The guard's half is mission-control D-114 and REQ-I1.11, which
+this decision admits; this bundle states the rule the guard enforces, and
+the guard code is mission control's.
+
+`worker_base_merge` governs the route as it governs every base merge:
+`deny` refuses both acts, so one existing setting stops it, and there is no
+second knob. `worker_merge_conflict_policy` keeps its meaning. A conflict
+under `halt` aborts the merge and parks the unit as before. Under `resolve`
+the worker may commit its resolution locally, but the push stays refused
+because the resolution is not the clean merge; the unit parks naming the
+conflicting paths, and a spec-file resolution goes to the kickoff session
+or the operator. A resolution commit is therefore never published by the
+worker route, which keeps a spec edit the kickoff session's and the
+operator's, and amends REQ-E1.2's `resolve` arm for that case
+only (REQ-E1.2's note). The worker never resets the local commit: whoever
+resolves the conflict discards it by hand, and a resumed unit starts from
+the remote head.
+
+The worker profile denies a plain push of the sign-off branch
+(`planwright/*/spec`) by glob, and a profile deny cannot be narrowed by an
+allow (D-18); the amendment and spec-rework branches were never denied
+there, and the guard refuses an unrecorded push to them only once mission
+control's build for that (pull request 1155) has merged. The route therefore
+needs the sign-off branch's plain-push denies guard-only for the worker
+tier. Its deletion spellings stay denied through deletion-only globs, since
+the relayed kickoff session runs under the same profile (REQ-G1.9). The
+worker profile's policy-guard hooks carry no fail-closed suffix today,
+unlike the tower's, so removing the denies would leave a push open whenever
+the guard cannot run; the same change gives them that suffix, which then
+refuses every call those hooks cover, with a message worded for a worker. It is scoped to the
+one branch a record names:
+the guard keeps refusing every other spec-branch push, and a worker with
+no record, an unbound one or another branch's refuses all of them. The
+merge and push builds in mission control change the guard, the session
+record and the docs; neither changes the worker profile, so Task 23 carries
+that one change.
+
+Visual-flight branches (`planwright/flight/...`) are the worker's own unit
+branch and already take the base merge and the ordinary push under D-7;
+this decision changes nothing for them.
+
+The doctrine's spec-branch push row names the sign-off, amendment and
+spec-rework branches and the clean-merge limit, citing REQ-E1.4 and
+mission-control REQ-I1.11, with the kickoff push stated as the only route
+for a spec's content; the base-merge row gains a base-merge-only clause for
+those branches. PR #1140 is made to match that text.
+
+**Alternatives considered:**
+- Narrow the route to the sign-off and amendment branches. Rejected
+  because: mission-control REQ-I1.11 already names the spec-rework branch,
+  and two specs disagreeing about one route is a defect (the operator's Q1).
+- No knob, or a knob of its own. Rejected because: an operator who sets
+  `worker_base_merge` to `deny` expects every base merge to stop, and a
+  second setting is one more thing to document and mis-set (the operator's
+  Q2).
+- Halt a conflict under every policy value. Rejected because: the
+  operator kept the conflict setting as it is (Q3); the push refusal
+  already keeps a resolution from publishing.
+- Push a hand resolution when no spec file conflicts, or to a side review
+  branch. Rejected because: the first needs a tree check the guard cannot
+  verify cheaply, a spec branch rarely conflicts outside its bundle, and
+  the second adds an admitted ref and a review step (the operator's Q3
+  follow-up).
+- Keep the doctrine to the sign-off branch only. Rejected because: the
+  route covers three branches, and a doctrine row naming one would let the
+  guard and the list drift (Q4).
+
+**Chosen because:** a worker on a spec pull request that main has moved past
+could otherwise only hand the sync to the operator, and the clean merge is
+mechanical: it adds no content a human has not already signed, so the
+guard can verify it exactly.
 
 ## Cross-cutting concerns
 
