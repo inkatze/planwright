@@ -51,6 +51,18 @@ refused "a reset on main"
 has 'not a unit branch' "the main refusal says why"
 pass "main is refused, even when the session record names it"
 
+B12=planwright/demo/task-12a
+g -C "$seed" switch -q -c "$B12" main
+g -C "$seed" commit -q --allow-empty -m "pushed on $B12"
+g -C "$seed" push -q origin "$B12"
+g -C "$primary" fetch -q origin
+d12="$tmp/wt-12a"
+worktree "$d12" "$B12"
+record "$d12" "$B12"
+run "$d12" reset "origin/$B12"
+[ "$RC" = 0 ] || fail "a reset on the suffixed task branch $B12 did not succeed: $OUT"
+pass "a suffixed task id (task-12a) is a unit branch here as in the policy guard"
+
 fixed=$(rec_path "$wt")
 mv "$fixed" "$tmp/saved.record"
 run "$wt" reset "origin/$B"

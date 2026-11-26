@@ -113,7 +113,9 @@
 #   base-merge  `git merge`, `git pull` in merge mode. tower: deny. worker:
 #               worker_base_merge, then the current branch must be the session's
 #               unit branch outside the protected set and every source the PR
-#               base or the unit branch's own branch on the base remote. A
+#               base or the unit branch's own branch on the base remote; on
+#               a stacked PR also its base branch, named by the launch-time
+#               session record's stack_base, by ref or by its tip commit id. A
 #               spec branch the launch names (the session record's, or a
 #               kickoff scope's: spec_branch_checkout), checked out in the
 #               session's own linked worktree, takes a plain merge of the PR
@@ -1108,7 +1110,7 @@ valid_branch() {
 # carry open pull requests, and the id buys uniqueness, not safety (the
 # protected set and the ownership checks bound the act).
 is_unit_branch() {
-  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$'
   local re_flight='^planwright/flight/[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
   case $1 in planwright/flight/task-*) return 1 ;; esac
   [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
@@ -1377,7 +1379,8 @@ upstream_of() {
 }
 
 # base_of <dir> — sets BASE_REMOTE and BASE_BRANCH: the unit branch's remote
-# (origin when unset) and that remote's default branch as recorded locally.
+# (origin when unset) and that remote's default branch as recorded locally;
+# then STACK_BRANCH (stack_base_load), so CUR_BRANCH must be set first.
 base_of() {
   local head
   BASE_REMOTE=$(gitq "$1" config --get "branch.$CUR_BRANCH.remote") || BASE_REMOTE=''
@@ -1385,6 +1388,51 @@ base_of() {
   head=$(gitq "$1" symbolic-ref --quiet --short "refs/remotes/$BASE_REMOTE/HEAD") || head=''
   BASE_BRANCH=${head#"$BASE_REMOTE"/}
   [ -n "$head" ] && [ "$BASE_BRANCH" != "$head" ] || BASE_BRANCH=main
+  stack_base_load "$1"
+}
+
+# stack_base_load — sets STACK_BRANCH: the stacked PR's base branch on the
+# base remote, from the launch-time session record (never live config, which
+# the worker can change), or empty. The record must be one record_usable
+# accepts for the unit's worktree, name this unit branch, and carry exactly
+# one stack_base on the base remote in the branch grammar.
+STACK_BRANCH=''
+stack_base_load() { # <dir>
+  local top sb
+  STACK_BRANCH=''
+  top=$(gitq "$1" rev-parse --show-toplevel) || top=''
+  [ -n "$top" ] || return 0
+  record_usable "$top" || return 0
+  record_field unit_branch && [ "$RF" = "$CUR_BRANCH" ] || return 0
+  record_field stack_base || return 0
+  sb=$RF
+  case $sb in "$BASE_REMOTE"/?*) ;; *) return 0 ;; esac
+  sb=${sb#"$BASE_REMOTE"/}
+  valid_branch "$sb" || return 0
+  [ "$sb" != "$BASE_BRANCH" ] || return 0
+  STACK_BRANCH=$sb
+}
+
+# is_stack_ref <dir> <name> — 0 when the merge source is the stacked base: its
+# remote-tracking ref by name and by what git resolves the name to, or a full
+# object id equal to that ref's current tip. An abbreviation or an old tip is
+# not the base.
+is_stack_ref() {
+  local d=$1 r=$2 want oid
+  [ -n "$STACK_BRANCH" ] || return 1
+  want=$(gitq "$d" rev-parse --verify --quiet "refs/remotes/$BASE_REMOTE/$STACK_BRANCH^{commit}") || return 1
+  [ -n "$want" ] || return 1
+  case $r in
+    "$BASE_REMOTE/$STACK_BRANCH" | "refs/remotes/$BASE_REMOTE/$STACK_BRANCH" | "remotes/$BASE_REMOTE/$STACK_BRANCH")
+      oid=$(gitq "$d" rev-parse --verify --quiet --end-of-options "$r^{commit}") || return 1
+      [ "$oid" = "$want" ]
+      return
+      ;;
+  esac
+  case $r in
+    *[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#r}" = "${#want}" ] && [ "$r" = "$want" ]
 }
 
 # is_base_ref <dir> <name> — 0 when the merge source is the PR base: by name,
@@ -1437,7 +1485,7 @@ is_base_ref() {
 # base or the unit branch's own branch on the base remote.
 is_base_or_own_branch() {
   [ "$1" = "$BASE_REMOTE" ] || return 1
-  [ "$2" = "$BASE_BRANCH" ] || [ "$2" = "$CUR_BRANCH" ]
+  [ "$2" = "$BASE_BRANCH" ] || [ "$2" = "$CUR_BRANCH" ] || { [ -n "$STACK_BRANCH" ] && [ "$2" = "$STACK_BRANCH" ]; }
 }
 
 # is_own_remote_ref <dir> <name> — 0 when the merge source is the unit
@@ -5523,6 +5571,7 @@ eval_merge() {
   record_spec_branch "$UNIT_TOP"
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
+    is_stack_ref "$dir" "$s" && continue
     if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
       ! is_spec_branch_ref "$dir" "$s" || continue
     fi
@@ -5535,7 +5584,7 @@ eval_merge() {
     [ "$rc" != 0 ] || continue
     [ "$rc" != 2 ] \
       || emit_deny "this git merge names the branch's own remote branch, but $(sanitize_printable "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" 'its remote-tracking ref') is missing or a local branch or tag of that name points at another commit - refusing (fail closed). Push or fetch the branch first, and remove any local branch or tag of that name."
-    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main'), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$([ -z "$STACK_BRANCH" ] || printf %s " or git merge $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the stacked base') (this stacked PR's base, or its tip commit id)"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
   done
 }
 
@@ -5623,7 +5672,7 @@ eval_pull() {
   case $ref in *:*) emit_deny 'this git pull carries a src:dst refspec, which also writes a local ref - refusing. Pull the PR base alone.' ;; esac
   ref=${ref#refs/heads/}
   is_base_or_own_branch "$remote" "$ref" \
-    || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main'), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+    || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main')$([ -z "$STACK_BRANCH" ] || printf %s " or git pull $(sanitize_printable "$BASE_REMOTE $STACK_BRANCH" 'the stacked base')"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
 }
 
 # rewrite_allowed <dir> <what> — unpushed_rewrite, then the unit branch. Under

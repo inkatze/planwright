@@ -219,6 +219,7 @@ expect_fail "a root with no shipped profile fails" "config/mission-control-setti
 printf '{ not json\n' >"$floor_root/config/mission-control-settings.json"
 under_floor_root --
 expect_fail "a shipped profile that does not parse fails" "config/mission-control-settings.json cannot be parsed"
+expect_fail "the parse failure carries jq's own error" "parse error"
 printf '{"permissions": {"deny": []}}\n' >"$floor_root/config/mission-control-settings.json"
 under_floor_root --
 expect_fail "a shipped profile with no deny entry fails" "deny floor in config/mission-control-settings.json is empty"
@@ -400,6 +401,101 @@ absolute_profile >"$home/.claude/settings.json"
 posture -- --settings "$tmp/missing.json"
 expect_fail "a --settings file that does not exist fails" "missing.json does not exist"
 
+echo "# jq failures"
+# A jq that fails inside a session (a version-manager shim resolving
+# differently there, a fork or exec failing under load) must say which jq
+# ran, how it exited and what it said, never only that a layer cannot parse.
+real_jq=$(command -v jq)
+reset
+absolute_profile | jq '.permissions.deny |= map(select(. != "Bash(gh pr merge:*)"))' >"$home/.claude/settings.json"
+posture --
+expect_fail "a refusal names the jq the check resolved" "jq: $real_jq"
+case $OUT in
+  *" (jq: $real_jq)") ok "the jq the check resolved ends the reason" ;;
+  *) fail "the reason does not end naming the jq: $OUT" ;;
+esac
+
+# stub_jq <dir> <body>: a jq at <dir>/jq running the sh <body>, with REAL the
+# real jq and the call count kept in STUB_COUNT; stub_run <dir> [env...] runs
+# the check with it first on PATH.
+# shellcheck disable=SC2016 # stub source, expanded when the stub runs
+stub_jq() {
+  rm -rf "$1"
+  mkdir -p "$1"
+  printf '#!/bin/sh\nREAL=%s\nn=$(($(cat "$STUB_COUNT" 2>/dev/null || echo 0) + 1))\necho "$n" >"$STUB_COUNT"\n%s\n' \
+    "$real_jq" "$2" >"$1/jq"
+  chmod 755 "$1/jq"
+}
+stub_run() {
+  local dir=$1
+  shift
+  rm -f "$tmp/count"
+  posture PATH="$dir:$PATH" STUB_COUNT="$tmp/count" "$@" --
+}
+# shellcheck disable=SC2016 # stub source, expanded when the stub runs
+flaky='if [ "$n" -ge "$STUB_FAIL_FROM" ] && [ "$n" -le "$STUB_FAIL_TO" ]; then echo "stub: fork failed" >&2; exit 1; fi
+exec "$REAL" "$@"'
+stub_jq "$tmp/flaky" "$flaky"
+flaky_run() { stub_run "$tmp/flaky" STUB_FAIL_FROM="$1" STUB_FAIL_TO="$2"; } # <from> <to>
+reset
+absolute_profile >"$home/.claude/settings.json"
+flaky_run 1 1
+expect_pass "a floor parse that fails once is retried and passes"
+flaky_run 2 2
+expect_pass "a layer parse that fails once is retried and passes"
+flaky_run 1 2
+expect_fail "a floor parse that fails twice fails" "config/mission-control-settings.json cannot be parsed"
+expect_fail "the twice-failed parse names jq's exit status and error" "jq exited 1: stub: fork failed"
+flaky_run 2 3
+expect_fail "a layer parse that fails twice fails, naming the layer" "$home/.claude/settings.json cannot be parsed"
+
+stub_jq "$tmp/shim" 'echo "shim ERROR: jq@1.8.2 is not installed" >&2
+echo "shim: run the install first" >&2
+exit 3'
+reset
+absolute_profile >"$home/.claude/settings.json"
+stub_run "$tmp/shim"
+expect_fail "a jq writing an error and exiting nonzero names its status" "cannot be parsed: jq exited 3"
+expect_fail "the reason carries jq's stderr, every line of it" "jq@1.8.2 is not installed shim: run the install first"
+expect_fail "the reason names the jq that ran" "jq: $tmp/shim/jq"
+
+stub_jq "$tmp/gone" 'echo "shim: exec: jq-1.8.2: not found" >&2
+exit 127'
+stub_run "$tmp/gone"
+expect_fail "a jq that cannot find what it runs says jq was not found at its path" "jq not found at $tmp/gone/jq"
+
+stub_jq "$tmp/noexec" 'echo "shim: exec: jq-1.8.2: Permission denied" >&2
+exit 126'
+stub_run "$tmp/noexec"
+expect_fail "a jq that cannot execute what it runs says so, not that jq is missing" "jq at $tmp/noexec/jq cannot be executed (exit 126)"
+
+# jq's errors quote the layer's own content, so a C1 control (here CSI) in a
+# settings file would otherwise reach the reason and a terminal showing it.
+stub_jq "$tmp/ctl" 'printf "tab\there cr\rhere csi\302\233here\n" >&2
+exit 3'
+stub_run "$tmp/ctl"
+expect_fail "tabs and CRs in jq's error become spaces" "jq exited 3: tab here cr here csi"
+c1=$(printf '\233')
+case $OUT in
+  *"$c1"*) fail "a C1 control in jq's error reached the reason: $OUT" ;;
+  *) ok "C1 controls in jq's error are dropped" ;;
+esac
+
+stub_jq "$tmp/mute" 'exit 6'
+stub_run "$tmp/mute"
+expect_fail "a jq failing silently names its status and nothing after it" "cannot be parsed: jq exited 6 (jq: $tmp/mute/jq)"
+
+stub_jq "$tmp/loud" 'printf "%0400d" 0 | tr 0 a >&2
+echo TAILMARK >&2
+exit 4'
+stub_run "$tmp/loud"
+expect_fail "a long jq error is carried" "jq exited 4: aaaa"
+case $OUT in
+  *TAILMARK*) fail "a jq error past its cap reached the reason: $OUT" ;;
+  *) ok "a jq error is cut at its cap" ;;
+esac
+rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/noexec" "$tmp/ctl" "$tmp/mute" "$tmp/loud" "$tmp/count"
+
 echo "# missing tools"
 # A tool the check reads with, gone from PATH, is a check that did not run,
 # never a pass.
@@ -412,7 +508,9 @@ for gone in jq sed awk grep; do
     [ "$t" = "$gone" ] || ln -s "$(command -v "$t")" "$tmp/tools/$t"
   done
   posture PATH="$tmp/tools" --
-  if [ "$RC" = 2 ] && case $ERR in *"$gone is required"*) true ;; *) false ;; esac then
+  want="$gone is required"
+  [ "$gone" != jq ] || want="jq is required and was not found on PATH: $tmp/tools"
+  if [ "$RC" = 2 ] && [ -z "$OUT" ] && case $ERR in *"$want"*) true ;; *) false ;; esac then
     ok "with $gone missing, the check says it did not run (exit 2)"
   else
     fail "with $gone missing, the check exited $RC: $OUT $ERR"
@@ -426,6 +524,13 @@ if OUT=$(/bin/bash "$POSTURE" --help 2>&1) && case $OUT in usage:*) true ;; *) f
 else
   fail "--help did not print the usage with exit 0"
 fi
+help_flat=$(printf '%s\n' "$OUT" | tr '\n' ' ' | tr -s ' ')
+case $help_flat in
+  *"Every reason ends with (jq: <path>), the jq resolved from PATH when the check starts."*)
+    ok "--help says how every reason ends"
+    ;;
+  *) fail "--help does not say every reason ends with the jq's path" ;;
+esac
 OUT=$(/bin/bash "$POSTURE" 2>&1)
 [ "$?" = 2 ] && ok "no verb is a usage error" || fail "no verb did not exit 2"
 OUT=$(/bin/bash "$POSTURE" check --bogus 2>&1)
