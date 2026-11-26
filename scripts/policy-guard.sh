@@ -5808,7 +5808,7 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # first word is no switch (perl script.pl -i) is no in-place run; past a first
 # switch any words may stand before the i cluster, since a switch's value
 # (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
-RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?[0-9acdfgnpsStTuUvwWXyhl]*i'
+RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?([0-9acdfgnpsStTuUvwWXyhl]|K[A-Za-z])*i'
 RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|(--|-W[[:space:]]*)(i|lo|e|fil)[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
 # Program text including the extension, anywhere after the tool: the program's
 # own semicolons and line breaks end no statement of the shell's, and its text
@@ -7501,7 +7501,9 @@ mc_ipt_perl() {
               [ "${c:$j:1}" != t ] || j=$((j + 1))
               case ${c:$j:1} in : | =) break ;; esac
               ;;
-            *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V | ruby:K) break ;;
+            # ruby's -K takes one letter, its code, and reads on.
+            ruby:K) j=$((j + 1)) ;;
+            *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V) break ;;
           esac
         done
         ;;
