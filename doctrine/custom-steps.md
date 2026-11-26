@@ -50,13 +50,12 @@ the ready flip (`pre-ready-flip`, `scripts/ready-flip.sh`) needs every check
 green. A channel post or notice needs only that no check is red, and a red
 check goes straight to log diagnosis rather than to a wait. A step's record
 never reads as covering CI: a cadence that is done names its points and steps,
-not the checks. The repo's own bot review (PR-Agent) is the flip's run, never
-a step's: it fires on the flip, so no step before the flip requests or waits
-for one, so a draft whose only gap is `post-pr` reads `flip-for-review` to the
-readiness check, a go-ahead to flip. After the flip, wait for the runs it
-started, settle the findings, complete a `post-pr` that was held for that run,
-and request one more run (`scripts/request-reviewer.sh`) only after a fix that
-changed code.
+not the checks. The repo's own bot review (PR-Agent) runs on the draft, fired
+by a review request (`scripts/request-reviewer.sh`) once the other checks are
+green, and the flip waits for it: a draft with no run whose only gap is
+`post-pr` reads `request-review` to the readiness check, a go-ahead to request
+it, never to flip. Wait for that run, settle the findings, complete a `post-pr`
+held for it, then flip; a fix that changed code needs one more run.
 
 **Wired in `/spec-kickoff`:** `pre-spec-ready-flip`, after its push and PR
 step and before the terminal CI gate, on the head that flip lands on, once per

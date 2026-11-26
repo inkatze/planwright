@@ -221,32 +221,33 @@ dependency.
 ### The bot review (PR-Agent)
 
 The PR-Agent workflow (`.github/workflows/pr-agent.yml`) is a paid review, so
-it runs once per pull request, on the run the ready flip fires
-(`ready_for_review`), and never on `opened`, `synchronize` or `reopened`;
-`scripts/check-workflow-posture.sh` refuses a trigger set that drifts. A draft
-never runs it (the job skips a draft), so open pull requests as drafts: the
-readiness check never asks for a run before the flip (a draft whose only gap
-is the `post-pr` point, which waits on that run, gets the
-`flip-for-review <head>` verdict, telling the caller to flip; any other gap
-keeps it not-ready), and a check created at
-or after the flip is a run the flip started, the flip's to finish, while one
-created before it and still running means the flip came too early. After the
-flip, wait for the runs it started, PR-Agent included, then settle its
-findings. A fix that changes code makes a new head, which needs one more run:
-request a review from anyone on the ready pull request (the `review_requested`
-event does not say who, and `scripts/request-reviewer.sh --copilot` sends one).
-That is the explicit trigger: the same pull-request event, so the
-same-repository, dependabot and `skip-pr-agent` label conditions apply
-unchanged. GitHub can accept a request and add no reviewer, which fires
+it runs once per head, on the draft, when a review is requested
+(`review_requested`), and never on `opened`, `synchronize` or `reopened`;
+`scripts/check-workflow-posture.sh` refuses a trigger set that drifts or a job
+that skips drafts. The order is: every other check green on the draft head,
+then request the review (`scripts/request-reviewer.sh --copilot` sends one; the
+event does not say who, so anyone's counts), then wait for PR-Agent's run on
+that head and settle its findings, then flip. A ready pull request can then
+merge at once. The readiness check holds to it: a draft with no run at its
+head (and nothing else owing but the `post-pr` point that waits on it) gets
+the `request-review <head>` verdict, telling the caller to request it, never
+to flip; a draft whose run is still going or red is not-ready; and a run still
+going at the flip means the flip came too early. The configured flip
+(`scripts/ready-flip.sh`) waits for a finished PR-Agent run on the head the
+same way. The flip's own `ready_for_review` event still fires the workflow,
+which skips a head its run marker already records as reviewed
+(`scripts/pr-agent-reviewed.sh`), so a pull request flipped with no review
+gets one and one already reviewed pays for no second. A fix that changes code
+makes a new head, which needs one more run: request a review again. The same
+same-repository, dependabot and `skip-pr-agent` label conditions apply to
+every event. GitHub can accept a request and add no reviewer, which fires
 nothing, so the helper waits for the request to land and exits 6 when none
-does; converting the pull request to draft and marking it ready again then
-fires the run instead (the re-draft is the operator's: the policy guard keeps
-it from agents). A pull request opened ready has no flip, so it needs that
-request for its one run. A ready pull request is merge-ready only with a PR-Agent run
-on its final head, created at or after the flip where there is one, that passed (or was skipped by
-the `skip-pr-agent` label or a dependabot head) and its findings answered; a
-run that predates the flip is not the flip's, and a ready pull request whose
-flip-fired run is still running is never merge-ready.
+does; on a draft, request again; on a ready pull request, converting it to
+draft and marking it ready again fires the run instead (the re-draft is the
+operator's: the policy guard keeps it from agents). A pull request is
+flip-ready or merge-ready only with a PR-Agent run on its final head that
+passed (or was skipped by the `skip-pr-agent` label or a dependabot head) and
+its findings answered.
 
 ### Opt-in suites, outside the gate
 

@@ -64,16 +64,16 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or
-                                      flip-for-review walk as the check
+                                      request-review walk as the check
                                       the operator bypasses at merge
   require<TAB>macos                   the repository's CI has macOS jobs, which
                                       run only on a ready or ci-macos
                                       labelled pull request; both must be
                                       SUCCESS, a skip or absence is unmet
   require<TAB>pr-agent                the repository runs PR-Agent, the bot
-                                      review: once per pull request, on the
-                                      run the ready flip fires, and again
-                                      only when a review is requested
+                                      review: once per head, on the draft
+                                      when a review is requested, and the
+                                      ready flip waits for it
   state<TAB>draft|ready               whether the pull request is a draft
   flip<TAB><time>                     when the pull request was last marked
                                       ready (its ready_for_review event)
@@ -82,8 +82,8 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       say itself
   botmark<TAB><login><TAB><run>.<attempt><TAB><head><TAB><status><TAB><time>
                                       one per PR-Agent run marker comment
-                                      (`<!-- pr-agent-run: ... -->`) on a
-                                      ready pull request: its author, the
+                                      (`<!-- pr-agent-run: ... -->`) on the
+                                      pull request: its author, the
                                       run attempt, the head it reviewed,
                                       its status and when it was last edited
   botattempt<TAB><run>.<attempt><TAB><workflow><TAB><started><TAB><conclusion>
@@ -142,21 +142,20 @@ THE WALK refuses, each failure one line:
     out of the evidence, so a pull request whose only check is that one
     has none), or any check outside SUCCESS, NEUTRAL and
     SKIPPED, whatever the rollup says;
-  - where PR-Agent is required, a ready pull request with no PR-Agent run at
-    its head (a draft is never asked for one, and a draft's PR-Agent check,
-    green, red or pending, is left out of the walk: the flip fires the run).
-    The run, like any check, must be green, and its findings answered; a code
-    change on a finding is a new head and needs one more run. A skipped run
-    (the skip-pr-agent label, a dependabot head) is the opt-out. The run must
-    be the one the flip fired: where the flip time is known, a PR-Agent run
-    created before the flip is not it (nor is one whose creation time is
-    unread), and a ready pull request with no run created at or after the flip
-    is refused until the flip's own run exists and finishes. A re-run after
-    a fix round reviews the head while its check stays on the commit the run
-    first fired at, so a run marker stands in for the check: the latest one
-    github-actions[bot] posted for a run attempt, naming the full head with
-    status success, whose attempt is a PR-Agent one that started at or after
-    the flip and finished green. Any other marker is named and not counted;
+  - where PR-Agent is required, a pull request with no PR-Agent run at its
+    head. The review runs on the draft, fired by a review request once the
+    other checks are green, and the flip waits for it, so a ready pull
+    request can merge at once: a draft with none is told to request it
+    (request-review, below), a ready one with none is refused. The run, like
+    any check, must be green, and its findings answered; one still running
+    holds the draft, and one still running at the flip is a too-early flip. A
+    code change on a finding is a new head and needs one more run. A skipped
+    run (the skip-pr-agent label, a dependabot head) is the opt-out. A re-run
+    after a fix round reviews the head while its check stays on the commit the
+    run first fired at, so a run marker stands in for the check: the latest
+    one github-actions[bot] posted for a run attempt, naming the full head
+    with status success, whose attempt is a PR-Agent one with a start time
+    that finished green. Any other marker is named and not counted;
   - a pending check on a ready pull request, told by its run's creation time:
     created at or after the flip, it is the flip's own run and only has to
     finish; created before the flip and still running at it, the flip came
@@ -178,12 +177,12 @@ THE WALK refuses, each failure one line:
     for its sign-off instead of the cadence and the required steps. The
     exception is a post-pr gap (no completion, one only on heads outside the
     pull request's history such as another unit's in a reused worktree, or a
-    step never recorded) on a draft where PR-Agent is required: that point
-    waits on the bot review the flip fires, so it is pending the flip, not a
-    gap. When it is the only thing the walk holds, the verdict is
-    flip-for-review (below); with any other refusal the verdict stays
-    not-ready and names that refusal. On a ready pull request the post-pr gap
-    is a gap again;
+    step never recorded) on a draft whose bot review is due: that point waits
+    on the run a review request fires, so it is pending the request, not a
+    gap. When the due review and such gaps are all the walk holds, the
+    verdict is request-review (below); with any other refusal the verdict
+    stays not-ready and names that refusal. Once the run exists, and on a
+    ready pull request, the post-pr gap is a gap again;
   - each edited spec bundle not signed off, on any pull request;
   - each drift row: a changed deliverable no spec edit covers, or a drift
     check that could not run (scripts/spec-drift-check.sh);
@@ -198,14 +197,15 @@ Usage:
       ready<TAB><head> (then bypass<TAB><name><TAB><state> per check
       the operator bypasses at merge), or not-ready<TAB><head|-> then
       fail<TAB><what><TAB><detail> per failure, or, for a draft whose only
-      gap is the post-pr point that waits on the bot review the flip fires,
-      flip-for-review<TAB><head> then pending<TAB>post-pr<TAB><detail> (and
-      any bypass lines): flip the pull request to start the review, then wait
-      for the run it fires, answer its findings and record post-pr against it.
-      flip-for-review exits 4 like not-ready, so a caller that only checks
-      for exit 0 never reads it as merge-ready; a caller that parses the
-      first field names the flip. Once ready, the walk is ready only with the
-      flip's run finished and its findings answered
+      gap is its due bot review and the post-pr point that waits on it,
+      request-review<TAB><head> then pending<TAB>bot-review<TAB><detail>,
+      pending<TAB>post-pr<TAB><detail> per such gap (and any bypass lines):
+      request a review on the draft (scripts/request-reviewer.sh), wait for
+      the run it fires, answer its findings and record post-pr against it,
+      then walk again; the flip follows a ready walk. request-review exits 4
+      like not-ready, so a caller that only checks for exit 0 never reads it
+      as flip- or merge-ready; a caller that parses the first field names the
+      request
   mc-readiness.sh collect --program <p> --repo <owner/name> --pr <n>
                           [--worktree <dir>] --out <file>
       write the evidence at the pull request's current head: one gh read
@@ -293,7 +293,7 @@ Usage:
       characters, say) falls back to pr-<checksum>, the slug in the text.
 
 Exit codes: 0 ready, or done; 1 a failed read, store or event; 2 usage; 3
-the program is not configured; 4 not ready (flip-for-review included).
+the program is not configured; 4 not ready (request-review included).
 
 Portable bash 3.2 / BSD tooling; gh's built-in --jq does the JSON.
 HELP
@@ -396,12 +396,12 @@ END {
 }
 
 # The awk both verdicts share. A check named PR-Agent is the bot review: it
-# runs on the flip, so a draft's run (or none) is no business of the flip, and
-# a ready pull request's pending run is told apart by when it was created. A
-# run created before the flip that was still running at it means the flip came
-# too early; one created at or after the flip is the flip's own and only has
-# to finish. Without a state, a flip time or a run's creation time, a pending
-# check reads as plainly pending.
+# runs on the draft, on a review request, and the flip waits for it, so it is
+# judged like any check. On a ready pull request a pending run is told apart
+# by when it was created: one created before the flip that was still running
+# at it means the flip came too early; one created at or after the flip is the
+# flip's own and only has to finish. Without a state, a flip time or a run's
+# creation time, a pending check reads as plainly pending.
 CHECK_FUNCS='
 function pass_check(s) { return s == "SUCCESS" || s == "NEUTRAL" || s == "SKIPPED" }
 function pending_check(s) { return s == "PENDING" || s == "IN_PROGRESS" || s == "QUEUED" || s == "EXPECTED" || s == "WAITING" || s == "REQUESTED" }
@@ -412,7 +412,6 @@ function bot_check(n) { return n ~ /^PR-Agent( |$)/ }
 # order in the evidence never matters.
 function stage(pending_only,    i) {
   for (i = 1; i <= nraw; i++) {
-    if (state == "draft" && bot_check(rn[i])) continue
     nc++
     if (bot_check(rn[i])) botseen = 1
     if (pending_only ? pending_check(rs[i]) : !pass_check(rs[i])) ck[++nck] = rn[i] "\t" rs[i]
@@ -469,10 +468,10 @@ walk_awk() {
   awk -F '\t' "$CHECK_FUNCS"'
 function fail(what, detail) { fails[++nf] = "fail\t" what "\t" detail }
 # bot_marker(): 1 when a run marker the PR-Agent workflow posted proves one of
-# its run attempts reviewed the head after the flip. A re-run keeps the check
-# on the commit the run first fired at, so only the marker names the head.
-# Only the latest marker of each author and attempt counts; each refused one
-# is named in mwhy.
+# its run attempts reviewed the head and finished green, before the flip or
+# after it. A re-run keeps the check on the commit the run first fired at, so
+# only the marker names the head. Only the latest marker of each author and
+# attempt counts; each refused one is named in mwhy.
 function bot_marker(    i, m, a, k, at, latest, order, n, r) {
   for (i = 1; i <= nmk; i++) {
     split(mk[i], m, "\t")
@@ -491,7 +490,6 @@ function bot_marker(    i, m, a, k, at, latest, order, n, r) {
       split(att[m[2]], a, "\t")
       if (!bot_check(a[1])) r = "attempt " m[2] " belongs to " a[1] ", not PR-Agent"
       else if (a[2] == "") r = "attempt " m[2] " has no start time read"
-      else if (flip != "" && a[2] < flip) r = "attempt " m[2] " started " a[2] ", before the flip at " flip
       else if (!pass_check(a[3])) r = "attempt " m[2] " is " a[3]
       else return 1
     }
@@ -536,7 +534,7 @@ $1 == "cadence" && $2 == "gap" {
   if ($4 == "unaudited") { d = $5 " fails the step-record truth check (if only its start or end is wrong, step-record.sh supersede corrects it)"; cad[++ncad] = "not audited: " $3 ": " d; unaud = 1 }
   else {
     cad[++ncad] = $3 ": " d
-    # A post-pr step may wait on the bot review the ready flip fires.
+    # A post-pr step may wait on the bot review a review request fires.
     if ($3 == "post-pr" && ($4 == "incomplete" || $4 == "missing" || $4 == "foreign")) cadpf[ncad] = d
   }
 }
@@ -557,22 +555,15 @@ END {
   # caller that takes the first refusal as the reason sees the check first.
   for (i = 1; i <= nck; i++) { split(ck[i], c, "\t"); r = describe(c[1], c[2]); k = index(r, "\t"); lead[++nlead] = "fail\t" substr(r, 1, k - 1) "\t" substr(r, k + 1) }
   if (!nc) fail("check", "no individual check context at the head")
-  marked = (needbot && state != "draft") ? bot_marker() : 0
-  if (needbot && state != "draft" && !botseen && !marked) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; the flip starts one, and a pull request opened ready or a head pushed after the flip needs a review request (scripts/request-reviewer.sh)" mwhy)
-  # After the flip the run it fired is the one wanted: a run created before
-  # the flip (every PR-Agent run there is) is not it, and the run the flip
-  # fires has not shown up yet. No apostrophe here: this is a shell string.
-  if (needbot && state == "ready" && botseen && flip != "" && !marked) {
-    fired = 0; unk = 0; newest = ""
-    for (i = 1; i <= nraw; i++) if (bot_check(rn[i])) {
-      b = born[rn[i]]
-      if (b == "") unk = 1
-      else if (b >= flip) fired = 1
-      else if (b > newest) newest = b
-    }
-    if (!fired && unk) fail("bot-review", "the creation time of the PR-Agent run at " substr(head, 1, 12) " is unknown, so it cannot be told from a run before the flip at " flip "; read it again" mwhy)
-    else if (!fired) fail("bot-review", "the only PR-Agent run at " substr(head, 1, 12) " was created " newest ", before the flip at " flip "; wait for the run the flip fires" mwhy)
-  }
+  # The bot review runs on the draft, on a review request, and the flip waits
+  # for it: a draft with no run at its head is due a request, and a ready pull
+  # request with none is refused. A run before the flip is the one wanted; one
+  # still running at the flip is a too-early flip, which describe() names.
+  # No apostrophe here: this is a shell string.
+  marked = needbot ? bot_marker() : 0
+  unreviewed = needbot && !botseen && !marked
+  due = unreviewed && state == "draft"
+  if (unreviewed && !due) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) and wait for its run" mwhy)
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
     hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
@@ -586,9 +577,9 @@ END {
   }
   if (!speconly) {
     for (i = 1; i <= ncad; i++) {
-      # On a draft the bot review does not exist yet: the flip fires it, so a
-      # post-pr gap is pending the flip, not a gap, where the repository runs it.
-      if ((i in cadpf) && state == "draft" && needbot) pend[++np] = cadpf[i]
+      # Until the draft review runs, a post-pr gap that may wait on it is
+      # pending the review request, not a gap.
+      if ((i in cadpf) && due) pend[++np] = cadpf[i]
       else fail("cadence", cad[i])
     }
     if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
@@ -615,9 +606,10 @@ END {
     for (i = 1; i <= nf; i++) print fails[i]
     exit 4
   }
-  if (np) {
-    print "flip-for-review\t" head
-    for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; pending the flip, which fires the bot review (PR-Agent) a post-pr step may wait on"
+  if (due) {
+    print "request-review\t" head
+    print "pending\tbot-review\tno PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) on the draft, then wait for the run it fires" mwhy
+    for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; pending the bot review (PR-Agent) a review request fires, which a post-pr step may wait on"
     for (i = 1; i <= nb; i++) print "bypass\t" byp[i]
     exit 4
   }
@@ -1165,10 +1157,11 @@ collect() {
   # author, for the walk to judge, and the attempt behind each of the
   # workflow's markers at the head is read for its start and conclusion.
   # Advisory like the run read: a failed read leaves no row, which the walk
-  # never counts as a review. A draft is never judged by it. The marker line is
-  # the one .github/workflows/pr-agent.yml writes; change the two together.
+  # never counts as a review. A draft is read too: its review runs before the
+  # flip. The marker line is the one .github/workflows/pr-agent.yml writes;
+  # change the two together.
   # shellcheck disable=SC2016 # a jq program
-  if ! grep -qx "state$(printf '\t')draft" "$cl_tmp/pr" && gh api --paginate "repos/$2/issues/$3/comments?per_page=100" --jq '
+  if gh api --paginate "repos/$2/issues/$3/comments?per_page=100" --jq '
     def clean: tostring | gsub("[\t\r\n]"; " ");
     .[] | ((.body // "") | split("\n")[0]
       | capture("^<!-- pr-agent-run: id=(?<id>[0-9]+\\.[0-9]+) head=(?<head>[0-9a-f]*) status=(?<status>[a-z_]+) -->$")?) as $m
@@ -1185,7 +1178,7 @@ collect() {
 $(awk -F '\t' -v H="$cl_head" '$1 == "botmark" && $2 == "github-actions[bot]" && $4 == H && $3 ~ /^[0-9]+\.[0-9]+$/ && !seen[$3]++ { print $3 }' "$cl_tmp/marks")
 EOF
   else
-    # A draft, or a failed read whose partial output must not stand.
+    # A failed read, whose partial output must not stand.
     : >"$cl_tmp/marks"
   fi
   : >"$cl_tmp/steps"
@@ -1307,8 +1300,8 @@ EOF
   if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -lE '^  macos-(suite|smoke):' {} + 2>/dev/null)" ]; then
     printf 'require\tmacos\n' >"$cl_tmp/require"
   fi
-  # The bot review is wanted on a ready pull request where the repository runs
-  # PR-Agent; it runs on the flip, so the walk never wants it on a draft.
+  # The bot review is wanted where the repository runs PR-Agent: on the draft,
+  # before the flip, and on a ready pull request.
   if [ -n "$(find "$cl_ci/.github/workflows" -name '*.yml' -exec grep -lE '^[^#]*pragent/pr-agent' {} + 2>/dev/null)" ]; then
     printf 'require\tpr-agent\n' >>"$cl_tmp/require"
   fi

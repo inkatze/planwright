@@ -33,8 +33,9 @@
 #      checkout, which must be on the PR's head branch; with no unit given, or
 #      a checkout on another branch, it is named in the output alone.
 #   5. A request the host accepted is not proof: GitHub has answered success
-#      while adding no reviewer, and PR-Agent runs on review_requested, so a
-#      request that never lands loses that run silently. Poll until the
+#      while adding no reviewer, and PR-Agent runs on review_requested (on a
+#      draft too: the request is what starts the review the ready flip waits
+#      for), so a request that never lands loses that run silently. Poll until the
 #      reviewer has a review_requested event newer than step 1's, or is a
 #      requested reviewer it was not in step 1, up to the bound below; a read
 #      that fails is polled past. A reviewer already requested in step 1
@@ -51,7 +52,8 @@
 # 6 the host accepted the request but none landed within the bound (or no
 # read succeeded to show one), the draft state held or restored. The output
 # names the fallback that fires PR-Agent: on a ready PR, converting it to
-# draft and marking it ready again; on a draft, its ready flip. A re-draft
+# draft and marking it ready again; on a draft, another request, never its
+# ready flip, which waits for that run. A re-draft
 # failure (4, 5) outranks 1 and 6.
 #
 # Environment: PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS (default 3) is the
@@ -288,7 +290,7 @@ EOF
   [ "$n" -ge "$ATTEMPTS" ] || nap
 done
 if [ "$was_draft" = true ]; then
-  fallback="marking PR #$PR ready fires PR-Agent"
+  fallback="request the review on PR #$PR again, from this or another bot reviewer; do not mark it ready to fire PR-Agent: the flip waits for its run"
 else
   fallback="to fire PR-Agent, convert PR #$PR to draft and mark it ready again (the operator's act: the policy guard denies agents the re-draft)"
 fi

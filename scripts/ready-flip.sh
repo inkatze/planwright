@@ -88,10 +88,11 @@
 #                     one success, nothing failing or pending) within
 #                     ready_flip_ci_wait, the planwright/pre-ready-flip and
 #                     planwright/pre-spec-ready-flip statuses excluded; a host
-#                     read that fails is retried within the same bound
-#                     (The bot review is not among these: the repo's PR-Agent
-#                     workflow runs on the flip itself, so the flip never waits
-#                     for one; see docs/CONTRIBUTING.md, *The bot review*.)
+#                     read that fails is retried within the same bound. Where
+#                     the head's workflows run the PR-Agent image, that green
+#                     includes a finished PR-Agent run on the head: the review
+#                     runs on the draft, on a review request, and the flip
+#                     waits for it (docs/CONTRIBUTING.md, *The bot review*)
 #   ready-guard       scripts/ready-guard.sh defers `gh pr ready <n>`: the
 #                     shipped currency and mergeability floor, called directly
 #                     because the flip runs below any hook
@@ -837,9 +838,12 @@ ROLLUP_JQ='
          elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral" else "failing" end)
       end ] as $v
   | ([(.statusCheckRollup // []) | bypassed_check_runs[] | (.name // "-" | tostring)] | join(", ")) as $bypass
+  | any((.statusCheckRollup // []) | latest_check_runs[];
+      .__typename == "CheckRun" and ((.name // "") | test("^PR-Agent( |$)")) and .status == "COMPLETED") as $reviewed
   | if any($v[]; . == "failing") then "failing"
     elif any($v[]; startswith("pending")) then
       "pending " + ([$v[] | select(startswith("pending ")) | ltrimstr("pending ")] | join(", "))
+    elif $bot and ($reviewed | not) then "unreviewed"
     elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)|\($bypass)"
     else "none" end end'
 
@@ -847,7 +851,9 @@ ROLLUP_JQ='
 # branch, so a park could not be pushed on top of it and none is attempted.
 HEAD_MOVED=0
 pred_ci() {
-  local i=0 raw oid verdict bypass greens last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
+  local i=0 raw oid verdict bypass greens last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS)) bot=false
+  # The pinned head's own workflows decide, as the readiness check's do.
+  ! git grep -qE '^[^#]*pragent/pr-agent' "$HEAD_SHA" -- '.github/workflows/*.yml' 2>/dev/null || bot=true
   # The read count bounds the wait, and so does the clock: every nap here ends
   # by the deadline, so only a head re-read, which naps on its own, can
   # overrun it, by that re-read's pauses.
@@ -876,7 +882,7 @@ pred_ci() {
         verdict=moved
         last="the PR head did not settle on the pinned head ${HEAD_SHA:0:12}"
       else
-        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$BASE_STATE_CHECKS" "$CHECK_RUNS_JQ
+        verdict=$(printf '%s' "$raw" | jq -r --argjson ex "$EXCLUDED_CONTEXTS" --argjson base_state "$BASE_STATE_CHECKS" --argjson bot "$bot" "$CHECK_RUNS_JQ
 $ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
       case $verdict in
@@ -898,6 +904,8 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
           ;;
         moved) ;;
         pending\ *) last="checks still pending: ${verdict#pending }" ;;
+        # Waited on like a pending check: a request already made shows up.
+        unreviewed) last="no PR-Agent run has finished on ${HEAD_SHA:0:12}; request a review (scripts/request-reviewer.sh) on the draft and flip once its run finishes" ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac
