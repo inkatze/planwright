@@ -139,10 +139,6 @@ esac
 
 cap=$(conf fleet_compute_load_cap) || cap=0.4
 timeout_secs=$(conf fleet_compute_timeout) || timeout_secs=''
-idle_secs=$(conf fleet_compute_idle_threshold) || idle_secs=600
-account=$(conf fleet_compute_account) || account=''
-case $idle_secs in 0) ;; '' | *[!0-9]* | 0* | ?????????*) idle_secs=600 ;; esac
-case $account in *[!A-Za-z0-9._-]*) account='' ;; esac
 case $cap in *[0-9]*) ;; *) cap=0.4 ;; esac
 case $cap in *[!0-9.]* | *.*.*) cap=0.4 ;; esac
 case $timeout_secs in '' | *[!0-9]* | 0* | ??????*) timeout_secs='' ;; esac
@@ -211,7 +207,11 @@ if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c >
 fi
 
 # A person at the host's keyboard, or logged in at its console, has the machine.
+idle_secs=$(conf fleet_compute_idle_threshold) || idle_secs=600
+case $idle_secs in 0) ;; '' | *[!0-9]* | 0* | ?????????*) idle_secs=600 ;; esac
 if [ "$idle_secs" -gt 0 ]; then
+  account=$(conf fleet_compute_account) || account=''
+  case $account in *[!A-Za-z0-9._-]*) account='' ;; esac
   probe_run inuse "$work/inuse" || fall_back "$unreachable" "$@"
   hid=''
   console=''

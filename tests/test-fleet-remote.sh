@@ -619,6 +619,10 @@ IOREG
 printf '#!/bin/sh\necho "a b"\n' >"$bin/stat"
 run --host mac inuse
 assert_eq "unparseable readings print as -" "- - $(id -un)" "$OUT"
+printf '#!/bin/sh\n:\n' >"$bin/ioreg"
+printf '#!/bin/sh\nexit 1\n' >"$bin/stat"
+run --host mac inuse
+assert_eq "missing readings print as -" "- - $(id -un)" "$OUT"
 rm -f "$bin/ioreg" "$bin/stat"
 run --host mac inuse extra
 assert_eq "inuse takes no arguments" 2 "$CODE"
