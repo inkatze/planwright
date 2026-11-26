@@ -386,6 +386,20 @@ watch "$((after + 800))"
 expect_out "a frame from after the quota hold, under the threshold, releases it" "released-quota${tab}claude"
 rm -rf "$fleet/streamjson/mc-alpha-frames"
 
+# An override turning the weekly ladder off with every rung at 100 still lets
+# the watch release a quota hold once both windows have room.
+write_tracked "$(printf '%s\n' 'fleet_usage_weekly_downshift: 100' 'fleet_usage_weekly_reduce_concurrency: 100' \
+  'fleet_usage_weekly_defer_heavy: 100' 'fleet_usage_weekly_defer_all: 100')"
+mc_run quota-hold.sh hold --vendor claude --unit "alpha:wall-one" --step worker --reason "fixture limit" --now "$((after + 820))"
+case $RC in 0 | 3) ok "a fixture quota hold under weekly rungs at 100" ;; *) fail "the wall fixture quota hold failed ($RC): $ERR" ;; esac
+mkdir -p "$fleet/streamjson/mc-alpha-frames"
+printf 'frame\t%s\t0.02\t%s\t0.4\t%s\tend\n' "$((after + 830))" "$((after + 3600))" "$((after + 86400))" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+watch "$((after + 840))"
+expect_rc "a watch under weekly rungs at 100" 0
+expect_out "weekly rungs at 100 do not keep a quota hold whose windows have room" "released-quota${tab}claude"
+rm -rf "$fleet/streamjson/mc-alpha-frames"
+write_tracked
+
 # A drain outside a reset keeps a resume it could not make, uncounted.
 mc_run mc-usage.sh enqueue --program alpha --resume "$limited"
 expect_rc "enqueue a resume" 0

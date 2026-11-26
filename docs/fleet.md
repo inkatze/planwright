@@ -2481,7 +2481,7 @@ to a rung on one monotone restriction ladder —
 `normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
 deterministic `≥` comparison against the overlay-resolved per-window thresholds
 (`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
-1–100, validated; `off` disables a rung, so every soft rung `off` beside a
+1–100, validated, though rungs at 100 may share the wall; `off` disables a rung, so every soft rung `off` beside a
 `fleet_usage_weekly_defer_all` leaves one ladder stop, though the per-tier caps
 below still apply until set to `100`). The **more restrictive**
 window governs; the session window
