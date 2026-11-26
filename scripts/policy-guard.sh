@@ -132,8 +132,9 @@
 #               its options denies: it could spell an amend.
 #   push       a force or bulk push denies; so does every push to a spec PR
 #               branch outside the floor (planwright/<spec>/amendment-*,
-#               planwright/<spec>/spec-rework*), which only the kickoff push
-#               helper publishes; every other push reads the protected set and
+#               planwright/<spec>/spec-rework*): an amendment branch goes out
+#               through the kickoff push helper, anything else only through
+#               the operator; every other push reads the protected set and
 #               denies a target inside it.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
@@ -1204,7 +1205,7 @@ check_unprotected() {
 # (planwright/<spec>/amendment-*) or rework (planwright/<spec>/spec-rework*)
 # branch, `refs/heads/` stripped and case folded as the protected set is; the
 # flight namespace names no spec. The floor leaves these branches off because
-# the kickoff push helper publishes them from below this hook.
+# the kickoff push helper publishes an amendment branch from below this hook.
 SPB_HIT=''
 spec_pr_branch_hit() {
   local b LC # local: lc sets it, and a caller may hold its own
@@ -1222,8 +1223,24 @@ spec_pr_branch_hit() {
   return 1
 }
 
-spec_pr_branch_text() { # <what>
-  printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (an amendment or spec-rework branch), which only its kickoff session publishes, through $KICK_FORM run as its own command; no other agent session writes one at any tier - refusing. Work on your own unit branch."
+# spec_pr_branch_text <what> — the refusal for SPB_HIT. Only an exact
+# planwright/<spec>/amendment-<digits> is offered the kickoff push helper,
+# since the helper refuses every other name.
+spec_pr_branch_text() {
+  local hit=${SPB_HIT#refs/heads/} n
+  n=${hit##*/amendment-}
+  case $hit in
+    planwright/?*/amendment-?*)
+      case $n in
+        *[!0-9]*) ;;
+        *)
+          printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (an amendment branch), which only its kickoff session publishes, through $KICK_FORM run as its own command; no other agent session writes one at any tier - refusing. Work on your own unit branch."
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (a spec-rework branch, or an amendment branch the kickoff push helper does not take), so no agent session publishes it at any tier; the operator does - refusing. Work on your own unit branch."
 }
 
 # --------------------------------------------------------------------------
@@ -1875,8 +1892,8 @@ tower_wrapped_git_check() {
 
 # --------------------------------------------------------------------------
 # The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
-# sign-off branch, which the protected set otherwise refuses to every agent
-# session. Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# sign-off branch, which the protected set (the spec branch) or the spec PR
+# branch rule (an amendment branch) otherwise refuses to every agent session. Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
 # hook's environment, which a command's inline assignment cannot change) names
 # that spec's kickoff may run it: kickoff-<spec>, from the spec branch or any of
 # its amendment branches (planwright/<spec>/amendment-<n>), or an amendment
@@ -3603,7 +3620,7 @@ classify_gh_api() {
   esac
 
   # GraphQL writes that name a branch: the target must be a literal branch
-  # name in the query, checked against the protected set.
+  # name in the query, checked as any host ref write (queue_host_write).
   case $all_fields in
     *createCommitOnBranch* | *createRef* | *createLinkedBranch*)
       # A variable or a comment in the query can carry the real target while
@@ -3783,9 +3800,11 @@ classify_gh_api() {
   return 0
 }
 
-# queue_host_write <eff> <eff_ok> <what> <branch...> — a host ref write. A
-# name the guard will not check, and the mission-control tier, keep
-# queue_protected's own refusal, so no unchecked name reaches a reason.
+# queue_host_write <eff> <eff_ok> <what> <branch...> — a host ref write:
+# denied at once when it names a spec PR branch, else queued for the
+# protected-set read. A name the guard will not check, and the mission-control
+# tier, keep queue_protected's own refusal, so no unchecked name reaches a
+# reason.
 queue_host_write() {
   local b
   if [ "$TIER" != mission-control ]; then
