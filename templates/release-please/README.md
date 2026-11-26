@@ -101,19 +101,22 @@ the release commit, the publish step will not tag. Two ways forward:
   rollup it emits a stderr note recording that it published without positive CI
   confirmation (`require_ci=false`), so the relaxation stays auditable.
 
-Keep the release commit's CI run from being cancelled. A CI workflow with the
-common per-branch `concurrency` group and `cancel-in-progress: true` lets the
-next merge cancel that run: cancelled mid-flight it leaves a failing check, and
-dropped while still queued it leaves no check at all (verdict `none`, which
-`require_ci: false` lets publish through). Either way the release commit has
-no positive CI. Give the release commit's push a group keyed by its own commit
-(for example `ci-release-${{ github.sha }}`) with cancellation off, as
-planwright's own `.github/workflows/ci.yml` does. That workflow spots the
-release commit by its subject, which is the release PR's title only under a
-squash merge.
-
 This obligation applies only if you publish with planwright core's script; a
 bring-your-own publish step gates however you wrote it.
+
+### Keep the release commit's CI run uncancellable
+
+A CI workflow with the common per-branch `concurrency` group and
+`cancel-in-progress: true` lets the next merge cancel the release commit's run.
+Cancelled mid-flight, it leaves a failing check and publish refuses. Dropped
+while still queued, it leaves no check from that workflow: the verdict is
+`none` (which `require_ci: false` lets through) when nothing else reports on
+the commit, and green when another workflow's check passed, so publish can
+proceed without your tests having run. Give the release commit's push a group
+keyed by its own commit (for example `ci-release-${{ github.sha }}`) with
+cancellation off, as planwright's own `.github/workflows/ci.yml` does. That
+workflow spots the release commit by its subject, which is the release PR's
+title only under a squash merge.
 
 ### Do not make `ci` a required check on the release PR
 

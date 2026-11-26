@@ -33,14 +33,14 @@ name: ci
 permissions:
   contents: read
 
-# A newer run on the same ref cancels the older one, except a release commit's:
-# a push whose subject is release-please's `chore: release <digit>…` gets a
-# group of its own and is never cancelled, because release-publish.sh tags only
-# a release commit whose gating checks all passed. A shared group would also
-# drop a pending run, so keying the group matters as much as the cancel flag.
-# The subject is the release PR's title only under a squash merge. Expressions
-# have no regex, hence one startsWith per digit (case-insensitive, as all
-# startsWith is). Both values must carry the same predicate;
+# A newer run on the same ref cancels the older one, but a release commit's run
+# neither cancels nor is cancelled: a push whose subject is release-please's
+# `chore: release <digit>…` gets a group of its own, because release-publish.sh
+# tags only a release commit whose gating checks all passed. A shared group
+# would also drop a pending run, so keying the group matters as much as the
+# cancel flag. The subject is the release PR's title only under a squash merge.
+# Expressions have no regex, hence one startsWith per digit (case-insensitive,
+# as all startsWith is). Both values must carry the same predicate;
 # tests/test-check-workflow-posture.sh holds that.
 concurrency:
   group: >-
