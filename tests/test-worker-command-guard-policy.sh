@@ -142,6 +142,13 @@ corpus_git switch -q "$CORPUS_UNIT_BRANCH"
 assert_allow "G1.8: back on the unit branch, the arm approves again" "git commit -m x" Bash "$WT"
 under "$(record_with ob-otherunit own-branch unit_branch=planwright/demo/task-2)"
 assert_defer "G1.8: a record naming another unit branch approves no git act" "git add -A" Bash "$WT"
+corpus_git switch -q -c planwright/demo/task-12a
+under "$(record_with ob-suffixed own-branch unit_branch=planwright/demo/task-12a)"
+assert_allow "G1.8: a suffixed task id (task-12a) is a unit branch the arm approves on" "git commit -m x" Bash "$WT"
+corpus_git switch -q -c planwright/demo/task-12ab
+under "$(record_with ob-suffixed2 own-branch unit_branch=planwright/demo/task-12ab)"
+assert_defer "G1.8: two suffix letters are outside the unit-branch grammar" "git commit -m x" Bash "$WT"
+corpus_git switch -q "$CORPUS_UNIT_BRANCH"
 
 echo "### REQ-B1.8 — a missing or unparseable field disables what reads it"
 under "$(record_with nounit own-branch unit_branch=)"
