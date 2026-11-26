@@ -5771,11 +5771,11 @@ RE_MC_RUNNER_CMD='(^|[;&|(){}!]|'$'\n'')[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*=[^[
 # dispatch: a verb missing here is screened bare but not behind a runner. The
 # in-place editors (mc_inplace_targets) have their own text form,
 # RE_MC_INPLACE_*, kept in step with that parser's verbs.
-RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate)|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([^[:alnum:]_-]|$)'
+RE_MC_WRITE_WORDS='(^|[^[:alnum:]_.-]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([^[:alnum:]_-]|$)'
 # The same verbs as whole words among a runner's text: a script or file named
 # after a verb (install.sh, sort.py) is no verb.
 # shellcheck disable=SC2016 # a regex; the backquote is literal
-RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate)|g?sed|sort|c[u]rl|w[g]et|tar|unzip)([[:space:];&|)`}]|$)'
+RE_MC_RUNNER_WORDS='(^|[[:space:];&|(`{=/]|'$RE_MC_SPLIT_S')(g?(cp|mv|install|ln|link|tee|dd|rsync|truncate|sed|tar)|sort|c[u]rl|w[g]et|unzip)([[:space:];&|)`}]|$)'
 MC_UNPARSED_DENY='mission control writes no settings or configuration file, and this command runs a write verb or writer in text the guard cannot parse (a command substitution, say), so it cannot read the target - refusing (fail closed). Run the write in a command of its own, with no substitution.'
 MC_WRAPPED_DENY='mission control writes no settings or configuration file, and this command hands a write verb to another command (behind a wrapper, xargs, a shell or find) whose targets the guard cannot read - refusing (fail closed). Run the write verb on its own with its target spelled out.'
 MC_REPO_DENY='mission control edits no repository, and this command writes a path that lies inside one (read as written and followed on disk, from every directory the command may run in); every change goes through a session it dispatches.'
@@ -8011,7 +8011,7 @@ XEOF_RUN
     [[ ${t//[\"\'\\]/} =~ $re_link ]] && emit_deny "$MC_LINKMAKE_DENY"
     # The writers whose names are common words count with their output option
     # (sort, curl, wget) or always (tar, unzip).
-    re='(^|[^[:alnum:]_.-])((sort|c[u]rl)[^;&|]*[[:space:]](-[A-Za-z]*o|--output)|w[g]et[^;&|]*[[:space:]](-[A-Za-z]*[OP]|--output-document|--directory-prefix)|(tar|unzip)([^[:alnum:]_-]|$))'
+    re='(^|[^[:alnum:]_.-])((sort|c[u]rl)[^;&|]*[[:space:]](-[A-Za-z]*o|--output)|w[g]et[^;&|]*[[:space:]](-[A-Za-z]*[OP]|--output-document|--directory-prefix)|(g?tar|unzip)([^[:alnum:]_-]|$))'
     shopt -s nocasematch
     k=1
     [[ ${t//[\"\'\\]/} =~ $re ]] && k=0
@@ -8185,7 +8185,7 @@ XEOF_RUN
     lc "${w//[\"\'\\]/}"
     verb=${LC##*/}
     # GNU coreutils under Homebrew's g prefix are the same verbs.
-    case $verb in gcp | gmv | ginstall | gln | glink | gtee | gdd | grsync | gtruncate | gsed) verb=${verb#g} ;; esac
+    case $verb in gcp | gmv | ginstall | gln | glink | gtee | gdd | grsync | gtruncate | gsed | gtar) verb=${verb#g} ;; esac
     inplace=0
     makes_link=0
     dest_may_link=0
