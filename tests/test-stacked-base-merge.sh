@@ -251,6 +251,13 @@ for bad in '-x' '../evil' 'a b' 'a..b' '' 'feat/' 'x.lock' HEAD @ "feat/$(printf
 done
 # The stub runs the writer's own --jq expression over a canned PR, so the
 # expression and the writer's parse of its output are tested together.
+# Without jq every PR read would come back empty and the refusal rows would
+# pass for the wrong reason.
+command -v jq >/dev/null 2>&1 || {
+  fail "[writer] jq is required for the gh stub"
+  finish
+  exit 1
+}
 cat >"$SANDBOX/bin-gh-pr" <<EOF
 #!/bin/sh
 [ "\$1 \$2" = "pr view" ] || exit 1
@@ -284,14 +291,14 @@ else
 fi
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE=main \
   PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>"$SANDBOX/wr.err")
-if ! grep -q '^stack_base=' "$REC" && [ ! -s "$SANDBOX/wr.err" ]; then
+if [ -f "$REC" ] && ! grep -q '^stack_base=' "$REC" && [ ! -s "$SANDBOX/wr.err" ]; then
   pass "[writer] a PR on the default base records no stacked base, quietly (it is not stacked)"
 else
   fail "[writer] a PR on main: stack_base='$(field stack_base)' err='$(cat "$SANDBOX/wr.err")'"
 fi
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE='bad base!' \
   PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>/dev/null)
-if ! grep -q '^stack_base=' "$REC"; then
+if [ -f "$REC" ] && ! grep -q '^stack_base=' "$REC"; then
   pass "[writer] a PR base outside the branch grammar is dropped"
 else
   fail "[writer] a malformed PR base reached the record: '$(field stack_base)'"
@@ -299,7 +306,7 @@ fi
 for odd in "STUB_PR_STATE=MERGED" "STUB_PR_STATE=CLOSED" "STUB_PR_CROSS=true"; do
   REC=$(env "$odd" PLANWRIGHT_FLEET_STATE_DIR="$FLEET" PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" STUB_PR_BASE="$STACK_BR" \
     PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>"$SANDBOX/wr.err")
-  if ! grep -q '^stack_base=' "$REC" && grep -q 'no stacked base' "$SANDBOX/wr.err"; then
+  if [ -f "$REC" ] && ! grep -q '^stack_base=' "$REC" && grep -q 'no stacked base' "$SANDBOX/wr.err"; then
     pass "[writer] a PR read with $odd records no stacked base, and says so"
   else
     fail "[writer] $odd: stack_base='$(field stack_base)' err='$(cat "$SANDBOX/wr.err")'"
