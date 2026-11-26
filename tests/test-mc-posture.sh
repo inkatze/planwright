@@ -469,6 +469,18 @@ exit 126'
 stub_run "$tmp/noexec"
 expect_fail "a jq that cannot execute what it runs says so, not that jq is missing" "jq at $tmp/noexec/jq cannot be executed (exit 126)"
 
+# jq's errors quote the layer's own content, so a C1 control (here CSI) in a
+# settings file would otherwise reach the reason and a terminal showing it.
+stub_jq "$tmp/ctl" 'printf "tab\there cr\rhere csi\302\233here\n" >&2
+exit 3'
+stub_run "$tmp/ctl"
+expect_fail "tabs and CRs in jq's error become spaces" "jq exited 3: tab here cr here csi"
+c1=$(printf '\233')
+case $OUT in
+  *"$c1"*) fail "a C1 control in jq's error reached the reason: $OUT" ;;
+  *) ok "C1 controls in jq's error are dropped" ;;
+esac
+
 stub_jq "$tmp/mute" 'exit 6'
 stub_run "$tmp/mute"
 expect_fail "a jq failing silently names its status and nothing after it" "cannot be parsed: jq exited 6 (jq: $tmp/mute/jq)"
@@ -482,7 +494,7 @@ case $OUT in
   *TAILMARK*) fail "a jq error past its cap reached the reason: $OUT" ;;
   *) ok "a jq error is cut at its cap" ;;
 esac
-rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/noexec" "$tmp/mute" "$tmp/loud" "$tmp/count"
+rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/noexec" "$tmp/ctl" "$tmp/mute" "$tmp/loud" "$tmp/count"
 
 echo "# missing tools"
 # A tool the check reads with, gone from PATH, is a check that did not run,

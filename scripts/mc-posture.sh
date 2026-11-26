@@ -189,7 +189,9 @@ facts() {
   fx=$("$jq" -r "$project_facts" "$1" 2>"$jq_err") && return 0
   fx=$("$jq" -r "$project_facts" "$1" 2>"$jq_err") && return 0
   rc=$?
-  err=$(cat "$jq_err")
+  # jq's errors quote the layer's content: C1 controls go, as in the repo's
+  # other sanitizers, since fail() drops only C0 and DEL.
+  err=$(tr -d '\200-\237' <"$jq_err" | tr '\t\r' '  ')
   err=${err//"$NL"/ }
   case $rc in
     126) why_jq="jq at $jq cannot be executed (exit $rc)" ;;
