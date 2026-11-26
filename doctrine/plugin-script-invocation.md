@@ -105,8 +105,8 @@ Start every test or lint run, and a lefthook run, with the router:
 `<root>/scripts/compute-route.sh -- <command>` (for example
 `<root>/scripts/compute-route.sh -- bash tests/test-x.sh`), after any
 `timeout <secs>` or `nice -n <n>` prefix. With `fleet_compute_host` set it
-runs there; otherwise, or when the host is unreachable, busy or the tree has
-uncommitted changes, it runs here as written. The guard approves the form
+runs there; otherwise, or when the host is unreachable, busy, in use or the
+tree is dirty, it runs here as written. The guard approves the form
 only when the command after `--` is one it approves on its own, and a kind
 flag only beside the command the router maps to it (`--check` with
 `mise run check`); a router run any other way prompts. A test file the base

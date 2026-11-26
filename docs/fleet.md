@@ -3068,13 +3068,14 @@ is whatever your `~/.ssh/config` resolves; the script runs a fixed set of verbs
 through the remote's own installed planwright and never runs a command you
 supply. `--help` prints the verb list and exit codes. Beyond the worker verbs
 (`launch`, `pending`, `answer`, `steer`, `status`, `retire`) and `compute`,
-`version` and `capacity` are read-only probes that tell a placement or a
-dispatch what the remote offers and can take, and `stop` closes a worker:
+`version`, `capacity` and `inuse` are read-only probes that tell a placement
+or a dispatch what the remote offers and can take, and `stop` closes a worker:
 
 | Verb | Prints |
 | --- | --- |
 | `version` | `version <remote planwright version>`, then `verbs <the channel's verbs the remote's supervisor and launcher offer>`; `unavailable` or `none` where the remote cannot say. A host with no planwright root exits 3 instead, as for any verb that needs the root |
 | `capacity` | one line, `load=<1-minute load> cores=<n> mem_free_mb=<n> idle_secs=<n>` |
+| `inuse` | one line, `<HID idle ns> <console user> <login>`: macOS's HID idle counter, the `/dev/console` owner and the account SSH logged in as, each `-` when the remote has no reading. `compute-route.sh` reads it to pass over a host a person is using (`fleet_compute_idle_threshold`) |
 | `stop <worker> [--grace <secs>]` | the remote supervisor's own close of that worker; `--grace` takes a whole number of seconds, at most four digits |
 
 `capacity` reports only what the remote's platform offers. A field it cannot
@@ -3095,7 +3096,7 @@ The channel installs nothing there; you set the host up once:
    plugin install. The channel finds the root from that host's installed-plugin
    record (which needs `jq` there); no option and no environment variable picks
    another copy. With no record, a verb that needs the root exits 3 and names
-   the fix (`capacity`, `load` and `compute` never need it).
+   the fix (`capacity`, `load`, `inuse` and `compute` never need it).
 3. **The remote's own logins.** The Claude login (and, if the host should push
    its own branches, the hosting-remote login) is made on that host. The channel
    never carries a credential. On macOS an SSH session may find the keychain
