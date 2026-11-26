@@ -953,11 +953,12 @@ the one push a record opens). Every agent `git push`, and every `gh api` ref,
 commit, contents or rename write, naming a spec PR branch outside the
 protected floor (`planwright/<spec>/amendment-*`,
 `planwright/<spec>/spec-rework*`) is refused at every tier, the record or a
-kickoff scope notwithstanding. Two routes publish one, both below the hook:
-the kickoff push helper, which takes `planwright/<spec>/spec` and
-`planwright/<spec>/amendment-<n>` alone, and the tower's operator-requested
-force-push (`scripts/tower-force-push.sh`), which refuses only the protected
-set. No other agent route publishes a spec-rework branch.
+kickoff scope notwithstanding. Only the kickoff push helper publishes one,
+from below the hook, and it takes `planwright/<spec>/spec` and
+`planwright/<spec>/amendment-<n>` alone. `scripts/tower-force-push.sh` refuses
+only the protected set, but the tower never force-pushes a spec branch
+(`doctrine/human-gates.md`), so no agent route publishes a spec-rework
+branch: the operator does.
 
 A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
 floor, and only its kickoff writes the spec's content there. A record naming

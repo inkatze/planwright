@@ -135,9 +135,9 @@
 #               its options denies: it could spell an amend.
 #   push       a force or bulk push denies; so does every push to a spec PR
 #               branch outside the floor (planwright/<spec>/amendment-*,
-#               planwright/<spec>/spec-rework*): an amendment branch goes out
-#               through the kickoff push helper, anything else only through
-#               the operator; every other push reads the protected set and
+#               planwright/<spec>/spec-rework*): an amendment-<n> branch goes
+#               out through the kickoff push helper, anything else only
+#               through the operator; every other push reads the protected set and
 #               denies a target inside it. The one
 #               exception is the sign-off branch the session record names,
 #               pushed by explicit refspec as the command's only act: it reads
