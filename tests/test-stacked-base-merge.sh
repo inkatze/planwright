@@ -122,6 +122,12 @@ expect deny "[worker] a record reached through a symlinked path into the worktre
 } >"$SANDBOX/rec/dup.record"
 sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/dup.record"
 expect deny "[worker] a record repeating stack_base is dropped whole"
+{
+  cat "$REC_OK"
+  printf 'pad=%04097d\n' 0
+} >"$SANDBOX/rec/big.record"
+sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/big.record"
+expect deny "[worker] a record past the 4096 bytes every reader accepts is no record"
 sg tower "git merge origin/$STACK_BR"
 expect deny "[tower] the stacked base merge is refused at the tower"
 set_knobs 'worker_base_merge: deny'
@@ -373,6 +379,16 @@ if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
   pass "[sync] --base with a record repeating stack_base is refused"
 else
   fail "[sync] --base with a duplicated stack_base: rc=$RC"
+fi
+{
+  cat "$SANDBOX/rec/sy2.record"
+  printf 'pad=%04097d\n' 0
+} >"$SANDBOX/rec/sy2big.record"
+run_sync "$SY2" "$SANDBOX/rec/sy2big.record" --base "$STACK_BR"
+if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err" && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+  pass "[sync] --base with a record past 4096 bytes is refused"
+else
+  fail "[sync] --base with an oversized record: rc=$RC"
 fi
 write_rec "$SANDBOX/rec/sy2evil.record" "origin/a..b"
 run_sync "$SY2" "$SANDBOX/rec/sy2evil.record" --base "a..b"
