@@ -22,9 +22,10 @@ TAB=$(printf '\t')
 # shellcheck source=tests/lib/step-run-fixture.sh
 . "$here/lib/step-run-fixture.sh"
 
-TS=2026-11-14T10:00:00Z
-# The truth check refuses a skill step window under 30 seconds or of whole minutes.
-TE=2026-11-14T10:01:07Z
+# Real-looking times: the truth check refuses a skill step window under 30
+# seconds, of whole minutes, or starting on seconds :00.
+TS=2026-11-14T10:00:13Z
+TE=2026-11-14T10:01:20Z
 # w <run> <step> <kind> <outcome> [flags...]: one pre-pr step record.
 w() {
   _r=$1 _s=$2 _k=$3 _o=$4
