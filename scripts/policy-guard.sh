@@ -3806,7 +3806,10 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
+    # GitHub resolves the contents API's ref as git does, heads/<b> reaching
+    # <b>, so both spellings are checked.
+    br=${br#refs/heads/}
+    queue_protected "$eff" "$eff_ok" "this gh api contents write" "$br" "${br#heads/}"
   fi
   return 0
 }

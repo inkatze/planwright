@@ -146,5 +146,16 @@ gitq -C "$SP" config alias.sp send-pack
 pg worker "git sp $ORIGIN HEAD:refs/heads/main" "$SP"
 expect deny "[worker] an alias expanding to git send-pack denies, as one expanding to git push does"
 
+# --- gh api contents write naming heads/<branch> (finding 9) -----------------
+
+echo "# gh api contents branch spellings"
+for tier in worker tower; do
+  pg "$tier" 'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=heads/main'
+  expect deny "[$tier] a contents write to heads/main denies, since GitHub's contents API reads the ref as main"
+  reason_has 'protected branch' "[$tier] the heads/main contents write denies as a write to main"
+done
+pg worker 'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=heads/feature'
+expect defer "[worker] a contents write to heads/feature still defers"
+
 no_gh_calls
 finish
