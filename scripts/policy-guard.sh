@@ -7162,7 +7162,10 @@ XEOF_DOC
 mc_env_glued_s() {
   local c=${1#-} pre
   case $1 in
-    --*=*) mc_long_is "${1%%=*}" 3 --split-string && return 0 ;;
+    --*=*)
+      mc_long_is "${1%%=*}" 3 --split-string
+      return
+      ;;
     --*) return 1 ;;
   esac
   pre=${c%%[uCSaPLU]*}
@@ -7172,7 +7175,10 @@ mc_env_sep_s() {
   local c=${1#-} pre
   case $1 in
     --*=*) return 1 ;;
-    --*) mc_long_is "$1" 3 --split-string && return 0 ;;
+    --*)
+      mc_long_is "$1" 3 --split-string
+      return
+      ;;
   esac
   pre=${c%%[uCSaPLU]*}
   [ "${c:${#pre}}" = S ]
@@ -8224,10 +8230,11 @@ XEOF_RUN
         # command string (a shell's -c text) is read as one of its own. So
         # does the command an exact reading of the wrapper options finds where
         # it is not mc_unwrap's (a value read as the command). Past env's -S
-        # string, mc_unwrap's word is an argument of that string's command.
+        # string, mc_unwrap's word is an argument of that string's command,
+        # save xargs's, which still opens a statement.
         if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ] && [ "$envsi" -lt 0 ]; then
           ci="$ci CMD "
-        elif { [ "$k" = "$vi" ] && [ "$envsi" -lt 0 ]; } || [ "$k" = "$vx" ]; then
+        elif { [ "$k" = "$vi" ] && { [ "$envsi" -lt 0 ] || [ "$MC_XARGS" = 1 ]; }; } || [ "$k" = "$vx" ]; then
           ci="$ci ; $w "
         else
           ci="$ci $w "
