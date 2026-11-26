@@ -384,6 +384,7 @@ expect defer "[worker] under deny a push of the flight branch is untouched"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: bogus' 'unpushed_rewrite: allow'
 am "git push origin HEAD:refs/heads/$SB"
 expect deny "[worker, spec worktree] a malformed worker_base_merge refuses the merge push"
+reason_has 'worker_base_merge' "[worker, spec worktree] the malformed-knob refusal names the knob"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 am "git push origin HEAD:refs/heads/$SB"
 push_ok "[worker, spec worktree] with the knob back to allow the push is admitted again"
