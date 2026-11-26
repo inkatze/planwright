@@ -101,6 +101,12 @@ the release commit, the publish step will not tag. Two ways forward:
   rollup it emits a stderr note recording that it published without positive CI
   confirmation (`require_ci=false`), so the relaxation stays auditable.
 
+The gate also counts a **cancelled** check as failing. A CI workflow with the
+common per-branch `concurrency` group and `cancel-in-progress: true` lets the
+next merge cancel the release commit's run, and publish then refuses. Give the
+release commit's push a group of its own with cancellation off, as planwright's
+own `.github/workflows/ci.yml` does.
+
 This obligation applies only if you publish with planwright core's script; a
 bring-your-own publish step gates however you wrote it.
 

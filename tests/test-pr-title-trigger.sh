@@ -89,7 +89,20 @@ block_body() {
 concurrency_groups() {
   # q carries the two YAML quote characters so the single-quoted awk program
   # below never has to contain one.
+  # A folded `group: >-` value is its following deeper lines joined by spaces,
+  # which is the string GitHub keys the group on.
   block_body "$1" concurrency | awk -v q="\"'" '
+    folding {
+      match($0, /^[[:space:]]*/)
+      if (RLENGTH > gindent) { sub(/^[[:space:]]+/, ""); folded = folded (folded == "" ? "" : " ") $0; next }
+      print folded; folding = 0
+    }
+    /^[[:space:]]*group:[[:space:]]*>-?[[:space:]]*$/ {
+      match($0, /^[[:space:]]*/); gindent = RLENGTH
+      folding = 1; folded = ""
+      next
+    }
+    END { if (folding && folded != "") print folded }
     /^[[:space:]]*group:[[:space:]]*/ {
       sub(/^[[:space:]]*group:[[:space:]]*/, "")
       sub(/[[:space:]]*$/, "")

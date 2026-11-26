@@ -10,7 +10,7 @@
 #
 # But `edited` could not simply be added to ci.yml's trigger. GitHub renders
 # `github.ref` as refs/pull/<n>/merge for every pull_request activity type, so
-# an edit and a code push share ci.yml's `ci-${{ github.ref }}` group; under
+# an edit and a code push share ci.yml's per-ref pull_request group; under
 # cancel-in-progress, retitling a PR mid-run would cancel the run testing its
 # code. `edited` also fires on body edits and base changes, so that would spend
 # the full 15-minute gate on events where no code moved.
