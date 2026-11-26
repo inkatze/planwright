@@ -180,6 +180,13 @@ for c in "cp -S .bak $KB/real.md $KB/s2.md" "cp -S.tmp $KB/real.md $KB/s3.md" "c
   pg mission-control "$c" "$SCRATCH"
   expect defer "[mission-control] a backup suffix is a value, read as no repository write: ${c%% "$KB"*}"
 done
+ln -s "$UNIT" "$SCRATCH/of=u"
+for c in "echo x > of=u/README.md" "cp $KB/real.md of=u/README.md" "echo x | tee of=u/README.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] only dd's operand names its file past of=: ${c//"$KB"\//}"
+done
+pg mission-control "dd if=$KB/real.md of=$KB/dd.md" "$SCRATCH"
+expect defer "[mission-control] dd's of= file outside a repository is no repository write"
 pg mission-control "sed -i -- s/a/b/ $UNIT/README.md" "$SCRATCH"
 expect deny "[mission-control] sed -i -- still refuses its in-place file inside a repository"
 pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"
