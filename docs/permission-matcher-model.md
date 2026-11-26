@@ -977,10 +977,10 @@ refuse its worker's base merge. A launch given `--base <branch>`, or
 is in this repository), writes that branch into the session record as
 `stack_base=<remote>/<branch>` (`scripts/worker-session-record.sh`); a launch
 with neither records none, and today no launcher passes either. The policy
-guard reads it through the same record checks as `spec_branch` above, plus a
-record of at most 4096 bytes: this user's own regular file outside the
-worktree, naming this unit branch, with one `stack_base` on the unit's remote
-inside the guard's branch grammar. With it, `git merge` of that branch's
+guard reads it through the record checks it gives `spec_branch`: this user's
+own regular file of at most 4096 bytes outside the worktree, naming this unit
+branch, with one `stack_base` on the unit's remote inside the guard's branch
+grammar. With it, `git merge` of that branch's
 remote-tracking ref (or of its current tip's full id) and `git pull <remote>
 <branch>` pass under `worker_base_merge: allow`, and
 `scripts/converge-sync-main.sh --base <branch>` syncs it, fetching
