@@ -107,12 +107,22 @@ for b in planwright/demo/amendment-3 planwright/demo/spec-rework refs/heads/plan
       push) rc=$(rc_of fp push --branch "$b" --to "$TIP" --lease "$TIP") ;;
       reword) rc=$(rc_of fp reword --branch "$b" --commit "$TIP" --message-file "$W/a") ;;
     esac
-    if ! { [ "$rc" = 1 ] && grep -q 'no tier rewrites it' "$tmp/err"; }; then
+    if ! { [ "$rc" = 1 ] && grep -q 'amendment or spec-rework branch' "$tmp/err"; }; then
       fail "$verb on '$b' was not refused as a spec branch (exit $rc: $(cat "$tmp/err"))"
     fi
   done
 done
 [ "$failures" = 0 ] && ok "every verb refuses a spec's amendment and spec-rework branches"
+# The flight namespace, a nested path, and a non-digit amendment suffix name
+# no spec's branch, so the tower may still rewrite them.
+for b in planwright/flight/amendment-log-fix planwright/flight/spec-rework planwright/a/b/amendment-1 \
+  planwright/demo/amendment-3b; do
+  rc=$(rc_of fp confirm --branch "$b" --to "$TIP")
+  if grep -q 'amendment or spec-rework branch' "$tmp/err"; then
+    fail "confirm on '$b' was refused as a spec branch (exit $rc)"
+  fi
+done
+[ "$failures" = 0 ] && ok "a flight or other non-spec branch named like one is not refused as a spec branch"
 for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
   for verb in push confirm reword; do
     # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
@@ -613,6 +623,17 @@ for want in 'scripts/tower-force-push.sh`'"'"'s `confirm' 'never from a standing
   esac
 done
 [ "$failures" = 0 ] && ok "the tower's refusals carry the force-push path and its limits"
+
+# A commit an amendment branch also holds is not reworded elsewhere: that
+# would fork the spec branch's history.
+g push -q origin "$BAD:refs/heads/planwright/demo/amendment-3"
+rc=$(rc_of fp reword --branch "$BR" --commit "$BAD" --message-file "$W/a")
+if [ "$rc" = 1 ] && grep -q 'amendment-3, which is protected or a spec branch' "$tmp/err"; then
+  ok "reword refuses a commit an amendment branch also holds"
+else
+  fail "reword of a commit an amendment branch holds was not refused (exit $rc: $(cat "$tmp/err"))"
+fi
+g push -q origin --delete planwright/demo/amendment-3
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

@@ -26,13 +26,13 @@
 #
 # Every verb but purge refuses inside a dispatched worker (a dispatch that
 # exported PLANWRIGHT_WORKER_HANDLE or PLANWRIGHT_WORKER_SCOPE), refuses any
-# branch in the protected set (scripts/protected-branch.sh: main, master, a
-# spec's sign-off branch, and the protected_branches additions) and a spec's
-# amendment or spec-rework branch, and refreshes <r>/<b>
+# branch in the protected set (scripts/protected-branch.sh: main, master,
+# planwright/<spec>/spec, and the protected_branches additions), refuses a
+# spec's amendment or spec-rework branch (spec_family), and refreshes <r>/<b>
 # (default remote `origin`) first. confirm and push refuse a <c> whose tip
 # contains the remote tip (nothing would be dropped: a plain push suffices).
-# reword refreshes every remote branch and refuses a commit a protected one
-# contains, since rewording it would fork that history.
+# reword refreshes every remote branch and refuses a commit a protected one or
+# a spec branch contains, since rewording it would fork that history.
 #
 # The confirmation is one JSON object that scripts/check-confirmation.sh
 # accepts (this script checks it before printing): `question` and `options`
@@ -50,7 +50,8 @@
 # Planwright-Sign-Off-Rejected trailer naming an old id must be re-stamped.
 #
 # Exit: 0 done (a push the remote took though it reported a failure
-# included, with a note); 1 refused (a dispatched worker, protected, moved
+# included, with a note); 1 refused (a dispatched worker, protected or a spec
+# branch, moved
 # since the confirmation or deleted or moved while pushing, nothing dropped,
 # not on the branch); 2 usage; 3 a git or remote failure.
 #
@@ -208,16 +209,38 @@ commit_of() {
   printf '%s' "$oid"
 }
 
-protected_or_refuse() { # <branch>
-  local rc=0 kind=0
-  # A spec's amendment and spec-rework branches are spec branches, though the
-  # protected set holds only its sign-off branch. Case-blind, as that set is.
+# spec_family <branch> — 0 when the branch is a spec's amendment branch
+# (planwright/<spec>/amendment-<digits>) or its spec-rework branch, which are
+# spec branches though the protected set holds only planwright/<spec>/spec.
+# <spec> is one segment and never the flight namespace, as the policy guard
+# reads it, so a flight branch with such a name stays rewritable. Case-blind,
+# as the protected set's comparison is.
+spec_family() {
+  local rest spec leaf rc=1
   shopt -s nocasematch
   case $1 in
-    planwright/*/amendment-* | planwright/*/spec-rework) kind=1 ;;
+    planwright/?*/?*)
+      rest=${1#planwright/}
+      spec=${rest%%/*}
+      leaf=${rest#*/}
+      case $spec in flight | *[!a-z0-9-]* | -*) spec='' ;; esac
+      if [ -n "$spec" ]; then
+        case $leaf in
+          spec-rework) rc=0 ;;
+          amendment-?*)
+            case ${leaf#amendment-} in *[!0-9]*) ;; *) rc=0 ;; esac
+            ;;
+        esac
+      fi
+      ;;
   esac
   shopt -u nocasematch
-  [ "$kind" = 0 ] || refuse "'$(safe "$1")' is a spec's amendment or spec-rework branch, a spec branch; no tier rewrites it"
+  return "$rc"
+}
+
+protected_or_refuse() { # <branch>
+  local rc=0
+  ! spec_family "$1" || refuse "'$(safe "$1")' is a spec's amendment or spec-rework branch, a spec branch; no tier rewrites it"
   "$script_dir/protected-branch.sh" "$1" >/dev/null || rc=$?
   case $rc in
     0) ;;
@@ -430,8 +453,9 @@ reword() {
     name=${ref#refs/remotes/"$REMOTE"/}
     [ "$name" != "$BRANCH" ] && [ "$name" != HEAD ] || continue
     rc=0
-    "$script_dir/protected-branch.sh" "$name" >/dev/null 2>&1 || rc=$?
-    [ "$rc" = 0 ] || refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history"
+    ! spec_family "$name" || rc=1
+    [ "$rc" != 0 ] || "$script_dir/protected-branch.sh" "$name" >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 0 ] || refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected or a spec branch; rewording it would fork that history"
   done
 
   local map work c p parents np new tree sign='' gpgsign rc=0
