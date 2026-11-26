@@ -462,8 +462,12 @@ if [ "$verb" != audit ]; then
 fi
 cache="$worktree/.claude/steps"
 
+# The context was checked against git above, before any step ran; a step that
+# then moved the branch must still get its record, so the writer derives the
+# branch and kind afresh rather than comparing them with the stale export.
 sr() (
   no_git_selectors
+  unset PLANWRIGHT_STEP_BRANCH PLANWRIGHT_STEP_UNIT_KIND
   exec /bin/sh "$SR" --worktree "$worktree" "$@"
 )
 

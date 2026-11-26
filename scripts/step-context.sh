@@ -94,6 +94,6 @@ step_context_derive() {
   fi
 
   [ -z "$scd_bad" ] && return 0
-  printf '%s\n' "$scd_me:$(printf '%s' "$scd_bad" | tr -d '\000-\037\177') an exported value that disagrees with git is refused; unset it or fix it" >&2
+  printf '%s\n' "$scd_me:$(printf '%s' "$scd_bad" | tr -d '\000-\037\177\200-\237') an exported value that disagrees with git is refused; unset it or fix it" >&2
   return 2
 }

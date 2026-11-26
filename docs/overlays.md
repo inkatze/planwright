@@ -62,8 +62,9 @@ In **plugin mode**, `$CLAUDE_PLUGIN_DATA` already carries a per-plugin
 namespace, so a public install and a work fork resolve to *distinct* adopter
 overlays automatically — they never collide (REQ-A1.5). A shell the plugin
 never handed `$CLAUDE_PLUGIN_DATA` (a launched worker's or mission control's
-plain bash) finds the same directory from the installed plugin's marketplace,
-preferring the installed record's current version, and uses it only when an
+plain bash) finds the same directory from the marketplace of the plugin copy
+it runs (a copy outside the plugin cache takes the installed record's current
+one, never a cached copy the record no longer names), and uses it only when an
 `overlay/` already exists there; it then wins over writer mode. In **writer mode** the
 `<name>` segment is read from the plugin manifest `name` field that
 `scripts/install.sh` copies into place. `<claude-dir>` is `$CLAUDE_DIR` if set, else

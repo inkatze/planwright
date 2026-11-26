@@ -46,8 +46,9 @@
 #                  derivable wins): $PLANWRIGHT_ADOPTER_OVERLAY (explicit
 #                  override) → $CLAUDE_PLUGIN_DATA/overlay (plugin mode; the
 #                  plugin-data id IS the namespace, update-stable) → the
-#                  data overlay of the installed plugin
-#                  (<claude-dir>/plugins/data/planwright-<marketplace>/overlay,
+#                  data overlay of this copy's own marketplace, or for a copy
+#                  outside the plugin cache the installed record's current
+#                  one (<claude-dir>/plugins/data/planwright-<marketplace>/overlay,
 #                  for a session whose shell was never handed
 #                  CLAUDE_PLUGIN_DATA; used only when it exists) →
 #                  <claude-dir>/planwright/<name>/overlay (writer mode, where
@@ -254,59 +255,54 @@ case $layer in
       printf '%s\n' "$CLAUDE_PLUGIN_DATA/overlay"
       exit 0
     fi
-    # 2b. A session whose shell was never handed CLAUDE_PLUGIN_DATA (a launched
-    # worker's or mission control's plain bash) derives it from the installed
-    # plugin: a root at <claude-dir>/plugins/cache/<marketplace>/planwright/
-    # <version> owns the data directory
-    # <claude-dir>/plugins/data/planwright-<marketplace>. Used only when that
-    # directory already holds an overlay, so nothing is guessed. The installed
-    # record's current roots are asked first; every cached root only when none
-    # of those owns an overlay, and neither unless some overlay exists.
-    pd_any=0
+    # 3. A session whose shell was never handed CLAUDE_PLUGIN_DATA (a launched
+    # worker's or mission control's plain bash) derives it from the plugin: a
+    # root at <claude-dir>/plugins/cache/<marketplace>/planwright/<version>
+    # owns the data directory <claude-dir>/plugins/data/planwright-<marketplace>,
+    # used only when it already holds an overlay. A copy running from the
+    # cache takes its own marketplace's and no other, so two installs never
+    # read each other's; a copy outside the cache takes the installed record's
+    # current roots', never a cached copy the record no longer names.
     if [ -n "$claude_dir" ]; then
-      for pd_d in "$claude_dir"/plugins/data/planwright-*/overlay; do
-        if [ -d "$pd_d" ]; then
-          pd_any=1
-          break
-        fi
-      done
+      # pd_overlay_of <root>: print the data overlay of <root>'s marketplace,
+      # failing when <root> is no cached copy or its overlay does not exist.
+      pd_overlay_of() {
+        case $1 in
+          "$claude_dir"/plugins/cache/*/planwright/*) ;;
+          *) return 1 ;;
+        esac
+        pd_rest=${1#"$claude_dir"/plugins/cache/}
+        pd_mkt=${pd_rest%%/*}
+        case $pd_mkt in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
+        [ -d "$claude_dir/plugins/data/planwright-$pd_mkt/overlay" ] || return 1
+        printf '%s\n' "$claude_dir/plugins/data/planwright-$pd_mkt/overlay"
+      }
+      pd_self=${script_dir%/scripts}
+      case $pd_self in
+        "$claude_dir"/plugins/cache/*)
+          pd_overlay_of "$pd_self" && exit 0
+          ;;
+        *)
+          pd_any=0
+          for pd_dir in "$claude_dir"/plugins/data/planwright-*/overlay; do
+            if [ -d "$pd_dir" ]; then
+              pd_any=1
+              break
+            fi
+          done
+          if [ "$pd_any" -eq 1 ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
+            pd_roots=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --current </dev/null 2>/dev/null) || pd_roots=''
+            while IFS= read -r pd_root; do
+              [ -n "$pd_root" ] || continue
+              pd_overlay_of "$pd_root" && exit 0
+            done <<EOF
+$pd_roots
+EOF
+          fi
+          ;;
+      esac
     fi
-    if [ "$pd_any" -eq 1 ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
-      pd_nl='
-'
-      pd_ifs=$IFS
-      for pd_mode in --current --all; do
-        if [ "$pd_mode" = --current ]; then
-          pd_roots=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --current </dev/null 2>/dev/null) || pd_roots=''
-        else
-          pd_roots=$(/bin/sh "$script_dir/resolve-installed-roots.sh" </dev/null 2>/dev/null) || pd_roots=''
-        fi
-        set -f
-        IFS=$pd_nl
-        for pd_root in $pd_roots; do
-          IFS=$pd_ifs
-          case $pd_root in
-            "$claude_dir"/plugins/cache/*/planwright/*)
-              pd_rest=${pd_root#"$claude_dir"/plugins/cache/}
-              pd_mkt=${pd_rest%%/*}
-              case $pd_mkt in
-                "" | *[!A-Za-z0-9._-]*) ;;
-                *)
-                  if [ -d "$claude_dir/plugins/data/planwright-$pd_mkt/overlay" ]; then
-                    printf '%s\n' "$claude_dir/plugins/data/planwright-$pd_mkt/overlay"
-                    exit 0
-                  fi
-                  ;;
-              esac
-              ;;
-          esac
-          IFS=$pd_nl
-        done
-        IFS=$pd_ifs
-        set +f
-      done
-    fi
-    # 3. Writer mode: derive the namespace from the manifest `name`.
+    # 4. Writer mode: derive the namespace from the manifest `name`.
     if [ -n "$claude_dir" ]; then
       manifest="$claude_dir/planwright/plugin.json"
       if [ -r "$manifest" ]; then

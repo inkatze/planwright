@@ -28,6 +28,11 @@ TAB=$(printf '\t')
 cdir="$tmp/cdir"
 data="$cdir/plugins/data/planwright-mkt"
 mkdir -p "$cdir/plugins/cache/mkt/planwright/1.0.0/scripts" "$data/overlay"
+# The installed record names mkt's copy as current; a stale marketplace's
+# cached copy and overlay stay on disk beside it.
+jq -n --arg p "$cdir/plugins/cache/mkt/planwright/1.0.0" \
+  '{plugins: {"planwright@mkt": [{installPath: $p, scope: "user"}]}}' >"$cdir/plugins/installed_plugins.json"
+mkdir -p "$cdir/plugins/cache/aaa-stale/planwright/0.1.0/scripts" "$cdir/plugins/data/planwright-aaa-stale/overlay"
 cat >"$data/overlay/planwright.yml" <<'EOF'
 mission_control_programs: [gamma]
 program_gamma_repositories: [~/work/gamma]
@@ -48,7 +53,21 @@ verdict $? "an explicit adopter override still wins over the derived one" "got: 
 got=$(bare CLAUDE_PLUGIN_DATA="$tmp/envdata" /bin/bash "$repo_root/scripts/resolve-overlay-root.sh" adopter)
 [ "$got" = "$tmp/envdata/overlay" ]
 verdict $? "an exported CLAUDE_PLUGIN_DATA still wins over the derived one" "got: $got"
+# A copy running from the cache takes its own marketplace's overlay, and no other.
+cp "$repo_root/scripts/resolve-overlay-root.sh" "$cdir/plugins/cache/aaa-stale/planwright/0.1.0/scripts/"
+got=$(bare /bin/bash "$cdir/plugins/cache/aaa-stale/planwright/0.1.0/scripts/resolve-overlay-root.sh" adopter)
+[ "$got" = "$cdir/plugins/data/planwright-aaa-stale/overlay" ]
+verdict $? "a cached copy takes its own marketplace's data overlay" "got: $got"
+rm -rf "$cdir/plugins/data/planwright-aaa-stale/overlay"
+got=$(bare /bin/bash "$cdir/plugins/cache/aaa-stale/planwright/0.1.0/scripts/resolve-overlay-root.sh" adopter)
+[ -z "$got" ]
+verdict $? "a cached copy whose marketplace has no overlay never reads another install's" "got: $got"
+mkdir -p "$cdir/plugins/data/planwright-aaa-stale/overlay"
 rm -rf "$data/overlay"
+got=$(bare /bin/bash "$repo_root/scripts/resolve-overlay-root.sh" adopter)
+[ -z "$got" ]
+verdict $? "a copy outside the cache never falls back to a stale cached marketplace's overlay" "got: $got"
+rm -rf "$cdir/plugins/data/planwright-aaa-stale/overlay"
 got=$(bare /bin/bash "$repo_root/scripts/resolve-overlay-root.sh" adopter)
 [ -z "$got" ]
 verdict $? "a data directory with no overlay is not guessed at" "got: $got"
@@ -64,7 +83,7 @@ verdict $? "mc-program.sh lists the adopter-layer programs in a session with not
 got=$(cd "$tmp" && bare PLANWRIGHT_REPO_ROOT=none /bin/bash "$repo_root/scripts/config-get.sh" mission_control_programs 2>"$tmp/err")
 case $got in *gamma*) ok "config-get.sh reads the adopter layer in a session with nothing exported" ;; *) fail "config-get got: $got err: $(cat "$tmp/err")" ;; esac
 
-# The launcher hands on location variables and scrubs the per-call value overlays only.
+# --- the launcher hands on location variables and scrubs the per-call value overlays only ---
 scrub=$(sed -n "s/^  scrub='\(.*\)'\$/\1/p" "$repo_root/scripts/mission-control-launch.sh")
 [ -n "$scrub" ] || fail "the launch scrub line was not found in mission-control-launch.sh"
 for v in PLANWRIGHT_LOCAL_CONFIG PLANWRIGHT_CONFIG_DEFAULTS PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_CONFIG_STRICT_OVERLAYS; do
@@ -189,6 +208,32 @@ got=$(bare_ctx env PLANWRIGHT_STEP_BRANCH=elsewhere sh -c \
 [ "$got" = 'elsewhere|' ]
 verdict $? "a worktree that is not its own top derives no branch or kind" "got: $got err: $(cat "$tmp/err")"
 rm -rf "$wt/plain"
+
+# An exported path that resolves to the worktree is accepted and replaced by it.
+ln -s "$wt" "$tmp/wt-link"
+r=$(sr new-run)
+hosted_show "$r" PLANWRIGHT_STEP_WORKTREE="$tmp/wt-link"
+[ "$HRC" -eq 0 ] && grep -qx "PLANWRIGHT_STEP_WORKTREE=$wtp" "$tmp/show.show.env"
+verdict $? "an exported symlink to the worktree is accepted and exported as the worktree" "rc $HRC env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
+
+# An inherited GIT_DIR naming another repository does not lend its branch.
+other="$tmp/other-repo"
+git init -q -b planwright/other/task-9 "$other"
+r=$(sr new-run)
+hosted_show "$r" GIT_DIR="$other/.git"
+grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' "$tmp/show.show.env"
+verdict $? "an inherited GIT_DIR does not change the derived branch" "rc $HRC env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
+
+# Only the verbs that derive need step-context.sh: an install missing it still reads.
+lone="$tmp/lone"
+mkdir -p "$lone"
+cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
+bare_ctx /bin/sh "$lone/step-record.sh" --worktree "$wt" list --run "$r" >"$tmp/out" 2>"$tmp/err"
+verdict $? "step-record.sh list runs without step-context.sh" "err: $(cat "$tmp/err")"
+bare_ctx /bin/sh "$lone/step-record.sh" --worktree "$wt" new-run >"$tmp/out" 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 1 ] && grep -q 'broken install' "$tmp/err"
+verdict $? "step-record.sh new-run without step-context.sh exits 1 naming a broken install" "rc $rc err: $(cat "$tmp/err")"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

@@ -246,8 +246,8 @@
 #                 carries. A missing or unreadable file exits 2.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
-# never echoing its value; no value is ever interpolated before it passes, so
-# only a head of the full-id shape is named when it names no commit):
+# never echoing its value, bar a head of the full-id shape that names no
+# commit; no value is ever interpolated before it passes):
 #   --run          an issued run id: six digits naming an existing run dir
 #   --point        a name from doctrine/custom-steps.md's vocabulary; a point
 #                  the run already completed is refused, also with exit 2
@@ -458,7 +458,8 @@
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
-# a plugin-cache copy the installed record no longer names) · 2 a usage or
+# a plugin-cache copy the installed record no longer names, a broken install
+# missing a sourced helper) · 2 a usage or
 # field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
 # documented set on new-run, write, supersede, regenerate, or status, or an
 # exported branch, worktree, or kind that disagrees with git there (the other
@@ -600,13 +601,17 @@ set_head_from_worktree() {
 }
 
 # begin_head <run> <point> <step>: sets BEGIN_HEAD to the head step-run.sh's
-# begin recorded for the step, empty when there is none.
+# begin recorded for the step, empty when there is none; returns 2 when the
+# begin record holds a head that is no full commit id.
 begin_head() {
   BEGIN_HEAD=''
   bh_f="$cache/$1/runner-pending-$2-$3"
   [ -f "$bh_f" ] && [ ! -L "$bh_f" ] || return 0
-  bh_h=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$bh_f") || bh_h=''
-  ! is_oid "$bh_h" || BEGIN_HEAD=$bh_h
+  bh_h=$(awk -F '\t' '$1 == "head" { print "h" $2; exit }' "$bh_f") || return 2
+  [ -n "$bh_h" ] || return 0
+  bh_h=${bh_h#h}
+  is_oid "$bh_h" || return 2
+  BEGIN_HEAD=$bh_h
 }
 
 # git_wt <args>: git in the worktree with every inherited variable that would
@@ -663,8 +668,13 @@ check_head_commit() {
   _fix='pass the full sha `git rev-parse HEAD` prints in the worktree'
   is_head "$2" || bad "$1" "not a full commit id; $_fix"
   worktree_is_top || bad "$1" "cannot be checked: the worktree is not the top of a git work tree"
-  [ "$(git_wt cat-file -t "$2" 2>/dev/null)" = commit ] \
-    || bad "$1" "$2 names no commit in the worktree's repository; $_fix"
+  names_commit "$2" || bad "$1" "$2 names no commit in the worktree's repository; $_fix"
+}
+
+# names_commit <id>: succeeds when <id> names a commit object in the
+# worktree's repository.
+names_commit() {
+  [ "$(git_wt cat-file -t "$1" 2>/dev/null)" = commit ]
 }
 
 # worktree_head <flag>: read_worktree_head, a failure refusing <flag>.
@@ -1289,9 +1299,10 @@ cmd_write() {
   esac
   # A step record resolves an omitted head once the kind and outcome are known.
   if [ "$head_given" -eq 0 ]; then
-    begin_head "$run" "$point" "$step"
+    begin_head "$run" "$point" "$step" \
+      || bad --head "not given, and the run's begin record for this step holds no full commit id; pass the head the step started on"
     if [ -n "$BEGIN_HEAD" ]; then
-      [ "$(git_wt cat-file -t "$BEGIN_HEAD" 2>/dev/null)" = commit ] \
+      names_commit "$BEGIN_HEAD" \
         || bad --head "not given, and the run's begin record for this step names $BEGIN_HEAD, no commit in the worktree's repository; pass the head the step started on"
       head=$BEGIN_HEAD
     else

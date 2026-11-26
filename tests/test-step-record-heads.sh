@@ -109,6 +109,11 @@ printf 'head\t%s\n' deadbeefdeadbeefdeadbeefdeadbeefdeadbeef >"$wt/.claude/steps
 w "$r" skill-b skill passed
 [ "$WRC" -eq 2 ] && grep -q deadbeefdeadbeefdeadbeefdeadbeefdeadbeef "$tmp/err" && [ -z "$(recs "$r" pre-pr)" ]
 verdict $? "a begin record naming no commit is refused and nothing is stored" "rc $WRC err: $(cat "$tmp/err")"
+r=$(sr new-run)
+printf 'head\t%s\n' not-a-commit-id >"$wt/.claude/steps/$r/runner-pending-pre-pr-skill-b"
+w "$r" skill-b skill passed
+[ "$WRC" -eq 2 ] && grep -q 'begin record' "$tmp/err" && [ -z "$(recs "$r" pre-pr)" ]
+verdict $? "a begin record whose head is malformed is refused, not read as no begin record" "rc $WRC err: $(cat "$tmp/err")"
 
 # The run's own begin record supplies the start head.
 fresh
