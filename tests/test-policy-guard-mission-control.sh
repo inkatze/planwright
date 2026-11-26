@@ -187,6 +187,9 @@ for c in "echo x > of=u/README.md" "cp $KB/real.md of=u/README.md" "echo x | tee
 done
 pg mission-control "dd if=$KB/real.md of=$KB/dd.md" "$UNIT"
 expect defer "[mission-control] dd's of= file outside a repository is no repository write, run from one"
+pg mission-control "echo x | tee of=$SCRATCH/cl/agents/x.md" "$UNIT"
+expect deny "[mission-control] an of= word read as written inside a repository still refuses past the prefix"
+reason_has 'settings or configuration file' "[mission-control] the of= settings write keeps the settings reason"
 ln -s "$FIXHOME/.claude" "$SCRATCH/of=pc"
 for c in "echo x > of=pc/agents/x.md" "dd if=$KB/real.md of=of=pc/agents/x.md"; do
   pg mission-control "$c" "$SCRATCH"

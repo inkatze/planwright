@@ -372,6 +372,19 @@ defer	read	bash	-	-	timeout 5 git log -Scp --oneline
 defer	read	bash	-	-	timeout 30 curl --compressed -sS https://example.invalid
 defer	read	bash	-	-	timeout 5 grep -rn five-star @UNIT@
 defer	read	bash	-	-	nice ls -lstar @UNIT@
+defer	read	bash	-	-	env -i git log -Stee
+defer	read	bash	-	-	env FOO=1 git log -Scp --oneline
+deny	repo-write	bash	-	hands a write verb	env -P /usr/bin -Stee @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	env --c @SCRATCH@ -Stee @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	env -u HOME -Stee @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	timeout 5 env --unset HOME -Stee @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	env -C '@SCRATCH@/a b' -Stee @UNIT@/README.md
+deny	settings-write	bash	-	hands a write verb	env -P /usr/bin -Stee @SCRATCH@/kb/lk-file
+deny	repo-write	bash	-	hands a write verb	bash <<< 'env -Stee @UNIT@/README.md'
+deny	repo-write	bash	-	edits no repository	env -u HOME -Sperl -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env -P /usr/bin perl -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "env -u HOME -Sperl -pi -e1 @UNIT@/README.md"
+deny	repo-write	bash	-	cannot parse	echo $(env -Scurl -o @UNIT@/x https://example.invalid)
 deny	repo-write	bash	-	edits no repository	bash -c "perl -Spi -e1 @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	bash -c "ruby -Spi -e1 @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	gawk -W source='@include "inplace"' @UNIT@/README.md
@@ -389,7 +402,10 @@ deny	repo-write	bash	-	edits no repository	bash -c "gawk -bW include=inplace 1 @
 deny	repo-write	bash	-	edits no repository	ruby -Kui -pe 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	bash -c "ruby -Kui -pe 1 @UNIT@/README.md"
 defer	read	bash	-	-	ruby -Ki -pe 1 @UNIT@/README.md
+defer	read	bash	-	-	bash -c "ruby -Ki -pe 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "ruby -K0i -pe 1 @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	xargs -J % perl -pi -e 1 % @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	xargs -R x perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo --user root perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo -Hu root perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	timeout --signal KILL 5 perl -pi -e 1 @UNIT@/README.md
