@@ -59,7 +59,7 @@ if [ "$(paths)" -eq 134 ]; then ok "every changed file is collected"; else fail 
 has "a file past the first page is collected" "path${tab}cards/card-134.md${tab}MODIFIED"
 n_dup=$(printf '%s\n' "$c" | grep -c "^path${tab}cards/card-1.md${tab}")
 if [ "$n_dup" -eq 1 ]; then ok "the first page is not collected twice"; else fail "expected one cards/card-1.md path, got $n_dup"; fi
-if grep -q 'files(first' "$tmp/gh.calls"; then ok "the file list is walked when the view holds fewer than the forge counts"; else fail "the file list was not walked"; fi
+if grep -q -- '^api graphql --paginate ' "$tmp/gh.calls"; then ok "the file list is walked page by page when the view holds fewer than the forge counts"; else fail "the file list was not walked page by page"; fi
 
 # The walk fails part way: what it printed before failing never stands.
 mv "$tmp/files-page-2.json" "$tmp/files-page-2.fail"
@@ -75,12 +75,35 @@ forge "$(nodes 1 100)" 140
 collect "when the walk comes back short"
 has "a walked list shorter than the forge's count is truncated" "truncated${tab}files"
 expect_out "and the walk refuses it" "fail${tab}truncated${tab}the files read"
+if [ "$(paths)" -eq 100 ]; then ok "and the view's paths stand"; else fail "expected the view's 100 paths, got $(paths)"; fi
+
+# Every path printed, then a failure: the exit status alone refuses it.
+forge "$(nodes 1 100)" 134
+: >"$tmp/files-page-3.fail"
+collect "when the walk fails after its last page printed"
+has "a walk that printed every path but failed is truncated" "truncated${tab}files"
+rm -f "$tmp/files-page-3.fail"
+
+# Paths are counted once: a repeat cannot pad the count up to the forge's.
+page 2 100 133 false
+collect "when a page repeats a path"
+has "a repeated path does not count twice toward the forge's count" "truncated${tab}files"
+page 2 100 134 false
+collect "when pages overlap"
+hasnt "overlapping pages that hold every path once are whole" "truncated${tab}files"
+if [ "$(paths)" -eq 134 ]; then ok "and each path is collected once"; else fail "expected 134 paths, got $(paths)"; fi
+
+# More paths than the forge counts is no whole list either.
+forge "$(nodes 1 100)" 130
+collect "when the walk returns more than the forge counts"
+has "a walk past the forge's count is truncated" "truncated${tab}files"
 
 # No count from the forge: the list cannot be known whole.
 forge "$(nodes 1 100)" -
 collect "when the forge gives no count"
 has "a list the forge gives no count for is truncated" "truncated${tab}files"
 expect_out "and the walk refuses it" "fail${tab}truncated${tab}the files read"
+if grep -q 'files(first' "$tmp/gh.calls"; then fail "a list with no count to meet was walked"; else ok "a list with no count to meet is not walked"; fi
 
 # Exactly 100 changed files: the view is whole, no walk is needed.
 forge "$(nodes 1 100)" 100

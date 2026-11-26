@@ -97,10 +97,12 @@ case "\$1 \$2" in
   esac ;;
   "api graphql") case "\$*" in
     *"files(first"*)
-      # One jq pass per page, as gh --paginate runs it; a files-page-<n>.fail
-      # marker fails the walk at that page, after the pages before it printed.
+      # One jq pass per page, as gh --paginate runs it, and only the first
+      # page without the flag; a files-page-<n>.fail marker fails the walk at
+      # that page, after the pages before it printed.
       n=1
       while [ -f "$tmp/files-page-\$n.json" ]; do
+        case "\$n \$*" in 1\ *|*--paginate*) ;; *) break ;; esac
         jq -r "\$jqp" "$tmp/files-page-\$n.json" || exit 1
         n=\$((n + 1))
       done
