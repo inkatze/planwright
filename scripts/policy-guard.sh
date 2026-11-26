@@ -6919,7 +6919,8 @@ mc_write_word_refused() {
     [ "${2:-1}" != 2 ] || repo=0
   fi
   # The path an of= word spells is read as well, posture first and the
-  # repository last, so a settings write keeps its own reason.
+  # repository last, so a settings write keeps its own reason; both calls set
+  # their own MC_REFUSAL, the one exception to the rule below.
   if [ -n "$lit" ] && [ "$repo" != only ]; then
     ! mc_write_word_refused "$lit" "${2:-1}" 0 || return 0
   fi
@@ -7579,7 +7580,7 @@ mc_ipt_perl() {
               [ "${c:$j:1}" != t ] || j=$((j + 1))
               case ${c:$j:1} in : | =) break ;; esac
               ;;
-            # ruby's -K takes one letter, its code, and reads on.
+            # ruby's -K takes one character, its code, and reads on.
             ruby:K) j=$((j + 1)) ;;
             *:D | *:F | *:x | perl:C | perl:m | perl:M | perl:V) break ;;
           esac

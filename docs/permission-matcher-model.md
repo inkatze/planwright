@@ -949,14 +949,14 @@ That text reading has known gaps and known over-refusals, named with the
 rest of the accepted residual in the guard's header comment. It misses
 writers and runners it does not list, a wrapper option's value before an
 editor it reads only as text (`bash -c "sudo -u root perl -pi f"`, or the same
-command after `find -exec`), a
-here-string a shell reads from a later line, and some spellings of a compound
-command's closer before a here-string. It refuses an editor's name opening a
-here-string that a script beside a shell or runner only reads as data, an
-editor's name at any word after a runner whose command sits among its words,
-awk text that includes the inplace extension anywhere after an awk, and an
-in-place editor behind a wrapper option whose value the posture reading takes
-for the command, wherever its files are.
+command after `find -exec`), a here-string a shell reads from a later line,
+and some spellings of a compound command's closer before a here-string. It
+refuses an editor's name opening a here-string that a script beside a shell
+or runner only reads as data, an editor's name at any word after a runner
+whose command sits among its words, awk text that includes the inplace
+extension anywhere after an awk, and an in-place editor behind a wrapper
+option whose value the posture reading takes for the command, wherever its
+files are.
 
 ## Changing any of this
 
