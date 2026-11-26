@@ -56,9 +56,9 @@
 # command sits among its words (ionice, flock, ssh and the like,
 # RE_MC_OPAQUE_NAMES), and one behind a wrapper option whose value the posture
 # reading takes for the command (sudo --user root perl -pi), wherever its files
-# are. A relative target counts from the directory the command
-# starts in and every one it changes to, unless it opens with its only cd,
-# joined to every later statement by &&. Not read, the accepted residual: rm,
+# are. A relative target counts from the directory the command starts in and
+# every one it changes to, unless it opens with its only cd, joined to every
+# later statement by &&. Not read, the accepted residual: rm,
 # touch and mkdir; a copy's or move's source (an mv out of a repository
 # removes the file there), rsync --remove-source-files and tar --remove-files;
 # an unpack into a repository (tar -x ... -C <repository>, unzip -d
@@ -71,17 +71,17 @@
 # directory (wget, curl -O, an unpack with no -C or -d); writers the screen
 # does not parse (find -fprint, patch, sponge and the like); a runner it does
 # not list; an option spelled through an expansion the command does not
-# assign a literal; and, in text read only as text (a shell's command string,
-# eval, a substitution), a wrapper option's value before the editor (bash -c
-# "sudo -u root perl -pi f"). The runner and here-string reading is a text
-# reading that fails closed: it refuses an editor's name opening a here-string
-# beside a shell or runner even where a script reads it as data, and awk text
-# that names @include "inplace" anywhere after an awk, even in a later
-# statement; it misses a here-string a shell reads from a later line (cat <<<
-# '...' |, then bash), a compound closer that follows a word or carries no
-# space before a redirect (echo a ) <<<, }2>&1 <<<), and a pipe between a
-# closer and its here-string;
-# a quoted span of one word in unparsed text is read as no command.
+# assign a literal; and, where the editor is read only as text (a shell's
+# command string, eval, a substitution, find -exec), a wrapper option's value
+# before it (bash -c "sudo -u root perl -pi f"). The runner and here-string
+# reading is a text reading that fails closed: it refuses an editor's name
+# opening a here-string beside a shell or runner even where a script reads it
+# as data, and awk text that names @include "inplace" anywhere after an awk,
+# even in a later statement; it misses a here-string a shell reads from a
+# later line (cat <<< '...' |, then bash), a compound closer that follows a
+# word or carries no space before a redirect (echo a ) <<<, }2>&1 <<<), and a
+# pipe between a closer and its here-string; a quoted span of one word in
+# unparsed text is read as no command.
 #
 # The mission-control tier's flip, for a PR of the repository it runs in or of
 # a program-listed one it names with --repo, follows ready_flip_policy:
@@ -7165,7 +7165,7 @@ mc_env_glued_s() {
 # takes the next word as its value: a long one with no = (in any prefix
 # getopt_long takes), or a short cluster whose first value letter ends it.
 # mc_unwrap's own option table is the posture reading's: keep every option it
-# names here too, which may name more.
+# names here too; this table may name more.
 mc_wrap_opt_value() {
   local c vl pre
   case $2 in
@@ -7259,9 +7259,9 @@ mc_unwrap() {
             ;;
         esac
       fi
+      # The posture reading's table; mc_wrap_opt_value holds all of it.
       case $wrap:${SW[$i]} in
         env:-u | env:-C | env:-S | env:--unset | env:--chdir | env:--split-string) i=$((i + 2)) ;;
-        # The posture reading's table; mc_wrap_opt_value holds all of it.
         nice:-n | timeout:-s | timeout:-k | stdbuf:-[ioe] | exec:-a) i=$((i + 2)) ;;
         sudo:-[ugCpUhrt] | xargs:-[ILnPdEas] | doas:-[uC] | time:-[fo]) i=$((i + 2)) ;;
         *:-* | env:*=* | sudo:*=*) i=$((i + 1)) ;;
@@ -8074,6 +8074,7 @@ XEOF_RUN
         ;;
     esac
     mc_env_split "${t//[\"\'\\]/}"
+    # Copied out: mc_inplace_unparsed below runs mc_env_split again.
     local es=$MC_ES
     [[ $es =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
     ! mc_inplace_unparsed "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
@@ -8363,9 +8364,10 @@ XEOF_RUN
       done
     fi
     # opsr: per operand, the <repo> argument mc_write_word_refused takes; empty
-    # leaves it to the operand's role. The repository screen reads tee's and
-    # truncate's files, dd's of= file, and cp's and mv's destinations; the
-    # other verbs here (rsync, install, ln) pass the posture screen alone.
+    # leaves it to the operand's role, and dd marks dd's own of= operand. The
+    # repository screen reads tee's and truncate's files, dd's of= file, and
+    # cp's and mv's destinations; the other verbs here (rsync, install, ln)
+    # pass the posture screen alone.
     rr=0
     case $verb in cp | mv | tee | dd | truncate) rr='' ;; esac
     ops=()
