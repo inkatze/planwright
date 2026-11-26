@@ -1002,8 +1002,9 @@ on that pull request can land a forward merge of `main` and nothing else:
   older git refuses with that reason), in every file and mode. A conflict
   resolved by hand or any edit inside the merge refuses, spec files or not,
   and so do a direct spec edit, any non-merge commit, a merge of anything but
-  `main`, a delete, a failed git read, and a push from a session with no
-  record or another pull request's. For both acts the protected-set read
+  `main`, a delete, a failed git read, a push from a session with no
+  record or another pull request's, and any push while `worker_base_merge`
+  is `deny`. For both acts the protected-set read
   exempts only the floor's own `planwright/*/spec` entry: a
   `protected_branches` addition that matches the sign-off branch, a
   duplicate of that entry included, still refuses them. Every other target
@@ -1011,15 +1012,16 @@ on that pull request can land a forward merge of `main` and nothing else:
 
 An amendment branch (`planwright/<spec>/amendment-<n>`) or a spec-rework
 branch (`planwright/<spec>/spec-rework`) the record names takes that same
-push, built by the sync act above and decided by the same check, with two
-differences. The branch sits outside the protected floor, so the protected set
-is read for it whole and any entry matching it refuses. And
-`worker_base_merge: deny` refuses the push as it refuses the merge. As on the
-sign-off branch, a merge of any commit `main` holds, several merges in a row,
-and a push adding nothing are admitted. Any other spelling of these branches (`amendment-x`,
-`spec-rework-2`), a push from a session with no record or one naming another
-branch, a record variable assigned on the command line, and every host write
-still refuse, so a hand resolution or a spec edit never leaves the worker.
+push, built by the sync act above and decided by the same check, with one
+difference: the branch sits outside the protected floor, so the protected set
+is read for it whole and any entry matching it refuses. As on the sign-off
+branch, `worker_base_merge: deny` refuses the push as it refuses the merge,
+and a merge of any commit `main` holds, several merges in a row, and a push
+adding nothing are admitted. Any other spelling of these branches
+(`amendment-x`, `spec-rework-2`), a push from a session with no record or one
+naming another branch, a record variable assigned on the command line, and
+every host write still refuse, so a hand resolution or a spec edit never
+leaves the worker.
 
 A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change

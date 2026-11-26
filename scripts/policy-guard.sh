@@ -144,8 +144,8 @@
 #               refspec as the command's only act from the worker's worktree
 #               holding it: signoff_push_check decides it, a fast-forward of
 #               nothing but clean merges of the base, read from the remote
-#               itself. A sign-off branch reads no protected set for it; the
-#               other two read it whole and need worker_base_merge allow.
+#               itself, with worker_base_merge allow. A sign-off branch reads
+#               no protected set for it; the other two read it whole.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -5823,9 +5823,8 @@ signoff_transport_stock() {
 # them, a fast-forward whose every new commit off that base lies on the
 # first-parent line and is a two-parent merge of a base commit whose tree is
 # the clean merge of its parents. <branch> is the record's sign-off,
-# amendment or spec-rework branch (is_signoff_branch, is_merge_route_branch);
-# on the latter two worker_base_merge must also be allow. SPC_WHY says why
-# not.
+# amendment or spec-rework branch (is_signoff_branch, is_merge_route_branch),
+# and worker_base_merge must be allow, as for the merge. SPC_WHY says why not.
 SPC_WHY=''
 signoff_push_check() {
   local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 sig=0 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
@@ -5844,13 +5843,11 @@ signoff_push_check() {
     SPC_WHY="it runs outside the worktree holding $(sanitize_printable "$sb" 'the branch') (the session's own linked worktree, with that branch checked out); push from there"
     return 1
   }
-  if [ "$sig" = 0 ]; then
-    read_knob worker_base_merge "$d" allow deny
-    [ "$KNOB_VAL" = allow ] || {
-      SPC_WHY='worker_base_merge is deny, so no merge of main reaches this branch; the operator syncs it with its base'
-      return 1
-    }
-  fi
+  read_knob worker_base_merge "$d" allow deny
+  [ "$KNOB_VAL" = allow ] || {
+    SPC_WHY='worker_base_merge is deny, so no merge of main reaches this branch; the operator syncs it with its base'
+    return 1
+  }
   want=$(gitq "$d" config --get "branch.$sb.remote") || want=''
   [ -n "$want" ] || want=origin
   { [ "$rem" = "$want" ] && [[ $rem =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } || {
