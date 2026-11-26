@@ -126,12 +126,12 @@ under
 echo "### the router's kind-flag form"
 SR_WT="$SANDBOX/install/worktree"
 mkdir -p "$SR_WT/scripts" "$SR_WT/tests"
-: >"$SR_WT/.git"
 : >"$SR_WT/tests/ok.sh"
 : >"$SR_WT/tests/test-ok.sh"
 mkdir -p "$SR_WT/tests/test-a"
 : >"$SR_WT/tests/test-a/b.sh"
 : >"$SR_WT/scripts/compute-route.sh"
+fixture_commit "$SR_WT" scripts tests || exit 1
 : >"$PLUGIN_ROOT/scripts/compute-route.sh"
 CR=$PLUGIN_ROOT/scripts/compute-route.sh
 HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
@@ -183,6 +183,9 @@ SREC=$PLUGIN_ROOT/scripts/step-record.sh
 SRUN=$PLUGIN_ROOT/scripts/step-run.sh
 : >"$SREC"
 : >"$SRUN"
+# A step-script call passes only on the recorded worktree (REQ-F1.12).
+write_record "$SANDBOX/install/steps.record" "$(cd "$SR_WT" && pwd -P)"
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT" "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/install/steps.record")
 assert_allow "step-record heads" "$SREC heads" Bash "$SR_WT"
 assert_allow "step-record render" "$SREC render --run r-1" Bash "$SR_WT"
 assert_allow "step-run audit" "$SRUN audit --through pre-pr" Bash "$SR_WT"

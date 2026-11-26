@@ -653,7 +653,11 @@ if [ -n "$marker_mode" ]; then
     3)
       # Nothing to close: only an earlier retirement of these very fields
       # leaves the marker to finish removing.
-      mm_last=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
+      mm_reg=$(/bin/sh "$FS" registry 2>/dev/null) || {
+        warn "could not read the registry to settle the marker for $handle; the next sweep retries"
+        exit 1
+      }
+      mm_last=$(printf '%s\n' "$mm_reg" | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
       [ "$(printf '%s\n' "$mm_last" | cut -f2-8)" = "$expect$(printf '\t')closed" ] || exit 3
       ;;
     *)

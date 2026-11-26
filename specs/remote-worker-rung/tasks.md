@@ -1,7 +1,7 @@
 # Remote worker rung — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-11-11
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -9,7 +9,7 @@ Tasks in dependency order, which is presentation; the `Dependencies:` lines
 carry the graph. The channel's first form (`scripts/fleet-remote.sh`,
 including its compute verb) landed with this bundle, and test and lint
 offload landed as `scripts/compute-route.sh`; Task 1 completes the channel
-and Task 11 extends the router.
+and Tasks 11 and 12 extend the router.
 
 ## Tasks
 
@@ -180,6 +180,23 @@ and Task 11 extends the router.
 - **Dependencies:** Task 5, Task 8, Task 9
 - **Citations:** D-11 · REQ-B1.4, REQ-C1.6, REQ-F1.2
 - **Estimated effort:** half day
+
+### Task 12 — Per-repository host and command patterns
+
+- **Deliverables:** `scripts/compute-route.sh` reads a settings list of
+  command patterns (a new key in `config/defaults.yml`, empty by default,
+  with its encoding settled in the task) and sends a whole-command match
+  through the compute verb as the named task; the per-repository host rule
+  recorded in `docs/fleet.md` with the pattern list's use; the worker briefs
+  name both.
+- **Done when:** fixtures show a listed command (such as a type-check or unit
+  test run) routed as its task, an unlisted command, a command with extra
+  arguments and a mapped name outside the task grammar all run locally, and
+  two repositories with different machine-local hosts resolve to two hosts;
+  the local fallbacks of Task 11 are unchanged; no worker guard changes.
+- **Dependencies:** Task 11
+- **Citations:** D-4, D-17, D-18 · REQ-G1.7, REQ-G1.8, REQ-G1.9
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 

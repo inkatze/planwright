@@ -8,16 +8,6 @@ BEGIN {
   CHARS_PER_TOKEN = 4
 }
 
-function session_kind(head, rules) {
-  if (head ~ /planwright:mission-control/) return "mission-control"
-  if (head ~ /planwright:tower/) return "tower"
-  if (rules > 0 || head ~ /launched by planwright.s mission control/) return "mc-launched"
-  if (head ~ /planwright:(execute-task|orchestrate)/) return "fleet-worker"
-  if (head ~ /(polish|self-review|panel-review|bot-review|peer-review|code-review)/) return "review"
-  if (head == "") return "unknown"
-  return "interactive"
-}
-
 function subagent_kind(h) {
   if (h ~ /([Rr]eview|[Ll]ens|[Vv]erif|[Ff]inding|[Pp]olish|[Aa]udit)/) return "review-or-verify"
   if (h ~ /([Ee]xplor|[Ss]earch|[Ll]ocate|[Ss]urvey)/) return "explore"

@@ -193,9 +193,6 @@ shorts=$(printf '%s\n' "$snapshot" | awk -F'\t' 'NF && NF < 8 { print $1 }')
 # would judge is kept), and the pass says so.
 reg_ok=1
 reg_raw=$(/bin/sh "$FS" registry 2>/dev/null) || reg_ok=0
-if [ -e "$root/registry" ] && [ ! -r "$root/registry" ]; then
-  reg_ok=0
-fi
 lastmap=""
 if [ "$reg_ok" = 1 ]; then
   lastmap=$(printf '%s\n' "$reg_raw" | awk -F'\t' '

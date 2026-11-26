@@ -1,7 +1,7 @@
 # Mission control — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -376,6 +376,7 @@ steps, a fixture touching only the reserved accumulators has none to hold,
 and a fixture that also changes one non-spec file is audited for the
 cadence. This shipped with PR #852's tests.
 *(Amended at Amendment 6, 2026-11-09: the operator-visible preview condition is tested under REQ-F1.18.)*
+*(Amended at Amendment 21, 2026-11-22: a legacy bundle on the spec-only path is tested under REQ-D1.18.)*
 
 ### REQ-D1.10 — Launch worktrees [test]
 
@@ -436,6 +437,26 @@ edit with a matching re-signed anchor, passes; a status-only spec touch
 is not an edit; a task pull request delivering its own task's file
 passes; a missing statement is checked as covering nothing; a spec edit with a stale anchor refuses; an
 unlisted change passes; a check that cannot run refuses with its reason.
+
+### REQ-D1.18 — Spec drift refused at readiness, finished pre-kickoff bundles excepted [test]
+
+The REQ-D1.13 entry's cases, unchanged, plus
+`tests/test-mc-readiness-legacy-done.sh` (PR #1142, extended by Task 149).
+A bundle `Done` at the head with no brief, which the base holds with no
+brief as `Done` or with no Status line, reads signed with its row naming it
+legacy, on the spec-only path and on the code path. Each of these refuses
+with its reason, on the spec-only path (the one function deciding both
+paths) and, for the brief deletion, on the code path too: a Draft, Ready or
+Active bundle with no brief, a bundle the pull request adds, one the base
+holds at another status, a pull request that deletes its brief, a base
+that holds a brief the head lacks, a pull request naming no base, and a
+base commit that cannot be read; a brief that exists is anchor-checked as
+before. The stale-ref case (Task 149): with the evidence carrying the
+forge's base commit, a fixture whose local remote-tracking ref for the base
+predates a base commit that adds the bundle's brief, and whose pull
+request renames that brief away (listed as a rename, not a deletion),
+refuses because the base commit holds the brief; the same fixture with a
+current ref refuses the same way.
 
 ### REQ-D1.15 — Direct dispatch for units that need no holder [test]
 
@@ -882,6 +903,27 @@ configured ready flip without a prompt; force forms, deletions, another
 spec branch, a task branch and `main` are denied with the guard's reason; no
 launch record means every push is denied; mission control's own tier
 denies the push.
+*(Amended at Amendment 21, 2026-11-22: a worker's clean base-merge push onto a spec-branch pull request is tested under REQ-I1.11.)*
+
+### REQ-I1.11 — A spec-branch pull request's worker pushes only clean base merges [test]
+
+`tests/test-policy-guard-spec-merge-push.sh` and
+`tests/test-policy-guard-spec-branch-push.sh` (Task 148), each case run for
+a worker whose session record names a sign-off branch, an amendment branch
+and a spec-rework branch: merging the base, alone in the command, in the
+worktree holding the branch is admitted, and refused under
+`worker_base_merge: deny`; a push adding one clean merge of the base, two
+in a row, or nothing is admitted; each of these is refused with the
+guard's reason: the push or the merge run from another checkout of the
+branch, a merge whose tree differs from the clean merge of its parents (a
+bundle file's edit or mode change included, and another file's), a commit
+that is not a merge of the base, a merge line not starting at the pull
+request's head, a push that does not fast-forward that head, a force or
+deletion spelling, another branch, a base or head the remote cannot
+report, and each local-state override REQ-I1.11 names (a rewritten
+transport, a merge driver, an attributes file, a replace ref, a graft, a
+shallow clone, a git older than 2.40); on the sign-off branch only, a
+`protected_branches` addition matching it.
 
 ## REQ-J — Knobs
 
@@ -1307,3 +1349,63 @@ without fix evidence is refused; with both it closes; no verb removes a row.
 
 `tests/test-mc-followups.sh` (Task 83): a fixture period with operator-caught
 and system-raised problems reports both counts and names the open misses.
+
+### REQ-P1.15 — Commitments are kept in a store only the holder writes [test]
+
+`tests/test-mc-commitments.sh` (Task 150), in fixtures: `add` by the holding
+mission control with the operator's words records a row holding the id,
+when, event, required pull requests and the quoted words; `add`, `change`
+and `close` from a worker, another session, a stale holder or with no
+holder refuse with the reason; the id is allocated (`commit-<n>`), and one
+supplied, one the operator-stated dates file uses, an `add` with no quoted
+words, a date that names no calendar day, no required pull request, a pull
+request outside `owner/repo#n`, or text holding a control byte, a tab or a
+newline refuses; `ack` twice is idempotent and `ack` of a closed row passes
+as a no-op; `close` without a reason of
+`delivered`, `waived` or `moved`, or without a note, refuses; a second
+`close` refuses; no verb deletes a row; a closed row stays listed.
+
+### REQ-P1.16 — Deadline-watch reads the commitments as one list [test]
+
+`tests/test-mc-deadlines.sh` (Task 150), in fixtures: an open commitment
+appears in `list`, `due` and `rank` with its id as the unit, urgent inside
+the horizon and overdue once past (a time of day does not move the day),
+and no second entry is needed in the operator-stated dates file, under
+every mode of the deadlines fact class including `cited`; a closed
+commitment is absent; the dates file's own units read and rank as before;
+a program with no store reads and ranks exactly as before.
+
+### REQ-P1.17 — The handover carries commitments and `take` waits for each [test]
+
+`tests/test-mc-handover.sh` (Task 151), in fixtures with two open
+commitments and one closed: `write` puts an item named by the id for each
+open one and none for the closed one; `verify` and `resume` print each open
+commitment from the store and mark one the file lacks (a commitment added
+after the file was written), which still has to be acknowledged; `take` and
+`resume` refuse with no acknowledgement, with
+one of two, with an acknowledgement given by another session and with a
+blanket acknowledgement not naming ids, each naming the missing ids, and
+passes once the successor has acknowledged both by id, each recorded with
+the session and the time; an overdue open commitment gates the take the
+same way; a later successor must acknowledge again.
+
+### REQ-P1.18 — The runner reports each commitment's pull requests [test]
+
+`tests/test-mc-commitments.sh`, `tests/test-mc-watch-runner.sh`,
+`tests/test-mc-panel.sh` and `tests/test-mc-snapshot-adapters.sh` (Task
+152), with a PATH-first `gh` stub emitting canned `pr view` JSON, and
+`--now` driving two passes on one UTC day and a third on the next: the
+adapter's `pr-state` maps open, draft, merged and closed, and a checks
+rollup of success, failure, pending or none to passing, failing, pending
+or absent; one pass records the state of each required
+pull request (open, draft, merged, closed, with checks passing, failing,
+pending or absent); a state change raises an event naming the commitment
+and the states, and an unchanged state outside the horizon raises none;
+inside the horizon, or overdue, an event is raised once a day and not
+again the same day; all required pull requests merged reports `ready to
+close` and leaves the commitment open; an unreadable pull request shows
+`unknown` with the reason, raises a failure-class event, the commitment's
+other pull requests are still reported, and `take` is not blocked by it;
+an event names the id, date and states and never the event text or the
+quoted words; a not-found read shows `unknown` with that reason; the panel
+and the first turn after silence list each open commitment earliest first.

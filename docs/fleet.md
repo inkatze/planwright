@@ -862,7 +862,9 @@ worker on a cadence (`PLANWRIGHT_STREAMJSON_ALARM_TICK`, default 60s), so a
 receipt pending past `PLANWRIGHT_STREAMJSON_PENDING_AGE` (default 900s)
 becomes a high-priority queue item plus one notify push within a tick of
 crossing the threshold, with nothing else having to run `alarm-scan` (the
-sweep over every worker, which remains). The tick lives in the supervisor, so a
+sweep over every worker, which remains). The same tick and sweep report a
+steer the worker never read (see `steer` below), printed by `alarm-scan` as
+`steer-lost <worker> <id>`. The tick lives in the supervisor, so a
 worker an older planwright launched has none. `alarm-scan` reads every runtime
 directory whatever version wrote it, and mission control's session-keeper
 watcher runs it as `alarm-scan --once` on every pass: an overdue request
@@ -875,7 +877,7 @@ few). The event names every request still waiting, worker and request id,
 and a request that arrives later is always a new event, never folded into
 one already read.
 Each goes to the worker's own program: its launcher row's, else the owner its
-dispatch record keeps, else its parent's row or record (the worker it was
+dispatch record keeps, else its parent's row or record (the session it was
 launched from inside), else the configured program its name carries under the
 launcher's grammar (`mc-<program>-<kind>-<10 hex>`, a sub-session such as a
 polish pass adding `-<suffix>`). A live worker with a request waiting and no
@@ -932,15 +934,31 @@ and stays up for the next, so `awaiting-input` outranks an earlier turn's
 `completed`, and the stuck detector likewise keeps such a worker
 `waiting-on-a-human` rather than finished.
 
+A worker that parks itself on the operator (`mission-control-launch.sh wait
+<name> --on operator`, then ends its turn) has no request pending, so the
+prompt alarm never sees it. The same watch raises it instead: a stream-json
+worker, reviewer or ad-hoc session of the program whose row records that
+wait, with a pidfile left and its event log still ending at its last turn's
+result, parked longer than `mission_control_worker_completed_grace`, wakes its
+mission control as one `worker-parked-on-operator` event. The event names the
+worker and ends with the first lines of that result, so the reader sees what
+it waits on without opening anything. It is raised once per park: the park
+starts at the later of that result and the moment the wait was set (the
+launcher records it as the row's `waited` field), a message that starts the
+worker's next turn ends it, and a turn that ends parked again is a new park.
+A wait on CI or a ready flip is no park, and a kickoff relay, which waits on
+the operator by design, is left out.
+
 **When the mission control itself does not answer.** The alarm's wake reaches
 the one session that should answer, which helps nothing when that session is
 stuck. A second session-keeper watcher, `scripts/mc-escalate.sh`, raises what
 a program's mission control leaves unanswered one level up, with no model in
-the path. Two things qualify: a request of one of the program's own live
-workers still pending `mission_control_escalation_window` past the alarm,
-and the mission control's own tmux pane showing an open dialog for that
-long. Auto mode's confirmation after blocked actions is one such dialog, and
-Remote Control does not show it. Either becomes a `mission-control-escalated`
+the path. Three things qualify: a request of one of the program's own live
+workers still pending `mission_control_escalation_window` past the alarm, a
+worker still parked on the operator that long past its park alarm, and the
+mission control's own tmux pane showing an open dialog for that long. Auto
+mode's confirmation after blocked actions is one such dialog, and Remote
+Control does not show it. Each becomes a `mission-control-escalated`
 event in the hub program's store (`mission_control_escalation_hub`, when its
 holder is live), and at twice the window a push to the operator through the
 notification seam. With no live hub, or for the hub's own items, the first
@@ -1001,10 +1019,47 @@ by the resolved literal path (`<root>/scripts/fleet-streamjson.sh pending`, per
 [plugin-script invocation](../doctrine/plugin-script-invocation.md)); a `~` path
 or an unexpanded `$CLAUDE_PLUGIN_ROOT` falls to the permission prompt instead.
 
+So that a worker's routine closing moves raise no prompt at all, its command
+guard approves three own-unit acts under every self-approval policy: a plain
+`git push origin <unit branch>`, a `gh pr edit <n> --body-file <file>` of its
+own open pull request, and an `export` of its step context. An act may close
+an `&&` chain of partners that each pass the guard on their own: a
+`git add` or `git commit` the `own-branch` arm approves, and a gate task
+(`mise run`, `lefthook run`, `bats`, a repository `tests/` or `scripts/`
+script, a declared command step, or a declared check command naming no
+program its write scan refuses, as the `worker_check_commands` row of
+`docs/options-reference.md` lists), so `git commit -m <msg> && git push origin
+<unit branch>` and `mise run check && git push origin <unit branch>` run
+unprompted. A partner joined by `;`, a line break, `||`, `|` or `&`, a partner after
+the act, and any file write, other git act or non-step plugin script in the
+command keep it prompting. `docs/options-reference.md`
+(`worker_self_approval`) has the full conditions.
+
+Three more routine classes need no policy arm. The operator's installed
+`review-state.sh` (matched by its literal absolute path under the hook's
+`HOME`) runs its `ledger`, `lock`, `register`, `unregister` and `sessions`
+verbs, never `evidence run`, `inbox` or `loop`. A reply to, or a resolve of, a
+review thread passes when the guard's own read of the forge shows the first
+comment from a `[bot]` login and no comment from anyone but a bot or the
+authenticated account itself, on the unit's own open pull request.
+
+`mix ci`, `mix format` and `mix test`, with a short flag list and relative
+paths of the worktree, run unprompted only while the diff of the worktree
+against the merge base with `refs/remotes/<pr_base>`, the untracked and ignored
+files, and the assume-unchanged and skip-worktree flags show nothing but
+images. Anything else the PR adds or changes keeps prompting, documents
+included (a base can read one as code), so committed code cannot be run
+unprompted, and so does an ignored `_build` or `deps` directory, which can hold
+planted code. Step records keep the rule above: a `--start` or `--end` the
+caller supplies prompts.
+
 Before spawning a worker-profile session, `launch` proves the auto-approve
 hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
 root the dispatch-env wrapper exports, run through that wrapper so it sees the
-worker's environment) will approve the worker's opening move — the
+worker's environment, with no session record, since the launcher's own is not
+the worker's and the worker's holds every root outside its worktree to HEAD
+as no record does)
+will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
@@ -1148,6 +1203,17 @@ log home leaves the worker without the `own-branch` and `scratch` arms, so
 those arms never approve a write with no log to trace it in; the options
 reference lists what the line records and when a write goes unlogged.
 
+A step record whose times the worker sets by hand always prompts. The guard
+never approves a `step-record.sh write` other than a `--completion` write, nor
+any write carrying `--start` or `--end`, under any policy value and however
+the call is spelled, so every skill, prompt and full-suite record a worker
+writes waits on an approver, who sees the hand-set times and can check them
+against the session's own events. Unattended, that prompt parks for the
+operator like any other the policy does not cover. Command steps are
+untouched: `step-run.sh` times their records itself. Every other step-script
+call passes only on the worktree the session record names, and only in the
+verbs the profile's `_about` lists.
+
 Processes are matched on the worker's state directory and on the pids that
 directory records, never on a process name or command pattern — the guarantee
 is that a stop cannot reach an operator's own `claude` session by resembling
@@ -1235,8 +1301,11 @@ in that directory at the allocation key and unit the launch recorded
 none, and the resumed session gets `--model` and `--effort` for each dimension
 that does not resolve to `inherit`; a tier model, effort or reservation the
 launch recorded is handed back to that plan as an override. A launch's
-`--mise-task-edit` and `--lefthook-edit` opt-ins are kept too: the relaunch regenerates the worker's
-per-launch settings profile, and a profile it cannot generate is exit `7`.
+`--mise-task-edit` and `--lefthook-edit` opt-ins are kept too: the relaunch
+regenerates the worker's per-launch settings profile, and a profile it cannot
+generate is exit `7`, as is an opt-in record a recover or relaunch cannot
+trust (see
+[the permission-matcher model](permission-matcher-model.md#the-mise-task-file-opt-in)).
 Any other extra argument the original launch passed after `--` is not carried
 over. (`recover --cwd <dir>` is
 available on its own; without it a recover
@@ -1256,11 +1325,30 @@ a failed resume exit `5`, each naming the `recover` to run.
 `steer` is the primary steer on the stream-json rung: a tower message becomes a
 user turn on the worker's own stdin, under the same `[planwright tower relay ->
 <worker>]` header the tmux relay pastes, read from a file so its text is never
-part of a command. A delivered steer opens a new turn, so it retires the
+part of a command. A steer to an idle worker opens a new turn, so it retires the
 previous turn's `result`: the worker reads `running` again until that turn
 records its own. A steer delivered while the worker is still inside a turn is
-the exception: that turn's `result` lands after the steer, so the queued turn
-reads `completed` until it records its own. Never write a frame into a worker's `in.fifo` by hand. The
+not read at once: the session takes it when the tool call in flight returns,
+folding it into that turn, or, when the turn is already writing its answer,
+as the next turn once that turn's `result` lands (the session reading it then
+retires that `result`, so the worker reads `running` again). A long-running
+command or bounded wait therefore delays it. A worker reads as idle when a
+result is on record or, for a resumed session waiting for its first frame,
+when its capture still ends at its last turn's result; `steer` says on stderr
+that the message is queued whenever the worker was not idle. Written is not
+read, so each steer frame carries its own uuid, recorded in its receipt row,
+and the worker runs with `--replay-user-messages`, whose replay of the frame
+records the steer as read. A steer is reported unread, once, by the
+supervisor's tick or `alarm-scan`, as a high-priority queue item and push
+naming the message file to re-send, when `PLANWRIGHT_STREAMJSON_STEER_GRACE`
+seconds (default 60) have passed since the `result` or exit record written at
+or after it, or, when none has been written and the worker was idle as it was
+sent, since it was sent. The session reads frames in order, so an unread steer
+sent before one so judged is reported with it. A runtime with no replay record
+(a worker an older planwright launched) is never judged, nor is a steer sent
+before that record.
+
+Never write a frame into a worker's `in.fifo` by hand. The
 worker reads one JSON line at a time, so a frame missing its newline runs into
 the next one and kills it. Every frame the supervisor writes, `steer`'s,
 `answer`'s, and the launch prompt, is checked before any byte is written: one
@@ -2784,9 +2872,58 @@ starting a session under the operator's own settings. On Claude Code 2.1.303,
 two `-p` launches given the same `--name` both start and both carry that name: the CLI neither renames
 nor refuses, so a duplicate shows up only in the session listing.
 
+**A repository's own check commands.** A worker may not edit the mise
+configuration, so a repository whose tests run through their own runner
+(`mix test`, `cargo test`, a `bin/check` script) would otherwise prompt on
+every run. Declare those commands in `worker_check_commands` and the worker's
+command guard approves them by shape. A declaration is literal words plus the
+placeholders `<word>` (a token with no `/`), `<int>` and `<path>` (a path
+inside the worktree, never a hooks, git or tool configuration path, even
+with a `:<line>` suffix), the last
+one optionally suffixed `...` for one or more words; declarations are
+separated by `;`. For a mix-based repository, in its
+`.claude/planwright.yml` or the machine-local overlay:
+
+```yaml
+worker_check_commands: mix test <path>...; mix test --seed <int> <path>; mix format --check-formatted; mise exec -- mix credo --strict
+```
+
+That approves `mix test test/a_test.exs test/b_test.exs:12` and
+`mise exec -- mix credo --strict`, and still prompts on `mix test --trace x`
+(an undeclared flag), `mix test ../other` (a path outside the worktree),
+`mise exec -- mix deps.get` (a runner prefix admits only its own declared
+sequence), a run from inside the hooks or `.claude` directory, and any word
+holding a metacharacter or an expansion. The `deny`
+block is read first, so no declaration lifts it, and a malformed declaration
+is dropped alone. A declared check command that names git, a file writer, a
+wrapper or an interpreter (`git commit`, `rm`, `env`, `python`) still runs
+alone, but never in the same command as a worker's own push or pull request
+body edit. A command naming a planwright step script (`step-record.sh`,
+`step-run.sh`) is never approved by a declaration at all: the step-script rules
+judge it as if undeclared, so a hand-timed step record still prompts. The
+launcher reads the knob at the primary checkout into the session record, so
+an edit inside the worker's own worktree changes nothing and a change reaches
+a worker only by relaunch. Running a declared command runs the repository's
+own code, the trust the guard already gives its `scripts/`, except that a
+declared markdownlint or `mise run` still passes the config-loader screen the
+undeclared command does. The full rules are in
+[the options reference](options-reference.md).
+
 The launcher's `retire <name>` closes what it launched from its registry row.
-A stream-json worker launched without it (by an older planwright, by
-`/orchestrate`, or by hand) has no row, so `retire <worker>` takes it by its
+A worker an orchestrator or tower mission control launched dispatches on the
+stream-json rung has a row too: every stream-json session holds its own
+handle as `PLANWRIGHT_SESSION_HANDLE`, so `/orchestrate`'s meta step finds
+its session's row and runs `adopt <session> --scope <spec>:task-<id>`
+around the launch. `--plan` names the worker as a worker launch of that
+scope would be named and gives the program's mission control as its owner;
+after the launch, the record writes the worker's row, once its runtime
+directory records that session as its parent. The worker's prompts then
+reach that mission control, and `list`, `wait`, `unwait`, `retire` and the
+host-wide bound take it like a launch of the program's own. A session no
+row names still dispatches, and its worker is registered with no owner,
+said on stderr. Any other stream-json worker launched without the launcher
+(by an older planwright, by a `/orchestrate` the operator runs, or by hand)
+has no row, so `retire <worker>` takes it by its
 handle instead: `fleet-streamjson.sh stop <worker> --final`, then its fleet
 record and attention row, printing the same `retire` line over the classes
 `process`, `registry` and `attention`. A name with neither a row nor a

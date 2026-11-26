@@ -36,6 +36,7 @@ test-worker-command-guard-shapes.sh	35.819
 test-mc-usage.sh	35.806
 test-step-record.sh	35.743
 test-mc-snapshot-adapters.sh	35.194
+test-mc-keeper-rowless.sh	34.972
 test-policy-guard-kickoff.sh	34.500
 test-inception-venture.sh	34.446
 test-worker-command-guard-mise-tasks.sh	34.0
@@ -103,6 +104,7 @@ test-mc-rules.sh	20.206
 test-mc-readiness-walk.sh	19.560
 test-tower-floor-branch-move.sh	19.483
 test-flight-relaunch.sh	19.360
+test-mc-keeper-bounds.sh	19.094
 test-fleet-stop-hl.sh	18.972
 test-mc-readiness-collect.sh	18.950
 test-fleet-stop-sj.sh	18.714
@@ -141,6 +143,7 @@ test-mc-readiness-drift-signoff.sh	15.360
 test-inception-scaffold.sh	15.189
 test-fleet-tower-watchdog.sh	15.042
 test-check-guard-wiring.sh	14.851
+test-mc-keeper-prompts.sh	14.773
 test-mc-budget.sh	14.734
 test-fleet-usage-gate.sh	14.665
 test-step-run-resume.sh	14.610
@@ -153,6 +156,7 @@ test-run-tests.sh	14.169
 test-worker-command-guard-policy.sh	13.942
 test-full-suite-run.sh	13.770
 test-resolve-vendors.sh	13.767
+test-mc-keeper-unowned.sh	13.643
 test-mc-readiness-drift-covered.sh	13.560
 test-inception-review-cycle.sh	13.472
 test-tower-queue-store.sh	13.457
@@ -165,6 +169,7 @@ test-fleet-adversarial.sh	12.978
 test-flight-dispatch-points.sh	12.952
 test-lock-lib.sh	12.927
 test-fleet-throttle.sh	12.880
+test-mc-keeper.sh	12.864
 test-fleet-cleanup-process.sh	12.844
 test-mc-readiness-signoff-read.sh	12.608
 test-mc-program.sh	12.576
@@ -202,7 +207,6 @@ test-fleet-registration.sh	9.295
 test-mc-shadow.sh	9.143
 test-pr-agent-review.sh	9.107
 test-orchestrate-state.sh	9.015
-test-mc-keeper.sh	8.850
 test-check-workflow-posture.sh	8.805
 test-worker-death.sh	8.740
 test-policy-guard-mc-store.sh	8.619
@@ -243,6 +247,7 @@ test-fleet-stats.sh	6.707
 test-halt-note.sh	6.659
 test-fleet-messaging.sh	6.646
 test-fleet-state.sh	6.629
+test-mc-keeper-pending-age.sh	6.575
 test-review-reverify.sh	6.543
 test-classify-limit.sh	6.531
 test-check-counts.sh	6.522
@@ -279,8 +284,10 @@ test-claude-frames.sh	5.225
 test-check-comment-budget.sh	5.215
 test-resolve-policy-knob.sh	5.176
 test-allocation-apply.sh	5.146
+test-mc-keeper-parents.sh	5.135
 test-fleet-worktree-track.sh	5.093
 test-mc-packet.sh	4.972
+test-mc-keeper-orphans.sh	4.842
 test-gate-posture.sh	4.841
 test-check-cdpath.sh	4.790
 test-mc-duties.sh	4.754

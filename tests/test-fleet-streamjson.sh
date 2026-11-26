@@ -262,7 +262,7 @@ grep -q "^$req_perm$tab.*${tab}pending" "$wdir5/journal" \
   || fail "c5: steer must not settle the pending request"
 [ "$(wc -l <"$wdir5/steers" | tr -d ' ')" = 1 ] \
   || fail "c5: steer should leave exactly one receipt row"
-grep -q "$tab$tmp/steer5\$" "$wdir5/steers" \
+grep -Eq "$tab$tmp/steer5${tab}[0-9a-f-]{36}${tab}(idle|busy)\$" "$wdir5/steers" \
   || fail "c5: the steer receipt should name the message file"
 out=$(senv "$home" "$rec" -- answer sjw5 "$req_perm" --allow) \
   || fail "c5: answer exited non-zero"
@@ -466,6 +466,23 @@ senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w2" -
 [ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover must never spawn the worker"
 grep -q 'no launcher registry row' "$tmp/o8r" || fail "c8r: the refusal must name its reason: $(cat "$tmp/o8r")"
 [ ! -e "$home8r/mission-control/sessions/$w2" ] || fail "c8r: a refused recover must write no row"
+w4='mc-p-worker-5555555555'
+mk8r "$w4" mission-control:p
+printf 'mc-p-orchestrator-0123456789\n' >"$home8r/streamjson/$w4/parent"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w4" --foreground >"$tmp/o8r4" 2>&1 \
+  || fail "c8r: a worker a program's session dispatched, its row never written, must still recover: $(cat "$tmp/o8r4")"
+[ -s "$rec8r/argv" ] || fail "c8r: the recover of a dispatched worker never spawned it"
+[ ! -e "$home8r/mission-control/sessions/$w4" ] || fail "c8r: a recover must not invent a row for a dispatched worker"
+w5='mc-p-worker-6666666666'
+mk8r "$w5" mission-control:p
+printf 'mc-p-orchestrator-0123456789\n' >"$home8r/streamjson/$w5/parent"
+printf 'mission-control:%s\n' "$w5" >"$home8r/streamjson/$w5/tier_unit"
+: >"$rec8r/argv"
+senv "$home8r" "$rec8r" SHIM_EVENTS="$ev8r" SHIM_READ_FIRST=0 -- recover "$w5" --foreground >"$tmp/o8r5" 2>&1
+[ $? -eq 3 ] || fail "c8r: a launcher's own worker with no row and no copy must be refused even when it records a parent"
+grep -q 'no launcher registry row' "$tmp/o8r5" || fail "c8r: the refusal of a launcher's own worker must name its reason: $(cat "$tmp/o8r5")"
+[ ! -s "$rec8r/argv" ] || fail "c8r: the refused recover of a launcher's own worker spawned it"
 w3=sjw8r-plain
 mk8r "$w3" tower-abc
 : >"$rec8r/argv"
@@ -732,6 +749,11 @@ senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch mc-alpha-tower-0123456789 --resu
 #    records the opt-in for the guard and for a recover; a launch without it
 #    passes the shipped profile untouched; every other shape is refused.
 shipped_profile="$here/../config/worker-settings.json"
+# opt_in_of <worker>: the launch opt-ins its state folder records, one
+# `<key>=<value>` per line, from the one file named for its own blob id.
+opt_in_of() {
+  find "$home/streamjson/$1" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec cat {} +
+}
 mkdir -p "$tmp/mwt"
 git init -q "$tmp/mwt" || fail "c9m: cannot build the fixture worktree"
 : >"$rec/argv"
@@ -751,7 +773,7 @@ jq -e '.permissions.deny | index("Edit(//**/mise.toml)") | not' "$m_settings" >/
   || fail "c9m: the per-launch profile still carries the broad mise.toml deny"
 jq -e '.permissions.deny | index("Edit(//**/mise.local.toml)") // index("Edit(//**/mise.*.toml)")' "$m_settings" >/dev/null \
   || fail "c9m: the per-launch profile dropped the local-file deny"
-[ "$(cat "$home/streamjson/sjw9m1/mise-task-edit" 2>/dev/null)" = 1 ] \
+[ "$(opt_in_of sjw9m1)" = mise_task_edit=1 ] \
   || fail "c9m: the launch must record the opt-in for its recover"
 m_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 grep -qx 'mise_task_edit=1' "$m_rec" || fail "c9m: the session record must carry mise_task_edit=1: $m_rec"
@@ -773,7 +795,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   || fail "c9m: a plain launch exited non-zero"
 m_plain=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 cmp -s "$m_plain" "$shipped_profile" || fail "c9m: a launch without the opt-in must pass the shipped profile byte for byte: $m_plain"
-[ ! -e "$home/streamjson/sjw9m2/mise-task-edit" ] || fail "c9m: a plain launch must record no opt-in"
+[ -z "$(opt_in_of sjw9m2)" ] || fail "c9m: a plain launch must record no opt-in"
 m_plain_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 { [ -s "$m_plain_rec" ] && ! grep -q '^mise_task_edit=' "$m_plain_rec"; } \
   || fail "c9m: a plain launch's session record must exist and carry no opt-in"
@@ -801,7 +823,7 @@ done
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9n1 execution-backends:4 --prompt-file "$tmp/prompt9" --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground \
   || fail "c9n: a launch with --spec-branch exited non-zero"
-[ "$(cat "$home/streamjson/sjw9n1/spec-branch" 2>/dev/null)" = planwright/demo/amendment-1 ] \
+[ "$(opt_in_of sjw9n1)" = spec_branch=planwright/demo/amendment-1 ] \
   || fail "c9n: the launch must record the spec branch for its recover"
 grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
   || fail "c9n: the session record must carry spec_branch"
@@ -813,7 +835,7 @@ grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$r
 senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   launch sjw9n2 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/mwt" --foreground \
   || fail "c9n: a plain launch exited non-zero"
-{ [ ! -e "$home/streamjson/sjw9n2/spec-branch" ] && ! grep -q '^spec_branch=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+{ [ -z "$(opt_in_of sjw9n2)" ] && ! grep -q '^spec_branch=' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
   || fail "c9n: a plain launch must carry no spec branch"
 for bad in main planwright/flight/x-0123abcd planwright/demo/task-2 planwright/demo/../x; do
   : >"$rec/argv"
@@ -833,8 +855,173 @@ senv "$home" "$rec" -- \
   launch sjw9m4 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
 [ $? -eq 7 ] || fail "c9m: an opted-in launch in a glob-character path must be refused (exit 7)"
 [ ! -s "$rec/argv" ] || fail "c9m: the refused opted-in launch must never spawn the worker"
-[ ! -e "$home/streamjson/sjw9m4/mise-task-edit" ] || fail "c9m: a refused opted-in launch must record no opt-in"
+[ -z "$(opt_in_of sjw9m4)" ] || fail "c9m: a refused opted-in launch must record no opt-in"
 echo "ok: c9m mise task-file opt-in: per-launch profile, recorded for recover, shipped profile byte for byte without it"
+
+# c9o (the opt-in set is written whole): a fresh launch that cannot write its
+#    opt-ins leaves the set it found and no session to resume under it, so a
+#    later recover halts instead of resuming with a set no launch asked for.
+#    The launch that then succeeds records every opt-in it was given.
+# opt_in_name <dir> <lines>: the record name <lines> would be written under.
+opt_in_name() {
+  printf 'planwright-opt-in.%s' "$(printf '%s\n' "$2" | (cd "$1" && git hash-object --no-filters --stdin))"
+}
+o_dir=$home/streamjson/sjw9o1
+o_both="mise_task_edit=1
+spec_branch=planwright/demo/amendment-1"
+mkdir -p "$o_dir"
+printf 'execution-backends:4\n' >"$o_dir/scope"
+printf 'worker\n' >"$o_dir/profile"
+printf '%s\n' "$sid" >"$o_dir/session"
+# A directory at the very name the new record takes: the write fails after the
+# old session is retired, which leaves no session and no record.
+mkdir "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+: >"$rec/argv"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -s "$rec/argv" ] || fail "c9o: a launch that cannot record its opt-ins must be refused (exit 2) before the worker spawns"
+[ -z "$(opt_in_of sjw9o1)" ] || fail "c9o: a refused write must leave no record: $(opt_in_of sjw9o1)"
+[ ! -e "$o_dir/session" ] || fail "c9o: the old session must not survive beside a changed opt-in set"
+[ -z "$(find "$o_dir" -maxdepth 1 -name '.opt-in.*')" ] || fail "c9o: a refused write must remove its temporary file"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- recover sjw9o1 --foreground >/dev/null 2>&1
+[ $? -eq 4 ] || fail "c9o: a recover after the refused launch must halt on the retired session (exit 4)"
+rmdir "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+# A dangling link at the name would carry the record somewhere the read never looks.
+ln -s "$tmp/nowhere" "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] && [ ! -e "$tmp/nowhere" ] || fail "c9o: a link at the record's name must refuse the write, not be followed"
+rm -f "$o_dir/$(opt_in_name "$o_dir" "$o_both")"
+# Leftovers a changed write clears: a stale temp, a recased record, old markers.
+: >"$o_dir/.opt-in.stale1"
+printf 'spec_branch=planwright/demo/amendment-9\n' >"$o_dir/Planwright-Opt-In.0123456789abcdef0123456789abcdef01234567"
+printf '1\n' >"$o_dir/mise-task-edit"
+printf '1\n' >"$o_dir/lefthook-edit"
+printf 'planwright/demo/amendment-9\n' >"$o_dir/spec-branch"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --mise-task-edit \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1 \
+  || fail "c9o: the launch after the blocker is gone exited non-zero"
+[ "$(opt_in_of sjw9o1)" = "$o_both" ] || fail "c9o: the launch must record both opt-ins as one set: $(opt_in_of sjw9o1)"
+[ "$(find "$o_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name '.opt-in.*' -o -name mise-task-edit -o -name lefthook-edit -o -name spec-branch \) | wc -l | tr -d ' ')" = 1 ] \
+  || fail "c9o: the set must be one file, every leftover cleared: $(ls -a "$o_dir")"
+# The rest of the launch fails after the opt-ins are recorded (its --cwd is
+# gone). An unchanged set keeps the session it was launched with; a changed
+# one, here to none, retires it and leaves no record.
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/mwt" --foreground >/dev/null 2>&1 \
+  || fail "c9o: the spec-branch-only launch exited non-zero"
+printf 'kept-session\n' >"$o_dir/session"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" \
+  --spec-branch planwright/demo/amendment-1 --cwd "$tmp/gone" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c9o: a launch into a missing --cwd must be refused (exit 2)"
+[ "$(cat "$o_dir/session")" = kept-session ] && [ "$(opt_in_of sjw9o1)" = spec_branch=planwright/demo/amendment-1 ] \
+  || fail "c9o: an unchanged set must keep its session and record"
+senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw9o1 execution-backends:4 --prompt-file "$tmp/prompt9" --cwd "$tmp/gone" --foreground >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c9o: a plain launch into a missing --cwd must be refused (exit 2)"
+[ ! -e "$o_dir/session" ] && [ -z "$(opt_in_of sjw9o1)" ] \
+  || fail "c9o: a set changed to none must retire the session and leave no record"
+echo "ok: c9o the launch opt-ins are one set, written whole, and never left beside a session they were not launched with"
+
+# c9q (an opt-in is read only from its own exact entry): a file under another
+#    spelling, one rewritten in place so its content no longer hashes to its
+#    name, and the retired one-file-per-opt-in markers are never honoured: a
+#    recased file is never seen, and the rest refuse the recover (exit 7).
+#    These hold on any filesystem; on a case-insensitive one the recased names
+#    are what a worker's Write reaches past the profile's case-sensitive denies.
+q_dir=$home/streamjson/sjw9q1
+mkdir -p "$q_dir"
+printf 'execution-backends:4\n' >"$q_dir/scope"
+printf 'worker\n' >"$q_dir/profile"
+# q_plant <prefix> <lines>: a record of <lines> under <prefix>.<their blob id>.
+q_plant() {
+  printf '%s\n' "$2" >"$q_dir/$1.$(opt_in_name "$q_dir" "$2" | sed 's/^planwright-opt-in\.//')"
+}
+q_clear() {
+  find "$q_dir" -maxdepth 1 \( -iname 'planwright-opt-in.*' -o -name mise-task-edit -o -name lefthook-edit -o -name spec-branch -o -name launcher \) -exec rm -f {} +
+}
+# q_recover: a recover of sjw9q1, its argv and env captured; sets q_rc.
+q_recover() {
+  : >"$rec/argv"
+  : >"$rec/env"
+  q_rc=0
+  senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9q1 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1 || q_rc=$?
+}
+q_plant Planwright-Opt-In mise_task_edit=1
+q_recover
+q_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+cmp -s "$q_settings" "$shipped_profile" || fail "c9q: a recased record must not opt the recover in: $q_settings"
+q_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ [ -s "$q_rec" ] && ! grep -q '^mise_task_edit=\|^spec_branch=' "$q_rec"; } \
+  || fail "c9q: the recovered session record must carry no opt-in: $q_rec"
+# An exact record beside a recased one with other content: only the exact one counts.
+q_plant planwright-opt-in spec_branch=planwright/demo/amendment-1
+q_recover
+if ! grep -qx 'spec_branch=planwright/demo/amendment-1' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)" \
+  || ! cmp -s "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" "$shipped_profile"; then
+  fail "c9q: the exact record must be the one applied, the recased one never"
+fi
+# Every record a recover cannot trust refuses it before the worker spawns.
+q_clear
+printf '1\n' >"$q_dir/mise-task-edit"
+q_recover
+[ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: a marker of the retired layout must refuse the recover (exit 7), got $q_rc"
+for q_case in mismatch two short grammar duplicate badbranch empty upperhex badvalue blanktail legacylh; do
+  q_clear
+  case $q_case in
+    mismatch)
+      q_plant planwright-opt-in mise_task_edit=1
+      printf 'spec_branch=planwright/demo/amendment-2\n' >>"$(find "$q_dir" -maxdepth 1 -name 'planwright-opt-in.*')"
+      ;;
+    two)
+      q_plant planwright-opt-in mise_task_edit=1
+      q_plant planwright-opt-in spec_branch=planwright/demo/amendment-1
+      ;;
+    short) printf 'mise_task_edit=1\n' >"$q_dir/planwright-opt-in.0123abcd" ;;
+    grammar) q_plant planwright-opt-in 'profile=tower' ;;
+    duplicate) q_plant planwright-opt-in "spec_branch=planwright/demo/amendment-1
+spec_branch=planwright/demo/amendment-2" ;;
+    badbranch) q_plant planwright-opt-in spec_branch=main ;;
+    empty) : >"$q_dir/planwright-opt-in.$(git hash-object --no-filters --stdin </dev/null)" ;;
+    upperhex) printf 'mise_task_edit=1\n' >"$q_dir/planwright-opt-in.$(opt_in_name "$q_dir" mise_task_edit=1 | sed 's/^planwright-opt-in\.//' | tr a-f A-F)" ;;
+    badvalue) q_plant planwright-opt-in mise_task_edit=2 ;;
+    legacylh) printf '1\n' >"$q_dir/lefthook-edit" ;;
+    blanktail)
+      # The id of the bytes, blank line included: only the lines check refuses it.
+      printf 'mise_task_edit=1\n\n' >"$q_dir/bt"
+      q_bt=$(cd "$q_dir" && git hash-object --no-filters -- bt)
+      mv "$q_dir/bt" "$q_dir/planwright-opt-in.$q_bt"
+      ;;
+  esac
+  q_recover
+  [ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: an untrusted record ($q_case) must refuse the recover (exit 7), got $q_rc"
+done
+# The launcher kind is an opt-in of the record like the others: a recover
+# carries it into the session record, a duplicate line refuses, and an old
+# `launcher` file alone is ignored, never honoured and never a refusal.
+q_clear
+q_plant planwright-opt-in launcher=mission-control
+q_recover
+{ [ -s "$rec/argv" ] && grep -qx 'launcher=mission-control' "$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)"; } \
+  || fail "c9q: a recover must carry the recorded launcher into the session record (rc $q_rc)"
+q_clear
+q_plant planwright-opt-in "launcher=mission-control
+launcher=mission-control"
+q_recover
+[ "$q_rc" -eq 7 ] && [ ! -s "$rec/argv" ] || fail "c9q: a launcher line twice must refuse the recover (exit 7), got $q_rc"
+q_clear
+printf 'mission-control\n' >"$q_dir/launcher"
+q_recover
+q_record=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ [ -s "$rec/argv" ] && [ -s "$q_record" ] && ! grep -q '^launcher=' "$q_record"; } \
+  || fail "c9q: an old launcher file must be ignored, neither honoured nor refused (rc $q_rc)"
+q_clear
+echo "ok: c9q an opt-in is read only from its own exact, unaltered entry"
 # c9l (lefthook config opt-in): `launch --lefthook-edit` on the worker profile
 #    passes a per-launch settings file whose two broad lefthook denies are
 #    replaced, records the opt-in for the guard and for a recover, composes
@@ -854,9 +1041,8 @@ jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") == null) and (index("
   || fail "c9l: the per-launch profile still carries a broad lefthook deny"
 jq -e '.permissions.deny | (index("Edit(//**/mise.toml)") != null) and (index("Edit(//**/lefthook-local.*)") != null) and (index("Edit(//**/githooks/**)") != null)' "$l_settings" >/dev/null \
   || fail "c9l: the per-launch profile opened more than the lefthook names"
-[ "$(cat "$home/streamjson/sjw9l1/lefthook-edit" 2>/dev/null)" = 1 ] \
-  || fail "c9l: the launch must record the opt-in for its recover"
-[ ! -e "$home/streamjson/sjw9l1/mise-task-edit" ] || fail "c9l: the lefthook opt-in must not record the mise opt-in"
+[ "$(opt_in_of sjw9l1)" = lefthook_edit=1 ] \
+  || fail "c9l: the launch must record the opt-in, and only it, for its recover: $(opt_in_of sjw9l1)"
 l_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 { grep -qx 'lefthook_edit=1' "$l_rec" && ! grep -q '^mise_task_edit=' "$l_rec"; } \
   || fail "c9l: the session record must carry lefthook_edit=1 and no mise field: $l_rec"
@@ -879,7 +1065,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
   || fail "c9l: a plain relaunch of the same worker exited non-zero"
 cmp -s "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" "$shipped_profile" \
   || fail "c9l: a launch without the opt-in must pass the shipped profile byte for byte"
-[ ! -e "$home/streamjson/sjw9l1/lefthook-edit" ] || fail "c9l: a fresh launch without the flag must drop the recorded opt-in"
+[ -z "$(opt_in_of sjw9l1)" ] || fail "c9l: a fresh launch without the flag must drop the recorded opt-in"
 # Both opt-ins.
 : >"$rec/argv"
 : >"$rec/env"
@@ -889,11 +1075,20 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
 b_settings=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
 jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings" >/dev/null \
   || fail "c9l: both opt-ins must replace the mise and lefthook broad denies"
-{ [ "$(cat "$home/streamjson/sjw9l2/lefthook-edit" 2>/dev/null)" = 1 ] && [ "$(cat "$home/streamjson/sjw9l2/mise-task-edit" 2>/dev/null)" = 1 ]; } \
-  || fail "c9l: both opt-ins must be recorded"
+[ "$(opt_in_of sjw9l2)" = "mise_task_edit=1
+lefthook_edit=1" ] || fail "c9l: both opt-ins must be recorded as one set: $(opt_in_of sjw9l2)"
 b_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 { grep -qx 'lefthook_edit=1' "$b_rec" && grep -qx 'mise_task_edit=1' "$b_rec"; } \
   || fail "c9l: the session record must carry both fields when both opt-ins are given: $b_rec"
+# A recover reads both back from the one record.
+: >"$rec/argv"
+: >"$rec/env"
+senv "$home" "$rec" SHIM_READ_FIRST=0 -- launch sjw9l2 --resume-session "$sid" --cwd "$tmp/mwt" --foreground >/dev/null 2>&1
+b_settings2=$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)
+b_rec2=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
+{ jq -e '.permissions.deny | [index("Edit(//**/mise.toml)"), index("Edit(//**/lefthook.*)")] | all(. == null)' "$b_settings2" >/dev/null \
+  && grep -qx 'lefthook_edit=1' "$b_rec2" && grep -qx 'mise_task_edit=1' "$b_rec2"; } \
+  || fail "c9l: a recover of both opt-ins must reopen both name sets and record both fields: $b_settings2"
 # The mise opt-in alone never opens the lefthook names.
 : >"$rec/argv"
 : >"$rec/env"
@@ -903,7 +1098,7 @@ senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
 jq -e '.permissions.deny | (index("Edit(//**/lefthook.*)") != null) and (index("Edit(//**/lefthook/**)") != null)' \
   "$(sed -n 's/.*--settings \([^ ]*\) .*/\1/p' "$rec/argv" | head -n 1)" >/dev/null \
   || fail "c9l: the mise opt-in alone must leave the broad lefthook denies in place"
-[ ! -e "$home/streamjson/sjw9l3/lefthook-edit" ] || fail "c9l: the mise opt-in alone must record no lefthook opt-in"
+[ "$(opt_in_of sjw9l3)" = mise_task_edit=1 ] || fail "c9l: the mise opt-in alone must record no lefthook opt-in: $(opt_in_of sjw9l3)"
 m_only_rec=$(sed -n 's/^record=//p' "$rec/env" | tail -n 1)
 { grep -qx 'mise_task_edit=1' "$m_only_rec" && ! grep -q '^lefthook_edit=' "$m_only_rec"; } \
   || fail "c9l: the mise opt-in alone must leave lefthook_edit out of the session record: $m_only_rec"
@@ -925,7 +1120,7 @@ senv "$home" "$rec" -- \
   launch sjw9l5 execution-backends:4 --prompt-file "$tmp/prompt9" --lefthook-edit --cwd "$tmp/we*ird" --foreground >/dev/null 2>&1
 l_rc=$?
 { [ "$l_rc" -eq 7 ] && [ ! -s "$rec/argv" ]; } || fail "c9l: an opted-in launch in a glob-character path must be refused (exit 7) before a spawn (exit $l_rc, argv: $(cat "$rec/argv"))"
-[ ! -e "$home/streamjson/sjw9l5/lefthook-edit" ] || fail "c9l: a refused opted-in launch must record no opt-in"
+[ -z "$(opt_in_of sjw9l5)" ] || fail "c9l: a refused opted-in launch must record no opt-in"
 # The internal resume seam never takes an opt-in: it would open the profile
 # without recording the marker its next recover reads.
 for flag in --lefthook-edit --mise-task-edit; do
@@ -964,7 +1159,9 @@ launch_oldeh() {
 oldeh_refused() {
   { [ "$l_rc" -eq 9 ] && [ ! -s "$rec/argv" ] && grep -qF -- "$2" "$tmp/c9l7.err"; } \
     || fail "c9l: $1 must refuse the launch (exit 9) before a spawn, naming '$2' (exit $l_rc: $(cat "$tmp/c9l7.err"))"
-  [ ! -e "$home/streamjson/sjw9l7/lefthook-edit" ] || fail "c9l: $1: a launch refused at the preflight must record no opt-in"
+  case " $(opt_in_of sjw9l7 | tr '\n' ' ') " in
+    *" lefthook_edit=1 "*) fail "c9l: $1: a launch refused at the preflight must record no lefthook opt-in" ;;
+  esac
 }
 # The knob that softens the approval proof neither skips nor softens this one.
 for mode in refuse warn off; do

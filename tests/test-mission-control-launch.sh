@@ -130,6 +130,23 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
   else
     fail "[$kind] the launch did not record tier key $want_key and unit mission-control:$name"
   fi
+  # A worker-profile session's record names mission control as its launcher
+  # (human-gates REQ-F1.6), kept for a recover; no other profile's does.
+  lmark=$(find "$fleet/streamjson/$name" -maxdepth 1 -name 'planwright-opt-in.*' -type f -exec sed -n 's/^launcher=//p' {} + 2>/dev/null) || lmark=''
+  case $prof:$lmark in
+    worker:mission-control)
+      # The session's own record: <worktree hash>-<handle hash>.record.
+      nh=$(printf '%s' "$name" | git hash-object --stdin)
+      if grep -lqx 'launcher=mission-control' "$fleet"/session-records/*-"$nh".record 2>/dev/null; then
+        ok "[$kind] the session record names mission control as the launcher, kept for a recover"
+      else
+        fail "[$kind] no session record names mission control as the launcher"
+      fi
+      ;;
+    worker:*) fail "[$kind] the launch kept no mission-control launcher mark ('$lmark')" ;;
+    *:) ok "[$kind] a $prof session records no launcher" ;;
+    *) fail "[$kind] a $prof session records the launcher '$lmark'" ;;
+  esac
   # The launch keeps a copy of its row beside the worker, owner-only like the
   # row (it holds the token), for a recover to restore a lost row from.
   copy="$fleet/streamjson/$name/launcher-row"

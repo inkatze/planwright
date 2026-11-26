@@ -61,6 +61,7 @@ printf 'notes\n' >"$WT/notes.txt"
 gitq "$WT" add -A
 gitq "$WT" commit -q -m init
 gitq "$WT" branch -M main
+fixture_base "$WT" || exit 1
 FX_ENV=("PLANWRIGHT_ROOT=$FX/core" "CLAUDE_PLUGIN_ROOT=$FX/core"
   "PLANWRIGHT_CONFIG_DEFAULTS=$FX/core/config/defaults.yml"
   "PLANWRIGHT_ADOPTER_OVERLAY=" "PLANWRIGHT_REPO_ROOT=$WT"
@@ -258,6 +259,9 @@ mkdir -p "$SK/tools" "$SK/repo"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q "$SK/repo"
 printf '#!/bin/sh\nexit 0\n' >"$SK/tools/pinned-tool.sh"
 chmod +x "$SK/tools/pinned-tool.sh"
+# The sandbox is itself a checkout, and a declared location in one is held to
+# its HEAD.
+fixture_commit "$SANDBOX" "${SK#"$(cd "$SANDBOX" && pwd -P)"/}/tools" || exit 1
 install_root "$PINNED"
 install_root "$OWN"
 printf '  - id: pinned-tool\n    kind: command\n    target: %s\n' "$SK/tools/pinned-tool.sh" >>"$PINNED/config/steps.yaml"

@@ -111,8 +111,9 @@ list above puts it.
 - A worker rewriting a branch another person works from, and a worker
   merging another person's branch that is not its PR base: neither has a
   path under any value (the tower's same-turn path of REQ-F1.7 is the
-  operator's own request, bounded by the operator's instructions); another person's work reaches a unit through the
-  base branch, or as the base of a stacked PR.
+  operator's own request, bounded by the operator's instructions); another
+  person's work reaches a unit through the base branch, or as the base of a
+  stacked PR.
 - A worker route for rewriting a branch whose PR is ready: that stays the
   REQ-F1.7 tower path.
 - The kickoff launch kind, its settings profile, its launch record, and the
@@ -217,9 +218,10 @@ list above puts it.
   session SHALL start a publish whose release no such authorization
   covers.
   *(Cites: D-26; the operator's release-session request (Sources).)*
-- **REQ-A1.11** Publishing a rewrite of the owned unit branch while its PR
-  is a draft, by a worker mission control launched, SHALL NOT be a human
-  gate; it SHALL be a policy, `draft_rewrite`, whose core default is
+- **REQ-A1.11** (supersedes REQ-A1.2 in part) Publishing a rewrite of the
+  owned unit branch while its PR is a draft, by a worker mission control
+  launched, SHALL NOT be a human gate; it SHALL be a policy,
+  `draft_rewrite`, whose core default is
   `deny`, carried in the human-gate list as a Policy row naming the
   REQ-F1.8 helper as the one route, with the force-push row naming it as
   its one exception and the floor sentence naming it beside the force-push
@@ -615,7 +617,8 @@ list above puts it.
   default, `allow`), and only so that the REQ-F1.8 push publishes them.
   The rewritten range SHALL hold only commits the branch's own
   remote-tracking ref or no remote ref contains, its rebase upstream SHALL
-  be the PR base or the branch's own remote branch, and a range holding a
+  be the PR base (the session record's `pr_base`) or the branch's own
+  remote branch, and a range holding a
   never-pushed commit SHALL need `unpushed_rewrite` to allow it as well.
   Every other pushed commit, and every pushed commit of any other session,
   SHALL stay append-only; `git reset` and `git cherry-pick` are unchanged
@@ -630,10 +633,12 @@ list above puts it.
   only (a repo-tracked value ignored, so a committed line never enables
   it; an adopter line enables every repository on the machine, the
   machine-local line one repository), and the guard and
-  the helper SHALL read it from that record, never from live config or
-  the environment, so a change reaches a worker only by relaunch. The
-  guard SHALL decide from local state alone and make no host call; whether
-  the PR is a draft is the REQ-F1.8 push's check. The tower's rewrite for
+  the helper SHALL read it from that record, found at a path the launcher
+  fixes from the worktree and never through an environment variable, never
+  from live config or the environment, so a change reaches a worker only
+  by relaunch. The guard SHALL decide from local state alone and make no
+  host call, the PR base included; whether the PR is a draft is the
+  REQ-F1.8 push's check. The tower's rewrite for
   the REQ-F1.7 path is outside this requirement.
   *(Cites: D-8, D-27; kickoff amendment 2026-11-20 (the operator's Q1, Q5,
   and Q6 answers, and the lens pass).)*
@@ -683,7 +688,10 @@ list above puts it.
   be reported as the branch being shared and SHALL never be retried with
   another lease or a broader force. No other spelling SHALL publish the
   rewrite: the worker tier SHALL be refused a deletion of its own unit
-  branch in every spelling, as it is refused every force form. A pull
+  branch on the remote in every spelling (`git push` with `:<branch>`,
+  `--delete`, or `-d`, and the `gh api` REST ref delete and GraphQL
+  `deleteRef`), as it is refused every force form; a local `git branch -D`
+  is outside this requirement. A pull
   request that is ready SHALL take new commits, or the REQ-F1.7 tower path.
   The window between the draft read and the push is an accepted residual:
   a flip landing inside it is not caught.
@@ -954,8 +962,9 @@ list above puts it.
   pushed commit outside REQ-F1.6, REQ-F1.7, and REQ-F1.8, a worker's
   deletion of its own unit branch) SHALL be guard-only, and the
   sanctioned helpers behind them, `scripts/worker-branch-sync.sh` among
-  them, SHALL re-read the policy (for that helper, the session record) and
-  fail closed internally, as their own last line. The REQ-F1.8 push SHALL
+  them, SHALL re-read the policy (for that helper, the session record,
+  refusing an unreadable or malformed record) and fail closed internally,
+  as their own last line. The REQ-F1.8 push SHALL
   NOT open the profiles' force-push deny: a raw `git push --force*`, a `+`
   refspec, and every other spelling stay denied for every tier, and the
   helper runs its push itself, reached through the worker command guard's
@@ -1288,6 +1297,21 @@ list above puts it.
   from REQ-F1.1 and REQ-F1.2 to REQ-F1.6 and REQ-F1.7; the in-scope,
   out-of-scope, and Sources entries extended; the details are in
   `kickoff-brief.md`'s amendment log.
+- 2026-11-22 — Expression-only fixes carried from the Amendment 5 polish
+  pass (the operator's "Land as signed, carry all 12"), landed with
+  Task 21: REQ-F1.6 reads the PR base as the session record's `pr_base`,
+  names no host call for it, and finds the record at a path the launcher
+  fixes, never through an environment variable (the operator's ruling);
+  REQ-F1.8 scopes the deletion refusal to the remote ref and lists its
+  spellings; REQ-G1.14 names an unreadable or malformed record among the
+  helper's refusals; REQ-A1.11 gains its "(supersedes REQ-A1.2 in part)"
+  marker and D-27 its "supersedes D-8 in part, scopes D-9" marker; Task
+  21's Done-when and the REQ-F1.8 test-spec entry gain the launcher,
+  malformed-record, environment-record, and deletion-spelling cases and
+  the legacy-item handoff, and the REQ-F1.6 and REQ-G1.14 entries the
+  environment-record and malformed-record cases; a line rewrapped, a
+  doubled "and" dropped in
+  the Deferred bullet, and obs:9bed2b4e's wording repaired.
 
 ## Sources
 

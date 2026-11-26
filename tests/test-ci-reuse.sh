@@ -104,7 +104,7 @@ jobs_with() {
   _names="lint plan"
   for _i in 1 2 3; do _names="$_names|test (shard $_i/3)|alpine-suite (shard $_i/3)"; done
   for _i in 1 2 3 4; do _names="$_names|macos-suite (shard $_i/4)"; done
-  _names="$_names|macos-smoke|check"
+  _names="$_names|macos-smoke|alpine-smoke|check"
   _j=""
   _ifs=$IFS
   IFS='|'
@@ -187,11 +187,13 @@ mac_step() {
   mac_rc=$?
 }
 
-# gate <REUSE_RUN> <MAC_RUN> <test> <alpine> <macos-suite> <macos-smoke>: the
-# check job's gate step, lint and plan succeeded.
+# gate <REUSE_RUN> <MAC_RUN> <test> <alpine> <macos-suite> <macos-smoke>
+# [<alpine-smoke>]: the check job's gate step, lint and plan succeeded; the
+# Alpine smoke takes the Alpine suite's result unless given its own.
 gate() {
   LINT_RESULT=success PLAN_RESULT=success REUSE_RUN="$1" MAC_RUN="$2" \
     TEST_RESULT="$3" ALPINE_RESULT="$4" MACOS_RESULT="$5" MACOS_SMOKE_RESULT="$6" \
+    ALPINE_SMOKE_RESULT="${7-$4}" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=acme/widgets \
     GITHUB_STEP_SUMMARY="$STUB_DIR/gate-summary" \
     bash -e "$tmp/step-gate.sh" >"$STUB_DIR/gate-log" 2>&1
@@ -236,6 +238,10 @@ gate 900 false skipped skipped skipped failure
 assert_eq "skip: a failed macOS smoke still fails the gate" 1 "$gate_rc"
 gate 900 false skipped skipped success success
 assert_eq "skip: a partial skip does not stand on the reused run" 1 "$gate_rc"
+gate 900 false skipped skipped skipped skipped failure
+assert_eq "skip: a failed Alpine smoke still fails the gate" 1 "$gate_rc"
+gate 900 false skipped skipped skipped skipped success
+assert_eq "skip: an Alpine smoke that ran does not stand on the reused run" 1 "$gate_rc"
 # Without a reused run, a skipped Linux or Alpine suite job fails the gate.
 gate "" false skipped skipped skipped skipped
 assert_eq "no reuse: every suite job skipped fails the gate" 1 "$gate_rc"
@@ -243,6 +249,8 @@ gate "" false skipped success skipped skipped
 assert_eq "no reuse: a skipped test job fails the gate" 1 "$gate_rc"
 gate "" false success skipped skipped skipped
 assert_eq "no reuse: a skipped Alpine job fails the gate" 1 "$gate_rc"
+gate "" false success success skipped skipped skipped
+assert_eq "no reuse: a skipped Alpine smoke fails the gate" 1 "$gate_rc"
 gate "" true success success skipped skipped
 assert_eq "no reuse: a skipped macOS job the plan meant to run fails the gate" 1 "$gate_rc"
 gate "" true success success success success
@@ -377,6 +385,25 @@ write_jobs 900 "$(jobs_with "macos-smoke=skipped")"
 run_lookup pull_request ready_for_review
 assert_no_reuse "a prior run with only the macOS smoke skipped"
 
+new_case alpine-smoke-skipped
+green_prior
+write_jobs 900 "$(jobs_with "alpine-smoke=skipped")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with only the Alpine smoke skipped"
+
+new_case alpine-smoke-red
+green_prior
+write_jobs 900 "$(jobs_with "alpine-smoke=failure")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run whose Alpine smoke failed"
+
+# Every run from before the smoke had its own job.
+new_case alpine-smoke-missing
+green_prior
+write_jobs 900 "$(jobs_with "alpine-smoke=-")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with no Alpine smoke job"
+
 new_case missing-shard
 green_prior
 write_jobs 900 "$(jobs_with "test (shard 2/3)=-")"
@@ -478,7 +505,7 @@ gated=$(awk '
   /^    if: \$\{\{ needs\.plan\.outputs\.(suite_run|mac_run) == .true. \}\}$/ { print j }
 ' "$CI_YML" | sort | tr '\n' ' ')
 named=$(tr ' ' '\n' <"$tmp/step-reuse.sh" | awk 'f { print; f = 0 } /^--(matrix-)?job$/ { f = 1 }' | sort | tr '\n' ' ')
-assert_eq "the reuse step names every job the plan can skip" "alpine-suite macos-smoke macos-suite test " "$gated"
+assert_eq "the reuse step names every job the plan can skip" "alpine-smoke alpine-suite macos-smoke macos-suite test " "$gated"
 assert_eq "the reuse step requires exactly those jobs" "$gated" "$named"
 # shellcheck disable=SC2016 # literal GitHub expressions
 {

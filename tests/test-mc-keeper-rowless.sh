@@ -5,8 +5,10 @@
 # prompts are heard by its record's, parent's or name's program, plus one
 # event there saying it has no row; else each request goes to the hub as
 # unowned, as does each request of a worker whose program has no live
-# mission control. Who may answer is unchanged. Kept apart from
-# test-mc-keeper.sh, whose watch passes already fill its per-file time budget.
+# mission control. Who may answer is unchanged.
+#
+# Companions: the other tests/test-mc-keeper*.sh suites, which share
+# tests/lib/mc-keeper-fixture.sh; this one keeps its own setup.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-mc-keeper-rowless.sh

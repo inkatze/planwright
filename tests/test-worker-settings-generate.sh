@@ -210,12 +210,12 @@ else
   fail "lefthook: a literal deny names the worktree itself"
 fi
 # Every other rule is the shipped one: the mise names, the local and dotted
-# lefthook variants, the hook directories and the opt-in markers all stay.
+# lefthook variants, the hook directories and the opt-in record and state
+# folder denies all stay.
 for r in 'Edit(//**/mise.toml)' 'Edit(//**/.mise.toml)' 'Edit(//**/mise-tasks/**)' 'Edit(//**/.mise-tasks/**)' \
   'Edit(//**/lefthook-local.*)' 'Edit(//**/.lefthook/**)' 'Edit(//**/.lefthook.*)' 'Edit(//**/.lefthook-local/**)' \
   'Edit(//**/.lefthook-local.*)' 'Edit(//**/githooks/**)' 'Edit(//**/.githooks/**)' 'Edit(//**/.git/**)' \
-  'Edit(.claude/**)' 'Edit(//**/streamjson/*/lefthook-edit)' 'Edit(//**/streamjson/*/mise-task-edit)' \
-  'Edit(//**/streamjson/*/worker-settings.json)'; do
+  'Edit(.claude/**)' 'Edit(//**/planwright-opt-in.*)' 'Edit(//**/streamjson/**)'; do
   jq -e --arg r "$r" '.permissions.deny | index($r)' "$LH_OUT" >/dev/null 2>&1 && ok "lefthook: kept: $r" || fail "lefthook: dropped: $r"
 done
 lh_rest=$(jq -c '[.permissions.deny[] | select(. != "Edit(//**/lefthook/**)" and . != "Edit(//**/lefthook.*)")]' "$PROFILE")

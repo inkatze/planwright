@@ -68,7 +68,7 @@ if [ ! -f "$WORKER_HOOK" ]; then
   exit 1
 fi
 
-# Default cwd for containment: a scratch repo with a .git marker and a
+# Default cwd for containment: a scratch git repository committing a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
 SANDBOX="$(mktemp -d)" || exit 1
 # A separate fake plugin root with a scripts/ dir, for the resolved-literal-path
@@ -86,7 +86,6 @@ mkdir -p "$LOOKALIKE/scripts"
 : >"$LOOKALIKE/scripts/fleet-streamjson.sh"
 : >"$LOOKALIKE/scripts/orchestrate-relay.sh"
 mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
-: >"$SANDBOX/.git" # worktree-style .git file marker
 : >"$SANDBOX/scripts/ok.sh"
 : >"$SANDBOX/scripts/tower-force-push.sh"
 ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias.sh"
@@ -97,6 +96,10 @@ ln -sf tower-force-push.sh "$SANDBOX/scripts/fp-alias"
 : >"$SANDBOX/tests/ok.bats"
 # Symlinked final components pointing OUTSIDE the repo (containment escape).
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
+# The worker guard behind the distinctness checks trusts only what HEAD commits.
+# shellcheck source=tests/lib/committed-fixture.sh
+. "$REPO_ROOT/tests/lib/committed-fixture.sh"
+fixture_commit "$SANDBOX" scripts tests || exit 1
 mkdir -p "$PLUGIN_ROOT/scripts"
 : >"$PLUGIN_ROOT/scripts/orchestrate-select.sh"
 : >"$PLUGIN_ROOT/scripts/fleet-streamjson.sh"
@@ -435,6 +438,23 @@ assert_allow "gh pr checks" "gh pr checks"
 assert_allow "gh auth status" "gh auth status"
 assert_allow "mise run" "mise run check"
 assert_allow "mise tasks" "mise tasks"
+assert_allow "mise run with a display flag" "mise run -n check"
+# Options that change what the task runs: its shell, the directory whose
+# config defines it, the config environment, or a tool put on its PATH.
+for c in "mise run --shell 'sh x' t" "mise run -s 'sh x' t" "mise run -C /tmp/x t" \
+  "mise run --cd /tmp/x t" "mise run --cd=/tmp/x t" "mise run -nC /tmp/x t" "mise run -E evil t" \
+  "mise run --env=evil t" "mise run -t node@20 t" "mise run --tool node@20 t" \
+  "mise tasks -C /tmp/x run t" "mise tasks run -C /tmp/x t" "mise tasks -E run t" \
+  "mise tasks --shell run t" "mise run -Eevil t" "mise run check -C /tmp/x"; do
+  assert_defer "mise run option changing what runs: $c" "$c"
+done
+assert_allow "mise run with a second task" "mise run check ::: lint"
+# These hand their options to git log or git diff, which write to --output.
+for c in "git stash show --output=/tmp/x" "git stash list --output=/tmp/x" "git reflog show --output=/tmp/x"; do
+  assert_defer "git read verb writing through --output: $c" "$c"
+done
+assert_allow "git stash list" "git stash list"
+assert_allow "git reflog show" "git reflog show -3"
 assert_allow "cat" "cat README.md"
 assert_allow "grep recursive" "grep -rn foo specs/"
 assert_allow "ls" "ls -la"
@@ -1291,7 +1311,7 @@ echo "### Shared-engine parity — the duplicated sed/awk screens must agree in 
 # namespace in prose (B1.3 vs C1.3); everything else, trailing comments on code
 # lines included, must match byte for byte.
 echo "### Shared-engine parity — STRUCTURAL: the shared functions are byte-identical"
-SHARED_FNS="git_driver_opt git_config_write_opt git_help_req awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
+SHARED_FNS="git_driver_opt git_config_write_opt git_help_req mise_run_args_ok awk_program_safe awk_assignment_ok guard_awk sed_script_safe \
 sed_bracket_end sed_delim_ok sed_scan_literal sed_scan_regex guard_sed \
 short_flag_hit guard_sort guard_uniq guard_find guard_file guard_date \
 classify_redirect is_reserved repo_root_of emit_allow dollar_expands \
