@@ -68,8 +68,8 @@ step_context_derive() {
       scd_bad="$scd_bad PLANWRIGHT_STEP_BRANCH is '$scd_cur' but git's branch is '$scd_branch';"
     fi
     scd_kind=''
-    # As the guards read unit branches: one segment after the spec or flight,
-    # and planwright/flight/task-* no unit at all.
+    # The guards' unit-branch shape, without their id charsets: one segment
+    # after the spec or flight, and planwright/flight/task-* no unit at all.
     case $scd_branch in
       planwright/flight/task-* | planwright/*/*/*) ;;
       planwright/flight/?*) scd_kind=flight ;;

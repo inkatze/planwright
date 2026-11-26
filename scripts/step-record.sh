@@ -612,7 +612,7 @@ begin_head() {
   bh_h=$(awk -F '\t' '$1 == "head" { print "h" $2; exit }' "$bh_f") || return 2
   [ -n "$bh_h" ] || return 0
   bh_h=${bh_h#h}
-  is_oid "$bh_h" || return 2
+  is_head "$bh_h" || return 2
   BEGIN_HEAD=$bh_h
 }
 
