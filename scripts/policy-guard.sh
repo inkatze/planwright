@@ -5820,7 +5820,7 @@ signoff_transport_stock() {
 # or spec-rework branch: is_signoff_branch, is_merge_route_branch; the name
 # predates the latter two) is a forward-merge of main and nothing else: the
 # command's only act, no delete, run in the worktree holding the branch
-# (spec_branch_checkout), worker_base_merge allow, the branch's own
+# (spec_branch_checkout), the branch's own
 # remote over a stock transport, no local state that changes git's reads
 # (signoff_local_trusted), a HEAD or local-branch source, and, against
 # the PR head and the remote's default branch as the remote itself reports
@@ -5843,11 +5843,6 @@ signoff_push_check() {
   }
   { spec_branch_checkout "$d" 'this git push' && [ "$SBC_RECORD" = 1 ] && [ "$SBC_SIGNOFF" = "$sig" ] && [ "$SBC_BRANCH" = "$sb" ]; } || {
     SPC_WHY="it runs outside the worktree holding $(sanitize_printable "$sb" 'the branch') (the session's own linked worktree, with that branch checked out); push from there"
-    return 1
-  }
-  read_knob worker_base_merge "$d" allow deny
-  [ "$KNOB_VAL" = allow ] || {
-    SPC_WHY='worker_base_merge is deny, so no merge of main reaches this branch; the operator syncs it with its base'
     return 1
   }
   want=$(gitq "$d" config --get "branch.$sb.remote") || want=''
@@ -6037,6 +6032,9 @@ eval_push() {
       valid_branch "$dst" \
         || emit_deny "this git push names a destination the guard will not check ($(sanitize_printable "$dst" 'unprintable')) - refusing (fail closed)."
       if [ -n "$recb" ] && [ "$dst" = "$recb" ]; then
+        read_knob worker_base_merge "$dir" allow deny
+        [ "$KNOB_VAL" = allow ] \
+          || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec branch') is refused: worker_base_merge is deny, which refuses the push of a merge of main to the spec branch a launch record names as it refuses the merge. The operator syncs this branch with its base."
         signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" && continue
         ! is_signoff_branch "$dst" \
           || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec sign-off branch') is refused: $SPC_WHY. Only that spec's kickoff writes its sign-off branch; a session launched on its pull request pushes there only a fast-forward that adds nothing but clean merges of main, as the command's only act."

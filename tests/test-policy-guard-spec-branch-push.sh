@@ -330,6 +330,19 @@ set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: deny' 'unpushed_re
 am "git push origin HEAD:refs/heads/$SB"
 expect deny "[worker, spec worktree] worker_base_merge deny refuses the recorded merge push"
 reason_has 'worker_base_merge is deny' "[worker, spec worktree] the refusal names the knob"
+case $REASON in
+  *'pushes there only'*) fail "[worker, spec worktree] the knob refusal still offers the merge push it refuses" ;;
+  *) pass "[worker, spec worktree] the knob refusal offers no merge push" ;;
+esac
+rec "unit_branch=$MYFL" "spec_branch=$RW"
+ko "git push origin HEAD:refs/heads/$RW"
+expect deny "[worker, spec_branch=$RW] worker_base_merge deny refuses the spec-rework merge push"
+reason_has 'worker_base_merge is deny' "[worker, spec_branch=$RW] the refusal names the knob"
+ko 'git merge origin/main'
+expect deny "[worker, spec_branch=$RW] worker_base_merge deny refuses the spec-rework merge"
+rec "unit_branch=$MYFL" "spec_branch=$SB"
+am 'git merge origin/main'
+expect deny "[worker, spec worktree] worker_base_merge deny refuses the amendment merge"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_rewrite: allow'
 am "git push origin HEAD:refs/heads/$SB"
 push_ok "[worker, spec worktree] with the knob back to allow the push is admitted again"
