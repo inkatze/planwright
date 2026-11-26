@@ -23,12 +23,14 @@ TAB=$(printf '\t')
 . "$here/lib/step-run-fixture.sh"
 
 TS=2026-11-14T10:00:00Z
+# A minute apart: the truth check refuses a skill step that ran in under 30 seconds.
+TE=2026-11-14T10:01:00Z
 # w <run> <step> <kind> <outcome> [flags...]: one pre-pr step record.
 w() {
   _r=$1 _s=$2 _k=$3 _o=$4
   shift 4
   sr write --run "$_r" --point pre-pr --step "$_s" --kind "$_k" --target "$_s" --hosting in-session \
-    --backend in-session --start "$TS" --end "$TS" --outcome "$_o" "$@" >"$tmp/out" 2>"$tmp/err"
+    --backend in-session --start "$TS" --end "$TE" --outcome "$_o" "$@" >"$tmp/out" 2>"$tmp/err"
   WRC=$?
 }
 field() { # field <run> <key>: the key's value in the run's pre-pr record
