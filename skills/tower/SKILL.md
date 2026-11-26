@@ -72,11 +72,11 @@ is the one sweep output read.
    take **no repo-mutating route and no relay** until the operator wires it or
    acknowledges running without it; questions and read-only offloads
    continue. Check that `scripts/tower-command-guard.sh` is wired as a
-   PreToolUse hook whose hook path resolves; if not, say so once, naming the
-   file to merge, and continue. On "wired", re-run this check before lifting
-   the block. The posture allows Edit and Write; not authoring is this skill's
-   own rule. Never edit a settings file from the tower: it cannot
-   grant itself permissions.
+   PreToolUse hook whose hook path resolves; if not, name the
+   file to merge once, and continue. On "wired", re-run this check before lifting
+   the block. Run `scripts/tower-session.sh activate tower` here and each
+   posture check. The posture allows Edit and Write; not authoring is this
+   skill's rule. Never edit a settings file from the tower.
 2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
    flight through the shared flight sweep: the index at
    `scripts/flight-sweep.sh path` when newer than this session's start (the
