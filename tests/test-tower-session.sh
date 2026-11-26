@@ -306,9 +306,14 @@ if [ "$got" = tower ]; then pass "a symlinked mark reads tower"; else fail "a sy
 rm -f "$STORE/$SID" "$STORE/$SID.real"
 kmark "$SID" "tower	$now	prompt	orchestrate"
 chmod 000 "$STORE"
-got=$(ts_kind "$SID")
-chmod 700 "$STORE"
-if [ "$got" = tower ]; then pass "an unsearchable store reads tower"; else fail "an unsearchable store read '$got'"; fi
+if hermetic_access_denied r "$STORE"; then
+  got=$(ts_kind "$SID")
+  chmod 700 "$STORE"
+  if [ "$got" = tower ]; then pass "an unsearchable store reads tower"; else fail "an unsearchable store read '$got'"; fi
+else
+  chmod 700 "$STORE"
+  echo "skip: unsearchable store: the running user still reads $STORE under mode 000"
+fi
 newsid
 got=$(ts_kind "$SID")
 if [ "$got" = none ]; then pass "an unmarked session reads none"; else fail "an unmarked session read '$got'"; fi
