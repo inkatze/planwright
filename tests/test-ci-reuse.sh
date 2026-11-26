@@ -385,6 +385,25 @@ write_jobs 900 "$(jobs_with "macos-smoke=skipped")"
 run_lookup pull_request ready_for_review
 assert_no_reuse "a prior run with only the macOS smoke skipped"
 
+new_case alpine-smoke-skipped
+green_prior
+write_jobs 900 "$(jobs_with "alpine-smoke=skipped")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with only the Alpine smoke skipped"
+
+new_case alpine-smoke-red
+green_prior
+write_jobs 900 "$(jobs_with "alpine-smoke=failure")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run whose Alpine smoke failed"
+
+# Every run from before the smoke had its own job.
+new_case alpine-smoke-missing
+green_prior
+write_jobs 900 "$(jobs_with "alpine-smoke=-")"
+run_lookup pull_request ready_for_review
+assert_no_reuse "a prior run with no Alpine smoke job"
+
 new_case missing-shard
 green_prior
 write_jobs 900 "$(jobs_with "test (shard 2/3)=-")"
