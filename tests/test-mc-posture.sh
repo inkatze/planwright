@@ -410,9 +410,14 @@ reset
 absolute_profile | jq '.permissions.deny |= map(select(. != "Bash(gh pr merge:*)"))' >"$home/.claude/settings.json"
 posture --
 expect_fail "a refusal names the jq the check resolved" "jq: $real_jq"
+case $OUT in
+  *" (jq: $real_jq)") ok "the jq the check resolved ends the reason" ;;
+  *) fail "the reason does not end naming the jq: $OUT" ;;
+esac
 
 # stub_jq <dir> <body>: a jq at <dir>/jq running the sh <body>, with REAL the
-# real jq and the call count kept in STUB_COUNT.
+# real jq and the call count kept in STUB_COUNT; stub_run <dir> [env...] runs
+# the check with it first on PATH.
 # shellcheck disable=SC2016 # stub source, expanded when the stub runs
 stub_jq() {
   rm -rf "$1"
@@ -421,14 +426,17 @@ stub_jq() {
     "$real_jq" "$2" >"$1/jq"
   chmod 755 "$1/jq"
 }
+stub_run() {
+  local dir=$1
+  shift
+  rm -f "$tmp/count"
+  posture PATH="$dir:$PATH" STUB_COUNT="$tmp/count" "$@" --
+}
 # shellcheck disable=SC2016 # stub source, expanded when the stub runs
 flaky='if [ "$n" -ge "$STUB_FAIL_FROM" ] && [ "$n" -le "$STUB_FAIL_TO" ]; then echo "stub: fork failed" >&2; exit 1; fi
 exec "$REAL" "$@"'
 stub_jq "$tmp/flaky" "$flaky"
-flaky_run() { # <from> <to>
-  rm -f "$tmp/count"
-  posture PATH="$tmp/flaky:$PATH" STUB_COUNT="$tmp/count" STUB_FAIL_FROM="$1" STUB_FAIL_TO="$2" --
-}
+flaky_run() { stub_run "$tmp/flaky" STUB_FAIL_FROM="$1" STUB_FAIL_TO="$2"; } # <from> <to>
 reset
 absolute_profile >"$home/.claude/settings.json"
 flaky_run 1 1
@@ -446,18 +454,30 @@ echo "shim: run the install first" >&2
 exit 3'
 reset
 absolute_profile >"$home/.claude/settings.json"
-rm -f "$tmp/count"
-posture PATH="$tmp/shim:$PATH" STUB_COUNT="$tmp/count" --
+stub_run "$tmp/shim"
 expect_fail "a jq writing an error and exiting nonzero names its status" "cannot be parsed: jq exited 3"
 expect_fail "the reason carries jq's stderr, every line of it" "jq@1.8.2 is not installed shim: run the install first"
 expect_fail "the reason names the jq that ran" "jq: $tmp/shim/jq"
 
 stub_jq "$tmp/gone" 'echo "shim: exec: jq-1.8.2: not found" >&2
 exit 127'
-rm -f "$tmp/count"
-posture PATH="$tmp/gone:$PATH" STUB_COUNT="$tmp/count" --
+stub_run "$tmp/gone"
 expect_fail "a jq that cannot find what it runs says jq was not found at its path" "jq not found at $tmp/gone/jq"
-rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/count"
+
+stub_jq "$tmp/mute" 'exit 6'
+stub_run "$tmp/mute"
+expect_fail "a jq failing silently names its status and nothing after it" "cannot be parsed: jq exited 6 (jq: $tmp/mute/jq)"
+
+stub_jq "$tmp/loud" 'printf "%0400d" 0 | tr 0 a >&2
+echo TAILMARK >&2
+exit 4'
+stub_run "$tmp/loud"
+expect_fail "a long jq error is carried" "jq exited 4: aaaa"
+case $OUT in
+  *TAILMARK*) fail "a jq error past its cap reached the reason: $OUT" ;;
+  *) ok "a jq error is cut at its cap" ;;
+esac
+rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/mute" "$tmp/loud" "$tmp/count"
 
 echo "# missing tools"
 # A tool the check reads with, gone from PATH, is a check that did not run,
@@ -473,7 +493,7 @@ for gone in jq sed awk grep; do
   posture PATH="$tmp/tools" --
   want="$gone is required"
   [ "$gone" != jq ] || want="jq is required and was not found on PATH: $tmp/tools"
-  if [ "$RC" = 2 ] && case $ERR in *"$want"*) true ;; *) false ;; esac then
+  if [ "$RC" = 2 ] && [ -z "$OUT" ] && case $ERR in *"$want"*) true ;; *) false ;; esac then
     ok "with $gone missing, the check says it did not run (exit 2)"
   else
     fail "with $gone missing, the check exited $RC: $OUT $ERR"
