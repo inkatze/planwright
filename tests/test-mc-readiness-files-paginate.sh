@@ -93,6 +93,13 @@ collect "when pages overlap"
 hasnt "overlapping pages that hold every path once are whole" "truncated${tab}files"
 if [ "$(paths)" -eq 134 ]; then ok "and each path is collected once"; else fail "expected 134 paths, got $(paths)"; fi
 
+# A rename past the first page still gets its source from the REST list.
+jq '.data.repository.pullRequest.files.nodes[-1].changeType = "RENAMED"' "$tmp/files-page-2.json" >"$tmp/page.json" && mv "$tmp/page.json" "$tmp/files-page-2.json"
+printf '%s\n' '[{"filename": "cards/card-134.md", "status": "renamed", "previous_filename": "old/card-134.md"}]' >"$tmp/files.json"
+collect "when a walked file is a rename"
+has "a walked rename carries its source" "path${tab}cards/card-134.md${tab}RENAMED${tab}old/card-134.md"
+rm -f "$tmp/files.json"
+
 # More paths than the forge counts is no whole list either.
 forge "$(nodes 1 100)" 130
 collect "when the walk returns more than the forge counts"
