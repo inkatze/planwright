@@ -32,11 +32,12 @@ commit_specs() { # commit_specs: commit the spec root, print the head
 }
 # spec_pr <head> <path[|change type[|source]]>...: collect over the forge's
 # view of a spec pull request. The source, a rename's or copy's, is known only
-# to the REST file list; SP_REST=fail makes that read fail.
+# to the REST file list; SP_REST=fail makes that read fail. SP_TOTAL sets the
+# forge's changed-file count, the paths given by default.
 spec_pr() {
   sp_h=$1
   shift
-  sp_files='' sp_rest=''
+  sp_files='' sp_rest='' sp_n=${SP_TOTAL:-$#}
   for sp_p in "$@"; do
     sp_path=${sp_p%%|*} sp_type=MODIFIED sp_src=''
     case $sp_p in
@@ -52,8 +53,8 @@ spec_pr() {
       sp_rest="$sp_rest{\"filename\": \"$sp_path\", \"status\": \"modified\"},"
     fi
   done
-  printf '{"headRefOid": "%s", "headRefName": "planwright/demo/spec", "baseRefName": "main", "labels": [], "files": [%s],
- "body": "## Summary", "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"}]}\n' "$sp_h" "${sp_files%,}" >"$tmp/pr.json"
+  printf '{"headRefOid": "%s", "headRefName": "planwright/demo/spec", "baseRefName": "main", "labels": [], "files": [%s], "changedFiles": %s,
+ "body": "## Summary", "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"}]}\n' "$sp_h" "${sp_files%,}" "$sp_n" >"$tmp/pr.json"
   rm -f "$tmp/files.json"
   [ "${SP_REST:-}" = fail ] || printf '[%s]\n' "${sp_rest%,}" >"$tmp/files.json"
   printf '%s\n' "$sp_h" >"$tmp/headnow"

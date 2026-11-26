@@ -28,7 +28,7 @@ rec acme/web 8 "$head" shots/other-pr.png ok
   || fail "the fixture step record"
 mkdir -p "$tmp/bin"
 cat >"$tmp/pr.json" <<EOF
-{"headRefOid": "$head", "labels": [{"name": "ui"}], "files": [{"path": "src/app.c"}],
+{"headRefOid": "$head", "labels": [{"name": "ui"}], "files": [{"path": "src/app.c"}], "changedFiles": 1,
  "body": "## Summary\nAdds the thing.",
  "isDraft": false,
  "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/acme/web/actions/runs/111/job/1"},
@@ -95,7 +95,21 @@ case "\$1 \$2" in
     *statusCheckRollup*) exec jq -r "\$jqp" "$tmp/pr.json" ;;
     *headRefOid*) cat "$tmp/headnow"; exit 0 ;;
   esac ;;
-  "api graphql") exec jq -r "\$jqp" "$tmp/threads.json" ;;
+  "api graphql") case "\$*" in
+    *"files(first"*)
+      # One jq pass per page, as gh --paginate runs it, and only the first
+      # page without the flag; a files-page-<n>.fail marker fails the walk at
+      # that page, after the pages before it printed.
+      n=1
+      while [ -f "$tmp/files-page-\$n.json" ]; do
+        case "\$n \$*" in 1\ *|*--paginate*) ;; *) break ;; esac
+        jq -r "\$jqp" "$tmp/files-page-\$n.json" || exit 1
+        n=\$((n + 1))
+      done
+      [ "\$n" -gt 1 ] && [ ! -e "$tmp/files-page-\$n.fail" ] && exit 0
+      exit 1 ;;
+  esac
+  exec jq -r "\$jqp" "$tmp/threads.json" ;;
   "api repos/acme/web/actions/runs?"*) exec jq -r "\$jqp" "$tmp/runs.json" ;;
   "api repos/acme/web/actions/runs/"*/attempts/*)
     a=\${2#repos/acme/web/actions/runs/}

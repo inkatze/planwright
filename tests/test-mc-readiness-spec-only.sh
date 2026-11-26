@@ -44,6 +44,28 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh check --program alpha --repo acme/w
 expect_no_out "the walk holds it for no cadence" "fail${tab}cadence"
 expect_no_out "nor for a gate-data step" "fail${tab}step"
 expect_out "while the guard still binds" "fail${tab}guard${tab}ready-guard"
+# The forge counts more files than the view holds and no page of the walk
+# answers, so the list stays short.
+SP_TOTAL=140 spec_pr "$sh_ready" specs/demo/requirements.md specs/demo/design.md specs/_observations/entries/e.md
+hasnt "a file list short of the forge's count is no spec-only scope" "scope${tab}"
+has "and is marked truncated" "truncated${tab}files"
+# Past the view's first page, a list the walk reads whole is still judged.
+sp_page() { # sp_page <n> <from> <to> <hasNextPage>
+  jq -n --argjson a "$2" --argjson b "$3" --argjson more "$4" '[range($a; $b + 1) | {path: "specs/_observations/entries/e\(.).md", changeType: "ADDED"}]
+    | {data: {repository: {pullRequest: {files: {pageInfo: {hasNextPage: $more, endCursor: "c"}, nodes: .}}}}}' >"$tmp/files-page-$1.json"
+}
+sp_page 1 1 100 true
+sp_page 2 101 134 false
+sp_view=()
+i=1
+while [ "$i" -le 100 ]; do
+  sp_view+=("specs/_observations/entries/e$i.md|ADDED")
+  i=$((i + 1))
+done
+SP_TOTAL=134 spec_pr "$sh_ready" "${sp_view[@]}"
+has "a spec-only list of more than one page, read whole, is a spec-only scope" "scope${tab}spec-only${tab}$sh_ready"
+hasnt "and is not truncated" "truncated${tab}files"
+rm -f "$tmp/files-page-1.json" "$tmp/files-page-2.json"
 printf '# Specs\n' >"$repo/specs/README.md"
 sh_ready=$(commit_specs)
 spec_pr "$sh_ready" specs/_observations/entries/e.md specs/README.md
