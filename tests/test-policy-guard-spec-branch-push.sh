@@ -331,6 +331,21 @@ set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: allow' 'unpushed_r
 am "git push origin HEAD:refs/heads/$SB"
 push_ok "[worker, spec worktree] with the knob back to allow the push is admitted again"
 
+echo "# a recorded spelling outside the merge route still denies"
+AX=planwright/demo/amendment-x
+gitq -C "$SEED" push -q origin "$SB:refs/heads/$AX"
+gitq -C "$FL" fetch -q origin
+AXW="$SANDBOX/amend-x"
+gitq -C "$FL" worktree add -b "$AX" "$AXW" "origin/$AX"
+on_branch "$AXW" "$AX" 'the worktree holds the off-route amendment spelling'
+gitq -C "$AXW" merge -q --no-edit origin/main
+rec "unit_branch=$MYFL" "spec_branch=$AX"
+PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker 'git merge origin/main' "$AXW" "$AXW"
+expect defer "[worker, spec_branch=$AX] the record still syncs the branch locally"
+PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker "git push origin HEAD:refs/heads/$AX" "$AXW" "$AXW"
+rule_denies "[worker, spec_branch=$AX] the clean merge pushed to an amendment branch with no number denies"
+rec "unit_branch=$MYFL" "spec_branch=$SB"
+
 echo "# every tier"
 for b in "$SB" "$RW"; do
   for cmd in "git push origin HEAD:$b" "git push origin :$b" "git push --delete origin $b" \
