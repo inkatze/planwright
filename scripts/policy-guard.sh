@@ -6871,17 +6871,24 @@ mc_under_store_root() {
   return 1
 }
 
-# mc_write_word_refused <word> [role] [repo: 0|1|only] — 0 when a word in a write
-# position names a posture file or directory, could expand into one, leads to
-# one on disk, or cannot be followed there, or, with <repo> 1, lands inside a
-# repository (mc_reaches_repo). <role> (default 1, a path the write opens) is
-# mc_target_posture's; <repo> defaults to 1 for every role but a copy source
-# (2), which is only read. <repo> `only` is the repository reading alone, for
-# a word an earlier call already passed through the posture screen: it skips
-# that screen's two on-disk follows (mc_write_via_link, mc_reaches_posture).
-# MC_REFUSAL is the reason to give.
+# mc_write_word_refused <word> [role] [repo: 0|1|only|dd] — 0 when a word in a
+# write position names a posture file or directory, could expand into one,
+# leads to one on disk, or cannot be followed there, or, with <repo> 1, lands
+# inside a repository (mc_reaches_repo). <role> (default 1, a path the write
+# opens) is mc_target_posture's; <repo> defaults to 1 for every role but a copy
+# source (2), which is only read. <repo> `only` is the repository reading
+# alone, for a word an earlier call already passed through the posture screen:
+# it skips that screen's two on-disk follows (mc_write_via_link,
+# mc_reaches_posture). <repo> `dd` is the default for dd's operand, whose file
+# is named past of=; any other of= word is read both past the prefix and as the
+# path it spells. MC_REFUSAL is the reason to give.
 mc_write_word_refused() {
   local w=${1#of=} rc repo=${3:-}
+  if [ "$repo" = dd ]; then
+    repo=''
+  else
+    case $1 in of=*) ! mc_write_word_refused "./$1" "${2:-1}" "$repo" || return 0 ;; esac
+  fi
   if [ -z "$repo" ]; then
     repo=1
     [ "${2:-1}" != 2 ] || repo=0
@@ -6927,9 +6934,6 @@ mc_write_word_refused() {
   fi
   [ "$repo" != 0 ] || return 1
   MC_REFUSAL=$MC_REPO_DENY
-  # The posture reading above takes an of= word past its prefix; dd's own
-  # operand comes here bare, so any other is the path it spells too.
-  case $1 in of=*) ! mc_reaches_repo "$1" || return 0 ;; esac
   mc_reaches_repo "$w"
 }
 
@@ -8433,8 +8437,8 @@ XEOF_RUN
       # its of= file, named past that prefix.
       case $verb:$w in
         dd:of=*)
-          ops[${#ops[@]}]=${w#of=}
-          opsr[${#opsr[@]}]=''
+          ops[${#ops[@]}]=$w
+          opsr[${#opsr[@]}]='dd'
           ;;
         dd:*)
           ops[${#ops[@]}]=$w
