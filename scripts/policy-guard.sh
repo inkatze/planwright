@@ -5737,8 +5737,10 @@ RE_MC_SPLIT_S='-[A-Za-z]*S'
 # env, past its options and the values -u, -C, -a and BSD's -P, -L and -U take
 # (and --unset, --chdir and --argv0 in any prefix), at its first cluster
 # reaching -S before another value letter, with the string glued on (env -Scp,
-# env -iS'tee f'): the string runs as a command (mc_env_split).
-RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^-S[:space:]][^S[:space:]]*|--[^[:space:]]*))*)[[:space:]]+-[ABD-KMNOQRTV-Zb-tv-z0-9]*S[^[:space:]]'
+# env -iS'tee f'): the string runs as a command (mc_env_split). The last
+# bracket is any letter or digit but env's value letters, uCSaPLU; keep them in
+# step with mc_env_glued_s and mc_wrap_opt_value's env row.
+RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^uCSaPLU[:space:]-]*([uCaPLU][^[:space:]]*)?|--[^[:space:]]*))*)[[:space:]]+-[ABD-KMNOQRTV-Zb-tv-z0-9]*S[^[:space:]]'
 # A write verb in unparsed text; sed counts only with an in-place flag.
 RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
@@ -6382,10 +6384,10 @@ mc_inplace_unparsed() {
 # mc_env_split <text> — in MC_ES, the text with each env -S string glued to
 # its cluster parted off as a statement of its own (RE_MC_ENV_SPLIT). Run it
 # outside nocasematch: a lowercase s is no -S, and a word env does not open is
-# no string of its (git log -Scp). Each match is consumed, so the scan is
-# linear; past its bound every capital S is parted instead (fail closed).
+# no string of its (git log -Scp). Each match is consumed, so the text is
+# scanned once per match; past the bound the screen refuses (fail closed).
 mc_env_split() {
-  local t=$1 out='' m n=0
+  local t=$1 out='' m pre n=0
   case $t in *[Ee][Nn][Vv]*S*) ;; *)
     MC_ES=$t
     return 0
@@ -6393,13 +6395,11 @@ mc_env_split() {
   esac
   while [[ $t =~ $RE_MC_ENV_SPLIT ]]; do
     n=$((n + 1))
-    if [ "$n" -gt 64 ]; then
-      t=${t//S/S ; }
-      break
-    fi
+    [ "$n" -le 64 ] || emit_deny "$MC_WRAPPED_DENY"
     m=${BASH_REMATCH[0]}
-    out+=${t%%"$m"*}${m%?}' ; '
-    t=${m: -1}${t#*"$m"}
+    pre=${t%%"$m"*}
+    out+=$pre${m%?}' ; '
+    t=${t:$((${#pre} + ${#m} - 1))}
   done
   MC_ES=$out$t
 }
