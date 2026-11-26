@@ -1208,9 +1208,18 @@ check_unprotected() {
 # --------------------------------------------------------------------------
 # Repository state.
 
-# current_branch <dir> — the checked-out branch name, or empty.
+# current_branch <dir> — the checked-out branch name, or empty. git shortens
+# refs/heads/<b> to heads/<b> when another ref (a tag <b>) shares the name, so
+# the short form would match no protected entry; a branch whose short and full
+# names disagree reads as none, which every caller refuses or reads as no
+# branch.
 current_branch() {
-  gitq "$1" symbolic-ref --quiet --short HEAD || printf ''
+  local full short
+  full=$(gitq "$1" symbolic-ref --quiet HEAD) || full=''
+  short=$(gitq "$1" symbolic-ref --quiet --short HEAD) || short=''
+  case $full in
+    refs/heads/?*) [ "${full#refs/heads/}" != "$short" ] || printf '%s' "$short" ;;
+  esac
 }
 
 # checkout_of <dir> — sets CO_TOP, CO_GD and CO_COMMON to the top, the git
@@ -5903,6 +5912,8 @@ EOF
   return 0
 }
 
+CB_NONE='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
+
 eval_push() {
   local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb signoff=''
   del=${rest%%"$TAB"*}
@@ -5915,7 +5926,7 @@ eval_push() {
   cb=$(current_branch "$dir")
   if [ -z "$refs" ]; then
     [ "$del" = 0 ] || emit_deny 'this git push deletes without naming a ref - refusing (fail closed).'
-    [ -n "$cb" ] || emit_deny 'this git push names no branch and HEAD is detached, so the guard cannot tell what it pushes - refusing (fail closed). Name the branch.'
+    [ -n "$cb" ] || emit_deny "this git push names no branch and HEAD $CB_NONE, so the guard cannot tell what it pushes - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
     local pd rp
     pd=$(gitq "$dir" config --get push.default) || pd=''
     [ "$(lower "$pd")" != matching ] \
@@ -5958,7 +5969,7 @@ eval_push() {
       [ -n "$dst" ] || emit_deny 'this git push carries a refspec with an empty destination, which the guard does not read - refusing (fail closed).'
       case $dst in
         HEAD | @)
-          [ -n "$cb" ] || emit_deny 'this git push pushes HEAD while it is detached - refusing (fail closed). Name the branch.'
+          [ -n "$cb" ] || emit_deny "this git push pushes HEAD, and HEAD $CB_NONE - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
           dst=$cb
           ;;
         refs/heads/*) dst=${dst#refs/heads/} ;;
