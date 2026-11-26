@@ -464,6 +464,11 @@ exit 127'
 stub_run "$tmp/gone"
 expect_fail "a jq that cannot find what it runs says jq was not found at its path" "jq not found at $tmp/gone/jq"
 
+stub_jq "$tmp/noexec" 'echo "shim: exec: jq-1.8.2: Permission denied" >&2
+exit 126'
+stub_run "$tmp/noexec"
+expect_fail "a jq that cannot execute what it runs says so, not that jq is missing" "jq at $tmp/noexec/jq cannot be executed (exit 126)"
+
 stub_jq "$tmp/mute" 'exit 6'
 stub_run "$tmp/mute"
 expect_fail "a jq failing silently names its status and nothing after it" "cannot be parsed: jq exited 6 (jq: $tmp/mute/jq)"
@@ -477,7 +482,7 @@ case $OUT in
   *TAILMARK*) fail "a jq error past its cap reached the reason: $OUT" ;;
   *) ok "a jq error is cut at its cap" ;;
 esac
-rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/mute" "$tmp/loud" "$tmp/count"
+rm -rf "$tmp/flaky" "$tmp/shim" "$tmp/gone" "$tmp/noexec" "$tmp/mute" "$tmp/loud" "$tmp/count"
 
 echo "# missing tools"
 # A tool the check reads with, gone from PATH, is a check that did not run,

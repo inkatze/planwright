@@ -192,7 +192,8 @@ facts() {
   err=$(cat "$jq_err")
   err=${err//"$NL"/ }
   case $rc in
-    126 | 127) why_jq="jq not found at $jq (exit $rc)" ;;
+    126) why_jq="jq at $jq cannot be executed (exit $rc)" ;;
+    127) why_jq="jq not found at $jq (exit $rc)" ;;
     *) why_jq="jq exited $rc" ;;
   esac
   [ -z "$err" ] || why_jq="$why_jq: ${err:0:400}"
