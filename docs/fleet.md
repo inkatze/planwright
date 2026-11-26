@@ -2483,8 +2483,8 @@ deterministic `≥` comparison against the overlay-resolved per-window threshold
 (`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
 1–100, validated; rungs at 100, the wall, may repeat; `off` disables a rung,
 so every soft rung `off` beside a `fleet_usage_weekly_defer_all` leaves one
-ladder stop, though the per-tier caps below still apply until set to `100`). The **more restrictive**
-window governs; the session window
+ladder stop, though the per-tier caps below still apply until set to `100`).
+The **more restrictive** window governs; the session window
 is **capped at `defer-heavy`** (a session spike never proactively halts the
 fleet), while only the weekly window can reach `defer-all` (the weekly wall can
 halt work for days). `fleet-usage-gate.sh admit <model>` answers the
