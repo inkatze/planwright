@@ -209,7 +209,9 @@ c=$(cat "$tmp/collected" 2>/dev/null)
 has "more threads than one read returns is marked" "truncated${tab}review threads"
 walk_with "truncated" '-' "truncated${tab}files"
 expect_rc "a truncated read is refused" 4
-expect_out "named" "fail${tab}truncated${tab}the files read hit its cap"
+expect_out "named" "fail${tab}truncated${tab}the files read came back incomplete"
+walk_with "truncated checks" '-' "truncated${tab}checks"
+expect_out "a capped list is named by its cap" "fail${tab}truncated${tab}the checks read hit its cap"
 
 # ---------------------------------------------------------------------------
 # watch: one readiness-due event per new head of a green draft, landed in the

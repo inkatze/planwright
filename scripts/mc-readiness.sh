@@ -127,9 +127,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
   guard<TAB><name><TAB>pass|fail<TAB><detail>
                                       a ready-flip guard's verdict
   truncated<TAB><what>                a forge list that came back at its
-                                      cap of 100 (files, checks, labels,
-                                      review threads), so it may have been
-                                      cut
+                                      cap of 100 (checks, labels, review
+                                      threads), so it may have been cut, or
+                                      a changed-file list, walked past the
+                                      cap, that failed or came back short of
+                                      the forge's count
   bodyline<TAB><text>                 one per line of the pull request body
   report<TAB><text>                   a session's own claim: read, never
                                       counted
@@ -521,7 +523,8 @@ $1 == "require" && $2 == "macos" { needmac = 1 }
 $1 == "thread" && $3 != "resolved" { fail("thread", $2 " is open") }
 $1 == "finding" && $4 != "answered" { fail("finding", $2 " " $3 " is unanswered") }
 $1 == "guard" && $3 != "pass" { fail("guard", $2 ": " $4) }
-$1 == "truncated" { fail("truncated", "the " $2 " read hit its cap; what lies past it is unread") }
+$1 == "truncated" && $2 == "files" { fail("truncated", "the files read came back incomplete; what it left out is unread") }
+$1 == "truncated" && $2 != "files" { fail("truncated", "the " $2 " read hit its cap; what lies past it is unread") }
 $1 == "path" && ($3 == "RENAMED" || $3 == "COPIED") && $4 == "" { fail("path", $2 " is " tolower($3) " from a path the file list of the forge did not name, so the gates and sign-off its source brings cannot be read; collect again") }
 $1 == "step" { steps[++ns] = $2 "\t" $3 "\t" $4 }
 $1 == "cadence" && $2 == "audited" { audited = $3 }
@@ -732,7 +735,9 @@ branch_worktree() {
 }
 
 # The forge reads cap a list at 100; a list that comes back full may have
-# been cut, and the walk refuses on a `truncated` line rather than pass.
+# been cut, and the walk refuses on a `truncated` line rather than pass. The
+# changed files are walked past the cap instead, and judged against the
+# forge's own count.
 CAP=100
 
 # spec_home <program> <slug>: print `<repository><TAB><spec root relative to
@@ -816,9 +821,11 @@ drift_scope() {
 # from the repository's own objects at the head, since collect writes nothing
 # (no fetch) to any repository.
 spec_scope() {
-  local home rel repo files b base=''
+  local home rel repo files total b base=''
   files=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3 + 0; exit }' "$4")
-  [ "${files:-0}" -gt 0 ] && [ "$files" -lt "$CAP" ] || return 0
+  total=$(awk -F '\t' '$1 == "total" && $2 == "files" { print $3; exit }' "$4")
+  # Only a whole file list can be spec-only.
+  [ "${files:-0}" -gt 0 ] && [ "$files" = "$total" ] || return 0
   home=$(spec_home "$1" "$2") || return 0
   rel=${home#*	} repo=${home%%	*}
   # Each path must sit strictly under the root, with no `.`, `..` or empty
@@ -1089,12 +1096,13 @@ collect() {
   cl_base=$(/bin/sh "$script_dir/base-state-checks.sh") || cl_base='[]'
   cl_runs="${cl_base:-[]} as \$base_state | $cl_runs"
   # shellcheck disable=SC2016 # a jq program
-  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,isDraft,labels,files,body,statusCheckRollup --jq "$cl_runs"'
+  gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,isDraft,labels,files,changedFiles,body,statusCheckRollup --jq "$cl_runs"'
     def clean: tostring | gsub("[\t\r\n]"; " ");
     "head\t" + .headRefOid,
     "state\t" + (if .isDraft == true then "draft" else "ready" end),
     "branch\t" + ((.headRefName // "") | clean),
     "base\t" + ((.baseRefName // "") | clean),
+    "total\tfiles\t" + (.changedFiles | if type == "number" then tostring else "-" end),
     "count\tfiles\t" + ((.files // []) | length | tostring),
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
@@ -1112,6 +1120,30 @@ collect() {
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")
   mc_valid_sha "$cl_head" || mc_fail "the pull request read returned no head"
+  # The view carries only the first page of changed files. When it holds
+  # fewer than the forge counts, the list is walked page by page, and the walk
+  # replaces the view's paths only when it exits clean with that count of
+  # distinct paths; otherwise the count stays short and the evidence reads
+  # truncated.
+  cl_nf=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3; exit }' "$cl_tmp/pr")
+  cl_tf=$(awk -F '\t' '$1 == "total" && $2 == "files" { print $3; exit }' "$cl_tmp/pr")
+  # shellcheck disable=SC2016 # a GraphQL query and a jq program
+  if [ "$cl_nf" != "$cl_tf" ] && gh api graphql --paginate -f owner="$cl_owner" -f name="$cl_name" -F number="$3" -f query='
+    query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+        files(first: 100, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { path changeType } } } } }' --jq '
+    def clean: tostring | gsub("[\t\r\n]"; " ");
+    .data.repository.pullRequest.files.nodes[] | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)' \
+    >"$cl_tmp/files" 2>"$cl_tmp/err"; then
+    if ! awk -F '\t' -v want="$cl_tf" -v have="$cl_nf" '
+      FILENAME == ARGV[1] { if ($1 == "path" && !($2 in seen)) { seen[$2] = 1; rows[++n] = $0 }; next }
+      FNR == 1 { whole = want ~ /^[0-9]+$/ && n > 0 && n >= have + 0 && n == want + 0 }
+      $1 == "count" && $2 == "files" && whole { print "count\tfiles\t" n; for (i = 1; i <= n; i++) print rows[i]; next }
+      $1 == "path" && whole { next }
+      { print }' "$cl_tmp/files" "$cl_tmp/pr" >"$cl_tmp/pr.files" || ! mv "$cl_tmp/pr.files" "$cl_tmp/pr"; then
+      mc_fail "the pull request's walked file list cannot be joined"
+    fi
+  fi
   # The GraphQL file list names no source for a rename or copy; the REST one
   # does. Advisory: a failed read leaves the path with no source,
   # which no spec-only scope accepts and the walk refuses.
@@ -1334,7 +1366,11 @@ EOF
   fi
   {
     printf '# format: 1\nrepo\t%s\n' "$2"
-    awk -F '\t' -v cap="$CAP" '$1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next } $1 == "branch" || $1 == "base" || $1 == "runref" { next } { print }' "$cl_tmp/pr"
+    awk -F '\t' -v cap="$CAP" '
+      $1 == "total" { total[$2] = $3; next }
+      $1 == "count" && ($2 in total) { if (total[$2] !~ /^[0-9]+$/ || $3 != total[$2]) print "truncated\t" $2; next }
+      $1 == "count" { if ($3 + 0 >= cap) print "truncated\t" $2; next }
+      $1 == "branch" || $1 == "base" || $1 == "runref" { next } { print }' "$cl_tmp/pr"
     cat "$cl_tmp/born" "$cl_tmp/marks" "$cl_tmp/require" "$cl_tmp/threads" "$cl_tmp/steps" "$cl_tmp/cadence" "$cl_tmp/scope" "$cl_tmp/drift" "$cl_tmp/evidence"
     printf '%s\n' "$cl_guard"
   } | mc_clean_text | mc_write "$5" || mc_fail "cannot write $(sanitize_printable "$5")"

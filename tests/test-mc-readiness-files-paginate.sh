@@ -37,7 +37,7 @@ forge() {
 }
 # page <n> <from> <to> <hasNextPage>: one page of the files connection.
 page() {
-  nodes "$2" "$3" | jq --argjson more "$4"'{data: {repository: {pullRequest: {files: {pageInfo: {hasNextPage: $more, endCursor: "c"}, nodes: .}}}}}' >"$tmp/files-page-$1.json"
+  nodes "$2" "$3" | jq --argjson more "$4" '{data: {repository: {pullRequest: {files: {pageInfo: {hasNextPage: $more, endCursor: "c"}, nodes: .}}}}}' >"$tmp/files-page-$1.json"
 }
 collect() { # collect <label>: collect into c, then walk it with no conditions
   : >"$tmp/gh.calls"
