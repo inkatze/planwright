@@ -1224,15 +1224,17 @@ spec_pr_branch_hit() {
 }
 
 # spec_pr_branch_text <what> — the refusal for SPB_HIT. Only an exact
-# planwright/<spec>/amendment-<digits> is offered the kickoff push helper,
-# since the helper refuses every other name.
+# planwright/<spec>/amendment-<digits>, <spec> in the spec-id grammar, is
+# offered the kickoff push helper, since the helper refuses every other name.
 spec_pr_branch_text() {
-  local hit=${SPB_HIT#refs/heads/} n
+  local hit=${SPB_HIT#refs/heads/} n spec
   n=${hit##*/amendment-}
+  spec=${hit#planwright/}
+  spec=${spec%%/*}
   case $hit in
     planwright/?*/amendment-?*)
-      case $n in
-        *[!0-9]*) ;;
+      case $n:$spec in
+        *[!0-9]*:* | *:*[!a-z0-9-]* | *:-*) ;;
         *)
           printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (an amendment branch), which only its kickoff session publishes, through $KICK_FORM run as its own command; no other agent session writes one at any tier - refusing. Work on your own unit branch."
           return 0
@@ -1893,7 +1895,8 @@ tower_wrapped_git_check() {
 # --------------------------------------------------------------------------
 # The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
 # sign-off branch, which the protected set (the spec branch) or the spec PR
-# branch rule (an amendment branch) otherwise refuses to every agent session. Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# branch rule (an amendment branch) otherwise refuses to every agent session.
+# Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
 # hook's environment, which a command's inline assignment cannot change) names
 # that spec's kickoff may run it: kickoff-<spec>, from the spec branch or any of
 # its amendment branches (planwright/<spec>/amendment-<n>), or an amendment

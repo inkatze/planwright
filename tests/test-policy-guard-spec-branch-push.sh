@@ -177,7 +177,8 @@ gitq -C "$FL" worktree add -b "$RW" "$KO" "origin/$RW"
 on_branch "$KO" "$RW" 'the kickoff worktree holds the spec-rework branch'
 kick "git push origin $RW" "$KO"
 rule_denies "[kickoff-demo] a plain push of its spec-rework branch denies"
-for cmd in "git push origin $RW" "git push origin HEAD:planwright/demo/amendment-x" "git push origin HEAD:Planwright/Demo/Amendment-1"; do
+for cmd in "git push origin $RW" "git push origin HEAD:planwright/demo/amendment-x" "git push origin HEAD:Planwright/Demo/Amendment-1" \
+  "git push origin HEAD:planwright/Demo/amendment-1"; do
   kick "$cmd" "$KO"
   rule_denies "[kickoff-demo] a hit the kickoff push helper does not take denies: $cmd"
   reason_has 'no agent session publishes it at any tier; the operator does' "[kickoff-demo] the refusal names the operator as the route: $cmd"
