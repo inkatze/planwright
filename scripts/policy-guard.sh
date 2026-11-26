@@ -6907,15 +6907,20 @@ mc_under_store_root() {
 # is named past of=; any other of= word is read both past the prefix and as the
 # path it spells. MC_REFUSAL is the reason to give.
 mc_write_word_refused() {
-  local w=${1#of=} rc repo=${3:-}
+  local w=${1#of=} rc repo=${3:-} lit=''
   if [ "$repo" = dd ]; then
     repo=''
   else
-    case $1 in of=*) ! mc_write_word_refused "./$1" "${2:-1}" "$repo" || return 0 ;; esac
+    case $1 in of=*) lit=./$1 ;; esac
   fi
   if [ -z "$repo" ]; then
     repo=1
     [ "${2:-1}" != 2 ] || repo=0
+  fi
+  # The path an of= word spells is read as well, posture first and the
+  # repository last, so a settings write keeps its own reason.
+  if [ -n "$lit" ] && [ "$repo" != only ]; then
+    ! mc_write_word_refused "$lit" "${2:-1}" 0 || return 0
   fi
   # Each return 0 below gives the reason set last before it: keep a new check
   # beside the assignment that names its reason.
@@ -6957,6 +6962,9 @@ mc_write_word_refused() {
     mc_reaches_posture "$w" "${2:-1}" && return 0
   fi
   [ "$repo" != 0 ] || return 1
+  if [ -n "$lit" ]; then
+    ! mc_write_word_refused "$lit" "${2:-1}" only || return 0
+  fi
   MC_REFUSAL=$MC_REPO_DENY
   mc_reaches_repo "$w"
 }
