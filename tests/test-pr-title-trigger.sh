@@ -73,6 +73,10 @@ block_body() {
       if ($0 ~ "^[[:space:]]*" key ":[[:space:]]*$") {
         inblock = 1
         blockindent = indent
+        # Marks where one block ends and the next begins, for readers that
+        # fold a value across lines; comments are stripped, so no real line
+        # can be this one.
+        print "#block"
         next
       }
       if (inblock && indent <= blockindent) inblock = 0
@@ -86,23 +90,52 @@ block_body() {
 # because `group:` is also a runs-on key (runner groups), and reading one of
 # those would point the uniqueness check below at a string that is not a
 # concurrency group at all.
+#
+# A block-scalar value (`group: >-` and the like) is its deeper lines joined by
+# spaces. That is source text, while GitHub keys a group on the evaluated
+# value, so each `format('<text>{0}', <expr>)` the value can evaluate to is
+# also emitted as `<text>${{ <expr> }}`: an expression choosing between
+# `ci-release-<sha>` and `ci-<ref>` then still collides with a plain
+# `ci-${{ github.ref }}` in another workflow.
 concurrency_groups() {
   # q carries the two YAML quote characters so the single-quoted awk program
   # below never has to contain one.
-  # A folded `group: >-` value is its following deeper lines joined by spaces,
-  # which is the string GitHub keys the group on.
   block_body "$1" concurrency | awk -v q="\"'" '
+    function emit(v, sq, call, rest, lit, expr) {
+      if (v == "") return
+      print v
+      sq = substr(q, 2, 1)
+      call = "format[(]" sq "[^" sq "]*[{]0[}]" sq ", *[^)]*[)]"
+      rest = v
+      while (match(rest, call)) {
+        lit = substr(rest, RSTART, RLENGTH)
+        rest = substr(rest, RSTART + RLENGTH)
+        expr = lit
+        sub("^format[(]" sq, "", lit)
+        sub(/[{]0[}].*$/, "", lit)
+        sub(/^[^,]*, */, "", expr)
+        sub(/[)]$/, "", expr)
+        print lit "${{ " expr " }}"
+      }
+    }
     folding {
       match($0, /^[[:space:]]*/)
-      if (RLENGTH > gindent) { sub(/^[[:space:]]+/, ""); folded = folded (folded == "" ? "" : " ") $0; next }
-      print folded; folding = 0
+      if ($0 != "#block" && RLENGTH > gindent) {
+        sub(/^[[:space:]]+/, "")
+        folded = folded (folded == "" ? "" : " ") $0
+        next
+      }
+      emit(folded)
+      folding = 0
     }
-    /^[[:space:]]*group:[[:space:]]*>-?[[:space:]]*$/ {
-      match($0, /^[[:space:]]*/); gindent = RLENGTH
-      folding = 1; folded = ""
+    $0 == "#block" { next }
+    /^[[:space:]]*group:[[:space:]]*[>|][-+0-9]*[[:space:]]*$/ {
+      match($0, /^[[:space:]]*/)
+      gindent = RLENGTH
+      folding = 1
+      folded = ""
       next
     }
-    END { if (folding && folded != "") print folded }
     /^[[:space:]]*group:[[:space:]]*/ {
       sub(/^[[:space:]]*group:[[:space:]]*/, "")
       sub(/[[:space:]]*$/, "")
@@ -117,8 +150,9 @@ concurrency_groups() {
           $0 = substr($0, 2, length($0) - 2)
         }
       }
-      if ($0 != "") print
+      emit($0)
     }
+    END { if (folding) emit(folded) }
   '
 }
 
@@ -190,6 +224,20 @@ if [ "$group_count" -ge 2 ]; then
 else
   fail "C3 only $group_count concurrency group(s) found —
     too few for the uniqueness check to mean anything"
+fi
+
+# C3 is only as good as the strings it compares: ci.yml's group is a folded
+# expression, so the reader must yield its evaluated branches, never the bare
+# block indicator.
+ci_groups="$(concurrency_groups "$WORKFLOW_DIR/ci.yml")"
+# shellcheck disable=SC2016 # literal GitHub expressions
+if printf '%s\n' "$ci_groups" | grep -qxF 'ci-${{ github.ref }}' \
+  && printf '%s\n' "$ci_groups" | grep -qxF 'ci-release-${{ github.sha }}' \
+  && ! printf '%s\n' "$ci_groups" | grep -qE '^[>|]'; then
+  pass "C3 reads ci.yml's folded group as the groups it evaluates to"
+else
+  fail "C3 read ci.yml's concurrency group as:
+$ci_groups"
 fi
 
 # --- C4: the metadata gate is not the code gate ------------------------------
