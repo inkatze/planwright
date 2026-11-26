@@ -67,7 +67,8 @@
 # refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20), each with a
 # two-second kill grace, and all of them by a deadline for the whole call;
 # any read failure denies. A reserved act after an earlier segment of the same
-# command that changes git configuration, the checked-out branch, or refs (or,
+# command that changes git configuration (HOME or XDG_CONFIG_HOME included,
+# set there or on the act itself), the checked-out branch, or refs (or,
 # for a rewrite, that pushes, fetches, or makes a commit) is refused: every
 # segment is checked against the state as it stands before the command runs.
 # A guard that crashes or is signalled under a tier denies rather than leaving
@@ -136,7 +137,9 @@
 #               refspec naming a source with no destination denies where
 #               remote.<remote>.push is configured, since git maps it there,
 #               and under push.default=upstream (or tracking) also targets
-#               branch.<source>.merge.
+#               branch.<source>.merge. --repo with no positional argument is
+#               read as the remote it names. A worker's delete of a unit
+#               branch, or of a spec's amendment or spec-rework branch, denies.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -1142,6 +1145,28 @@ is_unit_branch() {
   [[ $1 =~ $re_task ]] || [[ $1 =~ $re_flight ]]
 }
 
+# is_spec_family <branch> — 0 when the branch, in any case, is a spec's
+# amendment branch (planwright/<spec>/amendment-<digits>) or its spec-rework
+# branch: spec branches the protected set does not hold, as
+# kickoff_scope_names reads them.
+is_spec_family() {
+  local rest spec leaf
+  fold_lower "$1"
+  case $FOLD in planwright/?*/?*) ;; *) return 1 ;; esac
+  rest=${FOLD#planwright/}
+  spec=${rest%%/*}
+  leaf=${rest#*/}
+  case $spec in flight | -* | *[!a-z0-9-]*) return 1 ;; esac
+  case $leaf in
+    spec-rework) return 0 ;;
+    amendment-?*)
+      case ${leaf#amendment-} in *[!0-9]*) return 1 ;; esac
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 # gitq <dir> <args...> — a local git read, stdout only. Local reads of refs and
 # config take no lock and reach no remote, so they run unbounded; the bound
 # is for the policy read and the upstream refresh, which can stall.
@@ -1815,6 +1840,10 @@ ST_FETCHSPEC=0
 ST_PUSH=0
 ST_HEAD=0
 GIT_ENV_SET=0
+# CFGENV_SET: an earlier segment set HOME or XDG_CONFIG_HOME, where git reads
+# its global configuration; G_CFGENV: that, or this git segment's own prefix.
+CFGENV_SET=0
+G_CFGENV=0
 
 RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
 # A command word that is one variable naming a directory, then a literal
@@ -2741,7 +2770,10 @@ classify_segments() {
         GIT_ENV_SET=1
         ST_FILT=1
       fi
-      [ "$SW_CFGENV" = 0 ] || ST_FILT=1
+      if [ "$SW_CFGENV" = 1 ]; then
+        ST_FILT=1
+        CFGENV_SET=1
+      fi
       KICK_BESIDE=1
       [ "$KICK_PIPED" = 0 ] || [ "${SEG_RD[si]}" = 0 ] \
         || deny_now "this command pipes text that names scripts/kickoff-spec-push.sh into a redirect, which could save a copy of it - refusing (fail closed). Run it as $KICK_FORM."
@@ -2873,7 +2905,10 @@ classify_segments() {
               ;;
           esac
           case " ${SW[*]} " in
-            *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;
+            *" HOME"* | *" XDG_CONFIG_HOME"*)
+              ST_FILT=1
+              CFGENV_SET=1
+              ;;
           esac
           # A value the shell later runs (a startup or prompt hook, an
           # arithmetic subscript) is screened as a command; printf sets one
@@ -2958,6 +2993,8 @@ classify_segments() {
         git)
           GIT_ENV=0
           { [ "$SW_GITENV" = 0 ] && [ "$GIT_ENV_SET" = 0 ]; } || GIT_ENV=1
+          G_CFGENV=0
+          { [ "$SW_CFGENV" = 0 ] && [ "$CFGENV_SET" = 0 ]; } || G_CFGENV=1
           classify_git "$si" "$eff" "$eff_ok"
           ;;
         gh)
@@ -3809,7 +3846,8 @@ classify_gh_api() {
         return 0
         ;;
       heads/*)
-        if [ "$TIER" = worker ] && [ "$um" = DELETE ] && is_unit_branch "${orig_rest#heads/}"; then
+        if [ "$TIER" = worker ] && [ "$um" = DELETE ] \
+          && { is_unit_branch "${orig_rest#heads/}" || is_spec_family "${orig_rest#heads/}"; }; then
           deny_now "$(worker_delete_deny "this gh api request" "${orig_rest#heads/}")"
           return 0
         fi
@@ -3887,6 +3925,10 @@ classify_gh_api() {
 # worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
 # unit branch on the remote.
 worker_delete_deny() {
+  if is_spec_family "$2"; then
+    printf '%s' "$1 deletes $(sanitize_printable "$2" 'a spec branch') on the remote, a spec's amendment or spec-rework branch and so a spec branch; a worker never deletes one, since deleting and pushing it again would rewrite it with no lease - refusing. Leave it to the operator."
+    return 0
+  fi
   printf '%s' "$1 deletes $(sanitize_printable "$2" 'a unit branch') on the remote; a worker never deletes a unit branch, its own included, since deleting and pushing it again would publish a rewrite with no lease - refusing. Add new commits, or publish a rewrite of your own draft branch through scripts/worker-branch-sync.sh push."
 }
 
@@ -4177,6 +4219,10 @@ act_gate() {
     deny_now "$what carries -c configuration, which can change what it does (a pull into a rebase, a push into a mirror) where the guard cannot read it - refusing (fail closed). Run it without -c."
     return 1
   fi
+  if [ "$G_CFGENV" = 1 ]; then
+    deny_now "$what runs with HOME or XDG_CONFIG_HOME set in the same command, which moves the global configuration git reads away from the one the guard reads - refusing (fail closed). Run it without that setting."
+    return 1
+  fi
   if [ "$ST_CFG" = 1 ] || [ "$ST_REF" = 1 ]; then
     deny_now "$what follows a git config, remote, branch, checkout, switch, reset, or ref change in the same command; the guard checks the state as it is before the command runs - refusing (fail closed). Run the change first, as its own command."
     return 1
@@ -4207,6 +4253,13 @@ git_state_after() {
   case $1 in
     config)
       [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
+      # A removal names one key or section, and can bare a value a lower
+      # layer or an earlier include sets.
+      if [ "$ro" = 0 ]; then
+        for a in "${SW[@]:$2}"; do
+          case $a in --un* | --rem* | --ren* | --rep* | --add) ST_CFG=1 ;; esac
+        done
+      fi
       # Every word is read whatever ro says, since a value or value-pattern
       # can spell a read verb (git config filter.y.clean sh list writes the
       # key). Any filter key but required may be a program, and a section
@@ -4236,7 +4289,16 @@ git_state_after() {
     remote)
       case $rsub in '' | show | get-url) ;; *) ST_CFG=1 ;; esac
       ;;
-    branch | tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
+    branch | tag)
+      [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1
+      # Setting or dropping the upstream with its value in the same word
+      # leaves no positional, and changes branch.<b>.merge all the same.
+      if [ "$1" = branch ]; then
+        for a in "${SW[@]:$2}"; do
+          case $a in --set-u* | --unset-u* | -u?* | -[!-]*u*) ST_REF=1 ;; esac
+        done
+      fi
+      ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase) ST_HEAD=1 ;;
     push) ST_PUSH=1 ;;
@@ -5042,6 +5104,7 @@ classify_git_commit() {
 
 classify_git_push() {
   local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w name endopts=0 b c force=0 bulk=0 del=0 repo_opt=0
+  local is_repo repo_val='' repo_lit=1
   local -a pos=() posl=()
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
@@ -5066,15 +5129,29 @@ classify_git_push() {
         done
         x=delete
         case $x in "$name"*) del=1 ;; esac
+        # --repo, or any abbreviation git takes for it, names the remote.
+        is_repo=0
+        x=repo
+        case $x in "$name"*) [ "${#name}" -lt 3 ] || is_repo=1 ;; esac
         case $w in
-          *=*) [ "$name" != repo ] || repo_opt=1 ;;
+          *=*)
+            if [ "$is_repo" = 1 ]; then
+              repo_opt=1
+              repo_val=${w#*=}
+              repo_lit=${SWL[$k]}
+            fi
+            ;;
           *)
-            case $name in
-              repo | push-option | receive-pack | exec | recurse-submodules)
-                [ "$name" != repo ] || repo_opt=1
-                k=$((k + 1))
-                ;;
-            esac
+            if [ "$is_repo" = 1 ]; then
+              repo_opt=1
+              k=$((k + 1))
+              repo_val=${SW[$k]:-}
+              repo_lit=${SWL[$k]:-0}
+            else
+              case $name in
+                push-option | receive-pack | exec | recurse-submodules) k=$((k + 1)) ;;
+              esac
+            fi
             ;;
         esac
         ;;
@@ -5124,6 +5201,15 @@ classify_git_push() {
     deny_now 'this git push combines --repo with positional arguments, which the guard does not read - refusing (fail closed). Name the remote as the first argument.'
     return 0
   fi
+  # With no positional argument, the remote is the one --repo names, so it is
+  # read as the remote a bare push goes to.
+  if [ "$repo_opt" = 1 ]; then
+    if [ "$repo_lit" != 1 ] || [ -z "$repo_val" ]; then
+      deny_now 'this git push names its remote through --repo with a value the guard cannot read - refusing (fail closed). Name the remote literally as the first argument.'
+      return 0
+    fi
+    pos[0]=$repo_val
+  fi
   local refs=() r i=1
   while [ "$i" -lt "${#pos[@]}" ]; do
     r=${pos[$i]}
@@ -5144,9 +5230,9 @@ classify_git_push() {
     refs[${#refs[@]}]=$r
     i=$((i + 1))
   done
-  # Deleting a unit branch on the remote, and pushing it again, would publish
-  # a rewrite with no lease: refused to the worker tier whatever the branch's
-  # state.
+  # Deleting a unit branch, or a spec's amendment or spec-rework branch, on the
+  # remote and pushing it again would publish a rewrite with no lease: refused
+  # to the worker tier whatever the branch's state.
   if [ "$TIER" = worker ]; then
     local t
     for r in ${refs[@]+"${refs[@]}"}; do
@@ -5158,7 +5244,7 @@ classify_git_push() {
       fi
       t=${t#refs/heads/}
       t=${t#heads/}
-      if [ -n "$t" ] && is_unit_branch "$t"; then
+      if [ -n "$t" ] && { is_unit_branch "$t" || is_spec_family "$t"; }; then
         deny_now "$(worker_delete_deny "this git push" "$t")"
         return 0
       fi

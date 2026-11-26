@@ -244,6 +244,62 @@ for cmd in 'git push origin heads/x' 'git push origin refs/heads/heads/x'; do
   expect deny "[worker] the branch heads/x's own merge value is read: $cmd"
 done
 
+echo "# a push through --repo is read against the remote it names"
+RCFG="$SANDBOX/repo-option"
+clone_on "$RCFG" planwright/demo/task-1 0
+gitq -C "$RCFG" remote add other "$ORIGIN"
+gitq -C "$RCFG" config remote.other.push refs/heads/planwright/demo/task-1:refs/heads/main
+for tier in worker tower; do
+  for cmd in 'git push --repo=other' 'git push --repo other' 'git push --rep=other' 'git push -u --repo=other'; do
+    pg "$tier" "$cmd" "$RCFG" "$RCFG"
+    expect deny "[$tier] --repo names the remote whose push refspec applies: $cmd"
+  done
+done
+gitq -C "$RCFG" config --unset remote.other.push
+gitq -C "$RCFG" config remote.other.mirror true
+pg worker 'git push --repo=other' "$RCFG" "$RCFG"
+expect deny "[worker] --repo names a mirror remote, which pushes every ref"
+gitq -C "$RCFG" config --unset remote.other.mirror
+pg worker 'git push --repo=other' "$RCFG" "$RCFG"
+expect defer "[worker] --repo naming a plain remote still defers"
+pg worker 'git push --repo="$R"' "$RCFG" "$RCFG"
+expect deny "[worker] --repo through an expansion denies"
+
+echo "# a push after a same-command change to what it reads denies"
+for cmd in 'git branch --set-upstream-to=origin/main && git push origin planwright/demo/task-1' \
+  'git branch -uorigin/main && git push' 'git branch --unset-upstream && git push' \
+  'git config --unset push.default && git push origin planwright/demo/task-1' \
+  'git config --unset-all remote.origin.push && git push origin planwright/demo/task-1' \
+  'git config --remove-section push && git push' 'git config --rename-section push x && git push' \
+  'HOME=/tmp/h git push origin planwright/demo/task-1' 'export HOME=/tmp/h; git push origin planwright/demo/task-1' \
+  'XDG_CONFIG_HOME=/tmp/x git push origin planwright/demo/task-1' 'export XDG_CONFIG_HOME=/tmp/x; git push' \
+  'HOME=/tmp/h; git push' 'declare -x HOME=/tmp/h; git push' 'HOME+=/x git push'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+done
+for cmd in 'git branch --show-current && git push origin planwright/demo/task-1' \
+  'git config --get push.default && git push origin planwright/demo/task-1' \
+  'git branch -v && git push' 'TERM=dumb git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] a read beside the push still defers: $cmd"
+done
+
+echo "# a worker never deletes a spec's amendment or spec-rework branch"
+for cmd in 'git push origin :planwright/demo/amendment-3' 'git push origin --delete planwright/demo/amendment-3' \
+  'git push -d origin planwright/demo/spec-rework' 'git push origin :refs/heads/planwright/demo/spec-rework' \
+  'git push origin :Planwright/Demo/Amendment-3' \
+  'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/amendment-3' \
+  'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/spec-rework'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'spec branch' "[worker] the delete deny names the spec branch: $cmd"
+done
+for cmd in 'git push origin :feature-x' 'git push origin :planwright/demo/amendment-3b' \
+  'gh api -X DELETE repos/acme/widgets/git/refs/heads/feature-x'; do
+  pg worker "$cmd"
+  expect defer "[worker] a delete of a branch that is no spec's still defers: $cmd"
+done
+
 # --- a cd that may not run --------------------------------------------------
 
 echo "# a cd is followed only when it runs"
