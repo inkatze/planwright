@@ -8188,7 +8188,7 @@ XEOF_RUN
     fi
     lc "${w//[\"\'\\]/}"
     verb=${LC##*/}
-    # GNU coreutils under Homebrew's g prefix are the same verbs.
+    # The tools Homebrew installs under a g prefix are the same verbs.
     case $verb in gcp | gmv | ginstall | gln | glink | gtee | gdd | grsync | gtruncate | gsed | gtar) verb=${verb#g} ;; esac
     inplace=0
     makes_link=0
