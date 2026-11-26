@@ -139,7 +139,8 @@
 #               and under push.default=upstream (or tracking) also targets
 #               branch.<source>.merge. --repo with no positional argument is
 #               read as the remote it names. A worker's delete of a unit
-#               branch, or of a spec's amendment or spec-rework branch, denies.
+#               branch denies, and so does a worker's or the tower's delete of
+#               a spec's amendment or spec-rework branch.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -3902,8 +3903,8 @@ classify_gh_api() {
         return 0
         ;;
       heads/*)
-        if [ "$TIER" = worker ] && [ "$um" = DELETE ] \
-          && { is_unit_branch "${orig_rest#heads/}" || is_spec_family "${orig_rest#heads/}"; }; then
+        if [ "$um" = DELETE ] && { { [ "$TIER" = worker ] && is_unit_branch "${orig_rest#heads/}"; } \
+          || { [ "$TIER" != mission-control ] && is_spec_family "${orig_rest#heads/}"; }; }; then
           deny_now "$(worker_delete_deny "this gh api request" "${orig_rest#heads/}")"
           return 0
         fi
@@ -3978,11 +3979,12 @@ classify_gh_api() {
   return 0
 }
 
-# worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
-# unit branch on the remote.
+# worker_delete_deny <what> <branch> — the reason for deleting, on the remote,
+# a unit branch (the worker tier's refusal) or a spec's amendment or
+# spec-rework branch (the worker's and the tower's).
 worker_delete_deny() {
   if is_spec_family "$2"; then
-    printf '%s' "$1 deletes $(sanitize_printable "$2" 'a spec branch') on the remote, a spec's amendment or spec-rework branch and so a spec branch; a worker never deletes one, since deleting and pushing it again would rewrite it with no lease - refusing. Leave it to the operator."
+    printf '%s' "$1 deletes $(sanitize_printable "$2" 'a spec branch') on the remote, a spec's amendment or spec-rework branch and so a spec branch; neither a worker nor the tower deletes one, since deleting and pushing it again would rewrite it with no lease - refusing. Leave it to the operator."
     return 0
   fi
   printf '%s' "$1 deletes $(sanitize_printable "$2" 'a unit branch') on the remote; a worker never deletes a unit branch, its own included, since deleting and pushing it again would publish a rewrite with no lease - refusing. Add new commits, or publish a rewrite of your own draft branch through scripts/worker-branch-sync.sh push."
@@ -5320,8 +5322,9 @@ classify_git_push() {
   done
   # Deleting a unit branch, or a spec's amendment or spec-rework branch, on the
   # remote and pushing it again would publish a rewrite with no lease: refused
-  # to the worker tier whatever the branch's state.
-  if [ "$TIER" = worker ]; then
+  # to the worker tier whatever the branch's state, and the spec branches to
+  # the tower too, which rewrites no spec branch.
+  if [ "$TIER" = worker ] || [ "$TIER" = tower ]; then
     local t
     for r in ${refs[@]+"${refs[@]}"}; do
       t=''
@@ -5336,7 +5339,7 @@ classify_git_push() {
       fi
       t=${t#refs/heads/}
       t=${t#heads/}
-      if [ -n "$t" ] && { is_unit_branch "$t" || is_spec_family "$t"; }; then
+      if [ -n "$t" ] && { { [ "$TIER" = worker ] && is_unit_branch "$t"; } || is_spec_family "$t"; }; then
         deny_now "$(worker_delete_deny "this git push" "$t")"
         return 0
       fi
