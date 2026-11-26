@@ -152,11 +152,13 @@ die() {
   exit "${2:-1}"
 }
 
+# The policy guard's valid_branch grammar, which re-checks every stack_base.
 branch_grammar_ok() {
   case $1 in
     '' | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) return 1 ;;
+    HEAD | @) return 1 ;;
   esac
-  return 0
+  [ "${#1}" -le 255 ]
 }
 
 usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--base <branch> | --base-from-pr] [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--launcher mission-control] | path <worktree>"
@@ -401,17 +403,28 @@ fi
 
 # A stacked PR's base is another feature branch: the one the launcher names
 # with --base, or with --base-from-pr the PR's own baseRefName read once from
-# gh; with neither, none. Kept only when it differs from the default base the
-# record names, and only inside the branch grammar the guards re-check.
+# gh, taken only from an open PR whose head is in this repository (gh matches
+# a branch name to a closed PR, or to a fork's, too); with neither, none. Kept
+# only when it differs from the default base the record names, and only inside
+# the branch grammar the guards re-check. A requested base the record does not
+# carry is named on stderr, since the worker's stacked merge is refused later.
 stack_base=''
 if [ -n "$pr_base" ]; then
   if [ "$have_base" = 2 ] && command -v gh >/dev/null 2>&1; then
-    stack_arg=$(cd -- "$wt" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 15 gh pr view "$unit" --json baseRefName --jq .baseRefName 2>/dev/null </dev/null | head -n 1) || stack_arg=''
+    pr_line=$(cd -- "$wt" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 15 gh pr view "$unit" \
+      --json baseRefName,state,isCrossRepository --jq '[.state, (.isCrossRepository | tostring), .baseRefName] | join(" ")' \
+      2>/dev/null </dev/null | head -n 1) || pr_line=''
+    case $pr_line in
+      'OPEN false '?*) stack_arg=${pr_line#OPEN false } ;;
+      *) stack_arg='' ;;
+    esac
   fi
   if [ -n "$stack_arg" ] && [ "$stack_arg" != "${pr_base#*/}" ] && branch_grammar_ok "$stack_arg"; then
     stack_base=${pr_base%%/*}/$stack_arg
   fi
 fi
+[ "$have_base" = 0 ] || [ -n "$stack_base" ] \
+  || printf '%s: no stacked base recorded: %s\n' "$me" "the worktree holds no unit branch, or the base is the default one, outside the branch grammar, or (with --base-from-pr) not read from an open same-repository PR" >&2
 
 base_merge=''
 if [ -n "$primary" ]; then

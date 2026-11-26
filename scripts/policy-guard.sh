@@ -1317,7 +1317,8 @@ upstream_of() {
 }
 
 # base_of <dir> — sets BASE_REMOTE and BASE_BRANCH: the unit branch's remote
-# (origin when unset) and that remote's default branch as recorded locally.
+# (origin when unset) and that remote's default branch as recorded locally;
+# then STACK_BRANCH (stack_base_load), so CUR_BRANCH must be set first.
 base_of() {
   local head
   BASE_REMOTE=$(gitq "$1" config --get "branch.$CUR_BRANCH.remote") || BASE_REMOTE=''
@@ -1343,7 +1344,7 @@ stack_base_load() { # <dir>
   record_field unit_branch && [ "$RF" = "$CUR_BRANCH" ] || return 0
   record_field stack_base || return 0
   sb=$RF
-  [ "${sb%%/*}" = "$BASE_REMOTE" ] || return 0
+  case $sb in "$BASE_REMOTE"/?*) ;; *) return 0 ;; esac
   sb=${sb#*/}
   valid_branch "$sb" || return 0
   [ "$sb" != "$BASE_BRANCH" ] || return 0

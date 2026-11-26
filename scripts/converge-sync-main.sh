@@ -353,8 +353,9 @@ if [ -n "$base_arg" ]; then
   rec_unit='' rec_base='' rec_dup='' rec_seen=" "
   rec_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
   case $base_arg in
-    -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) rec= ;;
+    -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *. | HEAD | @) rec= ;;
   esac
+  [ "${#base_arg}" -le 255 ] || rec=
   if [ -n "$rec_top" ] && [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ]; then
     # Both sides resolved the same way: git's top level is already physical,
     # while a record path may go through a symlinked directory (macOS /var).
@@ -623,12 +624,14 @@ fi
 # (checked above against the launch record). A PR on some other base is the
 # ready-guard's job.
 
+fetch_rc=0
 if [ "$base_br" = main ]; then
   fetch_err=$(git -C "$repo" fetch origin main 2>&1 >/dev/null) || fetch_rc=$?
 else
-  fetch_err=$(git -C "$repo" fetch origin "$base_br" 2>&1 >/dev/null) || fetch_rc=$?
+  # By its full name: a bare name would take a tag of the same name first.
+  fetch_err=$(git -C "$repo" fetch origin "refs/heads/$base_br" 2>&1 >/dev/null) || fetch_rc=$?
 fi
-[ "${fetch_rc:-0}" = 0 ] || {
+[ "$fetch_rc" = 0 ] || {
   park 4 fetch-failed "git fetch origin $base_br failed — the remote is unreachable, absent, or refused the read: $(printf '%s' "$fetch_err" | tr '\n' ' ' | scrub)"
 }
 
