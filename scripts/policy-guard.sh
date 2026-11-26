@@ -1345,7 +1345,7 @@ stack_base_load() { # <dir>
   record_field stack_base || return 0
   sb=$RF
   case $sb in "$BASE_REMOTE"/?*) ;; *) return 0 ;; esac
-  sb=${sb#*/}
+  sb=${sb#"$BASE_REMOTE"/}
   valid_branch "$sb" || return 0
   [ "$sb" != "$BASE_BRANCH" ] || return 0
   STACK_BRANCH=$sb

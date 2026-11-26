@@ -31,8 +31,9 @@
 #                      (one whose base is another feature branch), from
 #                      --base <branch> or, with --base-from-pr, the PR's
 #                      baseRefName read once from gh (the one network call,
-#                      made only on request); omitted when it is the default base,
-#                      outside the branch grammar, or unknown. It is the one
+#                      made only on request, kept only from an open PR whose
+#                      head is in this repository); omitted when it is the
+#                      default base, outside the branch grammar, or unknown. It is the one
 #                      branch besides the default base a worker's base merge
 #                      may take (scripts/policy-guard.sh,
 #                      scripts/converge-sync-main.sh --base)
@@ -406,8 +407,9 @@ fi
 # gh, taken only from an open PR whose head is in this repository (gh matches
 # a branch name to a closed PR, or to a fork's, too); with neither, none. Kept
 # only when it differs from the default base the record names, and only inside
-# the branch grammar the guards re-check. A requested base the record does not
-# carry is named on stderr, since the worker's stacked merge is refused later.
+# the branch grammar the guards re-check. A stacked base asked for and not
+# recorded gets a stderr warning, since the worker's merge of it is refused
+# later; a PR on the default base is not stacked and gets none.
 stack_base=''
 if [ -n "$pr_base" ]; then
   if [ "$have_base" = 2 ] && command -v gh >/dev/null 2>&1; then
@@ -423,8 +425,10 @@ if [ -n "$pr_base" ]; then
     stack_base=${pr_base%%/*}/$stack_arg
   fi
 fi
-[ "$have_base" = 0 ] || [ -n "$stack_base" ] \
-  || printf '%s: no stacked base recorded: %s\n' "$me" "the worktree holds no unit branch, or the base is the default one, outside the branch grammar, or (with --base-from-pr) not read from an open same-repository PR" >&2
+if [ "$have_base" != 0 ] && [ -z "$stack_base" ] && { [ -z "$pr_base" ] || [ "$stack_arg" != "${pr_base#*/}" ]; }; then
+  printf '%s: no stacked base recorded (%s): the worktree holds no unit branch, the base is outside the branch grammar, or (with --base-from-pr) no open same-repository PR was read\n' \
+    "$me" "${stack_arg:-none read}" | tr -d '\000-\010\013-\037\177' >&2
+fi
 
 base_merge=''
 if [ -n "$primary" ]; then

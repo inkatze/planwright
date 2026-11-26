@@ -249,21 +249,45 @@ for bad in '-x' '../evil' 'a b' 'a..b' '' 'feat/' 'x.lock' HEAD @ "feat/$(printf
     fail "[writer] --base '${bad:0:16}' exited $RC"
   fi
 done
+# The stub runs the writer's own --jq expression over a canned PR, so the
+# expression and the writer's parse of its output are tested together.
 cat >"$SANDBOX/bin-gh-pr" <<EOF
 #!/bin/sh
 [ "\$1 \$2" = "pr view" ] || exit 1
 printf "gh %s\n" "\$*" >>"$SANDBOX/ghpr.log"
-printf '%s %s %s\n' "\${STUB_PR_STATE:-OPEN}" "\${STUB_PR_CROSS:-false}" "\${STUB_PR_BASE:-}"
+jqx=''
+while [ "\$#" -gt 0 ]; do
+  case \$1 in
+    --jq) jqx=\$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "\$jqx" ] || exit 1
+jq -n --arg s "\${STUB_PR_STATE:-OPEN}" --argjson c "\${STUB_PR_CROSS:-false}" --arg b "\${STUB_PR_BASE:-}" \
+  '{state: \$s, isCrossRepository: \$c, baseRefName: \$b}' | jq -r "\$jqx"
 EOF
 mkdir -p "$SANDBOX/ghpr"
 cp "$SANDBOX/bin-gh-pr" "$SANDBOX/ghpr/gh"
 chmod +x "$SANDBOX/ghpr/gh"
+: >"$SANDBOX/ghpr.log"
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE=$STACK_BR \
-  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>/dev/null)
-if [ "$(field stack_base)" = "origin/$STACK_BR" ]; then
+  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>"$SANDBOX/wr.err")
+if [ "$(field stack_base)" = "origin/$STACK_BR" ] && [ ! -s "$SANDBOX/wr.err" ]; then
   pass "[writer] a PR whose baseRefName is a feature branch is read once into stack_base"
 else
-  fail "[writer] the PR's base was not read: '$(field stack_base)'"
+  fail "[writer] the PR's base was not read: '$(field stack_base)' err='$(cat "$SANDBOX/wr.err")'"
+fi
+if grep -qF -- "gh pr view $UNIT12 --json baseRefName,state,isCrossRepository --jq" "$SANDBOX/ghpr.log"; then
+  pass "[writer] the PR read asks for the unit's PR state and whether it comes from a fork"
+else
+  fail "[writer] the PR read does not ask for state and fork: $(cat "$SANDBOX/ghpr.log")"
+fi
+REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE=main \
+  PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>"$SANDBOX/wr.err")
+if ! grep -q '^stack_base=' "$REC" && [ ! -s "$SANDBOX/wr.err" ]; then
+  pass "[writer] a PR on the default base records no stacked base, quietly (it is not stacked)"
+else
+  fail "[writer] a PR on main: stack_base='$(field stack_base)' err='$(cat "$SANDBOX/wr.err")'"
 fi
 REC=$(PLANWRIGHT_FLEET_STATE_DIR=$FLEET PLANWRIGHT_ADOPTER_OVERLAY=$SANDBOX/adopter STUB_PR_BASE='bad base!' \
   PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>/dev/null)
@@ -271,11 +295,6 @@ if ! grep -q '^stack_base=' "$REC"; then
   pass "[writer] a PR base outside the branch grammar is dropped"
 else
   fail "[writer] a malformed PR base reached the record: '$(field stack_base)'"
-fi
-if grep -q 'isCrossRepository' "$SANDBOX/ghpr.log" && grep -q 'state' "$SANDBOX/ghpr.log"; then
-  pass "[writer] the PR read asks for the PR's state and whether it comes from a fork"
-else
-  fail "[writer] the PR read does not ask for state and fork: $(cat "$SANDBOX/ghpr.log")"
 fi
 for odd in "STUB_PR_STATE=MERGED" "STUB_PR_STATE=CLOSED" "STUB_PR_CROSS=true"; do
   REC=$(env "$odd" PLANWRIGHT_FLEET_STATE_DIR="$FLEET" PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" STUB_PR_BASE="$STACK_BR" \
@@ -504,6 +523,15 @@ else
 fi
 
 printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: allow' >"$SYNC_CFG"
+SY5="$SANDBOX/sy5"
+sync_clone "$SY5"
+write_rec "$SANDBOX/rec/sy5.record" "origin/$STACK_BR"
+sed -i.bak "s|^worktree_root=.*|worktree_root=$SY5|" "$SANDBOX/rec/sy5.record" && rm -f "$SANDBOX/rec/sy5.record.bak"
+# The base advances before the tag exists: once it does, a push naming the
+# bare branch is ambiguous in the seed.
+adv_base "$STACK_BR"
+want=$(git -C "$ORIGIN" rev-parse "refs/heads/$STACK_BR")
+git -C "$SY5" merge-base --is-ancestor "$want" HEAD && fail "[sync] the tag-shadow clone already holds the advanced base"
 gitq -C "$SEED" switch -c shadow main
 printf 'shadow\n' >"$SEED/shadow.txt"
 gitq -C "$SEED" add shadow.txt
@@ -512,12 +540,6 @@ gitq -C "$SEED" tag "$STACK_BR"
 gitq -C "$SEED" push origin "refs/tags/$STACK_BR"
 shadow=$(git -C "$SEED" rev-parse HEAD)
 gitq -C "$SEED" switch main
-SY5="$SANDBOX/sy5"
-sync_clone "$SY5"
-write_rec "$SANDBOX/rec/sy5.record" "origin/$STACK_BR"
-sed -i.bak "s|^worktree_root=.*|worktree_root=$SY5|" "$SANDBOX/rec/sy5.record" && rm -f "$SANDBOX/rec/sy5.record.bak"
-adv_base "$STACK_BR"
-want=$(git -C "$ORIGIN" rev-parse "refs/heads/$STACK_BR")
 run_sync "$SY5" "$SANDBOX/rec/sy5.record" --base "$STACK_BR"
 if [ "$RC" = 0 ] && git -C "$SY5" merge-base --is-ancestor "$want" HEAD \
   && ! git -C "$SY5" merge-base --is-ancestor "$shadow" HEAD; then

@@ -976,7 +976,7 @@ refuse its worker's base merge. A launch given `--base <branch>`, or
 `--base-from-pr` (one bounded `gh` read, kept only from an open PR whose head
 is in this repository), writes that branch into the session record as
 `stack_base=<remote>/<branch>` (`scripts/worker-session-record.sh`); a launch
-with neither records none, and today no launcher passes either. The policy
+with neither records none. The policy
 guard reads it through the record checks it gives `spec_branch`: this user's
 own regular file of at most 4096 bytes outside the worktree, naming this unit
 branch, with one `stack_base` on the unit's remote inside the guard's branch
