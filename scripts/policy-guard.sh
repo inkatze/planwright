@@ -5797,7 +5797,8 @@ MC_REPO_WRAPPED_DENY='mission control edits no repository, and this command runs
 # An in-place editor run in text: its name opening a statement (past
 # assignments, keywords, a wrapper and its options, and a directory prefix),
 # so a word that is only an argument (grep ex, find -name vi) is none. perl or
-# ruby with a switch cluster reaching i past flag letters only, awk or gawk
+# ruby with a switch cluster reaching i past flag letters only (and ruby's -K
+# with its one code character), awk or gawk
 # including the inplace extension, and the line editors and vi, whose every
 # file operand is opened for writing. The name is matched in any letter case,
 # perl's and ruby's i in their own (it is no I). A closing parenthesis or
@@ -5816,7 +5817,7 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # first word is no switch (perl script.pl -i) is no in-place run; past a first
 # switch any words may stand before the i cluster, since a switch's value
 # (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
-RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?([0-9acdfgnpsStTuUvwWXyhl]|K[A-Za-z])*i'
+RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?([0-9acdfgnpsStTuUvwWXyhl]|K[^[:space:];&|])*i'
 # gawk's flags that take no value, which a cluster may hold before -i, -l,
 # -E, -f or -W (-bi inplace).
 RE_MC_AWK_FLAGS='[bcCghIkMnNOPrsStV]*'
