@@ -137,7 +137,7 @@ Every step receives exactly these twelve fields:
 | `PLANWRIGHT_STEP_TASK_IDS` | the unit's space-separated bare task ids, each in the task-id grammar; empty for a spec or flight |
 | `PLANWRIGHT_STEP_UNIT_KIND` | `task`, `spec`, or `flight` |
 | `PLANWRIGHT_STEP_BRANCH` | the unit branch |
-| `PLANWRIGHT_STEP_BASE_BRANCH` | the base branch (the repository's default branch for a spec-kind unit) |
+| `PLANWRIGHT_STEP_BASE_BRANCH` | the base branch (the repository's default branch for a spec-kind unit); `main` when not exported |
 | `PLANWRIGHT_STEP_WORKTREE` | the worktree path |
 | `PLANWRIGHT_STEP_PR_NUMBER` | the PR number, empty while none exists (set at every point on a re-execution against an open PR) |
 | `PLANWRIGHT_STEP_POINT` | the point name |
