@@ -645,10 +645,9 @@ window_rung() {
 }
 
 # ascending_thresholds <window> <t>...: exit 4 unless the enabled thresholds
-# are strictly ascending, so a rung switched `off` leaves the rest ordered,
-# except that rungs at 100, the wall, may repeat: an override parks a window's
-# top rungs there (they still trip at 100), and a rung below 100 after one is
-# refused.
+# are strictly ascending (rungs at 100, the wall, may repeat; a rung below 100
+# after one is refused), so a rung switched `off` leaves the rest ordered. An
+# override parks a window's top rungs at 100, where they still trip.
 ascending_thresholds() {
   at_w=$1
   shift
