@@ -1,7 +1,8 @@
 #!/bin/bash
 # Adversarial suite for scripts/policy-guard.sh: a worker carrying a spec PR
 # whose branch has fallen behind main reaches its own PR head and syncs it
-# with main, with no operator step. On a spec branch its launch names (the
+# with main locally, with no operator step; no agent push publishes the
+# result. On a spec branch its launch names (the
 # session record's spec_branch, or its kickoff scope's), checked out in its own
 # linked worktree, it may fast-forward to that branch's own remote-tracking ref
 # and then merge the PR base; every refusal on that path names the route.
@@ -123,7 +124,7 @@ kick 'git merge origin/main'
 expect defer "[kick] then the PR base merges"
 [ "$DECISION" != defer ] || gitq -C "$W" merge --no-edit origin/main
 if git -C "$W" merge-base --is-ancestor "origin/$CARRY" HEAD && git -C "$W" merge-base --is-ancestor origin/main HEAD; then
-  pass "the spec branch now holds its PR head and main, so its push fast-forwards the PR"
+  pass "the spec branch now holds its PR head and main, so publishing it would fast-forward the PR"
 else
   fail "the spec branch is missing its PR head or main after the guard's verdicts"
 fi

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Adversarial suite for scripts/policy-guard.sh: a spec PR branch outside the
 # protected floor (planwright/<spec>/amendment-*, planwright/<spec>/spec-rework*)
-# is published only by its kickoff session through kickoff-spec-push.sh. Every
-# other push or host ref write to one denies at every tier, whether or not the
+# is published by no agent push: an amendment branch goes out through its
+# kickoff session's kickoff-spec-push.sh. Every push or host ref write to one
+# denies at every tier, whether or not the
 # launch record names the branch, while the local sync of a spec branch the
 # launch names stays admitted.
 #

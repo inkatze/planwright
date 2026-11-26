@@ -950,10 +950,11 @@ the record opens no push. Every agent `git push`, and every `gh api` ref,
 commit, contents or rename write, naming a spec PR branch outside the
 protected floor (`planwright/<spec>/amendment-*`,
 `planwright/<spec>/spec-rework*`) is refused at every tier, the record or a
-kickoff scope notwithstanding. Only the kickoff push helper publishes one,
-from below the hook, and it takes `planwright/<spec>/spec` and
-`planwright/<spec>/amendment-<n>` alone, so no agent route publishes a
-spec-rework branch.
+kickoff scope notwithstanding. Two routes publish one, both below the hook:
+the kickoff push helper, which takes `planwright/<spec>/spec` and
+`planwright/<spec>/amendment-<n>` alone, and the tower's operator-requested
+force-push (`scripts/tower-force-push.sh`), which refuses only the protected
+set. No other agent route publishes a spec-rework branch.
 
 A kickoff session needs no record for the second act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
