@@ -109,10 +109,10 @@ config opt-in") states what it opens.
 stream-json rung only, and only for the head branch of an open pull request,
 checked with gh before the launch) records that spec PR branch in the session
 record, so the policy guard lets the session fast-forward its flight branch to
-it, and sync a worktree holding it with the PR base, and nothing wider: the
-record opens no push of an amendment or spec-rework branch, and for a spec's
-sign-off branch (planwright/<spec>/spec) only a forward merge of the PR base
-and the push of it (docs/permission-matcher-model.md).
+it, sync a worktree holding it with the PR base, and push that clean merge of
+the PR base to an amendment or spec-rework branch, and nothing wider; for a
+spec's sign-off branch (planwright/<spec>/spec), only a forward merge of the
+PR base and the push of it (docs/permission-matcher-model.md).
 A stream-json mission-control launch also records the session as a wake
 target (scripts/mc-wake.sh target add) and retire removes it, so the
 runner's wakes reach a session that loads no mod.

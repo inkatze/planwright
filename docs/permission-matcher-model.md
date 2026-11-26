@@ -918,8 +918,9 @@ environment. A record that is a symlink, is not this user's own regular file,
 sits inside the worktree, names the field twice, or names anything outside
 `planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
 set other than a sign-off branch, below) names no branch. Only the worker
-tier reads it. Two acts open (a sign-off branch takes the separate pair
-below instead), and nothing else:
+tier reads it. Two acts open, and on an amendment or spec-rework branch the
+push of the merge they build (below); a sign-off branch takes the separate
+pair below instead, and nothing else opens:
 
 - **Bring the branch in.** On the session's own flight branch,
   `git merge --ff-only origin/<spec branch>` (also spelled
@@ -947,20 +948,19 @@ below instead), and nothing else:
   worktree when it is elsewhere, then the fast-forward to the PR head, then
   the base merge.
 
-No force, reset or rebase is admitted by either act, and neither publishes:
-the record opens no push of such a branch (the sign-off branch's pair below is
-the one push a record opens). Every agent `git push`, and every `gh api` ref,
-commit, contents or rename write, naming a spec PR branch outside the
-protected floor (`planwright/<spec>/amendment-*`,
+No force, reset or rebase is admitted by either act. Every agent `git push`,
+and every `gh api` ref, commit, contents or rename write, naming a spec PR
+branch outside the protected floor (`planwright/<spec>/amendment-*`,
 `planwright/<spec>/spec-rework*`) is refused at every tier, the record or a
-kickoff scope notwithstanding. Only the kickoff push helper publishes one,
-from below the hook, and it takes `planwright/<spec>/spec` and
-`planwright/<spec>/amendment-<n>` alone. `scripts/tower-force-push.sh` refuses
-only the protected set, but pushing a spec branch is the kickoff's composition
-contract (`doctrine/human-gates.md`) and the tower skill keeps its force-push
-off spec branches, which human-gates counts the sign-off, amendment and
-spec-rework branches among, so no agent route publishes a spec-rework branch:
-the operator does.
+kickoff scope notwithstanding, but one: the push of a clean merge of `main` by
+the worker the record names, below. A spec's content reaches such a branch
+only through the kickoff push helper, from below the hook, which takes
+`planwright/<spec>/spec` and `planwright/<spec>/amendment-<n>` alone.
+`scripts/tower-force-push.sh` refuses only the protected set, but pushing a
+spec branch is the kickoff's composition contract (`doctrine/human-gates.md`)
+and the tower skill keeps its force-push off spec branches, which human-gates
+counts the sign-off, amendment and spec-rework branches among, so no agent
+route publishes a spec-rework branch's content: the operator does.
 
 A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
 floor, and only its kickoff writes the spec's content there. A record naming
@@ -1008,6 +1008,19 @@ on that pull request can land a forward merge of `main` and nothing else:
   `protected_branches` addition that matches the sign-off branch, a
   duplicate of that entry included, still refuses them. Every other target
   of the same push is read as usual.
+
+An amendment branch (`planwright/<spec>/amendment-<n>`) or a spec-rework
+branch (`planwright/<spec>/spec-rework`) the record names takes that same
+push, built by the sync act above and decided by the same check, with three
+differences. The branch sits outside the protected floor, so the protected set
+is read for it whole and any entry matching it refuses. The push must add at
+least one merge, the newest a merge of `main`'s tip as the remote reports it:
+a merge of an older `main` commit refuses until `main` is merged again, and a
+push adding nothing refuses. And `worker_base_merge: deny` refuses the push as
+it refuses the merge. Any other spelling of these branches (`amendment-x`,
+`spec-rework-2`), a push from a session with no record or one naming another
+branch, a record variable assigned on the command line, and every host write
+still refuse, so a hand resolution or a spec edit never leaves the worker.
 
 A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
