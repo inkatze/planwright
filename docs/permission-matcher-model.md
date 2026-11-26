@@ -1011,13 +1011,12 @@ on that pull request can land a forward merge of `main` and nothing else:
 
 An amendment branch (`planwright/<spec>/amendment-<n>`) or a spec-rework
 branch (`planwright/<spec>/spec-rework`) the record names takes that same
-push, built by the sync act above and decided by the same check, with three
+push, built by the sync act above and decided by the same check, with two
 differences. The branch sits outside the protected floor, so the protected set
-is read for it whole and any entry matching it refuses. The push must add at
-least one merge, the newest a merge of `main`'s tip as the remote reports it:
-a merge of an older `main` commit refuses until `main` is merged again, and a
-push adding nothing refuses. And `worker_base_merge: deny` refuses the push as
-it refuses the merge. Any other spelling of these branches (`amendment-x`,
+is read for it whole and any entry matching it refuses. And
+`worker_base_merge: deny` refuses the push as it refuses the merge. As on the
+sign-off branch, a merge of any commit `main` holds, several merges in a row,
+and a push adding nothing are admitted. Any other spelling of these branches (`amendment-x`,
 `spec-rework-2`), a push from a session with no record or one naming another
 branch, a record variable assigned on the command line, and every host write
 still refuse, so a hand resolution or a spec edit never leaves the worker.

@@ -144,9 +144,8 @@
 #               refspec as the command's only act from the worker's worktree
 #               holding it: signoff_push_check decides it, a fast-forward of
 #               nothing but clean merges of the base, read from the remote
-#               itself (on an amendment or spec-rework branch at least one,
-#               the newest of the base's tip). A sign-off branch reads no
-#               protected set for it.
+#               itself. A sign-off branch reads no protected set for it; the
+#               other two read it whole and need worker_base_merge allow.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -5427,9 +5426,8 @@ is_signoff_branch() {
 # is_merge_route_branch <branch> — 0 for an amendment branch
 # (planwright/<spec>/amendment-<n>) or a spec-rework branch
 # (planwright/<spec>/spec-rework), given a name in the same shape: the spec PR
-# branches whose recorded worker pushes a merge of main (signoff_push_check
-# with its tip argument). Every other spelling the spec PR branch rule catches
-# stays refused.
+# branches whose recorded worker pushes merges of main (signoff_push_check).
+# Every other spelling the spec PR branch rule catches stays refused.
 is_merge_route_branch() {
   case $1 in planwright/flight/*) return 1 ;; esac
   case ${1##*/} in
@@ -5824,16 +5822,16 @@ signoff_transport_stock() {
 # the PR head and the remote's default branch as the remote itself reports
 # them, a fast-forward whose every new commit off that base lies on the
 # first-parent line and is a two-parent merge of a base commit whose tree is
-# the clean merge of its parents. With <tip> 1 (an amendment or spec-rework
-# branch, is_merge_route_branch) the push must add at least that one merge,
-# its newest merging the base's tip as the remote reports it, and
-# worker_base_merge must be allow. SPC_WHY says why not.
+# the clean merge of its parents. <branch> is the record's sign-off,
+# amendment or spec-rework branch (is_signoff_branch, is_merge_route_branch);
+# on the latter two worker_base_merge must also be allow. SPC_WHY says why
+# not.
 SPC_WHY=''
 signoff_push_check() {
-  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 tip=${7:-0} sig=1 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' newest_p2='' n=0 rc=0
+  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 sig=0 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
   local -a par
   SPC_WHY=''
-  [ "$tip" = 0 ] || sig=0
+  ! is_signoff_branch "$sb" || sig=1
   [ "$del" = 0 ] || {
     SPC_WHY='this push deletes'
     return 1
@@ -5846,7 +5844,7 @@ signoff_push_check() {
     SPC_WHY="it runs outside the worktree holding $(sanitize_printable "$sb" 'the branch') (the session's own linked worktree, with that branch checked out); push from there"
     return 1
   }
-  if [ "$tip" = 1 ]; then
+  if [ "$sig" = 0 ]; then
     read_knob worker_base_merge "$d" allow deny
     [ "$KNOB_VAL" = allow ] || {
       SPC_WHY='worker_base_merge is deny, so no merge of main reaches this branch; the operator syncs it with its base'
@@ -5957,7 +5955,6 @@ EOF
       return 1
     }
     oldest_p1=${par[1]}
-    [ "$n" != 1 ] || newest_p2=${par[2]}
   done <<EOF
 $lines
 EOF
@@ -5965,16 +5962,6 @@ EOF
     SPC_WHY='the commits it adds could not be listed'
     return 1
   }
-  if [ "$tip" = 1 ]; then
-    [ "$n" != 0 ] || {
-      SPC_WHY="it adds no merge of main; git merge $(sanitize_printable "$rem/$base" 'origin/main') first"
-      return 1
-    }
-    [ "$newest_p2" = "$moid" ] || {
-      SPC_WHY="its newest merge is of $(sanitize_printable "${newest_p2:0:12}" 'an older commit'), not of $base's tip as $rem holds it ($(sanitize_printable "${moid:0:12}" 'the tip')); fetch, then git merge $(sanitize_printable "$rem/$base" 'origin/main') again"
-      return 1
-    }
-  fi
   # The line must start on the PR head itself, not on an older commit the
   # head descends from (the head then reached only through main).
   [ "$n" = 0 ] || [ "$oldest_p1" = "$roid" ] || {
@@ -5985,7 +5972,7 @@ EOF
 }
 
 eval_push() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb recb='' tip=0
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb recb=''
   del=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   alone=${rest%%"$TAB"*}
@@ -6023,10 +6010,8 @@ eval_push() {
   else
     if [ "$TIER" = worker ] && checkout_of "$dir"; then
       record_spec_branch "$CO_TOP"
-      if is_signoff_branch "$SPEC_BRANCH"; then
+      if is_signoff_branch "$SPEC_BRANCH" || is_merge_route_branch "$SPEC_BRANCH"; then
         recb=$SPEC_BRANCH
-      elif is_merge_route_branch "$SPEC_BRANCH"; then
-        recb=$SPEC_BRANCH tip=1
       fi
     fi
     for r in $refs; do
@@ -6053,10 +6038,10 @@ eval_push() {
       valid_branch "$dst" \
         || emit_deny "this git push names a destination the guard will not check ($(sanitize_printable "$dst" 'unprintable')) - refusing (fail closed)."
       if [ -n "$recb" ] && [ "$dst" = "$recb" ]; then
-        signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" "$tip" && continue
-        [ "$tip" = 1 ] \
+        signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" && continue
+        ! is_signoff_branch "$dst" \
           || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec sign-off branch') is refused: $SPC_WHY. Only that spec's kickoff writes its sign-off branch; a session launched on its pull request pushes there only a fast-forward that adds nothing but clean merges of main, as the command's only act."
-        emit_deny "this git push to $(sanitize_printable "$dst" 'a spec PR branch'), a spec PR branch, is refused: $SPC_WHY. The worker its launch record names pushes there only a fast-forward that adds nothing but clean merges of main, the newest of main's tip, by explicit refspec from its own worktree holding the branch, as the command's only act; any other change goes through its kickoff session or the operator."
+        emit_deny "this git push to $(sanitize_printable "$dst" 'a spec PR branch'), a spec PR branch, is refused: $SPC_WHY. The worker its launch record names pushes there only a fast-forward that adds nothing but clean merges of main, by explicit refspec from its own worktree holding the branch, as the command's only act; any other change goes through its kickoff session or the operator."
       fi
       targets[${#targets[@]}]=$dst
     done

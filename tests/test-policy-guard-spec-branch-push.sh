@@ -3,8 +3,8 @@
 # protected floor (planwright/<spec>/amendment-*, planwright/<spec>/spec-rework*)
 # takes one agent push: the worker whose launch record names an
 # amendment-<n> or spec-rework branch pushes, from its own worktree holding
-# it, a fast-forward adding only clean merges of main, the newest merging
-# main's tip. An amendment-<n> branch's content goes out through its kickoff
+# it, a fast-forward adding only clean merges of main (the sign-off branch's
+# check). An amendment-<n> branch's content goes out through its kickoff
 # session's kickoff-spec-push.sh. Every other push or host ref write to one
 # denies at every tier, while the local sync of a spec branch the launch
 # names stays admitted.
@@ -294,8 +294,7 @@ am "git push origin HEAD:refs/heads/$SB"
 expect deny "[worker, spec worktree] a plain commit on top of a clean merge denies"
 at_pr_head "$AM" "$SB"
 am "git push origin HEAD:refs/heads/$SB"
-expect deny "[worker, spec worktree] a push adding nothing (no merge at all) denies"
-reason_has 'merge of main' "[worker, spec worktree] the refusal asks for the merge of main"
+push_ok "[worker, spec worktree] a push adding nothing pushes, as on the sign-off branch"
 gitq -C "$AM" switch -q --detach origin/main
 commit_file "$AM" side.txt 'a line main never took'
 SIDE=$(git -C "$AM" rev-parse HEAD)
@@ -310,17 +309,21 @@ fi
 am "git push origin HEAD:refs/heads/$SB"
 expect deny "[worker, spec worktree] a merge of a commit main does not hold denies"
 
-echo "# the newest merge is of main's tip as the remote holds it"
+echo "# a merge of any commit main holds, or two in a row, pushes"
 merged "$AM" "$SB"
 commit_file "$SEED" scripts/main-moves.sh 'main moves again'
 gitq -C "$SEED" push -q origin main
 am "git push origin HEAD:refs/heads/$SB"
-expect deny "[worker, spec worktree] a merge of a main commit that is no longer the tip denies"
-reason_has 'tip' "[worker, spec worktree] the refusal names main's tip"
+push_ok "[worker, spec worktree] a merge of a main commit that is no longer the tip pushes"
 gitq -C "$FL" fetch -q origin
 gitq -C "$AM" merge -q --no-edit origin/main
+if [ "$(git -C "$AM" rev-list --count --merges "origin/$SB..HEAD")" = 2 ]; then
+  pass "setup: the two-merge fixture holds two merges"
+else
+  fail "setup: the two-merge fixture did not build two merges"
+fi
 am "git push origin HEAD:refs/heads/$SB"
-push_ok "[worker, spec worktree] merging main again onto the first merge pushes"
+push_ok "[worker, spec worktree] two merges of main in a row push"
 
 echo "# worker_base_merge deny refuses the push"
 set_knobs 'ready_flip_policy: unit-owner' 'worker_base_merge: deny' 'unpushed_rewrite: allow'
