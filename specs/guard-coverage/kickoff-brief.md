@@ -522,3 +522,35 @@ D-1 already decided; no requirement or decision changes meaning.
 Class: expression-only
 Anchor: `e7e32e6836839051e95ace746a4b01e5914ea9bc` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
+
+### 2026-11-14 — test-time early-warning band (scoped delta kickoff)
+
+Scoped kickoff of the reopened bundle's extension delta: REQ-E1.4, D-14
+(superseding D-8 in part), Task 12 and the REQ-E1.4 test-spec entry. The
+bundle moves Draft to Ready on all four files.
+
+Operator decisions on the drafting defaults, each confirmed as proposed:
+
+1. Warn fraction 80% of the per-file budget.
+2. The band applies to the per-file budget only; the mean-file and
+   per-shard budgets get none (D-14 records the reason).
+3. `warn_percent` is a required key in the budget file; a missing or
+   out-of-range value (outside 0 to 100 exclusive) is the gate's exit 2.
+4. In CI the warning is both a log line and a `::warning::` annotation.
+
+Lens review (delta-scoped, walked inline, the delta being small and narrow;
+altitude and ship-gate checks not applicable): two findings. Applied: D-14's
+annotation trigger now reads "when `GITHUB_ACTIONS=true`", matching Task 12
+and the test-spec. Declined with rationale: `warn_percent` sits beside
+`untimed_warn_percent`, whose range includes 100 while the new key's does
+not; the interval is stated in REQ-E1.4 and covered by Task 12's fixtures.
+Undispositioned findings: none. Validator: clean before the flip; the only
+finding after it was the anchor mismatch this entry resolves.
+
+**Cites the changelog line:** the 2026-11-13 `## Changelog` entry in
+`design.md`, and the 2026-11-13 entry in `requirements.md`.
+
+Class: meaning
+Lens-pass: delta-scoped lens review above, inline, every finding dispositioned
+Anchor: `0f1c004cab8e04f545de33fdc858c48973bb46c6` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`

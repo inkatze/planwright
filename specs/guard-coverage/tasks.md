@@ -1,11 +1,11 @@
 # Guard Coverage — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-11-14
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Eleven tasks. The dependency edges are authoritative in each block's
+Twelve tasks (Task 12 is the 2026-11-13 extension, a parallel root). The dependency edges are authoritative in each block's
 `Dependencies:` field (rendered on demand via `scripts/spec-graph.sh`);
 in prose, most tasks are parallel roots, Task 3 builds on Task 2's hook,
 Task 7 gates on the full fixture-bearing suite, and Task 11 closes over
@@ -336,6 +336,26 @@ preference, roots are all dispatchable immediately.
   none missing.
 - **Dependencies:** 1, 2, 3, 4, 5, 7, 9, 10
 - **Citations:** D-13 · REQ-H1.1, REQ-H1.2, REQ-H1.3
+- **Estimated effort:** half day
+
+### Task 12 — Test-time early-warning band
+
+- **Deliverables:** `scripts/check-test-time.sh` reads a required
+  `warn_percent` key (positive, under 100, otherwise exit 2) and prints one
+  non-failing warning per file at or over that share of
+  `per_file_seconds` and under it, in both modes, as a `::warning::`
+  annotation too when `GITHUB_ACTIONS=true`, marking those files in the
+  ranked table; `config/test-time-budget.yml` sets `warn_percent: 80` with
+  its header documenting the band and the value's derivation; `--help`
+  describes it; fixture tests in `tests/test-check-test-time.sh`.
+- **Done when:** A fixture report with a file between the warn line and the
+  budget exits 0 in CI mode and in local mode and names that file in a
+  warning; a file at the warn line exactly warns and one just under it does
+  not; a file at or over the budget prints only the existing failure, once;
+  a budget file missing `warn_percent`, or holding 0, 100, a negative or a
+  non-number, exits 2; the real tree passes `mise run check`.
+- **Dependencies:** none
+- **Citations:** D-14 · REQ-E1.4
 - **Estimated effort:** half day
 
 ## Awaiting input
