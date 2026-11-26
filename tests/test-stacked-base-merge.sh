@@ -128,6 +128,24 @@ expect deny "[worker] a record repeating stack_base is dropped whole"
 } >"$SANDBOX/rec/big.record"
 sg worker "git merge origin/$STACK_BR" "$SANDBOX/rec/big.record"
 expect deny "[worker] a record past the 4096 bytes every reader accepts is no record"
+gitq -C "$STACK" update-ref refs/remotes/origin/origin "$(tip "$STACK_BR")"
+write_rec "$SANDBOX/rec/noslash.record" origin
+sg worker 'git merge origin/origin' "$SANDBOX/rec/noslash.record"
+expect deny "[worker] a record base naming only the remote is no branch"
+gitq -C "$STACK" update-ref -d refs/remotes/origin/origin
+sg worker "git merge remotes/origin/$STACK_BR"
+expect defer "[worker] stacked: the remotes/<remote>/<base> spelling defers"
+short_tip=$(tip "$STACK_BR")
+sg worker "git merge ${short_tip%????????????????????????????}"
+expect deny "[worker] stacked: an abbreviated id of the base's tip is refused"
+sg worker "git pull origin $STACK_BR" ""
+expect deny "[worker] no session record: a pull of the stacked base is refused"
+sg worker "git pull origin $OTHER_BR"
+reason_has "git pull origin $STACK_BR" "[worker] the pull refusal names the stacked base"
+sg worker "PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/rec/ok.record /bin/bash $SYNC --base $STACK_BR"
+expect deny "[worker] naming another session record for the sync script is refused"
+sg worker "export PLANWRIGHT_WORKER_SESSION_RECORD=$SANDBOX/rec/ok.record"
+expect deny "[worker] exporting another session record is refused"
 sg tower "git merge origin/$STACK_BR"
 expect deny "[tower] the stacked base merge is refused at the tower"
 set_knobs 'worker_base_merge: deny'
@@ -221,19 +239,19 @@ if [ "$RC" = 0 ] && ! grep -q '^stack_base=' "$REC"; then
 else
   fail "[writer] --base main wrote stack_base='$(field stack_base)'"
 fi
-for bad in '-x' '../evil' 'a b' 'a..b' '' 'feat/' 'x.lock'; do
+for bad in '-x' '../evil' 'a b' 'a..b' '' 'feat/' 'x.lock' HEAD @ "feat/$(printf '%0260d' 0)"; do
   wr "$WT" --base "$bad"
   if [ "$RC" = 2 ]; then
-    pass "[writer] --base '$bad' is a usage error"
+    pass "[writer] --base '${bad:0:16}' is a usage error"
   else
-    fail "[writer] --base '$bad' exited $RC"
+    fail "[writer] --base '${bad:0:16}' exited $RC"
   fi
 done
 cat >"$SANDBOX/bin-gh-pr" <<EOF
 #!/bin/sh
 [ "\$1 \$2" = "pr view" ] || exit 1
 printf "gh %s\n" "\$*" >>"$SANDBOX/ghpr.log"
-printf '%s\n' "\${STUB_PR_BASE:-}"
+printf '%s %s %s\n' "\${STUB_PR_STATE:-OPEN}" "\${STUB_PR_CROSS:-false}" "\${STUB_PR_BASE:-}"
 EOF
 mkdir -p "$SANDBOX/ghpr"
 cp "$SANDBOX/bin-gh-pr" "$SANDBOX/ghpr/gh"
@@ -252,6 +270,20 @@ if ! grep -q '^stack_base=' "$REC"; then
 else
   fail "[writer] a malformed PR base reached the record: '$(field stack_base)'"
 fi
+if grep -q 'isCrossRepository' "$SANDBOX/ghpr.log" && grep -q 'state' "$SANDBOX/ghpr.log"; then
+  pass "[writer] the PR read asks for the PR's state and whether it comes from a fork"
+else
+  fail "[writer] the PR read does not ask for state and fork: $(cat "$SANDBOX/ghpr.log")"
+fi
+for odd in "STUB_PR_STATE=MERGED" "STUB_PR_STATE=CLOSED" "STUB_PR_CROSS=true"; do
+  REC=$(env "$odd" PLANWRIGHT_FLEET_STATE_DIR="$FLEET" PLANWRIGHT_ADOPTER_OVERLAY="$SANDBOX/adopter" STUB_PR_BASE="$STACK_BR" \
+    PATH="$SANDBOX/ghpr:$PATH" /bin/sh "$WRITER" write "$WT" --base-from-pr 2>"$SANDBOX/wr.err")
+  if ! grep -q '^stack_base=' "$REC" && grep -q 'no stacked base' "$SANDBOX/wr.err"; then
+    pass "[writer] a PR read with $odd records no stacked base, and says so"
+  else
+    fail "[writer] $odd: stack_base='$(field stack_base)' err='$(cat "$SANDBOX/wr.err")'"
+  fi
+done
 for both in "--base $STACK_BR --base-from-pr" "--base-from-pr --base $STACK_BR"; do
   # shellcheck disable=SC2086 # the two flags, split on purpose
   wr "$WT" $both
@@ -397,6 +429,17 @@ if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err"; then
 else
   fail "[sync] --base a..b: rc=$RC"
 fi
+long_br=feat/$(printf '%0260d' 0)
+for bad in HEAD @ "$long_br"; do
+  write_rec "$SANDBOX/rec/sy2bad.record" "origin/$bad"
+  sed -i.bak "s|^worktree_root=.*|worktree_root=$SY2|" "$SANDBOX/rec/sy2bad.record" && rm -f "$SANDBOX/rec/sy2bad.record.bak"
+  run_sync "$SY2" "$SANDBOX/rec/sy2bad.record" --base "$bad"
+  if [ "$RC" = 2 ] && grep -q "launch record" "$SANDBOX/sync.err" && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+    pass "[sync] --base '${bad:0:16}' is outside the guard's branch grammar and refused even when the record names it"
+  else
+    fail "[sync] --base '${bad:0:16}': rc=$RC"
+  fi
+done
 printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: deny' >"$SYNC_CFG"
 run_sync "$SY2" "$SANDBOX/rec/sy2.record" --base "$STACK_BR"
 case $OUT in
@@ -411,7 +454,7 @@ else
   fail "[sync] --base main with no record exited 0"
 fi
 run_sync "$SY2" ""
-if [ "$RC" = 0 ] || [ "$RC" = 5 ] || [ "$RC" = 6 ]; then
+if [ "$RC" = 0 ] && git -C "$SY2" merge-base --is-ancestor "$(git -C "$ORIGIN" rev-parse refs/heads/main)" HEAD; then
   pass "[sync] the plain form, with no --base, still syncs main as before"
 else
   fail "[sync] the plain form: rc=$RC err='$(cat "$SANDBOX/sync.err")'"
@@ -447,5 +490,38 @@ case $OUT in
     ;;
   *) fail "[sync] the resolve instruction omits --base: rc=$RC out='$OUT'" ;;
 esac
+printf 'resolved\n' >"$SY4/clash.txt"
+gitq -C "$SY4" add clash.txt
+want=$(git -C "$ORIGIN" rev-parse "refs/heads/$STACK_BR")
+run_sync "$SY4" "$SANDBOX/rec/sy4.record" --base "$STACK_BR" --commit-resolution demo/12
+if [ "$RC" = 0 ] && [ "$(git -C "$SY4" rev-parse HEAD^2)" = "$want" ] \
+  && git -C "$SY4" log -1 --format=%s | grep -qF "Merge origin/$STACK_BR, resolving conflicts"; then
+  pass "[sync] --base with --commit-resolution commits the stacked merge as a merge of that base"
+else
+  fail "[sync] stacked --commit-resolution: rc=$RC out='$OUT' err='$(cat "$SANDBOX/sync.err")'"
+fi
+
+printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: allow' >"$SYNC_CFG"
+gitq -C "$SEED" switch -c shadow main
+printf 'shadow\n' >"$SEED/shadow.txt"
+gitq -C "$SEED" add shadow.txt
+gitq -C "$SEED" commit -m "a tag named like the stacked base"
+gitq -C "$SEED" tag "$STACK_BR"
+gitq -C "$SEED" push origin "refs/tags/$STACK_BR"
+shadow=$(git -C "$SEED" rev-parse HEAD)
+gitq -C "$SEED" switch main
+SY5="$SANDBOX/sy5"
+sync_clone "$SY5"
+write_rec "$SANDBOX/rec/sy5.record" "origin/$STACK_BR"
+sed -i.bak "s|^worktree_root=.*|worktree_root=$SY5|" "$SANDBOX/rec/sy5.record" && rm -f "$SANDBOX/rec/sy5.record.bak"
+adv_base "$STACK_BR"
+want=$(git -C "$ORIGIN" rev-parse "refs/heads/$STACK_BR")
+run_sync "$SY5" "$SANDBOX/rec/sy5.record" --base "$STACK_BR"
+if [ "$RC" = 0 ] && git -C "$SY5" merge-base --is-ancestor "$want" HEAD \
+  && ! git -C "$SY5" merge-base --is-ancestor "$shadow" HEAD; then
+  pass "[sync] --base fetches the base branch, never a tag of the same name"
+else
+  fail "[sync] a tag named like the base: rc=$RC err='$(cat "$SANDBOX/sync.err")'"
+fi
 
 finish
