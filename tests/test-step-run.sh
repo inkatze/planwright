@@ -281,7 +281,9 @@ catalog "show|kind: command|target: $bin/show.sh"
 config 'steps_pre_pr: [show]'
 wtp=$(cd -P "$tmp/wt$n" && pwd -P)
 git -C "$wtp" branch -m planwright/flight/demo-0123abcd
-printf 'policy=\nunit_branch=planwright/flight/demo-0123abcd\nworktree_root=%s\npr_base=origin/main\n' "$wtp" >"$tmp/launch.record"
+# The record's base differs from git's default (main), so the base proves the
+# record was read; the branch must agree with git, which refuses otherwise.
+printf 'policy=\nunit_branch=planwright/flight/demo-0123abcd\nworktree_root=%s\npr_base=origin/release\n' "$wtp" >"$tmp/launch.record"
 noctx() {
   _rec=$1
   shift
@@ -294,12 +296,18 @@ noctx "$tmp/launch.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"
 noctx "$tmp/launch.record" command --run "$r" --point pre-pr --step show >/dev/null 2>>"$tmp/err"
 grep -qx 'PLANWRIGHT_STEP_UNIT_KIND=flight' "$tmp/show.show.env" \
   && grep -qx 'PLANWRIGHT_STEP_BRANCH=planwright/flight/demo-0123abcd' "$tmp/show.show.env" \
-  && grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=main' "$tmp/show.show.env" \
+  && grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=release' "$tmp/show.show.env" \
   && grep -qx "PLANWRIGHT_STEP_WORKTREE=$wtp" "$tmp/show.show.env" \
   && grep -qx 'PLANWRIGHT_STEP_SPEC=' "$tmp/show.show.env"
 verdict $? "a flight worker's step sees its kind, branch, base and worktree from the launch record" \
   "env: $(cat "$tmp/show.show.env" 2>&1) err: $(cat "$tmp/err")"
 rm -f "$tmp/show.show.env"
+printf 'policy=\nunit_branch=planwright/flight/stale-0123abcd\nworktree_root=%s\npr_base=origin/release\n' "$wtp" >"$tmp/stale.record"
+r=$(sr new-run)
+noctx "$tmp/stale.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"
+rc=$?
+[ "$rc" -eq 2 ] && grep -q 'planwright/flight/stale-0123abcd' "$tmp/err" && grep -q 'planwright/flight/demo-0123abcd' "$tmp/err"
+verdict $? "a launch record whose branch disagrees with git is refused naming both" "rc $rc err: $(cat "$tmp/err")"
 printf 'policy=\nunit_branch=planwright/flight/other-99999999\nworktree_root=%s/elsewhere\npr_base=origin/develop\n' "$wtp" >"$tmp/other.record"
 r=$(sr new-run)
 noctx "$tmp/other.record" resolve --run "$r" pre-pr --unattended >/dev/null 2>"$tmp/err"

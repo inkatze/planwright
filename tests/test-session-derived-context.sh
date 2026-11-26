@@ -162,7 +162,7 @@ grep -qx 'PLANWRIGHT_STEP_BASE_BRANCH=develop' "$tmp/show.show.env" && grep -qx 
   && grep -qx 'PLANWRIGHT_STEP_PR_NUMBER=5' "$tmp/show.show.env"
 verdict $? "a base, spec, task ids and PR number git cannot know are taken as exported" "env: $(cat "$tmp/show.show.env" 2>&1)"
 
-# A read of another worktree is not refused for the exported context of this one.
+# audit and list do not refuse an exported context that disagrees with git.
 env_run env PLANWRIGHT_STEP_BRANCH=planwright/other/task-9 "$RUN" --worktree "$wt" audit --through pre-pr >"$tmp/out" 2>"$tmp/err"
 case $? in 0 | 1) ok "audit does not refuse an exported context that names another unit" ;; *) fail "audit refused: $(cat "$tmp/err")" ;; esac
 env_run env PLANWRIGHT_STEP_BRANCH=planwright/other/task-9 "$SR" --worktree "$wt" list >"$tmp/out" 2>"$tmp/err"
@@ -259,6 +259,9 @@ verdict $? "the preamble with no worktree exported carries the worktree, branch,
 rc=$?
 [ "$rc" -eq 6 ] && grep -q elsewhere "$tmp/err" && grep -q 'planwright/flight/demo-0123abcd' "$tmp/err"
 verdict $? "a preamble whose exported branch disagrees with git exits 6 naming both" "rc $rc err: $(cat "$tmp/err")"
+got=$(cd "$wt" && bare_ctx "$RS" pre-pr --prefix 2>"$tmp/err")
+printf '%s' "$got" | grep -qF "PLANWRIGHT_STEP_WORKTREE='' "
+verdict $? "the prefix, which step-run.sh renders after deriving, derives nothing itself" "got: $got err: $(cat "$tmp/err")"
 mkdir -p "$tmp/nogit"
 got=$(cd "$tmp/nogit" && bare_ctx "$RS" pre-pr --preamble 2>"$tmp/err")
 printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_WORKTREE=' && printf '%s\n' "$got" | grep -qx 'PLANWRIGHT_STEP_BRANCH='
