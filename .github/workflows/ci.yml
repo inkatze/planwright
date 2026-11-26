@@ -39,8 +39,8 @@ permissions:
 # tags only a release commit whose gating checks all passed. A shared group
 # would also drop a pending run, so keying the group matters as much as the
 # cancel flag. The subject is the release PR's title only under a squash merge.
-# Expressions have no regex, hence one startsWith per digit (case-insensitive,
-# as all startsWith is). Both values must carry the same predicate;
+# Expressions have no regex, hence one startsWith per digit (startsWith is
+# always case-insensitive). Both values must carry the same predicate;
 # tests/test-check-workflow-posture.sh holds that.
 concurrency:
   group: >-
@@ -414,12 +414,12 @@ jobs:
           overwrite: true
 
   # The aggregate status, joining every job on every platform. It runs unless
-  # its run was cancelled, so a failed, skipped, or cancelled job above fails
-  # it rather than leaving it skipped, which branch protection reads as
-  # passing; a timed-out job reads as cancelled here and fails it too. When a
-  # newer run on the same ref cancels this one, the job ends cancelled like
-  # every job of that run still waiting on its needs, not red beside the live
-  # run, and branch protection never reads cancelled as passing. A matrix
+  # its run was cancelled, so a failed or skipped job above, or one that timed
+  # out (which reads as cancelled), fails it rather than leaving it skipped,
+  # which branch protection reads as passing. When a newer run on the same ref
+  # cancels the run, this job ends cancelled like every job of that run still
+  # waiting on its needs, not red beside the live run, and branch protection
+  # never reads cancelled as passing. A matrix
   # job's result is success only when every one of its shards succeeded, and a
   # failed plan skips every planned shard, which fails it too. Then it runs
   # the timing gate (`check:test-time` in `mise run check`) over every Linux
