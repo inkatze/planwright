@@ -56,6 +56,7 @@ dr_pr() {
   jq -n --arg h "$dr_h" --arg body "$dr_body" --arg bb "$dr_bb" --args '
     {headRefOid: $h, headRefName: "feature", baseRefName: $bb, labels: [], body: $body,
      files: ($ARGS.positional | map(split("|") | {path: .[0], changeType: (.[1] // "MODIFIED")})),
+     changedFiles: ($ARGS.positional | length),
      statusCheckRollup: [{name: "build", conclusion: "SUCCESS"}]}' "$@" >"$tmp/pr.json"
   jq -n --args '$ARGS.positional | map(split("|")
     | if (.[2] // "") != "" then {filename: .[0], status: "renamed", previous_filename: .[2]}

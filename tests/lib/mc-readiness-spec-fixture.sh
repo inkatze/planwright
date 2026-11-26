@@ -36,7 +36,7 @@ commit_specs() { # commit_specs: commit the spec root, print the head
 spec_pr() {
   sp_h=$1
   shift
-  sp_files='' sp_rest=''
+  sp_files='' sp_rest='' sp_n=$#
   for sp_p in "$@"; do
     sp_path=${sp_p%%|*} sp_type=MODIFIED sp_src=''
     case $sp_p in
@@ -52,8 +52,8 @@ spec_pr() {
       sp_rest="$sp_rest{\"filename\": \"$sp_path\", \"status\": \"modified\"},"
     fi
   done
-  printf '{"headRefOid": "%s", "headRefName": "planwright/demo/spec", "baseRefName": "main", "labels": [], "files": [%s],
- "body": "## Summary", "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"}]}\n' "$sp_h" "${sp_files%,}" >"$tmp/pr.json"
+  printf '{"headRefOid": "%s", "headRefName": "planwright/demo/spec", "baseRefName": "main", "labels": [], "files": [%s], "changedFiles": %s,
+ "body": "## Summary", "statusCheckRollup": [{"name": "build", "conclusion": "SUCCESS"}]}\n' "$sp_h" "${sp_files%,}" "$sp_n" >"$tmp/pr.json"
   rm -f "$tmp/files.json"
   [ "${SP_REST:-}" = fail ] || printf '[%s]\n' "${sp_rest%,}" >"$tmp/files.json"
   printf '%s\n' "$sp_h" >"$tmp/headnow"
