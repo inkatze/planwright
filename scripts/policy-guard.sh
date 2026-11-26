@@ -4007,7 +4007,7 @@ classify_git() {
   # A case-insensitive filesystem runs `git REBASE` as git-rebase.
   lc "$sub"
   case $LC in
-    merge | pull | rebase | commit | push)
+    merge | pull | rebase | commit | push | send-pack | subtree)
       [ "$sub" = "$LC" ] \
         || {
           deny_now "this git subcommand is a reserved one spelled in another case ($(sanitize_printable "$sub" 'unprintable')) - refusing. Spell it in lower case."
@@ -4074,6 +4074,11 @@ classify_git() {
       if [ "$dir_ok" = 0 ] || { [ "$TIER" = tower ] && [ "$foreign" = 1 ]; }; then
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, from inside the repository's worktree."
         return 0
+      fi
+      if [ "$sub" = subtree ]; then
+        G_FOREIGN=$foreign
+        G_CFLAG=$cflag
+        classify_git_subtree "$((k + 1))" "$dir" "$dir_ok"
       fi
       git_alias_check "$sub" "$dir"
       return 0
@@ -4166,7 +4171,7 @@ git_state_after() {
     branch | tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase) ST_HEAD=1 ;;
-    push) ST_PUSH=1 ;;
+    push | send-pack) ST_PUSH=1 ;;
     fetch)
       ST_FETCH=1
       for a in "${SW[@]:$2}"; do
@@ -4180,7 +4185,7 @@ git_state_after() {
 classify_git_act() {
   local sub=$1 k=$2 dir=$3 dir_ok=$4 a
   case $sub in
-    merge | pull | rebase | commit | push) ;;
+    merge | pull | rebase | commit | push | send-pack) ;;
     *) return 0 ;;
   esac
   for a in "${SW[@]:$((k + 1))}"; do
@@ -4195,6 +4200,7 @@ classify_git_act() {
     rebase) classify_git_rebase "$((k + 1))" "$dir" "$dir_ok" ;;
     commit) classify_git_commit "$((k + 1))" "$dir" "$dir_ok" ;;
     push) classify_git_push "$((k + 1))" "$dir" "$dir_ok" ;;
+    send-pack) classify_git_send_pack "$((k + 1))" "$dir" "$dir_ok" ;;
   esac
 }
 
@@ -4234,7 +4240,7 @@ git_alias_check() {
             case " $GIT_BUILTINS " in
               *" $first "*)
                 case $(lower "$first") in
-                  merge | pull | rebase | commit | push)
+                  merge | pull | rebase | commit | push | send-pack)
                     deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
                   reset | branch | worktree | update-ref | filter-branch | checkout | switch | symbolic-ref | \
@@ -5102,6 +5108,138 @@ classify_git_push() {
   local alone=0
   [ "${#SEG_S[@]}" != 1 ] || alone=1
   PENDING[${#PENDING[@]}]="push$TAB$dir$TAB$del$TAB$alone$TAB${pos[0]:-}$TAB${refs[*]-}"
+}
+
+# queue_plumbing_push <what> <dir> <dir_ok> <destination> <refspec...> — queue
+# a push made by git send-pack or git subtree push: every refspec read as git
+# push reads one, the worker's unit-branch deletion refused, and never the
+# command's only act, so no sign-off branch exemption applies.
+queue_plumbing_push() {
+  local what=$1 dir=$2 dir_ok=$3 url=$4 r t
+  shift 4
+  [ "$#" -gt 0 ] || {
+    deny_now "$what names no ref, so it updates every branch both sides share, main included - refusing. Push your own branch by name with git push."
+    return 0
+  }
+  for r in "$@"; do
+    case $r in
+      +*)
+        deny_now "$what carries a +refspec, which forces - refusing. Push new commits instead."
+        return 0
+        ;;
+      *'*'* | :)
+        deny_now "$what carries a wildcard or matching refspec, which can reach main - refusing. Push your own branch by name."
+        return 0
+        ;;
+    esac
+    if [ "$TIER" = worker ]; then
+      case $r in
+        :?*)
+          t=${r#:}
+          t=${t#refs/heads/}
+          t=${t#heads/}
+          if is_unit_branch "$t"; then
+            deny_now "$(worker_delete_deny "$what" "$t")"
+            return 0
+          fi
+          ;;
+      esac
+    fi
+  done
+  act_gate "$what" push || return 0
+  need_dir "$dir_ok" "$what" || return 0
+  PENDING[${#PENDING[@]}]="push$TAB$dir${TAB}0${TAB}0$TAB$url$TAB$*"
+}
+
+# classify_git_send_pack <first-arg-index> <dir> <dir_ok> — git send-pack is
+# git push's plumbing: it updates the destination's refs as git push would.
+# Only options that change neither what nor where it pushes are read; the
+# force, --all, --mirror and --stdin forms, and any other option, refuse.
+classify_git_send_pack() {
+  local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w endopts=0
+  local -a pos=()
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    [ "${SWL[$k]}" = 1 ] || {
+      deny_now 'this git send-pack carries an expansion the guard cannot read, so it cannot check what it pushes - refusing (fail closed). Push with git push, naming the branch literally.'
+      return 0
+    }
+    if [ "$endopts" = 1 ]; then
+      pos[${#pos[@]}]=$w
+    else
+      case $w in
+        --) endopts=1 ;;
+        --dry-run | --verbose | -v | --quiet | -q | --thin | --no-thin | --atomic | --no-atomic | --signed | --no-signed | --signed=*) ;;
+        --force* | -f | --all | --mirror | --stdin)
+          deny_now "this git send-pack carries $(sanitize_printable "$w" 'an option') (a force, every branch, or refs read from stdin), which can reach main or rewrite it - refusing. Push your own branch by name with git push."
+          return 0
+          ;;
+        -*)
+          deny_now "this git send-pack carries an option the guard does not read ($(sanitize_printable "$w" 'unprintable')) - refusing (fail closed). Push with git push."
+          return 0
+          ;;
+        *) pos[${#pos[@]}]=$w ;;
+      esac
+    fi
+    k=$((k + 1))
+  done
+  [ "${#pos[@]}" -gt 0 ] || return 0
+  queue_plumbing_push 'this git send-pack' "$dir" "$dir_ok" "${pos[@]}"
+}
+
+# classify_git_subtree <first-arg-index> <dir> <dir_ok> — git subtree push
+# <repository> <refspec> pushes the split history to refs/heads/<the refspec's
+# destination>, with the refspec's + dropped. A command carrying the word push
+# is read under git-subtree's own option grammar; anything it does not
+# recognize refuses, since an option taking a value can move which word is
+# the subcommand.
+classify_git_subtree() {
+  local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w endopts=0 any=0 i
+  local -a pos=()
+  i=$k
+  while [ "$i" -lt "$n" ]; do
+    [ "${SWL[$i]}" = 1 ] || {
+      deny_now 'this git subtree carries an expansion the guard cannot read, which could spell push or its destination - refusing (fail closed). Write it literally.'
+      return 0
+    }
+    [ "${SW[$i]}" != push ] || any=1
+    i=$((i + 1))
+  done
+  [ "$any" = 1 ] || return 0
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    if [ "$endopts" = 1 ]; then
+      pos[${#pos[@]}]=$w
+    else
+      case $w in
+        --) endopts=1 ;;
+        -P | --prefix | --annotate | -b | --branch | --onto | -m | --message) k=$((k + 1)) ;;
+        -P?* | --prefix=* | --annotate=* | -b?* | --branch=* | --onto=* | -m?* | --message=*) ;;
+        -q | --quiet | -d | --debug | --ignore-joins | --no-ignore-joins | --rejoin | --no-rejoin | \
+          --squash | --no-squash | -S | -S?* | --gpg-sign | --gpg-sign=* | --no-gpg-sign) ;;
+        -*)
+          deny_now "this git subtree carries an option the guard does not read ($(sanitize_printable "$w" 'unprintable')), which could take the next word as its value and move which word is the subcommand - refusing (fail closed). Spell its options in full."
+          return 0
+          ;;
+        *) pos[${#pos[@]}]=$w ;;
+      esac
+    fi
+    k=$((k + 1))
+  done
+  [ "${pos[0]:-}" = push ] || return 0
+  # --rejoin also commits a merge onto HEAD.
+  ST_PUSH=1 ST_HEAD=1
+  [ "${#pos[@]}" = 3 ] || {
+    deny_now 'this git subtree push does not name exactly one repository and one refspec, which the guard reads as git-subtree does - refusing (fail closed). Name both: git subtree push -P <prefix> <repository> <branch>.'
+    return 0
+  }
+  case ${pos[2]} in
+    +*)
+      deny_now 'this git subtree push carries a +refspec - refusing. Name the branch without +.'
+      return 0
+      ;;
+  esac
+  queue_plumbing_push 'this git subtree push' "$dir" "$dir_ok" "${pos[1]}" "HEAD:${pos[2]#*:}"
 }
 
 # --------------------------------------------------------------------------

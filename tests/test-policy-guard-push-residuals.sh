@@ -111,5 +111,40 @@ for cmd in 'git push origin z' 'git push origin x:feature-x'; do
   expect defer "[worker] $cmd (a symref to an unprotected branch, or a named destination) defers"
 done
 
+# --- git send-pack and git subtree push (finding 5) -------------------------
+
+echo "# plumbing and contrib pushes"
+SP="$SANDBOX/sendpack"
+clone_on "$SP" planwright/demo/task-1 1
+for tier in worker tower; do
+  for cmd in "git send-pack $ORIGIN HEAD:refs/heads/main" "git send-pack $ORIGIN HEAD:main" \
+    "git send-pack --force $ORIGIN HEAD:refs/heads/feature" "git send-pack $ORIGIN +HEAD:refs/heads/feature" \
+    "git send-pack $ORIGIN" "git send-pack --all $ORIGIN" "git send-pack --mirror $ORIGIN" \
+    "git send-pack --stdin $ORIGIN" "git send-pack $ORIGIN main" "git send-pack $ORIGIN :refs/heads/main" \
+    "git send-pack --receive-pack=x $ORIGIN HEAD:refs/heads/feature" "git send-pack --frob $ORIGIN HEAD:refs/heads/feature" \
+    'git subtree push --prefix=d origin main' 'git subtree push -P d origin main' 'git subtree -P d push origin main' \
+    'git subtree push -P d origin feature:main' 'git subtree push -P d origin +feature' \
+    'git subtree push -P d origin heads/main' 'git subtree push --frob -P d origin feature' \
+    'git subtree push -P d origin' 'git SUBTREE push -P d origin main' 'git SEND-PACK . HEAD:refs/heads/main'; do
+    pg "$tier" "$cmd" "$SP"
+    expect deny "[$tier] $cmd denies"
+  done
+  for cmd in "git send-pack $ORIGIN HEAD:refs/heads/main" "git send-pack $ORIGIN main" \
+    'git subtree push -P d origin main' 'git subtree -P d push origin feature:main'; do
+    pg "$tier" "$cmd" "$SP"
+    reason_has 'protected branch' "[$tier] $cmd denies as a push to main"
+  done
+done
+for cmd in "git send-pack $ORIGIN HEAD:refs/heads/feature-y" 'git subtree push -P d origin feature-y' \
+  'git subtree split -P d' 'git subtree push -P d origin HEAD:feature-y'; do
+  pg worker "$cmd" "$SP"
+  expect defer "[worker] $cmd (an unprotected destination, or no push) defers"
+done
+pg worker "git send-pack $ORIGIN :refs/heads/planwright/demo/task-2" "$SP"
+expect deny "[worker] a send-pack deleting a unit branch denies, as a push deleting one does"
+gitq -C "$SP" config alias.sp send-pack
+pg worker "git sp $ORIGIN HEAD:refs/heads/main" "$SP"
+expect deny "[worker] an alias expanding to git send-pack denies, as one expanding to git push does"
+
 no_gh_calls
 finish
