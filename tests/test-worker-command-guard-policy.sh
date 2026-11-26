@@ -132,6 +132,8 @@ assert_allow "F1.3: no PR base leaves the rest of the arm working" "touch build/
 under "$(record_with ob-othbase own-branch pr_base=origin/other)"
 assert_allow "F1.3: the recorded PR base is what the merge must name" "git merge origin/other" Bash "$WT"
 assert_defer "F1.3: and nothing else" "git merge origin/main" Bash "$WT"
+under "$(record_with ob-stacked own-branch stack_base=origin/feat/base)"
+assert_defer "F1.3: a stacked base the record names still prompts here" "git merge origin/feat/base" Bash "$WT"
 
 echo "### REQ-G1.8 — the unit branch is the record's, not the checkout's"
 under "$OB"

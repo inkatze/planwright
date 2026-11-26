@@ -208,6 +208,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --base)
       [ "$#" -ge 2 ] && [ -n "$2" ] || die 2 usage "--base needs a branch name; $USAGE"
+      [ -z "$base_arg" ] || die 2 usage "--base is given once; $USAGE"
       base_arg=$2
       shift 2
       ;;

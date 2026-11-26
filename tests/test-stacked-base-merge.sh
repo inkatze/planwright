@@ -461,6 +461,12 @@ for bad in HEAD @ "$long_br"; do
     fail "[sync] --base '${bad:0:16}': rc=$RC"
   fi
 done
+run_sync "$SY2" "$SANDBOX/rec/sy2.record" --base "$OTHER_BR" --base "$STACK_BR"
+if [ "$RC" = 2 ] && [ "$(git -C "$SY2" rev-parse HEAD)" = "$before" ]; then
+  pass "[sync] --base given twice is a usage error, not the last one winning"
+else
+  fail "[sync] --base twice: rc=$RC"
+fi
 printf '%s\n' 'converge_sync_main: always' 'worker_base_merge: deny' >"$SYNC_CFG"
 run_sync "$SY2" "$SANDBOX/rec/sy2.record" --base "$STACK_BR"
 case $OUT in
