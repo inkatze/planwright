@@ -7922,7 +7922,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx envsi envsep outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx envsi envsep gt outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -7942,8 +7942,11 @@ mc_settings_screen() {
     *)
       if [ "$named" = 0 ]; then
         k=1
+        # env's -S string reads \_ as a blank.
+        gt=${t//\\_/ }
+        gt=${gt//[\"\'\\]/}
         shopt -s nocasematch
-        [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_SPLIT_WORDS || ${t//[\"\'\\]/} =~ $RE_MC_INPLACE_NAMES ]] && k=0
+        [[ $gt =~ $RE_MC_WRITE_WORDS || $gt =~ $RE_MC_SPLIT_WORDS || $gt =~ $RE_MC_INPLACE_NAMES ]] && k=0
         shopt -u nocasematch
         [ "$k" = 0 ] || return 0
         k=0
