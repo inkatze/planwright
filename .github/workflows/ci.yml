@@ -33,9 +33,14 @@ name: ci
 permissions:
   contents: read
 
+# A newer push supersedes a pull request's run, but every push to main keeps a
+# group of its own and is never cancelled: release-publish.sh needs every check
+# on the release commit to succeed, and a shared group would cancel a pending
+# run even with cancel-in-progress off. tests/test-workflow-push-concurrency.sh
+# holds this.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The Claude Code CLI the lint and test jobs install; see the lint job's
 # install step for why it is pinned and its floor.
