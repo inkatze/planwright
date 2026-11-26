@@ -655,7 +655,7 @@ ascending_thresholds() {
   for at_v in "$@"; do
     [ "$at_v" = off ] && continue
     if [ "$at_v" -le "$at_prev" ] && [ "$at_v" != 100 ]; then
-      printf '%s\n' "fleet-usage-gate: the $at_w thresholds are not strictly ascending below 100 ($*; off rungs skipped) — refusing non-monotonic thresholds" >&2
+      printf '%s\n' "fleet-usage-gate: the $at_w thresholds are not strictly ascending, only rungs at 100 may repeat ($*; off rungs skipped) — refusing non-monotonic thresholds" >&2
       exit 4
     fi
     at_prev=$at_v
