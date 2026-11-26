@@ -15,13 +15,14 @@
 # The host runs the kind through `fleet-remote.sh compute` in the caller's
 # worktree. The command runs here instead, with one `compute-route: warning:`
 # line, when the host cannot be reached, is over fleet_compute_load_cap (load
-# per core), is in use by a person (HID idle under fleet_compute_idle_threshold,
-# or a console user other than fleet_compute_account), or the run fails before
+# per core), is on hold in the host registry, is registry-shared and its input
+# has not been idle for the host's registry idle time, or the run fails before
 # its command starts (a refused target, no clone, SSH down); and silently when
 # the knob is `local`. A worktree with uncommitted changes also runs here, since
 # the host tests only the committed HEAD. A run whose command started is never
-# repeated: its result stands. Knobs: config-get.sh; exit: the command's own
-# status, 2 usage error.
+# repeated. Knobs: fleet_compute_host, fleet_compute_load_cap,
+# fleet_compute_timeout (seconds; empty takes the channel's default).
+# Exit: the command's own status; 2 usage error.
 set -u
 # The command runs in the caller's locale; only this script's own parsing is
 # pinned to C.
@@ -167,6 +168,32 @@ trap 'stop 129' HUP
 trap 'stop 130' INT
 trap 'stop 143' TERM
 
+fall_back() {
+  rm -rf "$work"
+  warn "$1; running locally"
+  shift
+  run_here "$@"
+}
+unreachable="compute host unreachable"
+
+# A host the registry does not list, or no registry at all (exit 3), is neither
+# held nor shared.
+registry() {
+  "$script_dir/host-registry.sh" get "$host" "$1" 2>/dev/null
+}
+reg_rc=0
+hold=$(registry hold) || reg_rc=$?
+shared=no
+case $reg_rc in
+  0) shared=$(registry shared) || reg_rc=$? ;;
+  3) hold=no ;;
+esac
+case $reg_rc in
+  0 | 3) ;;
+  *) fall_back "the host registry could not be read for this host (host-registry.sh exit $reg_rc)" "$@" ;;
+esac
+[ "$hold" != yes ] || fall_back "compute host is on hold (registry hold=yes)" "$@"
+
 # Each probe is bounded by a watchdog: ConnectTimeout covers only the connect
 # phase, and a host that accepts the connection and then stalls would hang the
 # gate here instead of passing the host over.
@@ -187,13 +214,6 @@ probe_run() {
   watchdog=''
   return "$_prc"
 }
-fall_back() {
-  rm -rf "$work"
-  warn "$1; running locally"
-  shift
-  run_here "$@"
-}
-unreachable="compute host unreachable"
 
 probe=''
 probe_run load "$work/probe" && probe=$(sed -n '1p' "$work/probe")
@@ -206,30 +226,25 @@ if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c >
   fall_back "compute host is busy (load $load on $cores cores, cap $cap per core)" "$@"
 fi
 
-# A person at the host's keyboard, or logged in at its console, has the machine.
-idle_secs=$(conf fleet_compute_idle_threshold) || idle_secs=600
-case $idle_secs in 0) ;; '' | *[!0-9]* | 0* | ?????????*) idle_secs=600 ;; esac
-if [ "$idle_secs" -gt 0 ]; then
-  account=$(conf fleet_compute_account) || account=''
-  case $account in *[!A-Za-z0-9._-]*) account='' ;; esac
-  probe_run inuse "$work/inuse" || fall_back "$unreachable" "$@"
-  hid=''
-  console=''
-  login=''
-  read -r hid console login <"$work/inuse" || :
-  case $hid in '-') ;; '' | *[!0-9]*) fall_back "$unreachable" "$@" ;; esac
-  for field in "$console" "$login"; do
-    case $field in '' | *[!A-Za-z0-9._-]*) fall_back "$unreachable" "$@" ;; esac
-  done
-  fleet_account=${account:-$login}
-  # HIDIdleTime is nanoseconds; a reading too large for test(1) is long idle.
-  if [ "$hid" != - ] && [ "$hid" -lt $((idle_secs * 1000000000)) ] 2>/dev/null; then
-    fall_back "compute host is in use (input within the last ${idle_secs}s, threshold fleet_compute_idle_threshold)" "$@"
-  fi
-  case $console in
-    - | root | loginwindow | "$fleet_account") ;;
-    *) fall_back "compute host is in use (console user $console is not the fleet account)" "$@" ;;
+if [ "$shared" = yes ]; then
+  idle_min=$(registry idle) || fall_back "the host registry could not be read for this host" "$@"
+  idle_min=${idle_min#"${idle_min%%[!0]*}"}
+  probe_run capacity "$work/capacity" || fall_back "$unreachable" "$@"
+  line=$(sed -n '1p' "$work/capacity")
+  case " $line " in
+    *" idle_secs="*)
+      idle=${line##*idle_secs=}
+      idle=${idle%% *}
+      ;;
+    *) fall_back "$unreachable" "$@" ;;
   esac
+  case $idle in
+    unavailable) fall_back "compute host is shared and its input idle time is unavailable, so its owner's absence cannot be read" "$@" ;;
+    '' | *[!0-9]* | ?????????????*) fall_back "$unreachable" "$@" ;;
+  esac
+  if [ "$idle" -lt $((${idle_min:-0} * 60)) ]; then
+    fall_back "compute host is shared and its owner is using it (input within the last ${idle}s, registry idle ${idle_min:-0} minutes)" "$@"
+  fi
 fi
 
 # remote_run: the channel call, in a function so the caller's own command
