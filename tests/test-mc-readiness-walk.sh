@@ -310,7 +310,7 @@ expect_out "unfinished: the flip's own run is named so" "fail${tab}check${tab}PR
   echo
 } >"$tmp/ev"
 mc_run mc-readiness.sh unfinished --evidence "$tmp/ev"
-expect_rc "unfinished: a draft's PR-Agent run is none of its business" 0
+expect_rc "unfinished: a draft's PR-Agent run still going is unfinished, since the flip waits for it" 4
 
 # ---------------------------------------------------------------------------
 # record: evidence the session opened and judged.
