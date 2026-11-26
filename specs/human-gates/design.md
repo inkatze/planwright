@@ -1184,17 +1184,23 @@ because the resolution is not the clean merge; the unit parks naming the
 conflicting paths, and a spec-file resolution goes to the kickoff session
 or the operator. A resolution commit is therefore never published by the
 worker route, which keeps a spec edit the kickoff session's and the
-operator's, and amends REQ-E1.2's `resolve` arm for that case only (REQ-E1.2's note). The parked unit's local resolution is discarded and a resumed unit starts from the remote head, so no unpushable commit outlives it.
+operator's, and amends REQ-E1.2's `resolve` arm for that case
+only (REQ-E1.2's note). The worker never resets the local commit: whoever
+resolves the conflict discards it by hand, and a resumed unit starts from
+the remote head.
 
 The worker profile denies a plain push of the sign-off branch
 (`planwright/*/spec`) by glob, and a profile deny cannot be narrowed by an
 allow (D-18); the amendment and spec-rework branches were never denied
-there and are guard-only already. The route therefore needs the sign-off
-glob denies, which also match a deletion spelling, guard-only for the
-worker tier, the way the kickoff profile already has them. The worker
-profile's policy-guard hooks carry no fail-closed suffix today, unlike the
-tower's, so removing the denies would leave a push open whenever the guard
-cannot run; the same change gives them that suffix. It is scoped to the
+there, and the guard refuses an unrecorded push to them only once mission
+control's build for that (pull request 1155) has merged. The route therefore
+needs the sign-off branch's plain-push denies guard-only for the worker
+tier. Its deletion spellings stay denied through deletion-only globs, since
+the relayed kickoff session runs under the same profile (REQ-G1.9). The
+worker profile's policy-guard hooks carry no fail-closed suffix today,
+unlike the tower's, so removing the denies would leave a push open whenever
+the guard cannot run; the same change gives them that suffix, which then
+refuses every call those hooks cover, with a message worded for a worker. It is scoped to the
 one branch a record names:
 the guard keeps refusing every other spec-branch push, and a worker with
 no record, an unbound one or another branch's refuses all of them. The

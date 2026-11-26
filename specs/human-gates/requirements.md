@@ -583,7 +583,9 @@ list above puts it.
 - **REQ-E1.4** (supersedes REQ-E1.1 in part) A worker whose launch-written
   session record names one spec branch SHALL be able, while
   `worker_base_merge` resolves `allow`, to bring that branch current with
-  the PR base through two acts and no other merge or push there. The
+  the PR base through two acts and no other merge or push there, the local
+  fast-forward to the pull request's own head that the guard already admits
+  on an amendment or spec-rework branch being unchanged. The
   spec branches are a spec's sign-off branch `planwright/<spec>/spec`, an
   amendment branch `planwright/<spec>/amendment-<n>` and a spec-rework
   branch `planwright/<spec>/spec-rework`, and the route applies to a pull
@@ -603,9 +605,17 @@ list above puts it.
   conflicts follows `worker_merge_conflict_policy` (REQ-E1.2) unchanged,
   with one limit: a resolution commit is made on the local branch only, its
   push stays refused because its tree is not the clean merge, and the unit
-  parks naming the conflicting paths; the parked unit's local resolution is
-  discarded, and a resumed unit starts from the remote head, never from
-  that local line. Merging into main, a protected branch,
+  parks naming the conflicting paths. The worker never resets that commit:
+  whoever resolves the conflict (the kickoff session or the operator)
+  discards it by hand, and a resumed unit starts from the remote head, never
+  from that local line. The route also takes REQ-I1.11's further refusals:
+  local state that could make the guard read something other than what git
+  merges or the push sends, and, on the sign-off branch, a
+  `protected_branches` addition matching it; only the core floor's own
+  `planwright/*/spec` entry is exempt there, so that branch is not a
+  protected branch for this route. The kickoff session's own record-less
+  base merge on its launch scope's spec branches is a separate route this
+  requirement leaves unchanged. Merging into main, a protected branch,
   another unit's branch or a spec branch the session's record does not name
   stays refused as REQ-E1.1 states. The route's guard half is mission
   control's REQ-I1.11, which this requirement admits and whose builds were
@@ -917,10 +927,11 @@ list above puts it.
   record, an unbound record or another branch's record is refused every
   one. The kickoff profile's exception and the floor for every other tier
   are unchanged, and the REQ-G1.13 cross-copy test drives the worker
-  profile's changed lines. The dropped denies include the spec-branch
-  deletion spellings, which become guard-only for the worker tier, and the
-  worker profile's policy-guard hooks gain the tower profile's fail-closed
-  suffix, so a guard that cannot run refuses the push.)*
+  profile's changed lines. The spec-branch deletion spellings stay
+  denied by the profile, through deletion-only globs, and the worker
+  profile's policy-guard hooks gain a fail-closed suffix like the tower
+  profile's, so a guard that cannot run refuses every call those hooks
+  cover.)*
 - **REQ-G1.10** (supersedes REQ-G1.1) One shared fixture list of
   reserved-control spellings — merge in every form including `git pull`,
   the draft→ready flip and its undo, every force-push and refspec form
@@ -1017,8 +1028,10 @@ list above puts it.
   *(Amended at Amendment 6, 2026-11-25: the worker tier's plain push of
   the one spec branch its launch record names under REQ-E1.4 is a third
   tier-scoped exception: the worker profile defers it and the policy-guard
-  lines expect the REQ-E1.4 verdicts; every other spec-branch push stays a
-  floor line for the worker tier.)*
+  lines expect the REQ-E1.4 verdicts. Since a profile glob cannot tell the
+  recorded branch from another, the worker profile defers every plain
+  sign-off branch push and the policy guard denies all but the recorded
+  one; deletion spellings stay denied by both.)*
 - **REQ-G1.14** (supersedes REQ-G1.3) Acts no policy value can permit SHALL
   stay in the deny profiles as the floor, effective whatever a guard emits,
   where a profile can express them: a merge or rewrite of main, `master`, a
@@ -1039,6 +1052,10 @@ list above puts it.
   a profile glob sees text and cannot read the request; the policy-guard
   suite pins them.
   *(Cites: D-9, D-27; kickoff amendment 2026-11-20.)*
+  *(Amended at Amendment 6, 2026-11-25: the merge of the PR base into the
+  one spec branch a worker's launch record names, and its plain push, are
+  not floor acts (REQ-E1.4); on the worker tier the plain-push half is
+  guard-only.)*
 
 ## REQ-H — Prose surfaces
 

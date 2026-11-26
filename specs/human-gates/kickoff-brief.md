@@ -1415,3 +1415,44 @@ Lens-pass: the delta-scoped lens review recorded in this entry (four-agent
 fan-out over the spec artifact class, dispositions above)
 Anchor: `61373053524e08090cd8d7e677779d457466f3a7` — computed as
 `scripts/spec-anchor.sh specs/human-gates`
+
+### 2026-11-25 — Polish findings fixed before the ready flip
+
+A polish review pass on the pushed amendment returned findings after the
+sign-off above. The operator chose "Fix first, re-sign (Recommended)" over
+flipping as signed. The entry above says REQ-G1.14 got a note and
+citations; it had neither, and the note is added now (no citation line
+changed). Its anchor was also re-recorded once, after a markdown-lint fix.
+
+**Fixed.** REQ-E1.4 adopts mission-control REQ-I1.11's remaining terms: the
+local fast-forward to the PR head stays, the further local-state refusals
+apply, the core floor's `planwright/*/spec` entry is exempt for this route,
+and the kickoff session's own base merge is unchanged. The local resolution
+commit is discarded by hand by whoever resolves the conflict. The worker
+profile keeps deletion-only denies for the sign-off branch, because the
+relayed kickoff session runs under it; its new fail-closed suffix refuses
+every call those hooks cover. D-28 no longer says the guard already refuses
+amendment and spec-rework pushes. Task 23 starts only after pull requests
+1140 and 1155 merge, corrects `docs/getting-started.md`, names the wiring
+test for the fail-closed case and drops the tag-push case, which the guard
+does not screen. REQ-G1.13 and REQ-G1.14 notes and their test-spec entries
+are reconciled, and the conflict park behaviour is marked `[manual]`.
+
+**Declined.** "`resolve` needs a commit the guard refuses": the guard's
+commit classifier (`classify_git_commit` in `scripts/policy-guard.sh`) acts
+only on amend, squash and fixup, so a plain commit is not gated; the
+operator's conflict ruling stands.
+
+**Deferred.** Whether mission-control's suite covers the other-record and
+other-pull-request refusals the REQ-E1.4 test entry lists was not checked
+here; its build is where that is settled.
+
+**Sign-off.** Signed off 2026-11-25 by the operator ("Sign off
+(Recommended)", relayed by the hub). No status flip. The fixes themselves
+had no further lens pass.
+
+Class: meaning
+Lens-pass: the polish review recorded in this entry (one read-only
+sub-agent walking each lens, dispositions above)
+Anchor: `f2f3356a6f48996720c3f7dd9bab6459b26f982a` — computed as
+`scripts/spec-anchor.sh specs/human-gates`

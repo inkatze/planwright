@@ -374,7 +374,7 @@ The suite denies every PR-merge and base-merge spelling under the tower
 profile at every value; the fast-forward helper stays the only admitted
 local-main mutation (Task 6, Task 10).
 
-### REQ-E1.4 — A clean base merge and its push on a spec branch [test + Gherkin]
+### REQ-E1.4 — A clean base merge and its push on a spec branch [test + Gherkin + manual]
 
 Given a session record naming a sign-off, amendment or spec-rework branch
 and `worker_base_merge` at `allow`, then the policy-guard suite admits the
@@ -388,7 +388,10 @@ and parks naming the paths, and `resolve` makes the local commit while the
 push stays refused. A visual-flight branch keeps its existing base merge
 and push unchanged. Task 23 owns only the doctrine row, the worker-profile and
 fixture checks (REQ-A1.6, REQ-G1.9); the guard cases are mission-control's
-REQ-I1.11 tests, in `tests/test-policy-guard-spec-merge-push.sh`.
+REQ-I1.11 tests, in `tests/test-policy-guard-spec-merge-push.sh`. That the
+conflicted unit parks, that the worker leaves its local commit unreset and
+that a resumed unit starts from the remote head are checked by hand
+[manual].
 
 ## REQ-F — History rewriting
 
@@ -581,10 +584,10 @@ line with no tier profile, and a deny message naming its remedy (Task 6).
 ### REQ-G1.9 — The relayed kickoff's one-branch admission [test]
 
 Amendment 6 (Task 23): the REQ-G1.13 cross-copy fixture also drives the
-worker profile with its sign-off branch push and deletion denies removed
-and its guard hooks fail-closed: a spec-branch push, deletion or tag push
-of a worker with no record is refused, and so is a push when the hook
-cannot run. The recorded branch's clean base merge push is admitted by
+worker profile with its sign-off branch plain-push denies removed and its
+deletion denies kept: a spec-branch push or deletion by a worker with no
+record is refused, and `tests/test-worker-settings-hook-wiring.sh` shows a
+push is refused when the guard hook cannot run. The recorded branch's clean base merge push is admitted by
 mission-control's REQ-I1.11 suite.
 
 The cases ship with mission-control Task 19 (its D-36), routed there by
@@ -643,9 +646,11 @@ release published by such a session is watched by the operator and read
 against the published tag, owned by the operator through the routing
 bullet [manual].
 
-### REQ-G1.13 — One spelling list, two tier-scoped exceptions [design-level]
+### REQ-G1.13 — One spelling list, tier-scoped exceptions [design-level]
 
-Amendment 6 (Task 23): the fixture list gains the worker tier's recorded-branch spec-branch push as a tier-scoped exception; the REQ-G1.9 entry's Amendment 6 note lists its cases.
+Amendment 6 (Task 23): the fixture list gains the worker tier's
+recorded-branch spec-branch push as a tier-scoped exception; the REQ-G1.9
+entry's Amendment 6 note lists its cases.
 
 The Deferred bullets routing mission control's drafting and release kinds
 name the cross-copy floor-line cases for the kickoff tier's spec-branch
@@ -654,6 +659,10 @@ REQ-G1.10 cases keep passing in `mise run check` [test] (the existing
 cross-copy suite).
 
 ### REQ-G1.14 — The floor stays whole beside the helper's push [test]
+
+Amendment 6 (Task 23): the recorded spec branch's base merge and plain push
+are outside the floor cases; the REQ-G1.9 entry's Amendment 6 note lists
+what stays denied.
 
 Every REQ-G1.3 case holds unchanged (Task 6, Task 9). The wiring tests
 assert the force-push deny is still present in every profile after Task

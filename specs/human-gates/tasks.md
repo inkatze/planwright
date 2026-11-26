@@ -704,22 +704,27 @@ every surface it restates exists.
   naming the sign-off, amendment and spec-rework branches and limiting a
   worker's route to clean merges of the PR base, citing REQ-E1.4 and
   mission-control REQ-I1.11, and its base-merge row's base-merge-only
-  clause, landed on top of whichever of mission-control's builds (pull
-  requests 1140 and 1155) has merged, so their text and this one are one;
+  clause, starting only after mission-control's builds (pull requests 1140
+  and 1155) have both merged, so their text and this one are one and the
+  guard already refuses what the profile stops denying;
   `config/worker-settings.json` with the sign-off branch's plain-push
-  denies (deletion spellings included) removed for the worker tier and the
-  tower's fail-closed suffix added to the worker's policy-guard hooks; the
-  REQ-G1.13 fixture rows for the worker tier's spec-branch pushes;
+  denies replaced by deletion-only ones and a fail-closed suffix, worded
+  for a worker, added to the worker's policy-guard hooks; the REQ-G1.13
+  fixture rows for the worker tier's spec-branch pushes;
+  `docs/getting-started.md`'s sentence on the profile's spec-branch push
+  denies corrected;
   `docs/options-reference.md` and `docs/permission-matcher-model.md`
   stating that `worker_base_merge` governs the route, with the latter's
   sentence that the worker profile holds spec-branch writes as denies
   corrected, and the profile's `_about` text matching.
 - **Done when:** the doctrine test finds the row naming all three branches
   and both citations; the cross-copy fixture test shows the worker profile
-  no longer denies a plain push or deletion of the sign-off branch, that
-  the guard still refuses a spec-branch push, deletion or tag push of a
-  worker with no record, and that a push is refused when the worker's
-  guard hook cannot run; each new check fails first against main;
+  no longer denies a plain push of the sign-off branch and still denies
+  its deletion spellings, and that the guard refuses a spec-branch push or
+  deletion by a worker with no record;
+  `tests/test-worker-settings-hook-wiring.sh` shows a push is refused when
+  the guard hook cannot run; the doctrine, profile and fail-closed checks
+  each fail first against main;
   `check-instructions.sh` and `mise run check` pass. The guard cases (the
   recorded branch's clean merge push admitted; no record, another record,
   force, non-merge and hand-resolved commits refused; `deny` refusing both
