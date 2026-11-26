@@ -144,6 +144,51 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
+echo "# a push is read through the configuration git applies to it"
+set_knobs 'protected_branches:'
+# git maps a refspec with no colon through remote.<remote>.push, a + there
+# forcing it, and pushes a bare push under push.default=upstream to
+# branch.<b>.merge however it is spelled.
+PCFG="$SANDBOX/push-config"
+clone_on "$PCFG" planwright/demo/task-1 0
+gitq -C "$PCFG" config remote.origin.push refs/heads/planwright/demo/task-1:refs/heads/main
+for tier in worker tower; do
+  for cmd in 'git push origin planwright/demo/task-1' 'git push -u origin planwright/demo/task-1' \
+    'git push origin refs/heads/planwright/demo/task-1' 'git push origin v1.0 planwright/demo/task-1'; do
+    pg "$tier" "$cmd" "$PCFG" "$PCFG"
+    expect deny "[$tier] remote.origin.push maps the no-colon refspec onto main: $cmd"
+  done
+  for cmd in 'git push origin planwright/demo/task-1:planwright/demo/task-1' 'git push origin HEAD' \
+    'git push upstream planwright/demo/task-1'; do
+    pg "$tier" "$cmd" "$PCFG" "$PCFG"
+    expect defer "[$tier] an explicit destination, HEAD, or another remote is not mapped: $cmd"
+  done
+done
+gitq -C "$PCFG" config remote.origin.push +refs/heads/planwright/demo/task-1:refs/heads/planwright/demo/task-1
+pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
+expect deny "[worker] a + in remote.origin.push forces the no-colon refspec"
+gitq -C "$PCFG" config --unset remote.origin.push
+pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
+expect defer "[worker] with no push refspec configured the no-colon push still defers"
+
+UPCFG="$SANDBOX/upstream-config"
+clone_on "$UPCFG" planwright/demo/task-1 0
+gitq -C "$UPCFG" config push.default upstream
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.remote origin
+for m in main heads/main master; do
+  gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge "$m"
+  for cmd in 'git push' 'git push origin'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect deny "[worker] push.default=upstream with branch.<b>.merge=$m: $cmd"
+  done
+done
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-1
+pg worker 'git push' "$UPCFG" "$UPCFG"
+expect defer "[worker] push.default=upstream to the branch's own name still defers"
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge planwright/demo/task-1
+pg worker 'git push' "$UPCFG" "$UPCFG"
+expect defer "[worker] an unqualified merge naming the branch itself still defers"
+
 # --- a cd that may not run --------------------------------------------------
 
 echo "# a cd is followed only when it runs"

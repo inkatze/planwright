@@ -273,6 +273,23 @@ with_layers /bin/sh "$dirhelper/protected-branch.sh" feature-x >/dev/null 2>&1 |
 [ "$rc" = 5 ] || fail "broken install: an echo-safety.sh directory exited $rc, expected 5"
 echo "ok: an echo-safety.sh directory is a broken install (exit 5)"
 
+# A tr that fails, or prints nothing, folded every name to empty, which matched
+# no entry and answered "unprotected"; it is a broken install instead.
+for kind in fails empty; do
+  mkdir -p "$tmp/tr-$kind"
+  case $kind in
+    fails) printf '#!/bin/sh\nexit 1\n' >"$tmp/tr-$kind/tr" ;;
+    empty) printf '#!/bin/sh\ncat >/dev/null\n' >"$tmp/tr-$kind/tr" ;;
+  esac
+  chmod +x "$tmp/tr-$kind/tr"
+  for b in main Main feature-x refs/heads/main; do
+    rc=0
+    PATH="$tmp/tr-$kind:$PATH" pb "$b" >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 5 ] || fail "a tr that $kind: '$b' exited $rc, expected 5"
+  done
+done
+echo "ok: a tr that fails or prints nothing is a broken install (exit 5)"
+
 [ ! -s "$host_log" ] || fail "a host call was made: $(cat "$host_log")"
 echo "ok: no host call in the stubbed call log"
 

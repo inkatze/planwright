@@ -131,7 +131,10 @@
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
 #   push       a force or bulk push denies; every other push reads the
-#               protected set and denies a target inside it.
+#               protected set and denies a target inside it, a bare push's
+#               targets including branch.<b>.merge however it is spelled. A
+#               refspec naming a source with no destination denies where
+#               remote.<remote>.push is configured, since git maps it there.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -140,15 +143,20 @@
 #               naming no branch denies, since it writes the default branch);
 #               a request the guard cannot read (a field from a file or stdin,
 #               an --input body, a non-literal endpoint, method, or query on a
-#               write, a rename with no literal new name, an unknown flag)
-#               denies before any read; anything else defers.
+#               write, a dot segment in the path, a GraphQL branch write whose
+#               target key carries anything but a plain string or names a node
+#               id, a rename with no literal new name, an unknown flag)
+#               denies before any read; anything else defers. A
+#               repositories/<id>/ path reads as repos/<owner>/<repo>/.
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
 #   branch sync running scripts/worker-branch-sync.sh, the one route by which
 #               a worker resets its unit branch's worktree hard to its own
-#               remote branch or fast-forwards it to a commit; it publishes
-#               nothing. tower and mission-control: deny. worker: only as
+#               remote branch, fast-forwards it to a commit, or publishes a
+#               rewrite of its own draft branch (push, leased on the tip the
+#               rewrite started from, where the launch record allows
+#               draft_rewrite). tower and mission-control: deny. worker: only as
 #               its own command or after one plain cd, by the installed copy,
 #               with literal arguments in its grammar, on the unit branch in
 #               the session's own checkout, outside the protected set, where
@@ -1021,7 +1029,27 @@ tokenize() {
 # --------------------------------------------------------------------------
 # Small helpers.
 
-lower() { printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'; }
+# fold_lower <text> — set FOLD to the text with A-Z folded to a-z, which is all
+# tr's [:upper:] covers under this guard's LC_ALL=C. Expansion, not tr: a tr
+# that failed folded every name to empty, so nothing matched and the call
+# deferred. Under nocasematch a substitution also rewrites the lower-case
+# letter, to itself.
+FOLD_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FOLD_LOW=abcdefghijklmnopqrstuvwxyz
+fold_lower() {
+  local i=0
+  FOLD=$1
+  case $FOLD in *[ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;; *) return 0 ;; esac
+  while [ "$i" -lt 26 ]; do
+    FOLD=${FOLD//${FOLD_UP:$i:1}/${FOLD_LOW:$i:1}}
+    i=$((i + 1))
+  done
+}
+
+lower() {
+  fold_lower "${1:-}"
+  printf '%s' "$FOLD"
+}
 
 # timeout_bin — the command that bounds a read: timeout or gtimeout, else the
 # bundled runner (stock macOS ships neither), else nothing.
@@ -1779,13 +1807,11 @@ RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.
 # shellcheck disable=SC2016 # a regex; `$` is literal
 RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$'
 
-# lc <word> — set LC to the word in lower case, forking only when it has an
-# upper-case letter (this runs per word on every guarded call).
+# lc <word> — set LC to the word in lower case, with no fork (this runs per
+# word on every guarded call).
 lc() {
-  LC=$1
-  case $1 in
-    *[A-Z]*) LC=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') ;;
-  esac
+  fold_lower "$1"
+  LC=$FOLD
 }
 
 # runs_force_push_helper <lowercased command name> — 0 when the segment runs
@@ -3565,7 +3591,7 @@ classify_gh_api() {
 
   ep=$(norm_endpoint "$endpoint")
   case $ep in
-    *%* | *..* | *//*)
+    *%* | *..* | *//* | . | ./* | */. | */./*)
       ghapi_opaque 'its path carries a percent escape, a dot segment, or an empty segment'
       return 0
       ;;
@@ -3591,6 +3617,39 @@ classify_gh_api() {
         case $t in refs/*) continue ;; esac
         targets="$targets $t"
       done
+      # GraphQL ignores a comma and a byte-order mark as it ignores white
+      # space, so a key can stand apart from its colon or its value by one,
+      # and a block string, an escape or a node id hides the name. Every
+      # occurrence of a key that can carry the target is read wherever it
+      # stands, and one whose value is not a plain string refuses, so a
+      # literal name elsewhere in the query cannot stand in for it.
+      local kre='(^|[^A-Za-z0-9_])(branchName|qualifiedName|name|id)[[:space:],]*:[[:space:],]*' key
+      rest=${query_text//$'\357\273\277'/ }
+      while [[ $rest =~ $kre ]]; do
+        key=${BASH_REMATCH[2]}
+        rest=${rest#*"${BASH_REMATCH[0]}"}
+        if [ "$key" = id ]; then
+          ghapi_opaque 'it names the branch it commits to by node id, which the guard cannot resolve to a name'
+          return 0
+        fi
+        t=''
+        case $rest in
+          '"""'*) ;;
+          '"'*'"'*)
+            t=${rest#\"}
+            t=${t%%\"*}
+            ;;
+        esac
+        case $t in
+          '' | *\\*)
+            ghapi_opaque "its $key key is not followed by a plain, non-empty string, so its target branch cannot be read"
+            return 0
+            ;;
+        esac
+        t=${t#refs/heads/}
+        case $t in refs/*) continue ;; esac
+        targets="$targets $t"
+      done
       case "$targets" in
         '' | *'{branch}'* | *'$'*)
           ghapi_opaque 'it creates a commit or a ref on a branch it does not name literally in the query'
@@ -3603,9 +3662,16 @@ classify_gh_api() {
       ;;
   esac
 
-  # REST paths, matched case-insensitively.
+  # REST paths, matched case-insensitively. repositories/<id>/ reaches the
+  # same routes as repos/<owner>/<repo>/, so it is read as that prefix.
   local lp seg_count
   lp=$(lower "$ep")
+  case $lp in
+    repositories/*/*)
+      ep="repos/-/${ep#*/}"
+      lp="repos/-/${lp#*/}"
+      ;;
+  esac
   local IFS_save=$IFS
   IFS=/
   # shellcheck disable=SC2086 # split on / on purpose (noglob is on)
@@ -3683,9 +3749,11 @@ classify_gh_api() {
     return 0
   fi
   if [ "${4:-}" = branches ] && [ "$seg_count" -ge 6 ] && [ "${!seg_count}" = rename ]; then
-    # A rename writes both branches: the one it moves away and the one it creates.
-    local renamed=${ep#*/*/*/branches/}
-    renamed=${renamed%/rename}
+    # A rename writes both branches: the one it moves away and the one it
+    # creates. The name is cut by segment, not by spelling, since the route
+    # is read whatever the case of branches/ and /rename.
+    local renamed=${ep#*/*/*/*/}
+    renamed=${renamed%/*}
     case $renamed in
       *'{branch}'*)
         ghapi_opaque 'its renamed branch is the {branch} placeholder'
@@ -5523,11 +5591,30 @@ eval_push() {
     targets[${#targets[@]}]=$cb
     upstream_of "$dir" "$cb"
     [ -z "$UP_BRANCH" ] || targets[${#targets[@]}]=$UP_BRANCH
+    # push.default=upstream pushes to branch.<b>.merge as written, and the
+    # remote reads a name outside refs/ (heads/ included) as the branch it
+    # names.
+    local m
+    m=$(gitq "$dir" config --get "branch.$cb.merge") || m=''
+    case $m in
+      '' | refs/*) ;;
+      *)
+        m=${m#heads/}
+        valid_branch "$m" \
+          || emit_deny "this git push names no branch, and branch.$(sanitize_printable "$cb" '<branch>').merge names a destination the guard will not check ($(sanitize_printable "$m" 'unprintable')) - refusing (fail closed). Name the branch."
+        targets[${#targets[@]}]=$m
+        ;;
+    esac
   else
+    local mapped=0 rp
     for r in $refs; do
       case $r in
         *:*) dst=${r#*:} ;;
-        *) dst=$r ;;
+        HEAD | @) dst=$r ;;
+        *)
+          dst=$r
+          mapped=1
+          ;;
       esac
       [ -n "$dst" ] || emit_deny 'this git push carries a refspec with an empty destination, which the guard does not read - refusing (fail closed).'
       case $dst in
@@ -5543,6 +5630,13 @@ eval_push() {
         || emit_deny "this git push names a destination the guard will not check ($(sanitize_printable "$dst" 'unprintable')) - refusing (fail closed)."
       targets[${#targets[@]}]=$dst
     done
+    # git sends a named source with no :<dst> where remote.<remote>.push maps
+    # it, forcing it when that refspec carries a +; HEAD is never mapped.
+    if [ "$mapped" = 1 ]; then
+      rp=$(gitq "$dir" config --get-all "remote.$remote.push") || rp=''
+      [ -z "$rp" ] \
+        || emit_deny "this git push names a refspec with no destination, and remote.$(sanitize_printable "$remote" '<remote>').push is configured, which git applies to it (another destination, or a + that forces it) and the guard does not read - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
+    fi
   fi
   [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
 }
@@ -7526,7 +7620,7 @@ mc_unparsed_command_names() {
 # passes to the ordinary rules.
 
 SYNC_FILE=worker-branch-sync.sh
-SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh reset origin/<branch> or ff <full sha>"
+SYNC_FORM="<installed root>/scripts/worker-branch-sync.sh reset origin/<branch>, ff <full sha>, or push --force-with-lease=<branch>:<full sha> --force-if-includes"
 RE_SYNC_SCRIPT='^\$\{?CLAUDE_PLUGIN_ROOT\}?/scripts/worker-branch-sync\.sh$'
 
 # branch_sync_run <text> — 0 when the text runs the helper as a command. A

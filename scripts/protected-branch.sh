@@ -35,11 +35,17 @@ fi
   exit 2
 }
 
-# Case folds on both sides, as the tower queue's push screen folds it: `Main`
-# is `main` on a case-insensitive filesystem, and over-refusing is the safe
-# direction.
+# fold <text> — set FOLDED to the text case-folded on both sides, as the tower
+# queue's push screen folds it: `Main` is `main` on a case-insensitive
+# filesystem, and over-refusing is the safe direction. A tr that fails or
+# prints nothing would fold every name to empty and match no entry, so it is a
+# broken install.
 fold() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+  if FOLDED=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]') && { [ -n "$FOLDED" ] || [ -z "$1" ]; }; then
+    return 0
+  fi
+  printf '%s\n' "protected-branch: tr could not case-fold a name (broken install); refusing" >&2
+  exit 5
 }
 refuse_name() {
   printf '%s\n' "protected-branch: invalid branch name '$(sanitize_printable "$1" "(unprintable name)")'" >&2
@@ -50,7 +56,8 @@ refuse_name() {
 # case until it is validated: a folded `HEAD` would pass as the branch `head`.
 names=''
 for arg in "$@"; do
-  case "$(fold "$arg")" in
+  fold "$arg"
+  case "$FOLDED" in
     refs/heads/*) name=${arg#???????????} ;;
     *) name=$arg ;;
   esac
@@ -59,7 +66,8 @@ for arg in "$@"; do
     HEAD | @ | .* | */.* | *.lock | *.lock/* | *.) refuse_name "$arg" ;;
   esac
   [ "${#name}" -le 255 ] || refuse_name "$arg"
-  names="$names$(fold "$name") "
+  fold "$name"
+  names="$names$FOLDED "
 done
 
 set_out=$(/bin/sh "$script_dir/resolve-policy-knob.sh" protected_branches) || {
@@ -111,7 +119,8 @@ seg_match() {
 
 for name in $names; do
   for entry in $set_out; do
-    pattern=$(fold "$entry")
+    fold "$entry"
+    pattern=$FOLDED
     if seg_match "${pattern#refs/heads/}" "$name"; then
       printf '%s\n' "protected-branch: '$name' is protected (matches '$entry')" >&2
       exit 1
