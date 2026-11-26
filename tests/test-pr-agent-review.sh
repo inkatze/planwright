@@ -835,9 +835,13 @@ marker=$(awk '/^      - name: / { on = ($0 == "      - name: Record the run for 
 # shellcheck disable=SC2016 # the workflow's literal text
 for want in "STATUS: \${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}" \
   'PR: ${{ github.event.pull_request.number }}' 'HEAD_SHA: ${{ steps.head.outputs.sha }}' \
-  "if: \${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' }}"; do
+  "if: \${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' && steps.prior.outputs.reviewed != 'true' }}"; do
   case "$marker" in *"$want"*) ;; *) missing="$missing [marker step: $want]" ;; esac
 done
+# A head already reviewed skips the review and keeps its marker.
+printf '%s\n' "$review" | grep -qF "if: env.HAS_KEY == 'true' && steps.prior.outputs.reviewed != 'true'" \
+  || missing="$missing [the Review step waits on the once-per-head check]"
+grep -qx '        id: prior' "$WORKFLOW" || missing="$missing [the once-per-head step's id]"
 printf '%s\n' "$review" | grep -qx '        id: review' || missing="$missing [the Review step's id]"
 grep -qx '        id: head' "$WORKFLOW" || missing="$missing [the head step's id]"
 if [ -z "$missing" ] && [ -n "$step_min" ] && [ -n "$job_min" ] && [ -n "$deadline" ] \
