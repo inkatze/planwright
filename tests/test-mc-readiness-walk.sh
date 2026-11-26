@@ -220,8 +220,8 @@ expect_rc "a screenshot judged ok at another head is refused, required or not" 4
 expect_out "named" "x.png was judged at another head"
 
 # ---------------------------------------------------------------------------
-# The bot review (PR-Agent) runs once, on the run the ready flip fires: a draft
-# is flipped with none, merge-ready needs a successful run on the final head.
+# The bot review (PR-Agent) runs on the draft, on the review request, and the
+# flip waits for it: merge-ready needs a successful run on the final head.
 # ---------------------------------------------------------------------------
 nl=$(printf '\n_')
 nl=${nl%_}
@@ -231,11 +231,16 @@ rowsof() { # rowsof <row>...: each row's commas are tabs, one row per line
   printf '%s' "$out_rows"
 }
 walk_with "draft, no bot review" - "$(rowsof state,draft require,pr-agent)"
-expect_rc "a draft with no PR-Agent run can still be flipped" 0
+expect_rc "a draft with no PR-Agent run is not flipped" 4
+expect_out "it is told to request the review" "request-review${tab}111111111111"
 walk_with "draft, failed bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,FAILURE)"
-expect_rc "a draft's stale failed PR-Agent run does not hold the flip" 0
+expect_rc "a draft's failed PR-Agent run holds the flip" 4
+expect_out "named" "fail${tab}check${tab}PR-Agent is FAILURE"
 walk_with "draft, pending bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,PENDING)"
-expect_rc "a draft's pending PR-Agent run does not hold the flip either" 0
+expect_rc "a draft's pending PR-Agent run holds the flip until it finishes" 4
+expect_out "named" "fail${tab}check${tab}PR-Agent is PENDING"
+walk_with "draft, passed bot review" - "$(rowsof state,draft require,pr-agent check,PR-Agent,SUCCESS)"
+expect_rc "a draft whose PR-Agent run passed on the head is flip-ready" 0
 walk_with "draft, failed ci" - "$(rowsof state,draft require,pr-agent check,lint,FAILURE)"
 expect_rc "a draft's failed ordinary check still holds the flip" 4
 

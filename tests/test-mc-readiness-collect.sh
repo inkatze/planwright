@@ -155,7 +155,8 @@ rm -f "$repo/.github/workflows/pr-agent.yml"
 # repository as two separate arguments of one format.
 if grep -qF "}}' \"\$3\" \"\$2\" >\"\$cl_tmp/payload\"" "$repo_root/scripts/mc-readiness.sh"; then ok "the guard payload takes the pull request and the repository as separate arguments"; else fail "the guard payload's printf arguments are malformed"; fi
 # A draft: its state is read, and the workflow-run read, which only a ready
-# pull request is judged by, is skipped.
+# pull request is judged by, is skipped. Its run markers are read: the bot
+# review runs on the draft, so a re-run's marker can be its only proof.
 cp "$tmp/pr.json" "$tmp/pr.json.keep"
 sed -i.bak 's/"isDraft": false/"isDraft": true/' "$tmp/pr.json"
 : >"$tmp/gh.calls"
@@ -165,8 +166,8 @@ c=$(cat "$tmp/collected-draft" 2>/dev/null)
 has "a draft is read as a draft" "state${tab}draft"
 hasnt "a draft has no run creation time read" "born${tab}"
 if grep -q '^api repos/acme/web/actions/runs' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
-hasnt "a draft has no run marker read" "botmark${tab}"
-if grep -q 'issues/7/comments' "$tmp/gh.calls"; then fail "a draft's comments were read"; else ok "a draft's comment read is skipped"; fi
+has "a draft's run markers are read" "botmark${tab}github-actions[bot]${tab}4475.3${tab}"
+has "and the attempt behind the workflow's marker at the head" "botattempt${tab}4475.3${tab}"
 cp "$tmp/pr.json.keep" "$tmp/pr.json"
 # A failed run read leaves no creation time, and no failure.
 mv "$tmp/runs.json" "$tmp/runs.json.keep"

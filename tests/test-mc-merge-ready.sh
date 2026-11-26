@@ -78,7 +78,7 @@ case \$verb in
     case \$(cat "$tmp/verdict.\$n") in
       ready) printf 'ready\t-\n'; exit 0 ;;
       not-ready) printf 'not-ready\t-\nfail\tcheck\tci is PENDING\n'; exit 4 ;;
-      flip-for-review) printf 'flip-for-review\t-\npending\tpost-pr\tno completion record\n'; exit 4 ;;
+      request-review) printf 'request-review\t-\npending\tbot-review\tno PR-Agent run at -\n'; exit 4 ;;
     esac
     printf 'walk broke\n' >&2
     exit 1
@@ -184,8 +184,8 @@ for n in 7 8 9 10 11 12 13 14 15; do
   printf '%s\n' "$H" >"$tmp/head.$n"
   printf 'ready\n' >"$tmp/verdict.$n"
 done
-# A walk that says flip-for-review (exit 4) is not a merge-ready verdict.
-printf 'flip-for-review\n' >"$tmp/verdict.12"
+# A walk that says request-review (exit 4) is not a merge-ready verdict.
+printf 'request-review\n' >"$tmp/verdict.12"
 cmd() { printf 'gh pr merge %s --repo acme/web --%s --match-head-commit %s' "$1" "${3:-squash}" "$2"; }
 cmd7=$(cmd 7 "$H")
 ready7() { printf 'ready\tacme/web#7\t%s\t%s' "$1" "$(cmd 7 "$1" "${2:-squash}")"; }

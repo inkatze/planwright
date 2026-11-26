@@ -222,7 +222,7 @@ test-worker-command-guard-scratch.sh	7.984
 test-check-instructions-chain.sh	7.950
 test-tower-queue-log-lock.sh	7.819
 test-review-handoff.sh	7.656
-test-mc-readiness-flip-review.sh	7.647
+test-mc-readiness-request-review.sh	7.647
 test-converge-sync-main.sh	7.499
 test-check-instructions-suppression.sh	7.494
 test-policy-guard-hidden.sh	7.425

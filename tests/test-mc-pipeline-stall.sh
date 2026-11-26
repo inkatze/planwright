@@ -64,7 +64,7 @@ case \$verb in
   walk)
     n=\$(awk -F '\t' '\$1 == "stubpr" { print \$2 }' "\$ev")
     if [ -s "$tmp/walk.\$n" ]; then printf 'not-ready\tabc\n'; cat "$tmp/walk.\$n"; exit 4; fi
-    if [ -f "$tmp/flip.\$n" ]; then printf 'flip-for-review\tabc\npending\tpost-pr\tno completion record\n'; exit 4; fi
+    if [ -f "$tmp/request.\$n" ]; then printf 'request-review\tabc\npending\tbot-review\tno PR-Agent run at abc\npending\tpost-pr\tno completion record\n'; exit 4; fi
     printf 'ready\tabc\n'
     ;;
 esac
@@ -156,8 +156,8 @@ expect_out "a window later it raises again" "raised${tab}pipeline-stalled"
 if [ "$(stalled_events)" = 2 ]; then ok "two events in all"; else fail "expected two events, got $(stalled_events)"; fi
 
 # --- launch holds ----------------------------------------------------------
-# Draft 11 now reads flip-for-review, so the holds cover that walk's branch too.
-: >"$tmp/flip.11"
+# Draft 11 now reads request-review, so the holds cover that walk's branch too.
+: >"$tmp/request.11"
 : >"$tmp/usage-held"
 drafts | put $((T + 6 * HOUR))
 run $((T + 6 * HOUR))
@@ -170,7 +170,7 @@ run $((T + 8 * HOUR))
 ev=$(mc_run_events)
 case $ev in *"launch hold (host bound) (1): acme/web#11"*) ok "the host bound at its limit is a launch hold" ;; *) fail "no host bound reason: $ev" ;; esac
 printf 'bound\t8\t2\t0\n' >"$tmp/bound"
-rm -f "$tmp/flip.11"
+rm -f "$tmp/request.11"
 
 # --- thirty drafts still name every reason inside the event's byte cap ------
 for n in $(seq 100 129); do
@@ -243,7 +243,7 @@ run $((T + 42 * HOUR))
 ev=$(mc_run_events)
 case $ev in *"evidence unread (1): acme/web#7"*) ok "a draft whose evidence cannot be collected is named as unread" ;; *) fail "unread draft not named: $ev" ;; esac
 
-# --- the bot review is a draft's no business: it runs on the flip -----------
+# --- the bot review runs on the draft, so the flip waits on it --------------
 rm -f "$runtime"/pipeline-stall* "$tmp/broken.7"
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.12"
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tPENDING\n' >"$tmp/evidence.13"
@@ -251,11 +251,11 @@ printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tPENDING\n' >"$tmp/
 : >"$tmp/walk.13"
 printf 'state\tdraft\ncheck\tbuild\tFAILURE\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.14"
 : >"$tmp/walk.14"
-# A draft whose only gap is the post-pr point is told to flip: the flip verdict
-# has no failure line, and it reads as awaiting a flip, not a refusal.
+# A draft whose bot review has not run is told to request it: the request
+# verdict has no failure line, and it reads as awaiting a review request.
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\n' >"$tmp/evidence.15"
 : >"$tmp/walk.15"
-: >"$tmp/flip.15"
+: >"$tmp/request.15"
 {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
@@ -271,12 +271,12 @@ run $((T + 60 * HOUR))
 } | put $((T + 62 * HOUR))
 run $((T + 62 * HOUR))
 ev=$(mc_run_events | tail -n 1)
-case $ev in *"awaiting a flip (3): "*) ok "a draft's failed or pending PR-Agent run is no stall reason" ;; *) fail "a draft's PR-Agent run held it: $ev" ;; esac
-for n in 12 13 15; do
-  case $ev in *"acme/web#$n"*) ok "acme/web#$n awaits a flip" ;; *) fail "acme/web#$n is not among the drafts awaiting a flip: $ev" ;; esac
-done
-case $ev in *"flip-gate refusal readiness"*) fail "the flip verdict read as a refusal: $ev" ;; *) ok "the flip-for-review verdict is no refusal reason" ;; esac
-case $ev in *"red check build (1): acme/web#14"*) ok "and a red ordinary check beside it still is" ;; *) fail "the exemption hid an ordinary red check: $ev" ;; esac
+case $ev in *"red check PR-Agent (1): acme/web#12"*) ok "a draft's failed PR-Agent run is a red check" ;; *) fail "a draft's failed PR-Agent run is not named red: $ev" ;; esac
+case $ev in *"checks pending (1): acme/web#13"*) ok "a draft's running PR-Agent run is a pending check" ;; *) fail "a draft's running PR-Agent run is not pending: $ev" ;; esac
+case $ev in *"awaiting a review request (1): acme/web#15"*) ok "a draft whose review is due awaits a review request" ;; *) fail "the request verdict is not named: $ev" ;; esac
+case $ev in *"awaiting a flip"*) fail "a draft read as awaiting a flip before its review: $ev" ;; *) ok "no draft awaits a flip before its review" ;; esac
+case $ev in *"flip-gate refusal readiness"*) fail "the request verdict read as a refusal: $ev" ;; *) ok "the request-review verdict is no refusal reason" ;; esac
+case $ev in *"red check build (1): acme/web#14"*) ok "and a red ordinary check beside it still leads" ;; *) fail "an ordinary red check is not named first: $ev" ;; esac
 
 # --- a stale or absent snapshot raises nothing ------------------------------
 rm -f "$runtime"/pipeline-stall* "$snapdir/forge"

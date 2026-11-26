@@ -135,6 +135,57 @@ set_policy unit-owner
 echo tied-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a failure started in the same second as a success of its check is not green" [ "$CODE" = 4 ]
+
+echo "# the bot review: the flip waits for PR-Agent's run on the draft head"
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "with PR-Agent in the repository, a head it never reviewed parks (exit 4)" [ "$CODE" = 4 ]
+check "no flip is made before PR-Agent's run" [ "$(calls 'pr ready')" = 0 ]
+check "the park waits through the bound for the run" [ "$(rollups)" = 3 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo green >"$GHS/ci"
+run_helper evaluate --spec specs/demo --task 1
+check "the evaluation names the missing run and the request that starts it" \
+  grep -q 'ci-rollup	fail	no PR-Agent run has finished on .*; request a review (scripts/request-reviewer.sh)' <<<"$OUT"
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-pending >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a PR-Agent run still going on the draft holds the flip (exit 4)" [ "$CODE" = 4 ]
+check "no flip is made while PR-Agent runs" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-pending >"$GHS/ci"
+echo 3 >"$GHS/ci_green_from"
+echo pr-agent-green >"$GHS/ci_then"
+run_helper flip --spec specs/demo --task 1
+check "the flip waits until PR-Agent's run finishes, then flips" [ "$CODE" = 0 ]
+check "it polled through the running review" [ "$(rollups)" -ge 3 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a finished green PR-Agent run on the head lets the flip through" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-skipped >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a skipped PR-Agent run (the skip-pr-agent label) is the opt-out" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a repository without PR-Agent flips on green as before" [ "$CODE" = 0 ]
+
 fixture
 set_policy unit-owner
 echo capped >"$GHS/ci"

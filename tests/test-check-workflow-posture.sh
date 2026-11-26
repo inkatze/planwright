@@ -2205,6 +2205,29 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a workflow with no ready_for_review trigger fails" 1 $?
 assert_contains "pr-agent: the flip's own trigger is named" "ready_for_review" "$out"
 
+# The review runs on the draft, fired by a review request, and the flip waits
+# for it: without review_requested, or with a job that skips drafts, the flip
+# would be the only thing that starts it.
+pa_case pa-no-request-trigger "[ready_for_review]" '["ready_for_review"]'
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a workflow with no review_requested trigger fails" 1 $?
+assert_contains "pr-agent: the draft's own trigger is named" "must trigger on review_requested" "$out"
+
+pa_case pa-skips-drafts "[$PA_ALL]" "$PA_ALL_JSON"
+{
+  printf '%s\n' '---' 'name: PR-Agent' '"on":' '  pull_request:' "    types: [$PA_ALL]" 'permissions: {}' 'jobs:' '  review:'
+  printf '%s\n' '    if: github.event.pull_request.draft == false' '    runs-on: ubuntu-latest' '    steps:' '      - name: Review' \
+    '        uses: docker://pragent/pr-agent@sha256:0000' '        env:' "          GITHUB_ACTION_CONFIG.PR_ACTIONS: '$PA_ALL_JSON'"
+} >"$d/pr-agent.yml"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: a job that skips drafts fails" 1 $?
+assert_contains "pr-agent: the draft condition is named" "must run on a draft" "$out"
+
+pa_case pa-draft-comment "[$PA_ALL]" "$PA_ALL_JSON"
+printf '%s\n' '# once skipped on github.event.pull_request.draft == false' >>"$d/pr-agent.yml"
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pr-agent: the draft condition named only in a comment passes" 0 $?
+
 pa_case pa-dunder-agree "[$PA_ALL]" "$PA_ALL_JSON" __
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: the SECTION__KEY spelling of pr_actions is read" 0 $?
@@ -2246,8 +2269,12 @@ grep -q "contains(github.event.pull_request.labels.\*.name, 'skip-pr-agent')" "$
 assert_exit "pr-agent: the repo's workflow keeps its skip-pr-agent label" 0 $?
 grep -qx '    name: PR-Agent' "$PA_REAL"
 assert_exit "pr-agent: the job keeps the name the readiness check and the stall reasons match" 0 $?
-grep -q 'github.event.pull_request.draft == false' "$PA_REAL"
-assert_exit "pr-agent: the repo's workflow skips a draft" 0 $?
+grep -Eq '^[^#]*pull_request\.draft' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow runs on a draft, where the review request fires it" 1 $?
+grep -q '/bin/bash scripts/pr-agent-reviewed.sh' "$PA_REAL"
+assert_exit "pr-agent: the repo's workflow skips a head it already reviewed" 0 $?
+grep -q "steps.prior.outputs.reviewed != 'true'" "$PA_REAL"
+assert_exit "pr-agent: the review and its run marker wait on that check" 0 $?
 # shellcheck disable=SC2016 # the workflow's literal text
 grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?

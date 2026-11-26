@@ -162,16 +162,19 @@ for rd in readiness notready; do
   case $base in *"$(cat "$tmp/$rd")"*) ok "REQ-F1.15: $rd: the gate result is identical at every level" ;; *) fail "REQ-F1.15: $rd: the walk is not carried whole" ;; esac
 done
 
-# The flip verdict (a draft whose only gap is the bot review its flip fires)
-# is a walk result a packet carries, whole.
-printf 'flip-for-review\t%s\npending\tpost-pr\tno completion record\n' "$head" >"$tmp/flipreview"
+# The request verdict (a draft whose only gap is the bot review a review
+# request fires) is a walk result a packet carries, whole.
+printf 'request-review\t%s\npending\tbot-review\tno PR-Agent run at %s\npending\tpost-pr\tno completion record\n' "$head" "$head" >"$tmp/flipreview"
 printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tincomplete\t-\n' "$head" "$head" >"$tmp/flipgap"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
   --evidence "$tmp/flipgap" --moment ready-flip --level guided
-expect_rc "a flip-for-review readiness result assembles" 0
-expect_out "and the packet carries its first line" "flip-for-review${tab}$head"
+expect_rc "a request-review readiness result assembles" 0
+expect_out "and the packet carries its first line" "request-review${tab}$head"
 expect_out "and its pending row" "pending${tab}post-pr${tab}no completion record"
-expect_out "the cadence line holds the post-pr gap as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (no completion record)"
+expect_out "the cadence line holds the post-pr gap as pending the review" "Cadence: covered pre-pr; pending the bot review: post-pr (no completion record)"
+printf 'flip-for-review\t%s\npending\tpost-pr\tno completion record\n' "$head" >"$tmp/oldflip"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/oldflip"
+expect_rc "the retired flip-first verdict is refused, so no packet offers a flip before the review" 1
 expect_no_out "and gives no close-the-gap advice for it" "Recommend:"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
   --evidence "$tmp/flipgap" --moment ready-flip --level standard
@@ -181,7 +184,7 @@ expect_out "a not-ready walk still names the post-pr gap as a gap" "Cadence: cov
 printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tforeign\t2222222222222222222222222222222222222222\n' "$head" "$head" >"$tmp/flipforeign"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
   --evidence "$tmp/flipforeign" --moment ready-flip --level guided
-expect_out "a flip-for-review walk holds a foreign post-pr as pending the flip" "Cadence: covered pre-pr; pending the flip: post-pr (completed only outside the history of this pull request, newest at 222222222222)"
+expect_out "a request-review walk holds a foreign post-pr as pending the review" "Cadence: covered pre-pr; pending the bot review: post-pr (completed only outside the history of this pull request, newest at 222222222222)"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
   --evidence "$tmp/flipforeign" --moment ready-flip --level standard
 expect_out "a not-ready walk names it as a gap" "Cadence: covered pre-pr; gap post-pr (completed only outside the history of this pull request, newest at 222222222222)"
