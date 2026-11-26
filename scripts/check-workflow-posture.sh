@@ -844,7 +844,10 @@ fi
 #   J <job>                         a job
 #   O <job> <runs-on>               the job's scalar runs-on
 #   C <job> <image>                 the job's container image
-#   M <job>                         a `strategy.matrix` on the job
+#   M <job>                         a `strategy.matrix` on the job, or a
+#                                   `strategy:` whose value it cannot read
+#                                   (an expression, a flow mapping, or a
+#                                   block scalar), failing closed
 #   I <job> <line> <text>           job-level `if:` text, one per value line
 #   S <job> <seq>                   a step
 #   N <job> <seq> <name>            that step's name
@@ -935,7 +938,7 @@ BEGIN { section = ""; jobs_child = -1; job_body = -1; cur = ""; bs = 0; if_kind 
   if (job_body < 0) job_body = indent
   if (indent == job_body && !isseq) {
     in_steps = 0; in_container = 0; in_strategy = 0
-    if (key == "strategy") { in_strategy = 1; if (val != "" && val !~ /^[#|>]/) printf "M\t%s\n", cur }
+    if (key == "strategy") { in_strategy = 1; if (val != "" && val !~ /^#/) printf "M\t%s\n", cur }
     if (key == "runs-on") printf "O\t%s\t%s\n", cur, clean(unquote(val))
     else if (key == "container") { if (val != "") printf "C\t%s\t%s\n", cur, clean(unquote(val)); else in_container = 1 }
     else if (key == "if") {

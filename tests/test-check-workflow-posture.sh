@@ -1975,6 +1975,14 @@ matrix_case "matrix: the install smoke in a sharded Alpine job fails" 1 "strateg
   "M_ALP_JOB=$SHARDED"
 matrix_case "matrix: a whole-strategy expression on the smoke job fails closed" 1 "strategy.matrix" \
   "M_ALP_JOB=    strategy: \$\{\{ fromJSON(needs.plan.outputs.shards) \}\}"
+matrix_case "matrix: a folded block-scalar strategy on the smoke job fails closed" 1 "strategy.matrix" \
+  "M_ALP_JOB=    strategy: >-
+      \${{ fromJSON(needs.plan.outputs.strategy) }}"
+matrix_case "matrix: a literal block-scalar strategy on the smoke job fails closed" 1 "strategy.matrix" \
+  "M_ALP_JOB=    strategy: |
+      \${{ fromJSON(needs.plan.outputs.strategy) }}"
+matrix_case "matrix: a matrix after the smoke job's steps fails" 1 "strategy.matrix" \
+  "M_ALP_STEP=$SHARDED"
 matrix_case "matrix: a flow mapping under strategy on the smoke job fails closed" 1 "strategy.matrix" \
   "M_ALP_JOB=    strategy:
       { matrix: { shard: [1, 2] } }"
