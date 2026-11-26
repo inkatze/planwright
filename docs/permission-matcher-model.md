@@ -906,7 +906,8 @@ A spec PR that falls behind `main` needs its branch
 (`planwright/<spec>/<name>`, an amendment branch for one) brought into a
 worktree to sync or walk it, and the policy guard otherwise refuses both
 halves: a worker's flight branch merges only the PR base or its own remote
-branch, and a worktree holding the spec branch is not the session's own unit
+branch (or a stacked base its record names, below), and a worktree holding
+the spec branch is not the session's own unit
 branch. A launch given `--spec-branch planwright/<spec>/<name>` (a
 worker-profile session on the stream-json rung only; the launcher checks with
 `gh` that the branch is the head of an open pull request, and refuses
@@ -967,6 +968,30 @@ must be plain: an option outside the message, output, signing, hook and
 fast-forward ones (a squash, a strategy or strategy option, unrelated
 histories, `--no-commit`, `--autostash`), an abbreviated option or an expanded
 one refuses.
+
+## The stacked-base launch record
+
+A stacked PR's base is another feature branch, so the default-base rule would
+refuse its worker's base merge. A launch given `--base <branch>`, or
+`--base-from-pr` (one bounded `gh` read, kept only from an open PR whose head
+is in this repository), writes that branch into the session record as
+`stack_base=<remote>/<branch>` (`scripts/worker-session-record.sh`); a launch
+with neither records none, and today no launcher passes either. The policy
+guard reads it through the same record checks as `spec_branch` above, plus a
+record of at most 4096 bytes: this user's own regular file outside the
+worktree, naming this unit branch, with one `stack_base` on the unit's remote
+inside the guard's branch grammar. With it, `git merge` of that branch's
+remote-tracking ref (or of its current tip's full id) and `git pull <remote>
+<branch>` pass under `worker_base_merge: allow`, and
+`scripts/converge-sync-main.sh --base <branch>` syncs it, fetching
+`refs/heads/<branch>` so a tag of that name is never merged. The sync script
+runs in the worker's own shell and reads the record the session's
+environment names; the guard refuses any worker command that sets or clears
+that variable. `pr_base` stays the default base, so the trusted files above
+are still held to it. The record is not revalidated: if the PR is retargeted
+to main, its old base stays mergeable until a relaunch writes a new record.
+The worker command guard approves only the default base's merge, so a
+stacked merge it sees prompts.
 
 ## Changing any of this
 
