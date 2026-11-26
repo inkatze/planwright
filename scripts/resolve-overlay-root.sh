@@ -259,38 +259,52 @@ case $layer in
     # plugin: a root at <claude-dir>/plugins/cache/<marketplace>/planwright/
     # <version> owns the data directory
     # <claude-dir>/plugins/data/planwright-<marketplace>. Used only when that
-    # directory already holds an overlay, so nothing is guessed.
-    if [ -n "$claude_dir" ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
-      pd_roots=$(
-        /bin/sh "$script_dir/resolve-installed-roots.sh" --current || :
-        /bin/sh "$script_dir/resolve-installed-roots.sh" || :
-      ) || pd_roots=''
+    # directory already holds an overlay, so nothing is guessed. The installed
+    # record's current roots are asked first; every cached root only when none
+    # of those owns an overlay, and neither unless some overlay exists.
+    pd_any=0
+    if [ -n "$claude_dir" ]; then
+      for pd_d in "$claude_dir"/plugins/data/planwright-*/overlay; do
+        if [ -d "$pd_d" ]; then
+          pd_any=1
+          break
+        fi
+      done
+    fi
+    if [ "$pd_any" -eq 1 ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
       pd_nl='
 '
       pd_ifs=$IFS
-      set -f
-      IFS=$pd_nl
-      for pd_root in $pd_roots; do
-        IFS=$pd_ifs
-        case $pd_root in
-          "$claude_dir"/plugins/cache/*/planwright/*)
-            pd_rest=${pd_root#"$claude_dir"/plugins/cache/}
-            pd_mkt=${pd_rest%%/*}
-            case $pd_mkt in
-              "" | *[!A-Za-z0-9._-]*) ;;
-              *)
-                if [ -d "$claude_dir/plugins/data/planwright-$pd_mkt/overlay" ]; then
-                  printf '%s\n' "$claude_dir/plugins/data/planwright-$pd_mkt/overlay"
-                  exit 0
-                fi
-                ;;
-            esac
-            ;;
-        esac
+      for pd_mode in --current --all; do
+        if [ "$pd_mode" = --current ]; then
+          pd_roots=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --current </dev/null 2>/dev/null) || pd_roots=''
+        else
+          pd_roots=$(/bin/sh "$script_dir/resolve-installed-roots.sh" </dev/null 2>/dev/null) || pd_roots=''
+        fi
+        set -f
         IFS=$pd_nl
+        for pd_root in $pd_roots; do
+          IFS=$pd_ifs
+          case $pd_root in
+            "$claude_dir"/plugins/cache/*/planwright/*)
+              pd_rest=${pd_root#"$claude_dir"/plugins/cache/}
+              pd_mkt=${pd_rest%%/*}
+              case $pd_mkt in
+                "" | *[!A-Za-z0-9._-]*) ;;
+                *)
+                  if [ -d "$claude_dir/plugins/data/planwright-$pd_mkt/overlay" ]; then
+                    printf '%s\n' "$claude_dir/plugins/data/planwright-$pd_mkt/overlay"
+                    exit 0
+                  fi
+                  ;;
+              esac
+              ;;
+          esac
+          IFS=$pd_nl
+        done
+        IFS=$pd_ifs
+        set +f
       done
-      IFS=$pd_ifs
-      set +f
     fi
     # 3. Writer mode: derive the namespace from the manifest `name`.
     if [ -n "$claude_dir" ]; then
