@@ -6913,6 +6913,9 @@ mc_write_word_refused() {
   fi
   [ "$repo" != 0 ] || return 1
   MC_REFUSAL=$MC_REPO_DENY
+  # The posture reading above takes an of= word past its prefix; dd's own
+  # operand comes here bare, so any other is the path it spells too.
+  case $1 in of=*) ! mc_reaches_repo "$1" || return 0 ;; esac
   mc_reaches_repo "$w"
 }
 
@@ -8405,13 +8408,21 @@ XEOF_RUN
             ;;
         esac
       fi
-      ops[${#ops[@]}]=$w
       # sed's in-place files were read by its own parser above; dd writes only
-      # its of= file.
+      # its of= file, named past that prefix.
       case $verb:$w in
-        dd:of=*) opsr[${#opsr[@]}]='' ;;
-        dd:*) opsr[${#opsr[@]}]=0 ;;
-        *) opsr[${#opsr[@]}]=$rr ;;
+        dd:of=*)
+          ops[${#ops[@]}]=${w#of=}
+          opsr[${#opsr[@]}]=''
+          ;;
+        dd:*)
+          ops[${#ops[@]}]=$w
+          opsr[${#opsr[@]}]=0
+          ;;
+        *)
+          ops[${#ops[@]}]=$w
+          opsr[${#opsr[@]}]=$rr
+          ;;
       esac
     done
     # A copy verb's destination is its target directory or its last operand;
