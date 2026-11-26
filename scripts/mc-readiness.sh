@@ -1128,7 +1128,7 @@ collect() {
   cl_nf=$(awk -F '\t' '$1 == "count" && $2 == "files" { print $3; exit }' "$cl_tmp/pr")
   cl_tf=$(awk -F '\t' '$1 == "total" && $2 == "files" { print $3; exit }' "$cl_tmp/pr")
   # shellcheck disable=SC2016 # a GraphQL query and a jq program
-  if [ "$cl_nf" != "$cl_tf" ] && gh api graphql --paginate -f owner="$cl_owner" -f name="$cl_name" -F number="$3" -f query='
+  if [ "$cl_nf" != "$cl_tf" ] && [[ $cl_tf =~ ^[0-9]+$ ]] && gh api graphql --paginate -f owner="$cl_owner" -f name="$cl_name" -F number="$3" -f query='
     query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
         files(first: 100, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { path changeType } } } } }' --jq '
