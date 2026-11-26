@@ -2335,13 +2335,38 @@ push_reaches_protected() {
   )
 }
 
-# unquote <word> — UQ set to the word with every quote removed; forks only
-# when there is one to remove.
+# unquote <text> — UQ set to the text with every quote removed, by expansion:
+# a tr that failed would remove the whole text, and the screens would read
+# nothing to refuse.
+Q_QUOTES="\"'"
 unquote() {
-  UQ=$1
-  case "$UQ" in
-    *[\"\']*) UQ=$(printf '%s' "$UQ" | tr -d '\042\047') ;;
+  UQ=''
+  _uq=$1
+  while :; do
+    case "$_uq" in
+      *["$Q_QUOTES"]*)
+        UQ=$UQ${_uq%%["$Q_QUOTES"]*}
+        _uq=${_uq#*["$Q_QUOTES"]}
+        ;;
+      *)
+        UQ=$UQ$_uq
+        return 0
+        ;;
+    esac
+  done
+}
+
+# fold_lc <text> — FL set to the text in lower case; 1 when tr fails or prints
+# other than one byte for each it was given, so a screen fails closed rather
+# than reading an empty or cut-short fold as nothing reserved. The sentinel
+# keeps trailing newlines, so the lengths compare.
+fold_lc() {
+  FL=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || return 1
+  case "$FL" in
+    *x) FL=${FL%x} ;;
+    *) return 1 ;;
   esac
+  [ "${#FL}" = "${#1}" ]
 }
 
 # push_word_present <lowercased command> — 0 when a word of the command IS a
@@ -2477,7 +2502,9 @@ reserved_control() {
   # Quotes go first, as in push_reaches_protected: the shell runs `me""rge`
   # and `--am'end'` as the bare words, which a substring test on the quoted
   # text never sees.
-  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '\042\047')
+  fold_lc "$1" || return 0
+  unquote "$FL"
+  _rl=$UQ
   case "$_rl" in
     *merge* | *merging* | *rebas* | *amend* | *squash* | *fixup* | *force-push* | *force-with-lease*) return 0 ;;
     *'git pull'* | *git-pull*) return 0 ;;
@@ -2562,7 +2589,8 @@ gh_write_word() {
 # a rule's coverage is a prefix and a prefix is not a command.
 reserved_command() {
   reserved_control "$1" && return 0
-  _rq=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  fold_lc "$1" || return 0
+  _rq=$FL
   command_words_reserved "$_rq" && return 0
   push_word_present "$_rq" || return 1
   push_parses_safe "$_rq" && return 1
@@ -6464,8 +6492,7 @@ cmd_capture() {
             # (REQ-E1.9, REQ-H1.1). It fires again at match time, so a rule
             # recorded before this check existed is still refused where it
             # would act.
-            if reserved_control "$2" \
-              || command_words_reserved "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; then
+            if reserved_control "$2" || ! fold_lc "$2" || command_words_reserved "$FL"; then
               refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):

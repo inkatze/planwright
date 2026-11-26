@@ -242,9 +242,20 @@ valid_dir_path() {
   [ "${#v}" -le 512 ] && [ -d "$v" ]
 }
 
-# ASCII-lowercase, for the case-insensitive owner/repo cross-check GitHub's own
-# case-insensitivity requires.
-lower() { printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'; }
+# fold_lower <text> — FOLD set to the text ASCII-lowercased, for the
+# case-insensitive owner/repo cross-check GitHub's own case-insensitivity
+# requires. By expansion, not tr: a tr that failed would fold both sides to
+# empty, and they would compare equal.
+FOLD_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FOLD_LOW=abcdefghijklmnopqrstuvwxyz
+fold_lower() {
+  local i=0
+  FOLD=$1
+  while [ "$i" -lt 26 ]; do
+    FOLD=${FOLD//${FOLD_UP:$i:1}/${FOLD_LOW:$i:1}}
+    i=$((i + 1))
+  done
+}
 
 # --------------------------------------------------------------------------
 # Wall-clock bounds (REQ-C1.3, D-5).
@@ -1000,9 +1011,13 @@ evaluate_predicate() {
   # call named (REQ-C1.9): if gh answered about a different repo than the
   # caller asked for, the target is not what the guard believes and it must not
   # certify it.
-  if [ -n "$RG_REPO" ] \
-    && [ "$(lower "$owner/$repo")" != "$(lower "$RG_REPO")" ]; then
-    emit_deny 'the pull request gh resolved does not belong to the repository this call named - refusing (fail closed).'
+  if [ -n "$RG_REPO" ]; then
+    local resolved
+    fold_lower "$owner/$repo"
+    resolved=$FOLD
+    fold_lower "$RG_REPO"
+    [ "$resolved" = "$FOLD" ] \
+      || emit_deny 'the pull request gh resolved does not belong to the repository this call named - refusing (fail closed).'
   fi
 
   local behind rc=0

@@ -580,6 +580,19 @@ done
 fixture
 mp_run "$HELPER" --repo ACME/Widgets --pr 42 --copilot
 check "the origin comparison ignores case, as GitHub does" [ "$CODE" = 0 ]
+# A tr that fails would fold both names to empty, and another repository would
+# compare equal to the origin.
+BADTR="$SANDBOX/bin-badtr"
+mkdir -p "$BADTR"
+printf '#!/bin/sh\nexit 1\n' >"$BADTR/tr"
+chmod +x "$BADTR/tr"
+fixture
+PATH="$BADTR:$PATH" mp_run "$HELPER" --repo evil/widgets --pr 42 --copilot
+check "with a tr that fails, another repository is still refused (exit 2)" [ "$CODE" = 2 ]
+check "no gh call on another repository with a tr that fails" [ "$(mp_calls '')" = 0 ]
+fixture
+PATH="$BADTR:$PATH" mp_run "$HELPER" --repo ACME/Widgets --pr 42 --copilot
+check "with a tr that fails, the checkout's own origin still compares by case-folded name" [ "$CODE" = 0 ]
 
 echo "# echo discipline"
 # shellcheck disable=SC2016 # a literal pattern, not an expansion

@@ -304,6 +304,33 @@ for okp in 'git push origin feature/thing' 'git push origin "feature/thing"' 'gi
 done
 echo "ok: an ordinary branch push still matches"
 
+# A tr that fails, prints nothing, or prints less would fold the command to
+# something with no reserved word in it; the screens refuse instead, at match
+# and at capture.
+real_tr=$(command -v tr)
+for kind in fails empty truncates; do
+  mkdir -p "$tmp/tr-$kind"
+  # shellcheck disable=SC2016 # the stubs' own text, expanded when they run
+  case $kind in
+    fails) printf '#!/bin/sh\nexit 1\n' >"$tmp/tr-$kind/tr" ;;
+    empty) printf '#!/bin/sh\ncat >/dev/null\n' >"$tmp/tr-$kind/tr" ;;
+    truncates) printf '#!/bin/sh\n%s "$@" | head -c 2\n' "$real_tr" >"$tmp/tr-$kind/tr" ;;
+  esac
+  chmod +x "$tmp/tr-$kind/tr"
+  for cmd in 'git push origin feature:feature' 'git MERGE feature'; do
+    rc=0
+    PATH="$tmp/tr-$kind:$PATH" run match --decision "$push_rule" --command "$cmd" >"$tmp/o" || rc=$?
+    [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+      || fail "a tr that $kind: '$cmd' was not refused as reserved (exit $rc, '$(cat "$tmp/o")')"
+  done
+  rc=0
+  PATH="$tmp/tr-$kind:$PATH" run capture --kind standing --text 'a rule over a fold that failed' \
+    --covers-command 'git REBASE' --now 1011 >"$tmp/o" || rc=$?
+  [ "$rc" != 0 ] || fail "a tr that $kind: a coverage reaching a reserved control was captured"
+  grep -q 'reserved human control' "$errf" || fail "a tr that $kind: the capture refusal did not name the reserved control"
+done
+echo "ok: a tr that fails, prints nothing, or prints less refuses the command rather than screening an empty fold"
+
 # The negative screen is what a rule's COVERAGE is held to: a prefix is not a
 # command, so `git push ` is a rule the operator may write, and the positive
 # parse is applied to each command it is asked to answer.
