@@ -75,6 +75,11 @@ for cmd in "git push origin HEAD:Planwright/Demo/Amendment-1" "git push origin H
   launch "$cmd"
   rule_denies "[worker] a case-varied or mixed-refspec push still denies: $cmd"
 done
+for cmd in "git push origin :refs/heads/$SB" "git push -d origin $SB"; do
+  launch "$cmd"
+  rule_denies "[worker] a delete spelled past the unit-branch delete check still denies: $cmd"
+  reads none "[worker] the spec PR branch rule denies before any protected-set read: $cmd"
+done
 for b in "$MYFL" planwright/demo/task-7 planwright/demo/amendment planwright/amendment-1 \
   planwright/demo/x/amendment-1 planwright/flight/amendment-branch-push-0123abcd planwright/flight/spec-rework-0123abcd; do
   launch "git push origin HEAD:$b"
@@ -126,9 +131,18 @@ for cmd in "gh api -X PATCH repos/acme/widgets/git/refs/heads/$SB -f sha=abc" \
   "gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=refs/heads/$SB" \
   "gh api -X POST repos/acme/widgets/branches/$SB/rename -f new_name=planwright/demo/zzz" \
   "gh api -X POST repos/acme/widgets/branches/planwright/demo/zzz/rename -f new_name=$SB" \
-  "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"$SB\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'"; do
+  "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"$SB\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'" \
+  "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{qualifiedName:\"refs/heads/$RW\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'" \
+  "gh api graphql -f query='mutation{createRef(input:{repositoryId:\"R\",name:\"refs/heads/$SB\",oid:\"abc\"}){ref{id}}}'"; do
   launch "$cmd"
   rule_denies "[worker] a host write to a spec PR branch denies: $cmd"
+  reads none "[worker] the host write denies before any protected-set read: $cmd"
+done
+for cmd in "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I_x\",oid:\"abc\",name:\"$MYFL\"}){linkedBranch{id}}}'" \
+  "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"$MYFL\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'"; do
+  launch "$cmd"
+  expect defer "[worker] a GraphQL write naming a branch outside the rule defers: $cmd"
+  reads protected_branches "[worker] it reads the protected set instead: $cmd"
 done
 launch "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I_x\",oid:\"abc\",name:\"$SB\"}){linkedBranch{id}}}'"
 rule_denies "[worker] a createLinkedBranch mutation naming a spec PR branch denies"
@@ -162,17 +176,25 @@ gitq -C "$FL" worktree add -b "$RW" "$KO" "origin/$RW"
 on_branch "$KO" "$RW" 'the kickoff worktree holds the spec-rework branch'
 kick "git push origin $RW" "$KO"
 rule_denies "[kickoff-demo] a plain push of its spec-rework branch denies"
+for cmd in "git push origin $SB" "git push origin HEAD"; do
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo-a1 PLANWRIGHT_WORKER_SESSION_RECORD=$NOREC pg worker "$cmd" "$AM" "$AM"
+  rule_denies "[kickoff-demo-a1] the amendment kickoff's plain push of its own branch denies: $cmd"
+done
 
 echo "# every tier"
 for b in "$SB" "$RW"; do
-  pg tower "git push origin HEAD:$b" "$FL" "$FL"
-  expect deny "[tower] a push to a spec PR branch denies: $b"
-  pg tower "gh api -X PATCH repos/acme/widgets/git/refs/heads/$b -f sha=abc" "$FL" "$FL"
-  rule_denies "[tower] a host ref write to a spec PR branch denies: $b"
+  for cmd in "git push origin HEAD:$b" "git push origin :$b" "git push --delete origin $b" \
+    "gh api -X PATCH repos/acme/widgets/git/refs/heads/$b -f sha=abc" "gh api -X DELETE repos/acme/widgets/git/refs/heads/$b"; do
+    pg tower "$cmd" "$FL" "$FL"
+    rule_denies "[tower] a push or host ref write to a spec PR branch denies: $cmd"
+  done
   pg mission-control "gh api -X PATCH repos/acme/widgets/git/refs/heads/$b -f sha=abc" "$FL" "$FL"
   expect deny "[mission-control] a host ref write to a spec PR branch denies: $b"
   reason_has 'mission control writes no branch' "[mission-control] it keeps mission control's own refusal: $b"
 done
+pg tower "git push origin HEAD:$MYFL" "$FL" "$FL"
+expect defer "[tower] a push to a branch outside the rule defers"
+reads protected_branches "[tower] it reads the protected set instead"
 
 no_gh_calls
 finish
