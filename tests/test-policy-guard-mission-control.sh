@@ -185,8 +185,13 @@ for c in "echo x > of=u/README.md" "cp $KB/real.md of=u/README.md" "echo x | tee
   pg mission-control "$c" "$SCRATCH"
   expect deny "[mission-control] only dd's operand names its file past of=: ${c//"$KB"\//}"
 done
-pg mission-control "dd if=$KB/real.md of=$KB/dd.md" "$SCRATCH"
-expect defer "[mission-control] dd's of= file outside a repository is no repository write"
+pg mission-control "dd if=$KB/real.md of=$KB/dd.md" "$UNIT"
+expect defer "[mission-control] dd's of= file outside a repository is no repository write, run from one"
+ln -s "$FIXHOME/.claude" "$SCRATCH/of=pc"
+for c in "echo x > of=pc/agents/x.md" "dd if=$KB/real.md of=of=pc/agents/x.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a path named of= is followed to a settings directory: ${c//"$KB"\//}"
+done
 pg mission-control "sed -i -- s/a/b/ $UNIT/README.md" "$SCRATCH"
 expect deny "[mission-control] sed -i -- still refuses its in-place file inside a repository"
 pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"

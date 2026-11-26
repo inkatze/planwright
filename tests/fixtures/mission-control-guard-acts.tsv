@@ -367,7 +367,13 @@ deny	repo-write	bash	-	settings or configuration file	echo $(env -Struncate -s0 
 deny	repo-write	bash	-	settings or configuration file	echo $(env -S'sed -i s/a/b/ @UNIT@/README.md')
 deny	repo-write	bash	-	edits no repository	echo $(env -Sperl -pi -e1 @UNIT@/README.md)
 defer	read	bash	-	-	env -Sls @UNIT@/README.md
-defer	read	bash	-	-	ls -lSd @UNIT@
+defer	read	bash	-	-	echo $(git log -Stee --oneline)
+defer	read	bash	-	-	timeout 5 git log -Scp --oneline
+defer	read	bash	-	-	timeout 30 curl --compressed -sS https://example.invalid
+defer	read	bash	-	-	timeout 5 grep -rn five-star @UNIT@
+defer	read	bash	-	-	nice ls -lstar @UNIT@
+deny	repo-write	bash	-	edits no repository	bash -c "perl -Spi -e1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "ruby -Spi -e1 @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	gawk -W source='@include "inplace"' @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	gawk -Wsource='@include "inplace"' @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	gawk -W source '@include "inplace"' @UNIT@/README.md
@@ -375,8 +381,15 @@ deny	repo-write	bash	-	edits no repository	gawk -W file=inplace.awk @UNIT@/READM
 deny	repo-write	bash	-	edits no repository	gawk -W exec=inplace.awk @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	bash -c "gawk -W file=inplace.awk @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	bash -c "gawk -W exec inplace.awk @UNIT@/README.md"
-defer	read	bash	-	-	gawk -W source='{print}' @UNIT@/README.md
-defer	read	bash	-	-	gawk -W lint '{print}' @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -W file inplace.awk @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	gawk -W include inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -bi inplace 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -bf inplace.awk @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "gawk -bW include=inplace 1 @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	ruby -Kui -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "ruby -Kui -pe 1 @UNIT@/README.md"
+defer	read	bash	-	-	ruby -Ki -pe 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	xargs -J % perl -pi -e 1 % @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo --user root perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	sudo -Hu root perl -pi -e 1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	timeout --signal KILL 5 perl -pi -e 1 @UNIT@/README.md
@@ -388,10 +401,11 @@ deny	repo-write	bash	-	edits no repository	xargs --delimiter x perl -pi -e 1 @UN
 defer	read	bash	-	-	sudo -u root perl -pi -e 1 @SCRATCH@/kb/a.md
 defer	read	bash	-	-	sudo -Hu root cat @UNIT@/README.md
 defer	read	bash	-	-	timeout --signal KILL 5 perl -ne 1 @UNIT@/README.md
-deny	repo-write	bash	-	edits no repository	bash -c "sudo -u root perl -pi -e1 @UNIT@/README.md"
-deny	repo-write	bash	-	edits no repository	eval "sudo -u root perl -pi -e1 @UNIT@/README.md"
-deny	repo-write	bash	-	edits no repository	bash -c "timeout -s KILL 5 ed -s @UNIT@/README.md"
-deny	repo-write	bash	-	edits no repository	bash -c "env -u HOME vi @UNIT@/README.md"
+defer	read	bash	-	-	sudo -E grep ed @UNIT@/README.md
+defer	read	bash	-	-	env -i grep ed @UNIT@/README.md
+defer	read	bash	-	-	stdbuf -oL grep view @UNIT@/README.md
+defer	read	bash	-	-	bash -c "env -i grep ed @UNIT@/README.md"
+defer	read	bash	-	-	echo $(sudo -E grep -c view @UNIT@/README.md)
 defer	read	bash	-	-	bash -c "sudo -u root cat @UNIT@/README.md"
 defer	read	bash	-	-	bash -c "sudo -u root grep -e ed @UNIT@/README.md"
 deny	repo-write	bash	-	edits no repository	x=$(date); perl -e 1 -pi @UNIT@/README.md
