@@ -195,7 +195,7 @@ assert_exit "the hook fails closed when the seed file is unreachable" 1 $?
 assert_contains "an unrunnable guard is reported as a setup problem" "setup problem" "$out"
 assert_absent "an unrunnable guard does not tell the author to reword" "reword" "$out"
 
-# The Task 2 screen this hook extends still fires, and still first.
+# The autosquash-subject screen this hook extends still fires, and still first.
 r="$(wired_repo hook-squash)"
 seed_into "$r" "$TOKEN"
 printf 'content\n' >"$r/doc.md"

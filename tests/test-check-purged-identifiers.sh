@@ -52,7 +52,7 @@ assert_contains "a clean run reports what it scanned" "tracked text file(s) scan
 # The normalization boundary, pinned in both directions.
 # ---------------------------------------------------------------------------
 
-# in_scope <label> <line> — the line must be caught.
+# in_scope <label> <slug> <line> — the line must be caught.
 in_scope() {
   r="$(new_repo "in-$2")"
   seed_into "$r" "$TOKEN"
