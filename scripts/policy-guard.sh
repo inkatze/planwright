@@ -1330,35 +1330,19 @@ base_of() {
 
 # stack_base_load — sets STACK_BRANCH: the stacked PR's base branch on the
 # base remote, from the launch-time session record (never live config, which
-# the worker can change), or empty. The record must be this user's own regular
-# file outside the unit's worktree, name this unit branch, and carry exactly
+# the worker can change), or empty. The record must be one record_usable
+# accepts for the unit's worktree, name this unit branch, and carry exactly
 # one stack_base on the base remote in the branch grammar.
 STACK_BRANCH=''
 stack_base_load() { # <dir>
-  local p=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line k v seen=' ' unit='' sb='' top pdir
+  local top sb
   STACK_BRANCH=''
-  case $p in /?*) ;; *) return 0 ;; esac
-  [ -f "$p" ] && [ ! -L "$p" ] && [ -O "$p" ] && [ -r "$p" ] || return 0
   top=$(gitq "$1" rev-parse --show-toplevel) || top=''
-  # Both sides resolved the same way: a record path may go through a symlinked
-  # directory (macOS /var) that git's physical top level does not.
   [ -n "$top" ] || return 0
-  top=$(cd -P -- "$top" 2>/dev/null && pwd -P) || return 0
-  pdir=$(cd -P -- "${p%/*}/" 2>/dev/null && pwd -P) || return 0
-  case $pdir in "$top" | "$top"/*) return 0 ;; esac
-  while IFS= read -r line || [ -n "$line" ]; do
-    case $line in *=*) ;; *) continue ;; esac
-    k=${line%%=*}
-    v=${line#*=}
-    case $k in
-      unit_branch | stack_base)
-        case $seen in *" $k "*) return 0 ;; esac
-        seen="$seen$k "
-        if [ "$k" = unit_branch ]; then unit=$v; else sb=$v; fi
-        ;;
-    esac
-  done <"$p"
-  [ "$unit" = "$CUR_BRANCH" ] || return 0
+  record_usable "$top" || return 0
+  record_field unit_branch && [ "$RF" = "$CUR_BRANCH" ] || return 0
+  record_field stack_base || return 0
+  sb=$RF
   [ "${sb%%/*}" = "$BASE_REMOTE" ] || return 0
   sb=${sb#*/}
   valid_branch "$sb" || return 0

@@ -142,7 +142,8 @@ me=worker-session-record.sh
 # (they change together).
 MAX_CHECKS_LEN=2048
 # The record size every reader accepts (scripts/worker-command-guard.sh,
-# scripts/policy-guard.sh, scripts/worker-branch-sync.sh; they change together).
+# scripts/policy-guard.sh, scripts/worker-branch-sync.sh,
+# scripts/converge-sync-main.sh; they change together).
 MAX_RECORD_SIZE=4096
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 

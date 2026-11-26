@@ -343,8 +343,10 @@ fi
 
 # The base this sync merges: main, or with --base the stacked PR's base branch,
 # which only this session's launch-time record may name (never live config, which
-# the worker can change). The record must be this user's own regular file, name
-# this unit branch, and carry exactly one stack_base equal to origin/<branch>.
+# the worker can change). The record must be this user's own regular file of at
+# most 4096 bytes (the bound every record reader shares, MAX_RECORD_SIZE in
+# scripts/worker-session-record.sh), name this unit branch, and carry exactly
+# one stack_base equal to origin/<branch>.
 base_br=main
 if [ -n "$base_arg" ]; then
   rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
@@ -369,6 +371,14 @@ if [ -n "$base_arg" ]; then
     esac
   else
     rec=
+  fi
+  if [ -n "$rec" ]; then
+    rec_size=$(wc -c <"$rec" 2>/dev/null) || rec_size=''
+    rec_size=${rec_size// /}
+    case $rec_size in
+      '' | *[!0-9]*) rec= ;;
+      *) [ "$rec_size" -le 4096 ] || rec= ;;
+    esac
   fi
   if [ -n "$rec" ]; then
     while IFS= read -r rline || [ -n "$rline" ]; do
