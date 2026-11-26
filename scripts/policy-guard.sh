@@ -5809,7 +5809,10 @@ RE_MC_INPLACE_SPAN='[[:blank:]]+([^;&|'$'\n'']*[[:blank:]])?'
 # switch any words may stand before the i cluster, since a switch's value
 # (-I lib, -e 1) is a word of its own (mc_ipt_perl parses the rest).
 RE_MC_INPLACE_PERL_TOOL='([Pp][Ee][Rr][Ll]|[Rr][Uu][Bb][Yy])[0-9.]*[[:blank:]]+-([^;&|'$'\n'']*[[:blank:]]-)?([0-9acdfgnpsStTuUvwWXyhl]|K[A-Za-z])*i'
-RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-[ilE][[:space:]]*|(--|-W[[:space:]]*)(i|lo|e|fil)[a-z]*[=[:space:]][[:space:]]*|-f[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
+# gawk's flags that take no value, which a cluster may hold before -i, -l,
+# -E, -f or -W (-bi inplace).
+RE_MC_AWK_FLAGS='[bcCghIkMnNOPrsStV]*'
+RE_MC_INPLACE_AWK_TOOL='(awk|gawk[0-9.-]*)'$RE_MC_INPLACE_SPAN'(-'$RE_MC_AWK_FLAGS'[ilE][[:space:]]*|(--|-'$RE_MC_AWK_FLAGS'W[[:space:]]*)(i|lo|e|fil)[a-z]*[=[:space:]][[:space:]]*|-'$RE_MC_AWK_FLAGS'f[[:space:]]*)([^[:space:];&|]*/)?inplace([.]awk|[.]so)?([[:space:];&|)]|$)'
 # Program text including the extension, anywhere after the tool: the program's
 # own semicolons and line breaks end no statement of the shell's, and its text
 # may open a word (--source=, -e) rather than follow a blank.
