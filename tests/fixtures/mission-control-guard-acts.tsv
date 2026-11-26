@@ -382,7 +382,7 @@ deny	repo-write	bash	-	hands a write verb	env -C '@SCRATCH@/a b' -Stee @UNIT@/RE
 deny	repo-write	bash	-	hands a write verb	bash -c "env -P /usr/bin -Stee @UNIT@/README.md"
 deny	repo-write	bash	-	hands a write verb	bash -c "env --c /x -Stee @UNIT@/README.md"
 deny	repo-write	bash	-	hands a write verb	bash -c "env -uSSH_AUTH_SOCK -Stee @UNIT@/README.md"
-deny	repo-write	bash	-	hands a write verb	echo $(env -C/Some -Stee @UNIT@/README.md)
+deny	repo-write	bash	-	settings or configuration file	echo $(env -C/Some -Stee @UNIT@/README.md)
 deny	repo-write	bash	-	hands a write verb	bash -c "env - -Stee @UNIT@/README.md"
 defer	read	bash	-	-	bash -c "env -Sgit -Stee"
 defer	read	bash	-	-	bash -c "env -uStee git status"
