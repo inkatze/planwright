@@ -74,8 +74,9 @@
 # "sudo -u root perl -pi f"). The runner and here-string reading is a text
 # reading that fails closed: it refuses an editor's name opening a here-string
 # beside a shell or runner even where a script reads it as data, and it
-# misses a here-string a shell reads from a later line (cat <<< '...' |, then bash), a
-# compound closer that follows a word or carries no space before a redirect
+# misses a here-string a shell reads from a later line (cat <<< '...' |, then
+# bash), a compound closer that follows a word or carries no space before a
+# redirect
 # (echo a ) <<<, }2>&1 <<<), and a pipe between a closer and its here-string;
 # a quoted span of one word in unparsed text is read as no command.
 #
@@ -6384,7 +6385,8 @@ mc_env_split() {
 }
 
 # mc_inplace_text <text> [word] — 0 when the text, its quotes and escapes
-# dropped, runs an in-place editor (RE_MC_INPLACE_*_TOOL): in command position
+# dropped, runs an in-place editor (RE_MC_INPLACE_*_TOOL, and
+# RE_MC_INPLACE_AWK_INCLUDE for awk program text): in command position
 # (RE_MC_INPLACE_LEAD), or with `word` as any word (RE_MC_INPLACE_WORD_LEAD).
 # In text holding a case statement a ) can end a pattern before a command, so
 # there it opens one.
@@ -7135,10 +7137,10 @@ mc_wrap_opt_value() {
       c=$2
       case $1 in
         sudo)
-          mc_long_is "$c" 3 --user --group --type --other-user ||
-            mc_long_is "$c" 4 --host --close-from --role --command-timeout ||
-            mc_long_is "$c" 5 --prompt --chdir --chroot ||
-            mc_long_is "$c" 8 --login-class
+          mc_long_is "$c" 3 --user --group --type --other-user \
+            || mc_long_is "$c" 4 --host --close-from --role --command-timeout \
+            || mc_long_is "$c" 5 --prompt --chdir --chroot \
+            || mc_long_is "$c" 8 --login-class
           ;;
         env) mc_long_is "$c" 3 --unset --chdir --split-string --argv0 ;;
         timeout) mc_long_is "$c" 3 --signal --kill-after ;;
@@ -7146,8 +7148,8 @@ mc_wrap_opt_value() {
         stdbuf) mc_long_is "$c" 3 --input --output --error ;;
         time) mc_long_is "$c" 3 --format --output ;;
         xargs)
-          mc_long_is "$c" 3 --arg-file --delimiter --process-slot-var ||
-            mc_long_is "$c" 7 --max-args --max-procs --max-chars
+          mc_long_is "$c" 3 --arg-file --delimiter --process-slot-var \
+            || mc_long_is "$c" 7 --max-args --max-procs --max-chars
           ;;
         *) return 1 ;;
       esac
@@ -7625,18 +7627,8 @@ mc_ipt_awk() {
     fi
     case $w in
       --) stop=1 ;;
-      --?*)
-        # Each long option as the short one it spells.
-        c=${w%%=*}
-        mc_ipt_awk_long "$w"
-        ch=$MC_AL
-        [ -n "$ch" ] || continue
-        if [ "$c" = "$w" ]; then
-          val=$ch
-        else
-          mc_ipt_awk_opt "$ch" "${w#*=}"
-        fi
-        ;;
+      # A long option reads as -W's spelling of it.
+      --?*) mc_ipt_awk_opt W "${w#--}" ;;
       -?*)
         c=${w#-} j=0
         while [ "$j" -lt "${#c}" ]; do
@@ -8222,7 +8214,8 @@ XEOF_RUN
     fi
     lc "${w//[\"\'\\]/}"
     verb=${LC##*/}
-    # The tools Homebrew installs under a g prefix are the same verbs.
+    # A g-prefixed name (Homebrew's GNU tools: gsed, gcp, gtar and the like)
+    # is the same verb.
     case $verb in gcp | gmv | ginstall | gln | glink | gtee | gdd | grsync | gtruncate | gsed | gtar) verb=${verb#g} ;; esac
     inplace=0
     makes_link=0
