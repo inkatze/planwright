@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.85.0](https://github.com/inkatze/planwright/compare/v0.84.0...v0.85.0) (2026-11-26)
+
+
+### Features
+
+* **ci:** run the Alpine install smoke once in its own job ([#1051](https://github.com/inkatze/planwright/issues/1051)) ([fc7c858](https://github.com/inkatze/planwright/commit/fc7c858f3f1307c70fafb62d5f9925af8393a04b))
+* **tower-session:** record the kind of command that marked a session ([#1010](https://github.com/inkatze/planwright/issues/1010)) ([59ee104](https://github.com/inkatze/planwright/commit/59ee104eea7be2bdbbd6ec43e53a7e00cae79a5e))
+
+
+### Bug Fixes
+
+* **guard:** let a stacked PR's worker merge its own base branch ([#949](https://github.com/inkatze/planwright/issues/949)) ([3fa9e7c](https://github.com/inkatze/planwright/commit/3fa9e7c179c9cdd73b15a3adf88b042005916bbd))
+* let a worker launched on a spec's sign-off PR land a forward-merge of main ([#1140](https://github.com/inkatze/planwright/issues/1140)) ([6bf0f88](https://github.com/inkatze/planwright/commit/6bf0f887fbb73a371a3cdaf08452a91ba3cbe655))
+* let usage rungs at 100 repeat so a ladder-off override cannot pin a quota hold ([#1186](https://github.com/inkatze/planwright/issues/1186)) ([7a983cd](https://github.com/inkatze/planwright/commit/7a983cd2baf191a12bb3a4cac9d1e495777d324e))
+* make the posture check's jq failures diagnosable and retried ([#1183](https://github.com/inkatze/planwright/issues/1183)) ([83e2254](https://github.com/inkatze/planwright/commit/83e2254a755aef6c02ae4afd34a2b85b5e4fad5a))
+
 ## [0.84.0](https://github.com/inkatze/planwright/compare/v0.83.0...v0.84.0) (2026-11-25)
 
 
