@@ -148,9 +148,11 @@
 #               naming no branch denies, since it writes the default branch);
 #               a request the guard cannot read (a field from a file or stdin,
 #               an --input body, a non-literal endpoint, method, or query on a
-#               write, a dot segment in the path, a GraphQL branch write whose
-#               target key carries anything but a plain string or names a node
-#               id, a rename with no literal new name, an unknown flag)
+#               write, a dot or empty segment, a trailing slash or a percent
+#               escape in the path, a GraphQL branch write whose query holds a
+#               string that does not close or whose target key carries anything
+#               but a plain string or names a node id, a rename with no literal
+#               new name, an unknown flag)
 #               denies before any read; anything else defers. A
 #               repositories/<id>/ path reads as repos/<owner>/<repo>/.
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
@@ -1039,7 +1041,8 @@ tokenize() {
 # every name to empty, so nothing would match and the call would defer. Short
 # text folds by expansion. Long text, where the substitutions grow with the
 # square of its matches, takes tr's output only when it ends in the sentinel
-# at the input's length, and folds by expansion otherwise. Under nocasematch a
+# at the input's length with no upper-case letter left, and folds by
+# expansion otherwise. Under nocasematch a
 # substitution also rewrites the lower-case letter, to itself.
 FOLD_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
 FOLD_LOW=abcdefghijklmnopqrstuvwxyz
@@ -1050,6 +1053,7 @@ fold_lower() {
   if [ "${#FOLD}" -gt 4096 ]; then
     out=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || out=''
     case $out in
+      *[A-Z]*) ;;
       *x)
         if [ "${#out}" = "$((${#1} + 1))" ]; then
           FOLD=${out%x}
@@ -1147,8 +1151,10 @@ is_unit_branch() {
 
 # is_spec_family <branch> — 0 when the branch, in any case, is a spec's
 # amendment branch (planwright/<spec>/amendment-<digits>) or its spec-rework
-# branch: spec branches the protected set does not hold, as
-# kickoff_scope_names reads them.
+# branch: spec branches the protected set does not hold. It reads the shape
+# kickoff_scope_names admits, more widely (case-blind, no length cap), which
+# only refuses more. scripts/tower-force-push.sh's spec_family keeps the same
+# rule; change both together.
 is_spec_family() {
   local rest spec leaf
   fold_lower "$1"
@@ -1851,8 +1857,23 @@ RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.
 # shellcheck disable=SC2016 # a regex; `$` is literal
 RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$'
 
-# lc <word> — set LC to the word in lower case, with no fork (this runs per
-# word on every guarded call).
+# names_cfgenv — 0 when a word of the segment in SW[] after its command names
+# HOME or XDG_CONFIG_HOME as a variable it sets or drops: the bare name (read,
+# unset, a loop variable), an assignment to it, or a nameref's target. A
+# longer name sharing the prefix (HOMEBREW_*) is not it.
+names_cfgenv() {
+  local w
+  for w in "${SW[@]:1}"; do
+    case $w in
+      HOME | HOME=* | HOME+=* | XDG_CONFIG_HOME | XDG_CONFIG_HOME=* | XDG_CONFIG_HOME+=*) return 0 ;;
+      *=HOME | *=XDG_CONFIG_HOME) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# lc <word> — set LC to the word in lower case, with no fork for a word of
+# up to 4096 bytes (this runs per word on every guarded call).
 lc() {
   fold_lower "$1"
   LC=$FOLD
@@ -2905,10 +2926,12 @@ classify_segments() {
               ;;
           esac
           case " ${SW[*]} " in
-            *" HOME"* | *" XDG_CONFIG_HOME"*)
-              ST_FILT=1
-              CFGENV_SET=1
-              ;;
+            *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;
+          esac
+          case "$base_verb: ${SW[*]} " in
+            printf:*" -v"*) ! names_cfgenv || CFGENV_SET=1 ;;
+            printf:*) ;;
+            *) ! names_cfgenv || CFGENV_SET=1 ;;
           esac
           # A value the shell later runs (a startup or prompt hook, an
           # arithmetic subscript) is screened as a command; printf sets one
@@ -2921,6 +2944,12 @@ classify_segments() {
                 && deny_now "this command sets or evaluates a value naming a reserved act through $(sanitize_printable "$verb" 'a builtin') - refusing (fail closed). Run the command directly."
               ;;
           esac
+          ;;
+      esac
+      # Builtins that assign or drop a variable named among their words.
+      case $base_verb in
+        read | mapfile | readarray | getopts | unset | for | select)
+          ! names_cfgenv || CFGENV_SET=1
           ;;
       esac
       case $base_verb in
@@ -3413,43 +3442,53 @@ norm_endpoint() {
 # block string carries the escaped delimiter \""", whose misreading would
 # swap what is string and what is query for the rest of it.
 gql_mask() {
-  local s=$1 pre inner seg bs
-  GQL_MASK=''
-  while :; do
-    case $s in *'"'*) ;; *)
-      GQL_MASK=$GQL_MASK$s
-      return 0
-      ;;
-    esac
-    pre=${s%%\"*}
-    GQL_MASK=$GQL_MASK$pre
-    s=${s:${#pre}}
-    case $s in
-      '"""'*)
-        s=${s:3}
-        case $s in *'"""'*) ;; *) return 1 ;; esac
-        inner=${s%%'"""'*}
-        case $inner in *\\) return 1 ;; esac
-        s=${s:$((${#inner} + 3))}
-        GQL_MASK=$GQL_MASK'"""'${inner//?/ }'"""'
-        ;;
-      *)
-        s=${s:1}
-        inner=''
-        while :; do
-          case $s in *'"'*) ;; *) return 1 ;; esac
-          seg=${s%%\"*}
-          s=${s:$((${#seg} + 1))}
-          inner=$inner$seg
-          # An odd run of backslashes before the quote escapes it.
-          bs=${seg##*[!\\]}
-          [ "$((${#bs} % 2))" = 1 ] || break
-          inner=$inner'"'
-        done
-        GQL_MASK=$GQL_MASK'"'${inner//?/ }'"'
-        ;;
-    esac
+  local -a p=() out=()
+  local n i=1 j t
+  # One split on the quote, so the walk stays linear; the here-string's
+  # newline keeps a trailing empty piece from being dropped.
+  IFS='"' read -r -d '' -a p <<<"$1" || :
+  n=${#p[@]}
+  p[n-1]=${p[n-1]%$'\n'}
+  out[0]=${p[0]}
+  while [ "$i" -lt "$n" ]; do
+    if [ "$((i + 2))" -lt "$n" ] && [ -z "${p[$i]}" ] && [ -z "${p[$((i + 1))]}" ]; then
+      # A block string: its body runs to the next three quotes in a row.
+      j=$((i + 2))
+      t=''
+      while :; do
+        [ "$((j + 3))" -lt "$n" ] || return 1
+        if [ -z "${p[$((j + 1))]}" ] && [ -z "${p[$((j + 2))]}" ]; then
+          case ${p[$j]} in *\\) return 1 ;; esac
+          t=$t${p[$j]}
+          break
+        fi
+        t=$t${p[$j]}'"'
+        j=$((j + 1))
+      done
+      out[${#out[@]}]='"""'${t//?/ }'"""'
+      i=$((j + 3))
+    else
+      # A plain string closes at the first quote after an even run of
+      # backslashes; dropping each pair of them leaves the run's parity.
+      j=$i
+      t=''
+      while :; do
+        [ "$((j + 1))" -lt "$n" ] || return 1
+        t=$t${p[$j]}
+        case ${p[$j]//\\\\/} in
+          *\\) t=$t'"' ;;
+          *) break ;;
+        esac
+        j=$((j + 1))
+      done
+      out[${#out[@]}]='"'${t//?/ }'"'
+      i=$((j + 1))
+    fi
+    [ "$i" -ge "$n" ] || out[${#out[@]}]=${p[$i]}
+    i=$((i + 1))
   done
+  local IFS=''
+  GQL_MASK="${out[*]}"
 }
 
 classify_gh_api() {
@@ -3721,7 +3760,7 @@ classify_gh_api() {
       # read wherever it stands, and one whose value is not a plain string
       # refuses, so a literal name elsewhere in the query cannot stand in for
       # it. The byte-order mark becomes three blanks, keeping each offset.
-      local kre='(^|[^A-Za-z0-9_])(branchName|qualifiedName|name|id)[[:space:],]*:[[:space:],]*' key m pre off=0 qs
+      local kre='(^|[^A-Za-z0-9_])(branchName|qualifiedName|name|id)[[:space:],]*:[[:space:],]*' key m pre off=0 qs nkeys=0
       qs=${query_text//$'\357\273\277'/   }
       gql_mask "$qs" || {
         ghapi_opaque 'its query carries a string that does not close, or a block string with an escaped delimiter'
@@ -3729,6 +3768,13 @@ classify_gh_api() {
       }
       rest=$GQL_MASK
       while [[ $rest =~ $kre ]]; do
+        # Each key costs a pass over the rest of the query; no branch write
+        # needs this many.
+        nkeys=$((nkeys + 1))
+        if [ "$nkeys" -gt 64 ]; then
+          ghapi_opaque 'its query carries more target keys than any branch write needs'
+          return 0
+        fi
         key=${BASH_REMATCH[2]}
         m=${BASH_REMATCH[0]}
         pre=${rest%%"$m"*}
@@ -3748,6 +3794,10 @@ classify_gh_api() {
           *) t='' ;;
         esac
         case $t in
+          *[![:space:]]*) ;;
+          *) t='' ;;
+        esac
+        case $t in
           '' | *\\*)
             ghapi_opaque "its $key key is not followed by a plain, non-empty string, so its target branch cannot be read"
             return 0
@@ -3760,14 +3810,20 @@ classify_gh_api() {
         esac
         targets="$targets $t"
       done
-      case "$targets" in
+      # Each name once, and a list holding only blanks names nothing.
+      local uniq='' u
+      # shellcheck disable=SC2086 # the target list, split on purpose (noglob is on)
+      for u in $targets; do
+        case " $uniq " in *" $u "*) ;; *) uniq="$uniq $u" ;; esac
+      done
+      case "$uniq" in
         '' | *'{branch}'* | *'$'*)
           ghapi_opaque 'it creates a commit or a ref on a branch it does not name literally in the query'
           return 0
           ;;
       esac
       # shellcheck disable=SC2086 # the target list, split on purpose (noglob is on)
-      queue_protected "$eff" "$eff_ok" "this gh api commit or ref write" $targets
+      queue_protected "$eff" "$eff_ok" "this gh api commit or ref write" $uniq
       return 0
       ;;
   esac
@@ -4252,14 +4308,24 @@ git_state_after() {
   done
   case $1 in
     config)
-      [ "$ro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
-      # A removal names one key or section, and can bare a value a lower
-      # layer or an earlier include sets.
-      if [ "$ro" = 0 ]; then
-        for a in "${SW[@]:$2}"; do
-          case $a in --un* | --rem* | --ren* | --rep* | --add) ST_CFG=1 ;; esac
-        done
-      fi
+      # A config command reads only by a read option or a leading read
+      # subcommand: a list or show word elsewhere may be a key, value,
+      # value-pattern or comment, and git writes the key all the same. A
+      # removal, rename, replace or add names one key or section, and can
+      # uncover a value a lower layer or an earlier include sets.
+      local cro=0 cw=0
+      case ${SW[$2]:-} in
+        list | get) cro=1 ;;
+        set | unset | rename-section | remove-section | edit) cw=1 ;;
+      esac
+      for a in "${SW[@]:$2}"; do
+        case $a in
+          --get | --get-all | --get-regexp | --get-urlmatch | --get-color | --get-colorbool | --list | -l) cro=1 ;;
+          --un* | --rem* | --ren* | --rep* | --add) cw=1 ;;
+        esac
+      done
+      [ "$cw" = 0 ] || ST_CFG=1
+      [ "$cro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
       # Every word is read whatever ro says, since a value or value-pattern
       # can spell a read verb (git config filter.y.clean sh list writes the
       # key). Any filter key but required may be a program, and a section
@@ -4291,21 +4357,36 @@ git_state_after() {
       ;;
     branch | tag)
       [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1
-      # Setting or dropping the upstream with its value in the same word
-      # leaves no positional, and changes branch.<b>.merge all the same.
+      # A move, copy, delete, force or upstream option writes whatever list
+      # word stands beside it, and an upstream set in one word leaves no
+      # positional while it changes branch.<b>.merge all the same.
       if [ "$1" = branch ]; then
         for a in "${SW[@]:$2}"; do
-          case $a in --set-u* | --unset-u* | -u?* | -[!-]*u*) ST_REF=1 ;; esac
+          case $a in
+            -[mMcCdDfut]* | -[!-]*[mMcCdDfut]* | --mo* | --cop* | --del* | --forc* | --tr* | --no-tr* | --set-u* | --unset-u* | --edit*) ST_REF=1 ;;
+          esac
         done
       fi
       ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
-    merge | pull | commit | cherry-pick | am | revert | rebase) ST_HEAD=1 ;;
+    merge | pull | commit | cherry-pick | am | revert | rebase)
+      ST_HEAD=1
+      # pull --set-upstream records branch.<b>.merge.
+      if [ "$1" = pull ]; then
+        for a in "${SW[@]:$2}"; do
+          case $a in --set-up*) ST_CFG=1 ;; esac
+        done
+      fi
+      ;;
     push) ST_PUSH=1 ;;
     fetch)
       ST_FETCH=1
       for a in "${SW[@]:$2}"; do
-        case $a in -*) ;; *:*) ST_FETCHSPEC=1 ;; esac
+        case $a in
+          --set-up*) ST_CFG=1 ;;
+          -*) ;;
+          *:*) ST_FETCHSPEC=1 ;;
+        esac
       done
       ;;
   esac
@@ -5148,9 +5229,16 @@ classify_git_push() {
               repo_val=${SW[$k]:-}
               repo_lit=${SWL[$k]:-0}
             else
-              case $name in
-                push-option | receive-pack | exec | recurse-submodules) k=$((k + 1)) ;;
-              esac
+              # An abbreviated value option takes the next word as its value
+              # too, so it is never read as the remote.
+              for x in push-option receive-pack exec recurse-submodules; do
+                case $x in
+                  "$name"*)
+                    k=$((k + 1))
+                    break
+                    ;;
+                esac
+              done
             fi
             ;;
         esac
@@ -5240,7 +5328,11 @@ classify_git_push() {
       if [ "$del" = 1 ]; then
         t=$r
       else
-        case $r in :?*) t=${r#:} ;; esac
+        # An all-zero source is the null object id, which deletes too.
+        case $r in
+          :?*) t=${r#:} ;;
+          0*:?*) case ${r%%:*} in *[!0]*) ;; *) t=${r#*:} ;; esac ;;
+        esac
       fi
       t=${t#refs/heads/}
       t=${t#heads/}
@@ -5252,6 +5344,13 @@ classify_git_push() {
   fi
   act_gate 'this git push' push || return 0
   need_dir "$dir_ok" 'this git push' || return 0
+  # The record is tab-separated, so a tab or newline in a field would split it.
+  case "$dir ${pos[*]-}" in
+    *"$TAB"* | *"$NL"*)
+      deny_now 'this git push carries a tab or newline in its directory, remote or refspec, which the guard does not read - refusing (fail closed). Name them as plain words.'
+      return 0
+      ;;
+  esac
   PENDING[${#PENDING[@]}]="push$TAB$dir$TAB$del$TAB${pos[0]:-}$TAB${refs[*]-}"
 }
 

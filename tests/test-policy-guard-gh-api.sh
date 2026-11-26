@@ -213,7 +213,8 @@ for tier in worker tower; do
     "$(ccob1 "repositoryNameWithOwner:\"acme/widgets\",branchName$BOM:\"feature\"" 'headline:"x"')" \
     "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"chore: set id: 5",body:"name: y"')" \
     "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"say ${BS}\"branchName: main${BS}\"\"")" \
-    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"x"},clientMutationId:"c"')"; do
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"x"},clientMutationId:"c"')" \
+  "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"feature\"}){linkedBranch{id}}}'"; do
     pg "$tier" "$cmd"
     expect defer "[$tier] a branch write naming an unprotected branch literally still defers: $cmd"
     reads protected_branches "[$tier] reads only protected_branches: $cmd"
@@ -228,7 +229,10 @@ for spec in "plain, non-empty string|$(ccob "repositoryNameWithOwner:\"acme/widg
   "'main' is protected|$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName$BOM:\"main\"")" \
   "'main' is protected|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"heads/main"')" \
   "does not close|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"feature",x:"open')" \
-  "'planwright/demo/spec' is protected|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"planwright/demo/spec\"}){linkedBranch{id}}}'"; do
+  "'planwright/demo/spec' is protected|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"planwright/demo/spec\"}){linkedBranch{id}}}'" \
+  "escaped delimiter|gh api graphql -f query='mutation{createCommitOnBranch(input:{message:{headline:\"\"\"a${BS}\"\"\" \"\"\"},branch:{repositoryNameWithOwner:\"acme/widgets\",branchName,:\"main\"},expectedHeadOid:\"abc\",clientMutationId:\"\"\" branchName:\"feature\" ${BS}\"\"\" \"\"\"}){commit{oid}}}'" \
+  "plain, non-empty string|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:" "' 'headline:"x"')" \
+  "does not name literally|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",clientMutationId:\"\"\"name:\"\" \"\"\"}){linkedBranch{id}}}'"; do
   pg worker "${spec#*|}"
   expect deny "[worker] ${spec#*|}"
   reason_has "${spec%%|*}" "[worker] the deny names its own rule (${spec%%|*}): ${spec#*|}"
@@ -300,6 +304,23 @@ for spec in 'could not be read \(exit 5\)|gh api -X PATCH repos/acme/widgets/git
 done
 PG_PATH="$TRBIN:$PATH" pg worker 'gh api repos/acme/widgets/pulls'
 expect defer "[worker] with a failing tr, a read still defers"
+# Text over the expansion fold's limit goes through tr, taken only when its
+# output is whole and folded; a tr that truncates, prints nothing, or folds
+# nothing leaves the expansion fold to read it.
+for kind in working truncates empty identity; do
+  mkdir -p "$SANDBOX/tr-$kind"
+  case $kind in
+    working) printf '#!/bin/sh\nexec %s "$@"\n' "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+    truncates) printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\n%s "$@" | head -c 100\n' "$REAL_TR" "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+    empty) printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\ncat >/dev/null\n' "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+    identity) printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\ncat\n' "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+  esac
+  chmod +x "$SANDBOX/tr-$kind/tr"
+  LONG=$(printf '%17000s' '' | "$REAL_TR" ' ' X)
+  PG_PATH="$SANDBOX/tr-$kind:$PATH" pg worker "echo $LONG; bash scripts/KICKOFF-SPEC-PUSH.SH demo"
+  expect deny "[worker] a long command naming the kickoff push in capitals, with a tr that $kind"
+  reason_has 'too long' "[worker] the long command's deny is the length rule's, with a tr that $kind"
+done
 
 echo "# gh api: no tier profile defers on every gh api line"
 for cmd in "${CLASSIFIED[@]}" "${UNREADABLE[@]}" "${OTHER_ACTS[@]}" "${GRAPHQL_HIDDEN[@]}" "${REST_HIDDEN[@]}"; do
