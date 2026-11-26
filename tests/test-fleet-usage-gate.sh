@@ -957,9 +957,9 @@ done
 rm -f "$mlocal_cfg"
 echo "ok: the gate refuses a threshold above 100 and out-of-order enabled thresholds"
 
-# --- 40b. Rungs set to 100 sit at the wall and may share it, so an override
-#          that turns the weekly ladder off with 100s runs; a rung below 100
-#          after a 100, or a repeat below 100, is still refused. ---
+# --- 40b. Rungs at 100, the wall, may repeat in either window, and still trip
+#          there; a rung below 100 after a 100 is still refused (a repeat
+#          below 100 is case 40's). ---
 reset_state
 cat >"$mlocal_cfg" <<'EOF'
 fleet_usage_weekly_downshift: 100
@@ -969,15 +969,22 @@ fleet_usage_weekly_defer_all: 100
 EOF
 [ "$(rung_of 10 99)" = normal ] || fail "weekly rungs all at 100 must run the ladder and leave 99% normal"
 [ "$(rung_of 10 100)" = defer-all ] || fail "weekly rungs all at 100 must reach defer-all at the wall"
-for bad in "$(printf 'fleet_usage_weekly_reduce_concurrency: 100\nfleet_usage_weekly_defer_heavy: 90')" \
-  "$(printf 'fleet_usage_weekly_reduce_concurrency: 60')"; do
-  printf '%s\n' "$bad" >"$mlocal_cfg"
-  rc=0
-  run evaluate >/dev/null 2>&1 || rc=$?
-  [ "$rc" = 4 ] || fail "the gate must still refuse '$bad' with exit 4 (got $rc)"
-done
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_weekly_reduce_concurrency: 100
+fleet_usage_weekly_defer_heavy: 100
+fleet_usage_weekly_defer_all: 100
+fleet_usage_session_reduce_concurrency: 100
+fleet_usage_session_defer_heavy: 100
+EOF
+[ "$(rung_of 10 65)" = downshift ] || fail "weekly top rungs at 100 must keep the 60 downshift"
+[ "$(rung_of 100 10)" = defer-heavy ] || fail "session top rungs at 100 must reach defer-heavy at the wall"
+printf '%s\n' 'fleet_usage_weekly_reduce_concurrency: 100' 'fleet_usage_weekly_defer_heavy: 90' >"$mlocal_cfg"
+rc=0
+run evaluate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "the gate must still refuse a 90 after a 100 with exit 4 (got $rc)"
 rm -f "$mlocal_cfg"
-echo "ok: rungs at 100 may share the wall; other repeats and descents are refused"
+echo "ok: rungs at 100 may repeat in either window and trip at the wall; a descent after one is refused"
 
 # --- 41. A dollar-budget account: spend_limit fills the weekly window when the
 #         account has no seven_day window, and is not read past its period. ---

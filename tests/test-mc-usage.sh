@@ -386,8 +386,8 @@ watch "$((after + 800))"
 expect_out "a frame from after the quota hold, under the threshold, releases it" "released-quota${tab}claude"
 rm -rf "$fleet/streamjson/mc-alpha-frames"
 
-# An override turning the weekly ladder off with every rung at 100 still lets
-# the watch release a quota hold once both windows have room.
+# With every weekly rung parked at 100, the watch still releases a quota hold
+# once both windows have room.
 write_tracked "$(printf '%s\n' 'fleet_usage_weekly_downshift: 100' 'fleet_usage_weekly_reduce_concurrency: 100' \
   'fleet_usage_weekly_defer_heavy: 100' 'fleet_usage_weekly_defer_all: 100')"
 mc_run quota-hold.sh hold --vendor claude --unit "alpha:wall-one" --step worker --reason "fixture limit" --now "$((after + 820))"
