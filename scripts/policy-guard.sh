@@ -7152,13 +7152,29 @@ XEOF_DOC
   MC_NODOC=$out
 }
 
-# mc_env_glued_s <option word> — 0 when env's short option cluster reaches its
-# -S before any other letter that takes a value, with the string glued on.
+# mc_env_glued_s <option word> — 0 when env's option word carries its -S
+# string: a short cluster reaching S before any other letter that takes a
+# value, with the string glued on, or --split-string= in any prefix.
+# mc_env_sep_s — 0 when it is -S (so reached) or --split-string with the
+# string in the next word. Keep the value letters, uCSaPLU, in step with
+# RE_MC_ENV_SPLIT and mc_wrap_opt_value's env row.
 mc_env_glued_s() {
   local c=${1#-} pre
-  case $1 in --*) return 1 ;; esac
+  case $1 in
+    --*=*) mc_long_is "${1%%=*}" 3 --split-string && return 0 ;;
+    --*) return 1 ;;
+  esac
   pre=${c%%[uCSaPLU]*}
   [ "${c:${#pre}:1}" = S ] && [ -n "${c:$((${#pre} + 1))}" ]
+}
+mc_env_sep_s() {
+  local c=${1#-} pre
+  case $1 in
+    --*=*) return 1 ;;
+    --*) mc_long_is "$1" 3 --split-string && return 0 ;;
+  esac
+  pre=${c%%[uCSaPLU]*}
+  [ "${c:${#pre}}" = S ]
 }
 
 # mc_wrap_opt_value <wrapper> <option word> — 0 when the wrapper's option
@@ -7228,6 +7244,7 @@ mc_unwrap() {
   local i=0 n=${#SW[@]} wrap exact=${1:-}
   MC_XARGS=0
   MC_ENV_SI=-1
+  MC_ENV_SEP=0
   while [ "$i" -lt "$n" ]; do
     # exec's -a takes a name; after a dropped time, GNU time's -f and -o take
     # a format and a file.
@@ -7247,11 +7264,17 @@ mc_unwrap() {
       if [ "$exact" = exact ]; then
         case ${SW[$i]} in
           -?*)
-            # env's string glued to its -S is the command it runs.
-            if [ "$wrap" = env ] && mc_env_glued_s "${SW[$i]}"; then
-              MC_ENV_SI=$i
-              MC_VI=$i
-              return 0
+            # env's -S string, glued on or the next word, is the command it
+            # runs.
+            if [ "$wrap" = env ]; then
+              if mc_env_glued_s "${SW[$i]}"; then
+                MC_ENV_SI=$i MC_ENV_SEP=0 MC_VI=$i
+                return 0
+              fi
+              if mc_env_sep_s "${SW[$i]}" && [ $((i + 1)) -lt "$n" ]; then
+                MC_ENV_SI=$((i + 1)) MC_ENV_SEP=1 MC_VI=$((i + 1))
+                return 0
+              fi
             fi
             ! mc_wrap_opt_value "$wrap" "${SW[$i]}" || i=$((i + 1))
             i=$((i + 1))
@@ -7892,7 +7915,7 @@ mc_blank_quotes() {
 # (mc_write_word_refused). The disk is read as it stands now: what another
 # process changes later is out of a text screen's sight.
 mc_settings_screen() {
-  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx envsi outflag through re tdir dest_may_link stripped=0 scan
+  local t=$1 r rs si=0 k named=0 w wg m c ci rmode rr rq rsh oend vl pre b dst dbases tmerge runner verb sedscript inplace makes_link ops opsr vi vx envsi envsep outflag through re tdir dest_may_link stripped=0 scan
   # A backslash-newline is no character to the shell.
   t=${t//\\$NL/}
   MC_DOC_T=''
@@ -8163,7 +8186,7 @@ XEOF_RUN
     fi
     mc_unwrap exact
     vx=$MC_VI
-    envsi=$MC_ENV_SI
+    envsi=$MC_ENV_SI envsep=$MC_ENV_SEP
     mc_unwrap
     vi=$MC_VI
     # A runner (a wrapper, xargs, a shell, find and the like) hands text to
@@ -8177,9 +8200,18 @@ XEOF_RUN
       c=''
       ci=''
       for w in "${SW[@]}"; do
-        w=${w//[\"\'\\]/}
-        # env's string glued to its -S opens a command of its own.
-        [ "$k" != "$envsi" ] || w="${w%%S*}S ; ${w#*S}"
+        # env's -S string opens a command of its own, its \_ a blank there.
+        if [ "$k" = "$envsi" ]; then
+          w=${w//\\_/ }
+          w=${w//[\"\'\\]/}
+          case $envsep:$w in
+            1:*) w=" ; $w" ;;
+            0:--*=*) w="${w%%=*}= ; ${w#*=}" ;;
+            *) w="${w%%S*}S ; ${w#*S}" ;;
+          esac
+        else
+          w=${w//[\"\'\\]/}
+        fi
         # The command found is vetted by its operands below; xargs's is not.
         if [ "$k" != 0 ] && [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ]; then
           lc "$w"
@@ -8190,10 +8222,11 @@ XEOF_RUN
         # the command after a find -exec open a statement; a word holding a
         # command string (a shell's -c text) is read as one of its own. So
         # does the command an exact reading of the wrapper options finds where
-        # it is not mc_unwrap's (a value read as the command).
-        if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ]; then
+        # it is not mc_unwrap's (a value read as the command). Past env's -S
+        # string, mc_unwrap's word is an argument of that string's command.
+        if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ] && [ "$envsi" -lt 0 ]; then
           ci="$ci CMD "
-        elif [ "$k" = "$vi" ] || [ "$k" = "$vx" ]; then
+        elif { [ "$k" = "$vi" ] && [ "$envsi" -lt 0 ]; } || [ "$k" = "$vx" ]; then
           ci="$ci ; $w "
         else
           ci="$ci $w "
