@@ -5736,11 +5736,12 @@ RE_MC_INTERPRETER='(^|[^[:alnum:]_.-])(sh|bash|zsh|dash|ksh|fish|eval|source|pyt
 RE_MC_SPLIT_S='-[A-Za-z]*S'
 # env, past its options and the values -u, -C, -a and BSD's -P, -L and -U take
 # (and --unset, --chdir and --argv0 in any prefix), at its first cluster
-# reaching -S before another value letter, with the string glued on (env -Scp,
-# env -iS'tee f'): the string runs as a command (mc_env_split). The last
-# bracket is any letter or digit but env's value letters, uCSaPLU; keep them in
-# step with mc_env_glued_s and mc_wrap_opt_value's env row.
-RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^uCSaPLU[:space:]-]*([uCaPLU][^[:space:]]*)?|--[^[:space:]]*))*)[[:space:]]+-[ABD-KMNOQRTV-Zb-tv-z0-9]*S[^[:space:]]'
+# reaching -S before another value letter, or at --split-string= in any prefix,
+# with the string glued on (env -Scp, env -iS'tee f', env --split-string=vi):
+# the string runs as a command (mc_env_split). The bracket before that S is
+# any letter or digit but env's value letters, uCSaPLU; keep them in step with
+# mc_env_glued_s and mc_wrap_opt_value's env row.
+RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^uCSaPLU[:space:]-]*([uCaPLU][^[:space:]]*)?|--[^[:space:]]*))*)[[:space:]]+(-[ABD-KMNOQRTV-Zb-tv-z0-9]*S|--s[a-z-]*=)[^[:space:]]'
 # A write verb in unparsed text; sed counts only with an in-place flag.
 RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
