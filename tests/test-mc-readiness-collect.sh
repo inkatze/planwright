@@ -165,7 +165,7 @@ expect_rc "collect over a draft" 0
 c=$(cat "$tmp/collected-draft" 2>/dev/null)
 has "a draft is read as a draft" "state${tab}draft"
 hasnt "a draft has no run creation time read" "born${tab}"
-if grep -q '^api repos/acme/web/actions/runs' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
+if grep -q '^api repos/acme/web/actions/runs?head_sha=' "$tmp/gh.calls"; then fail "a draft's workflow runs were read"; else ok "a draft's workflow-run read is skipped"; fi
 has "a draft's run markers are read" "botmark${tab}github-actions[bot]${tab}4475.3${tab}"
 has "and the attempt behind the workflow's marker at the head" "botattempt${tab}4475.3${tab}"
 cp "$tmp/pr.json.keep" "$tmp/pr.json"
