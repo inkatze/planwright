@@ -54,7 +54,9 @@
 # here-document or here-string a shell reads, or in text the guard cannot
 # parse denies too, and so does one named at any word after a runner whose
 # command sits among its words (ionice, flock, ssh and the like,
-# RE_MC_OPAQUE_NAMES). A relative target counts from the directory the command
+# RE_MC_OPAQUE_NAMES), and one behind a wrapper option whose value the posture
+# reading takes for the command (sudo --user root perl -pi), wherever its files
+# are. A relative target counts from the directory the command
 # starts in and every one it changes to, unless it opens with its only cd,
 # joined to every later statement by &&. Not read, the accepted residual: rm,
 # touch and mkdir; a copy's or move's source (an mv out of a repository
@@ -73,11 +75,12 @@
 # eval, a substitution), a wrapper option's value before the editor (bash -c
 # "sudo -u root perl -pi f"). The runner and here-string reading is a text
 # reading that fails closed: it refuses an editor's name opening a here-string
-# beside a shell or runner even where a script reads it as data, and it
-# misses a here-string a shell reads from a later line (cat <<< '...' |, then
-# bash), a compound closer that follows a word or carries no space before a
-# redirect
-# (echo a ) <<<, }2>&1 <<<), and a pipe between a closer and its here-string;
+# beside a shell or runner even where a script reads it as data, and awk text
+# that names @include "inplace" anywhere after an awk, even in a later
+# statement; it misses a here-string a shell reads from a later line (cat <<<
+# '...' |, then bash), a compound closer that follows a word or carries no
+# space before a redirect (echo a ) <<<, }2>&1 <<<), and a pipe between a
+# closer and its here-string;
 # a quoted span of one word in unparsed text is read as no command.
 #
 # The mission-control tier's flip, for a PR of the repository it runs in or of
