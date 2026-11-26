@@ -158,8 +158,9 @@ fi
 expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr ready * --undo*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git push --force:*)","Bash(git push --force*)","Bash(git push --force-with-lease:*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push * +*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *refs/heads/main *)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push *:master)","Bash(git push *:master *)","Bash(git push * master)","Bash(git push * master *)","Bash(git push *heads/master)","Bash(git push *heads/master *)","Bash(git push *:planwright/*/spec)","Bash(git push *:planwright/*/spec *)","Bash(git push * planwright/*/spec)","Bash(git push * planwright/*/spec *)","Bash(git push *heads/planwright/*/spec)","Bash(git push *heads/planwright/*/spec *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git push --mi*)","Bash(git push * --mi*)","Bash(git push --al*)","Bash(git push * --al*)","Bash(git push --b*)","Bash(git push * --b*)","Bash(git push * : *)","Bash(git * --no-verify*)","Bash(git * --no-veri*)","Bash(git commit -n*)","Bash(git commit * -n*)","Bash(git -c core.hooksPath*)","Bash(git -c core.hookspath*)","Bash(git * -c core.hooksPath*)","Bash(git * -c core.hookspath*)","Bash(git config core.hooksPath*)","Bash(git config core.hookspath*)","Bash(git config * core.hooksPath*)","Bash(git config * core.hookspath*)","Bash(git --config-env*)","Bash(git * --config-env*)","Bash(git * --hooks-path*)","Bash(git -* push*)","Bash(git -* commit*)","Bash(git -* reset*)","Bash(git -* filter-branch*)","Bash(git -* filter-repo*)","mcp__github__merge_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
 # The only entries the deny block gained since that baseline are the Read and
 # Edit path rules for execution-bearing paths, the guard's session record and
-# overlays, and other processes' environments (REQ-F1.6, REQ-G1.8, REQ-E1.6).
-expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(//**/githooks/**)","Edit(//**/.githooks/**)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/config*.toml)","Edit(//**/mise/miserc*.toml)","Edit(//**/mise/conf.d/**)","Edit(//**/mise/tasks/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/.miserc*.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)","Edit(//**/mise*.lock)","Edit(//**/.local/share/mise/**)","Edit(//**/.local/state/mise/**)","Edit(//**/.cache/mise/**)","Edit(//**/Library/Caches/mise/**)","Edit(//usr/local/share/mise/**)","Edit(//tmp/**/mise/**)","Edit(//var/folders/**/mise/**)","Edit(//private/tmp/**/mise/**)","Edit(//private/var/folders/**/mise/**)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
+# overlays, other processes' environments (REQ-F1.6, REQ-G1.8, REQ-E1.6), and
+# the user-level and system git config.
+expected_path_deny='["Edit(//**/.git)","Edit(//**/.git/**)","Edit(//**/githooks/**)","Edit(//**/.githooks/**)","Edit(.claude/**)","Edit(//**/.envrc)","Edit(//**/.tool-versions)","Edit(//**/.config/**)","Edit(//**/.mise/**)","Edit(//**/mise/config*.toml)","Edit(//**/mise/miserc*.toml)","Edit(//**/mise/conf.d/**)","Edit(//**/mise/tasks/**)","Edit(//**/mise.toml)","Edit(//**/.mise.toml)","Edit(//**/mise.*.toml)","Edit(//**/.mise.*.toml)","Edit(//**/.miserc*.toml)","Edit(//**/mise-tasks/**)","Edit(//**/.mise-tasks/**)","Edit(//**/mise*.lock)","Edit(//**/.local/share/mise/**)","Edit(//**/.local/state/mise/**)","Edit(//**/.cache/mise/**)","Edit(//**/Library/Caches/mise/**)","Edit(//usr/local/share/mise/**)","Edit(//tmp/**/mise/**)","Edit(//var/folders/**/mise/**)","Edit(//private/tmp/**/mise/**)","Edit(//private/var/folders/**/mise/**)","Edit(//**/lefthook/**)","Edit(//**/lefthook.*)","Edit(//**/lefthook-local.*)","Edit(//**/.lefthook/**)","Edit(//**/.lefthook.*)","Edit(//**/.lefthook-local/**)","Edit(//**/.lefthook-local.*)","Edit(//**/session-records/*.record)","Edit(//**/planwright-opt-in.*)","Edit(//**/streamjson/**)","Edit(//**/planwright.yml)","Edit(//**/planwright.local.yml)","Edit(~/.gitconfig*)","Edit(~/.gitconfig*/**)","Edit(//**/etc/gitconfig)","Read(//proc/*/environ)","Read(//proc/*/task/*/environ)"]'
 path_rule_re='^(Read|Edit|Write|NotebookEdit)\('
 actual_deny="$(jq -cS --arg re "$path_rule_re" '[.permissions.deny[] | select(test($re) | not)]' "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
@@ -252,6 +253,22 @@ else
   ok "no plugin-global PreToolUse entry references the auto-approve hook (REQ-C1.2)"
 fi
 
+# --- MCP allow entries: exact tool names only, never a wildcard -------------
+# The shipped read-only MCP allow list is empty; an adopter adds exact names
+# (docs/worker-mcp-reads.md), so a name pattern alone never approves a tool.
+mcp_wild_filter='[.permissions.allow[]? | select(startswith("mcp__") and contains("*"))] | length == 0'
+if jq -e "$mcp_wild_filter" "$worker_settings" >/dev/null 2>&1; then
+  ok "no mcp__ allow entry carries a wildcard"
+else
+  fail "an mcp__ allow entry carries a wildcard"
+fi
+# The filter must catch a wildcard entry (a check that never fails measures nothing).
+if printf '%s' '{"permissions":{"allow":["mcp__github__*"]}}' | jq -e "$mcp_wild_filter" >/dev/null 2>&1; then
+  fail "the mcp__ wildcard filter missed a wildcard entry"
+else
+  ok "the mcp__ wildcard filter catches a wildcard entry"
+fi
+
 # --- REQ-C1.3: _about documents the hook and its posture --------------------
 # Assert on distinctive LITERAL phrases (grep -F) rather than `.*`-bridged
 # patterns: _about is a single long line, so an unbounded `.*` alternation
@@ -287,6 +304,33 @@ else
   require_phrase "_about warns against mis-merging the hook into a non-worker settings file (REQ-C1.2, R7)" \
     "worker-scoping is enforced only by where"
 fi
+
+# human-gates REQ-G1.14: the draft-branch rewrite's push never opens a
+# profile's force-push deny. Every profile keeps its raw force and + refspec
+# denies, and none allows or exempts the branch-sync helper by name (the worker
+# reaches it through the command guard's installed-root approval alone).
+for prof in worker tower mission-control; do
+  pf="$REPO_ROOT/config/$prof-settings.json"
+  denies=$(jq -r '.permissions.deny[]?' "$pf")
+  for rule in 'Bash(git push --force:*)' 'Bash(git push --force-with-lease:*)' 'Bash(git push -f:*)' \
+    'Bash(git push * --force*)' 'Bash(git push * -f*)'; do
+    if printf '%s\n' "$denies" | grep -qxF -- "$rule"; then
+      ok "$prof profile keeps the force-push deny $rule (REQ-G1.14)"
+    else
+      fail "$prof profile lost the force-push deny $rule (REQ-G1.14)"
+    fi
+  done
+  if printf '%s\n' "$denies" | grep -qxF -e 'Bash(git push * +*)' -e 'Bash(git push *+*)'; then
+    ok "$prof profile keeps the + refspec deny (REQ-G1.14)"
+  else
+    fail "$prof profile lost the + refspec deny (REQ-G1.14)"
+  fi
+  if jq -r '.permissions.allow[]?, .permissions.ask[]?' "$pf" | grep -qF 'worker-branch-sync'; then
+    fail "$prof profile names worker-branch-sync in an allow or ask rule (REQ-G1.14)"
+  else
+    ok "$prof profile opens no rule for worker-branch-sync (REQ-G1.14)"
+  fi
+done
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

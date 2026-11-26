@@ -1,7 +1,7 @@
 # Remote worker rung — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-11
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -206,6 +206,23 @@ Task 2's fixtures: a host whose registry entry records no credential stance
 is refused for compute and still accepted for workers; one recording a
 login-free compute account, or the operator's acceptance, takes compute
 runs.
+
+### REQ-G1.7 — Per-repository compute host [test]
+
+Task 12's fixtures: two repositories whose own machine-local settings name
+different aliases resolve to those two aliases, and one that names none takes
+the user-level value; no map file exists to disagree with them.
+
+### REQ-G1.8 — Command patterns route as named tasks [test]
+
+Task 12's fixtures: a listed command goes through the fake channel's compute
+verb as its named task, and the list never reaches the host as a command.
+
+### REQ-G1.9 — Unmatched commands run here [test]
+
+Task 12's fixtures: an unlisted command, a command with extra arguments and an
+entry whose task name is outside the grammar each run locally, and the
+command guard's tests are unchanged.
 
 ## REQ-F — Hygiene
 

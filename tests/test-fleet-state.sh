@@ -36,6 +36,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/hermetic-env.sh
+. "$here/lib/hermetic-env.sh"
 FS="$here/../scripts/fleet-state.sh"
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
@@ -154,6 +156,57 @@ out=$(fenv registry) || fail "registry: non-zero exit"
 printf '%s\n' "$out" | grep -q "worker=alpha" || fail "registry: worker not round-tripped"
 printf '%s\n' "$out" | grep -q "orchestration-fleet" || fail "registry: scope not round-tripped"
 echo "ok: the registry round-trips a worker/scope record"
+
+# ---------------------------------------------------------------------------
+# 6b. A registry that cannot be read is not an empty one: the read exits 2
+#     with a one-line reason, so a caller cannot mistake it for "no sessions".
+#     Only an absent registry, a home nothing has registered in yet, reads as
+#     empty and exits 0.
+# ---------------------------------------------------------------------------
+renv() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$1" /bin/sh "$FS" registry 2>"$tmp/reg.err"
+}
+# expect_read_failure <home> <case> — the read exits 2, prints no record and
+# names its reason on exactly one stderr line.
+expect_read_failure() {
+  rc=0
+  out=$(renv "$1") || rc=$?
+  [ "$rc" = 2 ] || fail "registry read, $2: expected exit 2, got $rc"
+  [ -z "$out" ] || fail "registry read, $2: printed records: $out"
+  [ "$(wc -l <"$tmp/reg.err" | tr -d ' ')" = 1 ] \
+    || fail "registry read, $2: expected one stderr line, got: $(cat "$tmp/reg.err")"
+  grep -q "^fleet-state: could not read the registry" "$tmp/reg.err" \
+    || fail "registry read, $2: the reason is not the registry read failure: $(cat "$tmp/reg.err")"
+}
+
+home_absent="$tmp/registry-absent"
+rc=0
+out=$(renv "$home_absent") || rc=$?
+[ "$rc" = 0 ] || fail "registry read, absent: a home with no registry yet must exit 0, got $rc"
+[ -z "$out" ] || fail "registry read, absent: printed records: $out"
+[ ! -s "$tmp/reg.err" ] || fail "registry read, absent: wrote to stderr: $(cat "$tmp/reg.err")"
+echo "ok: an absent registry reads as empty and exits 0"
+
+home_dir="$tmp/registry-dir"
+mkdir -p "$home_dir/registry"
+expect_read_failure "$home_dir" "a directory at the registry path"
+home_dangle="$tmp/registry-dangling"
+mkdir -p "$home_dangle"
+ln -s "$home_dangle/nowhere" "$home_dangle/registry"
+expect_read_failure "$home_dangle" "a dangling registry link"
+echo "ok: a registry path that is not a file fails the read with a reason"
+
+home_unread="$tmp/registry-unreadable"
+mkdir -p "$home_unread"
+printf '1\tworker=beta\tscope\n' >"$home_unread/registry"
+chmod 000 "$home_unread/registry"
+if hermetic_access_denied r "$home_unread/registry"; then
+  expect_read_failure "$home_unread" "an unreadable registry"
+  echo "ok: an unreadable registry fails the read with a reason"
+else
+  echo "skip: unreadable registry case: the running user still reads a mode-000 file"
+fi
 
 # ---------------------------------------------------------------------------
 # 7. No fleet path writes into the sibling's spec-local .orchestrate/ dir, and
@@ -924,24 +977,27 @@ echo "ok: untrusted diagnostics are stripped of control/escape bytes (no termina
 # assert the first ("it is not a lock symlink"), which sends an operator
 # hitting the second to inspect the wrong thing entirely.
 # ---------------------------------------------------------------------------
-if [ "$(id -u)" = 0 ]; then
-  echo "skip: unlock permission case needs a non-root user (root ignores the directory mode)"
-else
-  home_perm="$tmp/perm-home"
-  mkdir -p "$home_perm"
-  penv() {
-    env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-      PLANWRIGHT_FLEET_STATE_DIR="$home_perm" /bin/sh "$FS" "$@"
-  }
-  penv lock >/dev/null || fail "perm: could not take the lock to begin with"
-  [ -L "$home_perm/.fleet.lock" ] || fail "perm: the lock is not a symlink, so this case tests nothing"
-  chmod 500 "$home_perm" || fail "perm: could not make the home unwritable"
+home_perm="$tmp/perm-home"
+mkdir -p "$home_perm"
+penv() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$home_perm" /bin/sh "$FS" "$@"
+}
+penv lock >/dev/null || fail "perm: could not take the lock to begin with"
+[ -L "$home_perm/.fleet.lock" ] || fail "perm: the lock is not a symlink, so this case tests nothing"
+chmod 500 "$home_perm" || fail "perm: could not make the home unwritable"
+rc=skip
+if hermetic_access_denied w "$home_perm"; then
   # `|| rc=$?` on the assignment itself: under `set -e` a failing command
   # substitution ends the script before the next line runs, which would skip
   # the chmod below and leave the fixture undeletable.
   rc=0
   out=$(penv unlock 2>&1) || rc=$?
-  chmod 700 "$home_perm"
+else
+  echo "skip: unlock permission case: the running user still writes $home_perm under mode 500"
+fi
+chmod 700 "$home_perm"
+if [ "$rc" != skip ]; then
   [ "$rc" = 2 ] || fail "perm: an unlock that could not remove the lock must exit 2, got $rc"
   case $out in
     *"still present"*) ;;

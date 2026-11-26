@@ -618,3 +618,212 @@ edited files.
 Class: expression-only
 Anchor: `40d24a74ac732483ba0c41d1dc78ae7e8d02257b` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 4 — REQ-H1.2 contract drift resolved (2026-11-13)
+
+Delta re-walkthrough of the Ready bundle, entered because Task 10 halted on a
+contract drift in REQ-H1.2. Scope: REQ-H1.2, D-14, the REQ-H1.2 test-spec
+entry, Task 10, and the `## Awaiting input` halt note.
+
+**The drift, verified against the real artifact.** #339's `CHANGELOG.md` diff
+adds exactly one version heading, `0.34.0`, strictly above the then-latest tag
+`v0.33.0`, over 124 entries whose commits are all ancestors of `v0.33.0`. The
+signed-off REQ-H1.2 (SemVer comparison of added headings against the latest
+tag) therefore passes the very shape Task 10's `Done when:` requires it to
+catch, because "entry" meant a version heading in the requirement and a
+changelog bullet in the task.
+
+**Decision (operator, via the hub): both conditions.** The check fails a
+proposal that (a) adds a version heading at or below the latest tag by SemVer
+precedence, or (b) adds an entry citing a commit already contained in the
+latest tag. Rejected: ancestry alone (drops the shared comparator and misses a
+regenerated old-version heading) and the heading check alone (passes #339).
+This adds a failing condition the bundle had not decided; D-14 records it and
+its rejected alternatives.
+
+**Edits applied.** `requirements.md`: REQ-H1.2 restated as the two conditions,
+plus the dated `## Changelog` entry. `design.md`: D-14 Decision, a new rejected
+alternative, and the Chosen-because sentence. `test-spec.md`: REQ-H1.2 now has
+four fixtures (ancestry negative that the heading condition alone passes,
+heading negative, positive, fresh-dates-old-versions); heading renamed to
+cover bootstrapped proposals. `tasks.md`: Task 10 Deliverables and Done when
+follow, and the halt note is cleared. `Last reviewed:` moved on all four files.
+
+**Lens pass (delta-scoped, walked inline: the delta is one requirement and
+its dependents).** Two findings, both applied.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | ancestry needs history and tags to resolve a cited commit; Task 10 now says the check fetches them and fails on an unresolvable commit (REQ-H1.2's unreadable-state clause) |
+| Security | none | the check reads a diff and git history only, no execution of proposal content |
+| Error handling and failure modes | none | unreadable state fails closed, stated in REQ-H1.2 and D-14 |
+| Performance | none | one ancestry query per cited commit |
+| Concurrency / state | none | read-only |
+| Naming, readability, structure | 1 | test-spec heading said only "backdated"; renamed |
+| Documentation | none | changelog entry written |
+| Tests / verification | none | each condition has its own negative fixture, and the ancestry fixture proves ancestry caught it |
+| Cross-file consistency | none | stale-reference sweep over the four files and brief found no other reference to the old single-condition wording (the 2026-09-03-era changelog entry is history and stays) |
+
+Altitude check: not applicable (no altitude trigger in this delta). Ship-gate
+check: no out-of-band fix named. Decision-domains gap check: unchanged by this
+delta. Validator 0 errors, 0 warnings.
+
+Class: meaning
+Lens-pass: delta-scoped, 2 findings, all dispositioned (applied)
+Anchor: `a0135b54082f817c2388e22f4b915fcce38cb76e` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 5 — PR-only entries and unresolvable citations (2026-11-19)
+
+Delta re-walkthrough of the Ready bundle, relayed through mission control,
+entered on two PR-Agent threads on the spec PR. Scope: REQ-H1.2 condition (b),
+D-14, the REQ-H1.2 test-spec entry, and Task 10. Task 10 is still
+unimplemented, so it builds against this wording.
+
+**Rulings (operator, via the hub).** "Broaden": condition (b) also fails an
+added entry citing only a PR number whose merge commit is already in the latest
+release tag; evidence, 2 of the last 200 `CHANGELOG.md` entries carry no commit
+link, one citing only #859 (re-derived at sign-off). "Align wording": Task 10's
+fail-closed clause covers any state the check cannot read. "Yes, one amendment":
+both walked as one meaning-class entry. "Yes, it passes": an entry citing
+neither a commit nor a PR number is outside (b) and passes it, because
+release-please writes breaking-change notes without links, so failing them
+would block every breaking release; a bootstrapped proposal is still caught by
+its linked entries. "Apply all four": the follow-on findings below.
+
+**Edits applied.** `requirements.md`: REQ-H1.2 broadened (PR-only entries, the
+citation-less carve-out, a commit or PR number it cannot resolve as an
+unreadable state) and the dated `## Changelog` entry. `design.md`: D-14
+Decision restates the same, and a new rejected alternative (hash-only
+counting) records the evidence and the carve-out. `test-spec.md`: five
+required fixtures; the fifth pins the PR-only negative, and the positive one
+now carries a post-tag PR-only entry and a citation-less entry. `tasks.md`:
+Task 10 Deliverables follow REQ-H1.2's wording. `Last reviewed:` moved on all
+four files.
+
+**Lens pass (delta-scoped, walked inline: the delta is one condition of one
+requirement and its dependents).** Five findings, all applied.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | a citation-less entry was ambiguous (REQ-H1.2 named PR-only entries; the D-14 note and changelog said "or no hash"); ruled outside (b) |
+| Security | none | a cited PR number is data resolved to a commit, never executed |
+| Error handling and failure modes | 1 | an unresolvable commit or PR number added to REQ-H1.2's unreadable states, so Task 10 and the changelog match it |
+| Performance | none | one resolution and ancestry query per cited entry |
+| Concurrency / state | none | read-only |
+| Naming, readability, structure | 1 | over-long delta lines reflowed |
+| Documentation | 1 | D-14's Decision paragraph named only the hash case; now names the PR-only and citation-less cases |
+| Tests / verification | 1 | the positive fixture gained a post-tag PR-only entry and a citation-less entry, so the broadened condition cannot false-fail; Task 10's Done when leaves the fixture list to the test-spec entry, as it did for the fourth fixture |
+| Cross-file consistency | none | stale-reference sweep over the four files and this brief found the old wording only in Amendment 4, which is history and stays |
+
+Altitude check: not applicable (no altitude trigger in this delta). Ship-gate
+check: no out-of-band fix named. Decision-domains gap check: unchanged by this
+delta. Out-of-scope observation recorded: the status render credits Task 10 to
+its halt PR (#361) by trailer and derives the bundle Done.
+
+**Cites the changelog line:** the 2026-11-19 `## Changelog` entry in
+`requirements.md`.
+
+Class: meaning
+Lens-pass: delta-scoped, 5 findings, all dispositioned (applied)
+Anchor: `3d84a553406edd1007a7f5832e4d71b58cab74fa` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 6 — release-window gaps from the 0.75.1 cycle (2026-11-20)
+
+Amendment walk of the Active bundle (Tasks 1-10 merged), relayed through
+mission control. The draft was written on an older head of the spec PR and
+carried onto `main` after Amendment 5 merged; the only conflict was the
+changelog list, and Amendment 5's text is unchanged. Scope: new REQ-I1.1,
+REQ-I1.2 and REQ-I1.3, D-15, D-16 and D-17, Tasks 11-13, the REQ-I test-spec
+entries, the scope bullet, the Sources entry and the changelog entry. No
+earlier REQ, D-ID or task changes meaning. Tasks 11-13 are unimplemented, so
+they build against this wording.
+
+**Rulings (operator, via the hub).** "Yes, one amendment": the three gaps
+walked as one meaning-class entry. "Exact release title": the uncancellable
+CI group matches release-please's title shape, `chore: release`, a space and a
+digit, not the looser prefix. "Yes, read both": the verifier counts
+`window-lock` as required when a ruleset or classic branch protection
+requires it, either source unreadable failing closed. "Version + commit": a
+skip binds a version to the full 40-hex SHA where it landed. "Admin bypass,
+documented": the skip PR merges by the operator's admin bypass, because the
+window check judges `main` and stays red on it. "Apply all ten": the batch
+below. Signed off with "Yes, sign off", asked with no option preselected.
+
+**Evidence re-checked at kickoff.** `fb7c1c49` is the 0.75.1 release commit
+(#976) and was never tagged; #977 is the next first-parent commit; the
+stopgap reset was #987, released as #995. `main`'s ruleset requires `check`
+and `title` only, and the branch endpoint's classic protection summary is
+readable without admin rights.
+
+**Lens pass (delta-scoped, fanned out: one read-only agent per spec-set lens,
+artifact class spec).** Findings, validated against the code, merged and
+deduplicated:
+
+1. Predicate matched any `chore: release` prefix (correctness): ruling.
+2. Verifier read rulesets only, false "not required" on classic protection
+   (correctness): ruling.
+3. Abbreviated SHA could turn ambiguous (ambiguity): ruling.
+4. The skip PR is blocked by the very lock it clears once `window-lock` is
+   required (correctness): ruling.
+5. The skip's commit was undefined; now the landing-commit scan publish
+   already runs, lifted into `release-lib.sh` (correctness): applied.
+6. GitHub expressions have no regex; the predicate is ten `startsWith`
+   terms, with a no-digit near-miss test and the squash-merge assumption
+   stated (correctness): applied.
+7. "Surface as a defect" pinned inside the guard's green-pending and the
+   report's exit-0 contracts, with distinct messages (ambiguity): applied.
+8. REQ-I1.2 reports rather than mandates a repository setting; an
+   unprotected branch reads as not required; the adopter template is
+   unchanged (ambiguity): applied.
+9. Skip file at a fixed root path, absent or comment-only meaning no skips,
+   un-skip by deleting the line, "pending" restated (ambiguity): applied.
+10. Publish refusal binds to the commit it would tag (ambiguity): applied.
+11. The abandoned release PR's `autorelease: pending` label must go or
+    release-please aborts the next cycle, D-10's failure (correctness):
+    applied.
+12. Task 12's Dependencies line was unparseable and the shared-file notes
+    misnamed the files Tasks 12 and 13 share (citation and coverage):
+    applied.
+13. Stopgap misattributed to #995 instead of #987, and D-16's REQ-G1.4 claim
+    overstated (citation and coverage): applied.
+14. Task 11's Done when depended on a future release; tags now
+    `[test + manual]`, Task 12's token check names its evidence, and test
+    homes are named (testability): applied.
+15. A claim that the brief's amendment log stops at Amendment 3 (cross-file
+    consistency): declined, Amendment 5 is present.
+16. A missing `.md` suffix on one doctrine citation (documentation):
+    declined, a preference with no reader acting differently.
+
+| Lens (spec set) | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness and consistency | 6 | items 1, 2, 4, 5, 6, 11 |
+| Ambiguity and interpretation forks | 5 | items 3, 7, 8, 9, 10 |
+| Citation and coverage integrity | 2 | items 12, 13; every new REQ is cited by a D, a task and a test entry |
+| Dead verification paths | none | every named test file exists or is named as new; each `[manual]` part is tagged |
+| Decision-domain gaps | none | the one gap found (skip-file path configurability) is merged into item 9 |
+| Testability | 1 | item 14 |
+| Cross-file consistency | 1 | item 15, declined |
+| Documentation and glossary drift | 1 | item 16, declined; the "pending" restatement is item 9 |
+| Rendered-content safety | n/a | the bundle is not rendered into an executing or markup context |
+
+Post-lens stale-reference sweep over the four files and this brief: no
+leftover wording from the superseded phrasing. Altitude check: not applicable
+(no altitude trigger in this delta). Ship-gate check: no out-of-band fix
+named. Decision-domains gap check: authorization stays decided (the verifier
+is read-only and CI gains no admin scope); configuration decided by item 9.
+Validator: only the stale-anchor error before this record, which it replaces.
+`Last reviewed:` moved on all four files.
+
+**Operator follow-up, outside the spec:** `main`'s ruleset does not require
+`window-lock`, so the verifier will report "not required" on the next pending
+release until the operator adds it while no release is pending.
+
+**Cites the changelog line:** the 2026-11-20 `## Changelog` entry in
+`requirements.md`.
+
+Class: meaning
+Lens-pass: delta-scoped, 16 findings, all dispositioned (14 applied, 2 declined)
+Anchor: `676015dfbdd9bb8e904363f7139fd22c04d70f5a` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`

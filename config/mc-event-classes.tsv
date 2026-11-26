@@ -15,11 +15,13 @@ draft	decision
 retarget	decision
 deadline	decision
 packet	decision
+worker-parked-on-operator	decision
 pending-prompt-overdue	blocker
 conflict-predicted	blocker
 throughput-bottleneck	blocker
 keeper-sweep-failed	blocker
 throughput-unknown	failure
+pipeline-stalled	failure
 mission-control-escalated	blocker
 usage-probe	blocker
 blocker	blocker
@@ -27,9 +29,13 @@ conflict	blocker
 handover-failed	failure
 handover-retire-failed	failure
 stall-dead	failure
+tmux-server-lost	failure
 stream-json-worker-dead	failure
+stream-json-worker-unowned	failure
+stream-json-worker-orphaned	failure
 watcher-failing	failure
 rules-reinjection-failed	failure
+wake-misroute	failure
 session-landed	landed
 readiness-due	landed
 ready-offer	landed
@@ -37,6 +43,7 @@ merge-ready	landed
 ready-to-merge	landed
 pr-merged	landed
 pending-prompt	act
+stream-json-worker-unregistered	act
 stall-open-selector	act
 followup-due	act
 stall-unsubmitted-prompt	act

@@ -9,7 +9,7 @@ unset CDPATH
 # Knobs an outer run may carry: a nested run below that inherited one would
 # write its report, order its queue or size itself by the outer setting.
 unset PLANWRIGHT_TEST_TIMING_REPORT PLANWRIGHT_TEST_DURATIONS PLANWRIGHT_TEST_JOBS \
-  PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_FORCE_SERIAL
+  PLANWRIGHT_TEST_SLOTS PLANWRIGHT_TEST_FORCE_SERIAL PLANWRIGHT_TEST_PIN_ENV
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNNER="$REPO_ROOT/scripts/run-tests.sh"
@@ -479,6 +479,38 @@ out="$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR /bin/bash "$RUNNER" "$tmp/unset-a
 assert "an unset plugin-data or writer arm stays unset for the file" 0 $?
 out="$(/bin/bash "$RUNNER" "$tmp/pinned" 2>&1)"
 assert "a file that pins its own fleet home passes" 0 $?
+
+# 21. The cleared variables the clearing library lists are unset for every
+#     file, and PLANWRIGHT_TEST_PIN_ENV=0 hands the caller's values through
+#     untouched, every arm included, so the perturbed run's decoys reach the
+#     suites. Each listed cleared variable is checked, read from the library.
+mkdir -p "$tmp/cleared" "$tmp/unpinned"
+# shellcheck disable=SC2016
+cleared=$(_hermetic_env_defer=1 /bin/bash -c '. "$1/tests/lib/hermetic-env.sh"; printf "%s " $hermetic_env_cleared' _ "$REPO_ROOT")
+case $cleared in
+  *[A-Z]*) ;;
+  *) assert "the library yields its cleared variables" 0 1 ;;
+esac
+{
+  printf '#!/bin/bash\nfor v in %s; do\n' "$cleared"
+  # shellcheck disable=SC2016 # the generated file expands these, not this one
+  printf '  eval "[ -z \\"\\${$v+set}\\" ]" || { printf "inherited %%s\\n" "$v"; exit 1; }\ndone\n'
+} >"$tmp/cleared/test-cleared.sh"
+decoys=""
+for v in $cleared; do decoys="$decoys $v=/decoy"; done
+# shellcheck disable=SC2086
+out="$(env $decoys /bin/bash "$RUNNER" "$tmp/cleared" 2>&1)"
+assert "every cleared variable reaches a file unset" 0 $?
+cat >"$tmp/unpinned/test-unpinned.sh" <<EOF
+#!/bin/bash
+[ "\$PLANWRIGHT_ROOT" = /decoy ] && [ "\$PLANWRIGHT_FLEET_STATE_DIR" = "$tmp/operator-fleet" ] \\
+  && [ "\$CLAUDE_PLUGIN_DATA" = "$tmp/operator-data" ] && [ "\$CLAUDE_DIR" = "$tmp/operator-claude" ] \\
+  && [ -z "\${PLANWRIGHT_TEST_PIN_ENV+set}" ]
+EOF
+out="$(PLANWRIGHT_ROOT=/decoy CLAUDE_DIR="$tmp/operator-claude" PLANWRIGHT_TEST_PIN_ENV=0 /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
+assert "PLANWRIGHT_TEST_PIN_ENV=0 hands the caller's values through untouched, but not the switch itself" 0 $?
+out="$(PLANWRIGHT_ROOT=/decoy /bin/bash "$RUNNER" "$tmp/unpinned" 2>&1)"
+assert "without the switch the same file sees the pinned values" 1 $?
 unset PLANWRIGHT_FLEET_STATE_DIR CLAUDE_PLUGIN_DATA
 
 # 21. REQ-D1.3: a scratch directory that breaks mid-run is an environment
@@ -543,6 +575,102 @@ if [ "$(id -u)" -ne 0 ]; then
   scratch_cases "scratch unsearchable mid-run" scratch-nx "is not searchable"
 else
   echo "ok: scratch unwritable and unsearchable mid-run (skipped under root)"
+fi
+# 22. A runner that cannot load the clearing library, or cannot pin a listed
+#     variable, runs nothing and fails the file once, never against whatever
+#     the caller exported.
+mkdir -p "$tmp/rt-nolib/scripts" "$tmp/rt-noarm/scripts" "$tmp/rt-noarm/tests/lib"
+cp "$RUNNER" "$tmp/rt-nolib/scripts/run-tests.sh"
+cp "$RUNNER" "$tmp/rt-noarm/scripts/run-tests.sh"
+{
+  cat "$REPO_ROOT/tests/lib/hermetic-env.sh"
+  # shellcheck disable=SC2016 # the line is for the generated library
+  printf '%s\n' 'hermetic_env_pinned="$hermetic_env_pinned NO_ARM_VAR"'
+} >"$tmp/rt-noarm/tests/lib/hermetic-env.sh"
+out="$(/bin/bash "$tmp/rt-nolib/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
+assert "a runner without the clearing library fails the run" 1 $?
+assert_contains "the missing library is named" "could not load tests/lib/hermetic-env.sh" "$out"
+assert_contains "each file fails once, with no timing hole on top" "2 of 2 test file" "$out"
+assert_not_contains "a refused file reports no timing hole" "no timing entry" "$out"
+out="$(PLANWRIGHT_TEST_TIMING_REPORT="$tmp/noarm-report.tsv" /bin/bash "$tmp/rt-noarm/scripts/run-tests.sh" "$tmp/pass" 2>&1)"
+assert "a pinned variable with no arm fails the run" 1 $?
+if grep -q "^file	test-alpha.sh	" "$tmp/noarm-report.tsv" 2>/dev/null; then
+  assert "a file the runner never ran has no timing row" 0 1
+else
+  assert "a file the runner never ran has no timing row" 0 0
+fi
+assert_contains "the unpinnable list is named" "could not pin the fleet home" "$out"
+assert_not_contains "a file the runner never ran is not blamed for a fleet-home write" "wrote into the fleet home" "$out"
+assert_contains "an unpinnable file fails once" "2 of 2 test file" "$out"
+
+# 23. A file never reaches the real claude CLI: the runner refuses it and
+#     fails the file, a stub of the file's own still answers, and only an
+#     explicit PLANWRIGHT_TEST_REAL_CLAUDE=1 passes through to the real one,
+#     past every runner's guard. The refusing file hides the guard's own
+#     stderr, so the failure line can only be the runner's.
+mkdir -p "$tmp/realbin" "$tmp/calls-claude" "$tmp/own-stub" "$tmp/opts-in"
+cat >"$tmp/realbin/claude" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/real-claude-ran"
+EOF
+chmod +x "$tmp/realbin/claude"
+cat >"$tmp/calls-claude/test-calls.sh" <<'EOF'
+#!/bin/bash
+claude -p --resume fixture-session 2>/dev/null
+exit 0
+EOF
+cat >"$tmp/own-stub/test-stubbed.sh" <<'EOF'
+#!/bin/bash
+own=$(mktemp -d) || exit 1
+trap 'rm -rf "$own"' EXIT
+printf '#!/bin/sh\necho stub\n' >"$own/claude"
+chmod +x "$own/claude"
+[ "$(PATH="$own:$PATH" claude -p)" = stub ]
+EOF
+cat >"$tmp/opts-in/test-live.sh" <<'EOF'
+#!/bin/bash
+PLANWRIGHT_TEST_REAL_CLAUDE=1 claude --version
+EOF
+out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/calls-claude" 2>&1)"
+assert "a file that runs the real claude CLI fails the run" 1 $?
+assert_contains "the failure names the file" "test-calls.sh" "$out"
+assert_contains "the failure says the real claude CLI was refused" "refused the real claude CLI" "$out"
+if [ -e "$tmp/real-claude-ran" ]; then
+  echo "FAIL: the real claude CLI ran under the runner" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: the real claude CLI never ran"
+fi
+out="$(PATH="$tmp/realbin:$PATH" PLANWRIGHT_TEST_REAL_CLAUDE=1 /bin/bash "$RUNNER" "$tmp/calls-claude" 2>&1)"
+assert "an opt-in the caller exported reaches no file" 1 $?
+if [ -e "$tmp/real-claude-ran" ]; then
+  echo "FAIL: an exported opt-in let the real claude CLI run" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: an exported opt-in never reaches the real claude CLI"
+fi
+out="$(PATH="$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/own-stub" 2>&1)"
+assert "a file whose own stub is first on PATH passes" 0 $?
+mkdir -p "$tmp/outer.claude-guard"
+printf '#!/bin/sh\nexit 9\n' >"$tmp/outer.claude-guard/claude"
+chmod +x "$tmp/outer.claude-guard/claude"
+out="$(PATH="$tmp/outer.claude-guard:$tmp/realbin:$PATH" /bin/bash "$RUNNER" "$tmp/opts-in" 2>&1)"
+assert "a file that opts in explicitly reaches the real claude CLI, past an outer run's guard" 0 $?
+assert_contains "the opt-in passed the real CLI its arguments" "--version" "$(cat "$tmp/real-claude-ran" 2>&1)"
+# A guard the runner cannot write leaves the file unrun, its line naming why.
+mkdir -p "$tmp/guard-blocked" "$tmp/guard-blocked-log"
+printf '#!/bin/bash\necho blocked-file-ran\n' >"$tmp/guard-blocked/test-blocked.sh"
+: >"$tmp/guard-blocked-log/test-blocked.sh.claude-guard"
+PLANWRIGHT_TEST_LOG_DIR="$tmp/guard-blocked-log" /bin/bash "$RUNNER" --run-one "$tmp/guard-blocked/test-blocked.sh" >"$tmp/guard-blocked.out" 2>&1
+gb_log=$(cat "$tmp/guard-blocked-log/test-blocked.sh.log" 2>&1)
+assert_contains "an unwritable guard is named with its cause" "could not write the claude guard for test-blocked.sh (" "$gb_log"
+assert_contains "the cause is the guard write's own error" "File exists" "$gb_log"
+assert_not_contains "a file whose guard could not be written never runs" "blocked-file-ran" "$gb_log"
+if [ -e "$tmp/guard-blocked-log/test-blocked.sh.norun" ] && [ -e "$tmp/guard-blocked-log/test-blocked.sh.fail" ]; then
+  echo "ok: the unrun file is marked not run and failed"
+else
+  echo "FAIL: the unrun file lacks its norun and fail markers" >&2
+  failures=$((failures + 1))
 fi
 
 if [ "$failures" -gt 0 ]; then

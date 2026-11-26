@@ -311,10 +311,11 @@ plant() {
 # expect_mise <rc> <repo> <guard> <label>: the fixture's own `mise run check`
 # gives 0 when it ran the guard, 1 when it passed without running it, 2 when
 # the gate itself failed. The user's global mise config is kept out, so the
-# verdict is the fixture's alone.
+# verdict is the fixture's alone: by a path that does not exist, since newer
+# mise refuses /dev/null as a config file.
 expect_mise() {
   rm -f "$2/scripts/ran-$3"
-  if (cd "$2" && MISE_TRUSTED_CONFIG_PATHS="$2" MISE_GLOBAL_CONFIG_FILE=/dev/null \
+  if (cd "$2" && MISE_TRUSTED_CONFIG_PATHS="$2" MISE_GLOBAL_CONFIG_FILE="$tmp/no-mise-global.toml" \
     MISE_CONFIG_DIR="$tmp/no-mise-config" MISE_CEILING_PATHS="$tmp" \
     mise run check >"$tmp/mise-out" 2>&1); then
     if [ -f "$2/scripts/ran-$3" ]; then mr_rc=0; else mr_rc=1; fi

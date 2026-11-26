@@ -124,6 +124,12 @@ if [ ! -f "$script_dir/echo-safety.sh" ] || [ ! -r "$script_dir/echo-safety.sh" 
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
+if [ ! -r "$script_dir/tmux-identity-lib.sh" ]; then
+  printf '%s\n' "${0##*/}: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
 
 # printf, never echo: under dash (/bin/sh on the Linux support bar) `echo`
 # re-expands backslash escapes, so a value carrying the four printable
@@ -323,12 +329,10 @@ valid_death_handle() {
       [ "${#vdh_pid}" -le 10 ]
       ;;
     "tmux-window "*)
-      vdh_rest=${vdh_v#tmux-window }
-      case $vdh_rest in
-        *" "*) ;;
-        *) return 1 ;;
-      esac
-      valid_tmux_token "${vdh_rest%% *}" && valid_tmux_token "${vdh_rest#* }"
+      # <session> <window>, then the issuing server and window name where
+      # the writer pinned them (tmux-identity-lib.sh).
+      tmux_handle_parse "${vdh_v#tmux-window }" || return 1
+      valid_tmux_token "$TH_SESSION" && valid_tmux_token "$TH_WINDOW"
       ;;
     *) return 1 ;;
   esac
@@ -649,7 +653,11 @@ if [ -n "$marker_mode" ]; then
     3)
       # Nothing to close: only an earlier retirement of these very fields
       # leaves the marker to finish removing.
-      mm_last=$(/bin/sh "$FS" registry 2>/dev/null | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
+      mm_reg=$(/bin/sh "$FS" registry 2>/dev/null) || {
+        warn "could not read the registry to settle the marker for $handle; the next sweep retries"
+        exit 1
+      }
+      mm_last=$(printf '%s\n' "$mm_reg" | awk -F'\t' -v w="$handle" '($2 "") == (w "") { l = $0 } END { print l }')
       [ "$(printf '%s\n' "$mm_last" | cut -f2-8)" = "$expect$(printf '\t')closed" ] || exit 3
       ;;
     *)
