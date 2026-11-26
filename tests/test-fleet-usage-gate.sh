@@ -977,8 +977,14 @@ fleet_usage_weekly_defer_all: 100
 fleet_usage_session_reduce_concurrency: 100
 fleet_usage_session_defer_heavy: 100
 EOF
-[ "$(rung_of 10 65)" = downshift ] || fail "weekly top rungs at 100 must keep the 60 downshift"
+# 90% is defer-heavy under the default rungs in either window, so these
+# readings tell the parked set from the defaults.
+[ "$(rung_of 10 90)" = downshift ] || fail "weekly top rungs at 100 must leave 90% at the 60 downshift"
+[ "$(rung_of 90 10)" = downshift ] || fail "session top rungs at 100 must leave 90% at the 50 downshift"
 [ "$(rung_of 100 10)" = defer-heavy ] || fail "session top rungs at 100 must reach defer-heavy at the wall"
+# evaluate validates thresholds only with a reading to judge, so give it one.
+reset_state
+write_mirror "{\"seven_day\":{\"used_percentage\":50,\"resets_at\":$in_day}}"
 printf '%s\n' 'fleet_usage_weekly_reduce_concurrency: 100' 'fleet_usage_weekly_defer_heavy: 90' >"$mlocal_cfg"
 rc=0
 run evaluate >/dev/null 2>&1 || rc=$?
