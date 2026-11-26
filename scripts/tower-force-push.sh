@@ -27,7 +27,8 @@
 # Every verb but purge refuses inside a dispatched worker (a dispatch that
 # exported PLANWRIGHT_WORKER_HANDLE or PLANWRIGHT_WORKER_SCOPE), refuses any
 # branch in the protected set (scripts/protected-branch.sh: main, master, a
-# spec branch, and the protected_branches additions), and refreshes <r>/<b>
+# spec's sign-off branch, and the protected_branches additions) and a spec's
+# amendment or spec-rework branch, and refreshes <r>/<b>
 # (default remote `origin`) first. confirm and push refuse a <c> whose tip
 # contains the remote tip (nothing would be dropped: a plain push suffices).
 # reword refreshes every remote branch and refuses a commit a protected one
@@ -208,7 +209,15 @@ commit_of() {
 }
 
 protected_or_refuse() { # <branch>
-  local rc=0
+  local rc=0 kind=0
+  # A spec's amendment and spec-rework branches are spec branches, though the
+  # protected set holds only its sign-off branch. Case-blind, as that set is.
+  shopt -s nocasematch
+  case $1 in
+    planwright/*/amendment-* | planwright/*/spec-rework) kind=1 ;;
+  esac
+  shopt -u nocasematch
+  [ "$kind" = 0 ] || refuse "'$(safe "$1")' is a spec's amendment or spec-rework branch, a spec branch; no tier rewrites it"
   "$script_dir/protected-branch.sh" "$1" >/dev/null || rc=$?
   case $rc in
     0) ;;

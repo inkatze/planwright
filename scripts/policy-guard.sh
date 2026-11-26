@@ -7846,7 +7846,7 @@ sync_refuse() {
 branch_sync_check() {
   local cmd=$1 si=0 eff=$PAYLOAD_CWD w a rtop
   [ "$TIER" = worker ] \
-    || emit_deny "scripts/worker-branch-sync.sh syncs a dispatched worker's own unit branch and runs under the worker profile only; it is refused at this tier. Any other pushed branch is rewritten by the tower, through scripts/tower-force-push.sh, on the operator's request."
+    || emit_deny "scripts/worker-branch-sync.sh syncs a dispatched worker's own unit branch and runs under the worker profile only; it is refused at this tier. Another pushed branch is rewritten by the tower, through scripts/tower-force-push.sh, on the operator's request, unless it is main, a protected branch, or a spec branch (a sign-off, amendment or spec-rework branch), which no tier rewrites."
   need_timeout
   tokenize "$cmd" || sync_refuse "this command runs scripts/worker-branch-sync.sh in a form the guard will not parse - refusing (fail closed)."
   [ "$HEREDOC_SUBST" = 0 ] || sync_refuse "this command runs scripts/worker-branch-sync.sh beside a here-document - refusing."

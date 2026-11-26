@@ -97,6 +97,22 @@ for b in main master planwright/demo/spec refs/heads/main release/v1; do
   fi
 done
 [ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
+# A spec's amendment and spec-rework branches are spec branches too, though
+# the protected set holds only the sign-off branch.
+for b in planwright/demo/amendment-3 planwright/demo/spec-rework refs/heads/planwright/demo/amendment-3 \
+  Planwright/Demo/Amendment-3 planwright/demo/SPEC-REWORK; do
+  for verb in confirm push reword; do
+    case $verb in
+      confirm) rc=$(rc_of fp confirm --branch "$b" --to "$TIP") ;;
+      push) rc=$(rc_of fp push --branch "$b" --to "$TIP" --lease "$TIP") ;;
+      reword) rc=$(rc_of fp reword --branch "$b" --commit "$TIP" --message-file "$W/a") ;;
+    esac
+    if ! { [ "$rc" = 1 ] && grep -q 'no tier rewrites it' "$tmp/err"; }; then
+      fail "$verb on '$b' was not refused as a spec branch (exit $rc: $(cat "$tmp/err"))"
+    fi
+  done
+done
+[ "$failures" = 0 ] && ok "every verb refuses a spec's amendment and spec-rework branches"
 for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
   for verb in push confirm reword; do
     # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
