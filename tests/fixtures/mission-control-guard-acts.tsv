@@ -379,7 +379,17 @@ deny	repo-write	bash	-	hands a write verb	env --c @SCRATCH@ -Stee @UNIT@/README.
 deny	repo-write	bash	-	hands a write verb	env -u HOME -Stee @UNIT@/README.md
 deny	repo-write	bash	-	hands a write verb	timeout 5 env --unset HOME -Stee @UNIT@/README.md
 deny	repo-write	bash	-	hands a write verb	env -C '@SCRATCH@/a b' -Stee @UNIT@/README.md
-deny	settings-write	bash	-	hands a write verb	env -P /usr/bin -Stee @SCRATCH@/kb/lk-file
+deny	repo-write	bash	-	hands a write verb	bash -c "env -P /usr/bin -Stee @UNIT@/README.md"
+deny	repo-write	bash	-	hands a write verb	bash -c "env --c /x -Stee @UNIT@/README.md"
+deny	repo-write	bash	-	hands a write verb	bash -c "env -uSSH_AUTH_SOCK -Stee @UNIT@/README.md"
+deny	repo-write	bash	-	hands a write verb	echo $(env -C/Some -Stee @UNIT@/README.md)
+deny	repo-write	bash	-	hands a write verb	bash -c "env - -Stee @UNIT@/README.md"
+defer	read	bash	-	-	bash -c "env -Sgit -Stee"
+defer	read	bash	-	-	bash -c "env -uStee git status"
+deny	repo-write	bash	-	edits no repository	env -Sawk -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env -S awk -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env --split-string=awk -i inplace 1 @UNIT@/README.md
+deny	repo-write	bash	-	hands a write verb	env -S'tee\_@UNIT@/README.md'
 deny	repo-write	bash	-	hands a write verb	bash <<< 'env -Stee @UNIT@/README.md'
 deny	repo-write	bash	-	edits no repository	env -u HOME -Sperl -pi -e1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	env -P /usr/bin perl -pi -e1 @UNIT@/README.md
