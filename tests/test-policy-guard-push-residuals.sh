@@ -88,5 +88,28 @@ gitq -C "$LEG" worktree add -b planwright/demo/task-8 "$LEGWT" HEAD
 pg worker 'git push leg2' "$LEGWT"
 expect deny "[worker] a linked worktree reads its repository's legacy branches file too"
 
+# --- a local branch that is a symbolic ref (finding 4) ----------------------
+
+echo "# symbolic local branches"
+SYM="$SANDBOX/symref"
+clone_on "$SYM" planwright/demo/task-1 1
+gitq -C "$SYM" symbolic-ref refs/heads/x refs/heads/main
+gitq -C "$SYM" symbolic-ref refs/heads/y refs/heads/x
+gitq -C "$SYM" symbolic-ref refs/heads/z refs/heads/planwright/demo/task-1
+fixture 'a push of a branch symref to main' "$SYM" origin x
+fixture 'a push of a chained symref to main' "$SYM" origin y
+for tier in worker tower; do
+  for cmd in 'git push origin x' 'git push origin heads/x' 'git push origin refs/heads/x' 'git push origin y' \
+    'git push -u origin planwright/demo/task-1 x'; do
+    pg "$tier" "$cmd" "$SYM"
+    expect deny "[$tier] $cmd, through a symbolic branch pointing at main, denies"
+    reason_has 'protected branch' "[$tier] $cmd denies as a push to the protected branch it resolves to"
+  done
+done
+for cmd in 'git push origin z' 'git push origin x:feature-x'; do
+  pg worker "$cmd" "$SYM"
+  expect defer "[worker] $cmd (a symref to an unprotected branch, or a named destination) defers"
+done
+
 no_gh_calls
 finish

@@ -5935,6 +5935,38 @@ legacy_remote_check() {
   done
 }
 
+# symref_dsts <dir> <refspec...> — set SYM_DSTS to the branch each local
+# symbolic ref resolves to, among the refs a refspec with no :<dst> can name:
+# git pushes such a source to the ref its symbolic ref resolves to, so
+# `git push origin x`, x pointing at main, updates main. A target outside
+# refs/heads/ is left out, since git refuses that push.
+SYM_DSTS=''
+symref_dsts() {
+  local d=$1 r list name t
+  SYM_DSTS=''
+  shift
+  for r in "$@"; do
+    case $r in *:* | HEAD | @) ;; *) break ;; esac
+    shift
+  done
+  [ "$#" -gt 0 ] || return 0
+  list=$(gitq "$d" for-each-ref --format='%(if)%(symref)%(then)%(refname)%(end)') || list=''
+  [ -n "$list" ] || return 0
+  for r in "$@"; do
+    case $r in *:* | HEAD | @) continue ;; esac
+    for name in $list; do
+      case $name in
+        "$r" | "refs/$r" | "refs/tags/$r" | "refs/heads/$r" | "refs/remotes/$r" | "refs/remotes/$r/HEAD") ;;
+        *) continue ;;
+      esac
+      t=$(gitq "$d" symbolic-ref --quiet "$name") || t=''
+      case $t in
+        refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;
+      esac
+    done
+  done
+}
+
 eval_push() {
   local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb signoff=''
   del=${rest%%"$TAB"*}
@@ -6008,6 +6040,11 @@ eval_push() {
       targets[${#targets[@]}]=$dst
     done
     legacy_remote_check "$dir" "$remote"
+    # shellcheck disable=SC2086 # the refspec list, split on purpose
+    symref_dsts "$dir" $refs
+    for r in $SYM_DSTS; do
+      targets[${#targets[@]}]=$r
+    done
   fi
   [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
 }
