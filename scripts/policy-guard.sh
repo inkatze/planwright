@@ -6389,7 +6389,7 @@ mc_inplace_unparsed() {
 # scanned once per match; past the bound the screen refuses (fail closed).
 mc_env_split() {
   local t=$1 out='' m pre n=0
-  case $t in *[Ee][Nn][Vv]*S*) ;; *)
+  case $t in *[Ee][Nn][Vv]*[S=]*) ;; *)
     MC_ES=$t
     return 0
     ;;
