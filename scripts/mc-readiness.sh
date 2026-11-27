@@ -1093,8 +1093,8 @@ collect() {
   cl_name=${2#*/}
   cl_runs=$(cat -- "$script_dir/check-runs.jq") || mc_fail "check-runs.jq is missing or unreadable (broken install)"
   # gh --jq takes no variables, so the list the shared module reads, and the
-  # cap, are bound inline. A rollup at the cap is refused as truncated by the
-  # walk, so its checks are not selected first.
+  # cap, are bound inline. The walk refuses a rollup at the cap as truncated,
+  # so collect selects none of its checks.
   cl_base=$(/bin/sh "$script_dir/base-state-checks.sh") || cl_base='[]'
   cl_runs="$CAP as \$cap | ${cl_base:-[]} as \$base_state | $cl_runs"
   # shellcheck disable=SC2016 # a jq program
