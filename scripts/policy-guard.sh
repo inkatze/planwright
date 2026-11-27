@@ -3694,6 +3694,10 @@ classify_gh_api() {
       deny_now 'this gh api request updates or deletes a ref through GraphQL, whose target and force flag the guard cannot read - refusing (fail closed). Push with git instead.'
       return 0
       ;;
+    *BranchProtectionRule* | *RepositoryRuleset*)
+      deny_now "$GHAPI_PROTECTION_DENY"
+      return 0
+      ;;
   esac
 
   # The method: the last one given, else POST when a field is present (gh's
@@ -3778,6 +3782,15 @@ classify_gh_api() {
   set -- $lp
   IFS=$IFS_save
   seg_count=$#
+  # Branch protection and rulesets guard main, so no write to them passes,
+  # whatever branch or route it names.
+  case "/$lp/" in
+    /repos/*/*/branches/*/protection/* | /repositories/*/branches/*/protection/* | \
+      /repos/*/*/rulesets/* | /repositories/*/rulesets/* | /orgs/*/rulesets/*)
+      deny_now "$GHAPI_PROTECTION_DENY"
+      return 0
+      ;;
+  esac
   [ "${1:-}" = repos ] || return 0
   case "$seg_count:${4:-}:${6:-}" in
     6:pulls:merge)
@@ -3921,6 +3934,8 @@ classify_gh_api() {
   fi
   return 0
 }
+
+GHAPI_PROTECTION_DENY='this gh api request changes branch protection or a ruleset, which is what keeps main and the spec branches protected on the host; no agent session changes them at any tier - refusing. Ask the operator.'
 
 # worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
 # unit branch on the remote.

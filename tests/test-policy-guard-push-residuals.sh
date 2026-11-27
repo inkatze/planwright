@@ -181,5 +181,33 @@ done
 pg tower 'gh api -X POST repos/acme/widgets/branches/planwright/demo/task-2/rename -f new_name=feature-z'
 expect defer "[tower] a rename of a unit branch defers, as its delete does at the tower"
 
+# --- branch protection and rulesets (item F2) -------------------------------
+
+echo "# gh api writes to branch protection or a ruleset"
+for tier in worker tower; do
+  for cmd in 'gh api -X DELETE repos/acme/widgets/branches/main/protection' \
+    'gh api -X DELETE repos/acme/widgets/branches/main/protection/required_status_checks' \
+    'gh api -X DELETE repos/acme/widgets/branches/main/protection/enforce_admins' \
+    'gh api -X PUT repos/acme/widgets/branches/main/protection -F enforce_admins=false' \
+    'gh api -X PATCH repos/acme/widgets/branches/planwright/demo/spec/protection/required_pull_request_reviews -F required_approving_review_count=0' \
+    'gh api --method DELETE REPOS/Acme/Widgets/Branches/Main/Protection' \
+    'gh api -X DELETE /repos/acme/widgets/branches/feature-x/protection' \
+    'gh api -X DELETE repos/acme/widgets/rulesets/42' \
+    'gh api -X PUT repos/acme/widgets/rulesets/42 -f enforcement=disabled' \
+    'gh api -X DELETE orgs/acme/rulesets/7' \
+    "gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \"X\"}) { clientMutationId } }'" \
+    "gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: \"X\", requiresApprovingReviews: false}) { clientMutationId } }'" \
+    "gh api graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \"X\"}) { clientMutationId } }'"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd denies"
+    reason_has 'protection or a ruleset' "[$tier] $cmd denies as a protection change"
+  done
+done
+for cmd in 'gh api repos/acme/widgets/branches/main/protection' 'gh api repos/acme/widgets/rulesets' \
+  'gh api -X GET repos/acme/widgets/rulesets/42'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (a read) defers"
+done
+
 no_gh_calls
 finish
