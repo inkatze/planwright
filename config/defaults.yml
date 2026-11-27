@@ -1002,9 +1002,9 @@ messaging_heal_cadence_seconds: 300
 #                               docs/options-reference.md), refuse (refused
 #                               however few commits behind), or conflict-only
 #                               (let through when MERGEABLE, whatever its
-#                               checks say). Read
-#                               from the core and adopter layers only
-#                               (merge-currency-guard REQ-C1.12); a malformed
+#                               checks say). Read from the core and adopter
+#                               layers only (merge-currency-guard
+#                               REQ-C1.12); a malformed
 #                               or unread value applies refuse.
 # ready_base_state_checks       <workflow>/<check> names a ready flip does not count
 #                               because they describe the base branch, not

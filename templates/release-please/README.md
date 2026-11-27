@@ -115,10 +115,11 @@ leaves no check from that workflow: the verdict is `none` (which
 `require_ci: false` lets through) when nothing else reports on the commit, and
 green when another workflow's check passed, so publish can proceed without
 your tests having run. Give the release commit's push a group keyed by its own
-commit (for example `ci-release-${{ github.sha }}`) with cancellation off, as
-planwright's own `.github/workflows/ci.yml` does. That workflow spots the
-release commit by its subject, which is the release PR's title only under a
-squash merge.
+commit and its workflow (for example
+`${{ github.workflow }}-release-${{ github.sha }}`; groups are shared across
+every workflow in the repository) with cancellation off, as planwright's own
+`.github/workflows/ci.yml` does. That workflow spots the release commit by its
+subject, which is the release PR's title only under a squash merge.
 
 ### Do not make `ci` a required check on the release PR
 
