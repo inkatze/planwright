@@ -1169,8 +1169,12 @@ run_checks "checks (default): a shard passed before the placeholder's cancellati
   "$(ci_check_run 500 'test (shard 1/2)' SUCCESS 2026-11-26T10:30:00Z),$(ci_check_run 601 "$SHARDS" CANCELLED)" "$SHARDS_CANCELLED"
 run_checks "checks (default): a shard started in the placeholder's own second supersedes it" defer \
   "$(ci_check_run 601 "$SHARDS" CANCELLED "$TIE"),$(ci_check_run 780 'test (shard 1/2)' SUCCESS "$TIE")"
+# A superseded placeholder of another job beside it, so the drop runs.
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
 run_checks "checks (default): a failed placeholder is never dropped" deny \
-  "$(ci_check_run 601 "$SHARDS" FAILURE),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" 'job-total[ }]*[)] is FAILURE'
+  "$(ci_check_run 601 "$SHARDS" FAILURE),$(ci_check_run 601 'lint (${{ matrix.os }})' CANCELLED),$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 'lint (linux)' SUCCESS)" 'job-total[ }]*[)] is FAILURE'
+run_checks "checks (default): a successor of exactly the length bound still fits" defer \
+  "$(ci_check_run 601 "t$(printf '%0100d' 0) (\${{ m }})" CANCELLED),$(ci_check_run 780 "t$(printf '%0100d' 0) ($(printf '%024d' 0))" SUCCESS)"
 # shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
 run_checks "checks (default): a placeholder of exactly the length bound still fits" defer \
   "$(ci_check_run 601 "t$(printf '%0116d' 0) (\${{ m }})" CANCELLED),$(ci_check_run 780 "t$(printf '%0116d' 0) (x)" SUCCESS)"
