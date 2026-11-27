@@ -211,9 +211,11 @@ host_line 'shared=yes idle=5'
 FAKE_CAP_DOWN=1 run --check -- "$tmp/lcmd" a
 assert_eq "a failed capacity probe on a shared host runs locally" "local ran a" "$OUT"
 has "and is announced as unreachable" "compute host unreachable" "$ERR"
-FAKE_CAP_RAW='' run --check -- "$tmp/lcmd" a
-assert_eq "an empty capacity line runs locally" "local ran a" "$OUT"
-has "and is announced as unreachable" "compute host unreachable" "$ERR"
+for raw in '' 'load=unavailable cores=16 idle_secs=700' 'load=0.5 idle_secs=700'; do
+  FAKE_CAP_RAW=$raw run --check -- "$tmp/lcmd" a
+  assert_eq "a capacity line with no usable load ('$raw') runs locally" "local ran a" "$OUT"
+  has "and says the host did not report its load ('$raw')" "did not report its load" "$ERR"
+done
 for idle_part in '' 'idle_secs=' 'idle_secs=abc' 'idle_secs=-5' 'idle_secs=1.5' 'idle_secs=1234567890123' 'xidle_secs=700'; do
   FAKE_CAP_RAW="load=0.5 cores=16 $idle_part" run --check -- "$tmp/lcmd" a
   assert_eq "a shared host reporting '$idle_part' runs locally" "local ran a" "$OUT"
@@ -245,6 +247,11 @@ else
   ok "a configured registry that cannot be read runs locally (skipped: this user reads a mode-000 file)"
 fi
 chmod 600 "$reg"
+mkdir -p "$tmp/reg/dir"
+printf 'fleet_compute_host: mac\nremote_hosts_file: %s\n' "$tmp/reg/dir" >"$local_cfg"
+FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
+assert_eq "a registry path naming a directory runs locally" "local ran a" "$OUT"
+has "and says the registry cannot be read" "host registry cannot be read" "$ERR"
 printf 'fleet_compute_host: mac\n' >"$local_cfg"
 FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
 assert_eq "with no registry configured no host is shared" "remote ran" "$OUT"

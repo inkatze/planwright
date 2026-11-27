@@ -15,8 +15,8 @@
 # The host runs the kind through `fleet-remote.sh compute` in the caller's
 # worktree. The command runs here instead, with one `compute-route: warning:`
 # line, when the host cannot be reached, is over fleet_compute_load_cap (load
-# per core), is on hold in the host registry or its entry cannot be read, is
-# registry-shared and its input has not been idle for its registry idle time,
+# per core), is on hold in the host registry or the registry cannot be read, is
+# registry-shared and cannot show its input idle for its registry idle time,
 # or the run fails before its command starts (a refused target, no clone,
 # SSH down); and silently when the knob is `local`. A dirty worktree also runs
 # here, since the host tests only the committed HEAD. A run whose command
@@ -176,8 +176,6 @@ fall_back() {
 }
 unreachable="compute host unreachable"
 
-# Exit 3 (no registry, or a host it does not list) and 2 (an alias outside the
-# registry's grammar, which it can never list) both mean neither held nor shared.
 registry() {
   "$script_dir/host-registry.sh" get "$host" "$1" 2>"$work/registry.err"
 }
@@ -194,13 +192,15 @@ shared=no
 [ "$reg_rc" -ne 0 ] || shared=$(registry shared) || reg_rc=$?
 case $reg_rc in
   0) ;;
+  # Exit 3 (no registry, or a host it does not list) and 2 (an alias outside
+  # the registry's grammar, which it can never list): neither held nor shared.
   2 | 3)
     hold=no
     shared=no
     # The helper also exits 3 for a configured file it cannot read, which is no
     # proof that the host is free.
     reg_file=$(conf remote_hosts_file) || reg_file=''
-    [ -z "$reg_file" ] || [ -r "$reg_file" ] || reg_fail "$reg_rc" "$@"
+    [ -z "$reg_file" ] || { [ -f "$reg_file" ] && [ -r "$reg_file" ]; } || reg_fail "$reg_rc" "$@"
     ;;
   *) reg_fail "$reg_rc" "$@" ;;
 esac
@@ -239,6 +239,7 @@ cap_field() {
 load=''
 cores=''
 idle=''
+no_load=$unreachable
 if [ "$shared" = yes ]; then
   # The capacity line carries the load probe's fields, so a shared host is
   # probed once.
@@ -247,13 +248,14 @@ if [ "$shared" = yes ]; then
   load=$(cap_field load)
   cores=$(cap_field cores)
   idle=$(cap_field idle_secs)
+  no_load="compute host is shared and did not report its load"
 elif probe_run load "$work/probe"; then
   line=$(sed -n '1p' "$work/probe")
   load=${line%% *}
   cores=${line#* }
 fi
-case $load in '' | *[!0-9.]* | *.*.* | .) fall_back "$unreachable" "$@" ;; esac
-case $cores in '' | *[!0-9]*) fall_back "$unreachable" "$@" ;; esac
+case $load in '' | *[!0-9.]* | *.*.* | .) fall_back "$no_load" "$@" ;; esac
+case $cores in '' | *[!0-9]*) fall_back "$no_load" "$@" ;; esac
 if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c > cap) }'; then
   fall_back "compute host is busy (load $load on $cores cores, cap $cap per core)" "$@"
 fi
