@@ -426,10 +426,10 @@ bu_check "runs the isolation probe, warns once naming the supported launch, neve
 bu_check "reads once and on request, never polled (REQ-B1.5)" \
   'never in a poll loop'
 bu_check "re-marks the session through the activation handshake (REQ-C1.8, REQ-C1.9)" \
-  'scripts/tower-session\.sh activate' 'handshake' 'Steps 1 and 2 read once here, again on request'
+  'scripts/tower-session\.sh activate' 'handshake' 're-marks this session' 'Steps 1 and 2 read once here, again on request'
 # shellcheck disable=SC2016
 bu_check "judges plugin enforcement active only on the ACTIVE refusal (REQ-B1.4)" \
-  'only a refusal reading `tower-session: ACTIVE:`' 'plugin enforcement'
+  'only a refusal reading `tower-session: ACTIVE:`' 'plugin enforcement[^.]*meets the floor'
 bu_check "falls back to read-only when enforcement is missing or broken (REQ-B1.4)" \
   'missing or broken[^.]*falls back to read-only'
 bu_check "names every layer read, the plugin hooks file included (REQ-B1.4)" \

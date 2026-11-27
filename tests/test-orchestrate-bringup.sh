@@ -85,16 +85,16 @@ check "the bring-up runs once per invocation, not per --watch step (REQ-B1.2, RE
   'once per invocation' '--watch[^.]*(not|never)' 'on request' 'not polled'
 
 check "the isolation probe warns once, names the supported launch, never blocks (REQ-B1.3)" "$bringup" \
-  'isolation probe' 'warns? once' 'never blocks?'
+  'isolation probe' 'warn once, naming the supported launch, never block'
 
 check "the activation handshake re-marks the session (REQ-C1.8, REQ-C1.9)" "$bringup" \
-  'scripts/tower-session\.sh activate' 'handshake' 'repeated on request'
+  'scripts/tower-session\.sh activate' 'handshake' 're-marks the session an orchestrator' 'repeated on request'
 
 check "enforcement counts active only on the ACTIVE refusal (REQ-B1.4)" "$bringup" \
   'only a refusal reading `tower-session: ACTIVE:`'
 
 check "plugin enforcement meets the floor and the fallback holds the outward acts (REQ-B1.4)" "$bringup" \
-  'plugin enforcement' 'missing or broken[^.]*holds its outward acts'
+  'plugin enforcement[^.]*meets the floor' 'missing or broken[^.]*holds its outward acts'
 
 stops=$(section "Stop conditions")
 check "the stop conditions enumerate the bring-up hold (REQ-B1.2, REQ-B1.4)" "$stops" \
