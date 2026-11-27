@@ -73,8 +73,9 @@
 # not list; an option spelled through an expansion the command does not
 # assign a literal; env's own options spelled inside its -S string (env
 # -S'-u X' perl -pi f); and, where the editor is read only as text (a shell's
-# command string, eval, a substitution, find -exec), a wrapper option's value
-# before it (bash -c "sudo -u root perl -pi f"). The runner and here-string
+# command string, eval, a substitution, find -exec, or a wrapper env's -S
+# string names), a wrapper option's value before it (bash -c "sudo -u root
+# perl -pi f", env -S timeout -s KILL 5 perl -pi f). The runner and here-string
 # reading is a text reading that fails closed: it refuses an editor's name
 # opening a here-string beside a shell or runner even where a script reads it
 # as data, and awk text that names @include "inplace" anywhere after an awk,
@@ -7165,8 +7166,9 @@ XEOF_DOC
 # string: a short cluster reaching S before any other letter that takes a
 # value, with the string glued on, or --split-string= in any prefix.
 # mc_env_sep_s <option word> — 0 when its short cluster ends at that S, or it
-# is --split-string, with the string in the next word. Keep the value letters, uCSaPLU, in step with
-# RE_MC_ENV_SPLIT and mc_wrap_opt_value's env row.
+# is --split-string, with the string in the next word. Keep the value
+# letters, uCSaPLU, in step with RE_MC_ENV_SPLIT and mc_wrap_opt_value's env
+# row.
 mc_env_glued_s() {
   local c=${1#-} pre
   case $1 in
@@ -8259,7 +8261,8 @@ XEOF_RUN
           w=${w//[\"\'\\]/}
         fi
         # The command found is vetted by its operands below; xargs's is not,
-        # nor a word past env's -S string, whose command the string names.
+        # nor a word at or past env's -S string, whose command the string
+        # names.
         if [ "$k" != 0 ] && [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ] && [ "$envsi" -lt 0 ]; then
           lc "$w"
           [[ " ${LC##*/} " =~ $RE_MC_RUNNER_WORDS ]] && w=CMD
@@ -8269,8 +8272,8 @@ XEOF_RUN
         # the command after a find -exec open a statement; a word holding a
         # command string (a shell's -c text) is read as one of its own. So
         # does the command an exact reading of the wrapper options finds where
-        # it is not mc_unwrap's (a value read as the command). Past env's -S
-        # string, mc_unwrap's word is an argument of that string's command,
+        # it is not mc_unwrap's (a value read as the command). At or past
+        # env's -S string, mc_unwrap's word is that string's or an argument,
         # save xargs's, which still opens a statement.
         if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ] && [ "$envsi" -lt 0 ]; then
           ci="$ci CMD "
