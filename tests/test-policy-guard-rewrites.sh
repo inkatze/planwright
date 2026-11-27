@@ -399,7 +399,7 @@ for cmd in 'git branch --list "feat*" && git push origin planwright/demo/task-1'
   expect defer "[worker] a listing beside the push still defers: $cmd"
 done
 
-echo "# a quoted word, a later list option or a short value option is read as git and the shell read it"
+echo "# a name, list option or value option is read the way git and the shell read it"
 for cmd in "read -r -p 'Continue? ' ans; git push origin planwright/demo/task-1" \
   "unset 'arr[0]'; git push origin planwright/demo/task-1" \
   "printf -v 'out[0]' %s x; git push origin planwright/demo/task-1" \
@@ -425,9 +425,28 @@ for cmd in 'git config --c get remote.origin.push x && git push origin planwrigh
   'git config --file f push.default && git push origin planwright/demo/task-1' \
   'git config -fof remote.origin.push --get && git push origin planwright/demo/task-1' \
   'unset HOM*; git push' 'unset H[O]ME; git push' 'readonly HOME=/tmp/h; git push' \
-  'local HOME=/tmp/h; git push' 'let HOME=1; git push'; do
+  'local HOME=/tmp/h; git push' 'let HOME=1; git push' \
+  'export $V=/tmp/h; git push origin planwright/demo/task-1' 'printf -v "$V" %s /tmp/h; git push' \
+  "read 'a[HOME=1]' <<< x; git push origin planwright/demo/task-1" \
+  "printf -v 'a[HOME=1]' %s x; git push origin planwright/demo/task-1" \
+  "a=1; unset 'a[HOME=1]'; git push origin planwright/demo/task-1" \
+  "declare 'a[\$i]=1'; git push origin planwright/demo/task-1" 'Y=x; unset x=$Y; git push' \
+  'git branch planwright/demo/x --end-of-options --list && git push origin planwright/demo/x'; do
   pg worker "$cmd"
   expect deny "[worker] $cmd"
+  reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
+done
+for cmd in "declare 'arr[0]=x'; git push origin planwright/demo/task-1" \
+  'export FOO=$PWD; git push origin planwright/demo/task-1' 'printf %s $PWD; git push origin planwright/demo/task-1' \
+  'printf -v; git push origin planwright/demo/task-1' 'printf %s -v HOME; git push origin planwright/demo/task-1' \
+  "read -r -p 'Total \$5=ok? ' ans; git push origin planwright/demo/task-1" \
+  'read -t "$T" ans; git push origin planwright/demo/task-1' 'read -r -p "$PS" ans; git push origin planwright/demo/task-1' \
+  'getopts ab: o "$@"; git push origin planwright/demo/task-1' "let 'i*=2'; git push origin planwright/demo/task-1" \
+  'git branch --show-current planwright/demo/x && git push origin planwright/demo/x' \
+  'git branch --points-at HEAD --no-list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --contains HEAD --no-list "feat*" && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] a word that names no HOME setting, or a listing, still defers: $cmd"
 done
 for tier in worker tower; do
   pg "$tier" 'git branch --sort=-committerdate planwright/demo/x && git push origin planwright/demo/x'

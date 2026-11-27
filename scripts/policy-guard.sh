@@ -67,11 +67,11 @@
 # refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20), each with a
 # two-second kill grace, and all of them by a deadline for the whole call;
 # any read failure denies. A reserved act after an earlier segment of the same
-# command that changes git configuration (HOME or XDG_CONFIG_HOME included:
-# set, dropped or bound there, or set on the act itself), the checked-out
-# branch, or refs (or,
-# for a rewrite, that pushes, fetches, or makes a commit) is refused: every
-# segment is checked against the state as it stands before the command runs.
+# command that changes git configuration (HOME or XDG_CONFIG_HOME set, dropped
+# or bound included), the checked-out branch, or refs (or, for a rewrite,
+# that pushes, fetches, or makes a commit) is refused, and so is one that
+# sets HOME or XDG_CONFIG_HOME on itself: every segment is checked against
+# the state as it stands before the command runs.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -1841,7 +1841,7 @@ ST_CFG=0
 # configuration: a git config naming a filter key, an include, an editor or a
 # word the shell may still expand; a clone or init; an alias; a GIT_
 # variable assigned or exported; or HOME or XDG_CONFIG_HOME set, dropped or
-# bound by any spelling CFGENV_SET reads. It, ST_REF, ST_CFG
+# bound by any spelling names_cfgenv reads. It, ST_REF, ST_CFG
 # and ST_HEAD are also read once every segment is classified
 # (kickoff_text_check).
 ST_FILT=0
@@ -1864,17 +1864,21 @@ RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.
 RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$'
 
 # names_cfgenv <builtin> — 0 when the segment in SW[] may set or drop HOME or
-# XDG_CONFIG_HOME: a word naming one bare, subscripted (HOME[0] makes it an
-# array, which is not exported), assigned, or attached to an option
-# (printf -vHOME, read -aHOME); a word the shell still expands (an
+# XDG_CONFIG_HOME: a name word naming one bare, subscripted (HOME[0] makes it
+# an array, which is not exported), assigned, or attached to an option
+# (printf -vHOME, read -aHOME); a name word the shell still expands (an
 # expansion, a brace or an unquoted glob, which the tokenizer marks not
-# literal), since it could build either; or any nameref, which a later
-# assignment can bind to either. A for or select loop sets only the names
-# before its `in` (zsh takes several), and printf only its -v target before
-# --. A quoted word is what it spells, and a longer name sharing the prefix
-# (HOMEBREW_*) is not it.
+# literal), since it could build either; a subscript other than a plain
+# number, which the shell evaluates as arithmetic even quoted (a[HOME=1]);
+# or any nameref, which a later assignment can bind to either. Only name
+# words are read: a for or select loop's names before its `in` (zsh takes
+# several), printf's -v target before its format, getopts' second operand,
+# and not the value of read's or mapfile's value options. A declaration's
+# value is not split, so only its name is read; any other builtin splits an
+# expanded word whole. A quoted name is what it spells, and a longer name
+# sharing the prefix (HOMEBREW_*) is not it.
 names_cfgenv() {
-  local w wl k=1 n=${#SW[@]}
+  local w wl sub k=1 n=${#SW[@]} skipv=0 pos=0 decl=0
   case $1 in
     for | select)
       n=1
@@ -1882,31 +1886,63 @@ names_cfgenv() {
         n=$((n + 1))
       done
       ;;
+    export | declare | typeset | readonly | local) decl=1 ;;
   esac
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     wl=${SWL[$k]:-0}
-    if [ "$1" = printf ]; then
-      case $w in
-        --) return 1 ;;
-        -v)
-          w=${SW[$((k + 1))]:-}
-          wl=${SWL[$((k + 1))]:-1}
-          ;;
-        -v?*) w=${w#-v} ;;
-        *)
-          w=''
-          wl=1
-          ;;
-      esac
+    k=$((k + 1))
+    if [ "$skipv" = 1 ]; then
+      skipv=0
+      continue
     fi
-    # An assignment's value may expand freely; only its name must be read.
+    case $1 in
+      printf)
+        case $w in
+          -v)
+            # A -v with nothing after it names nothing.
+            [ "$k" -lt "$n" ] || return 1
+            w=${SW[$k]}
+            wl=${SWL[$k]:-0}
+            k=$((k + 1))
+            ;;
+          -v?*) w=${w#-v} ;;
+          *) return 1 ;;
+        esac
+        ;;
+      read)
+        case $w in -d | -i | -n | -N | -p | -t | -u)
+          skipv=1
+          continue
+          ;;
+        esac
+        ;;
+      mapfile | readarray)
+        case $w in -d | -n | -O | -s | -u | -C | -c)
+          skipv=1
+          continue
+          ;;
+        esac
+        ;;
+      getopts)
+        pos=$((pos + 1))
+        [ "$pos" = 2 ] || continue
+        ;;
+    esac
+    case $w in
+      *'['*)
+        sub=${w#*\[}
+        sub=${sub%%]*}
+        case $sub in '' | *[!0-9]*) return 0 ;; esac
+        ;;
+    esac
     case $w in
       *=*)
-        case ${w%%=*} in
-          *'$'* | *'`'*) return 0 ;;
-          *'{'* | *'*'* | *'?'* | *'['*) [ "$wl" = 1 ] || return 0 ;;
-        esac
+        if [ "$decl" = 1 ]; then
+          case ${w%%=*} in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
+        else
+          [ "$wl" = 1 ] || return 0
+        fi
         ;;
       *) [ "$wl" = 1 ] || return 0 ;;
     esac
@@ -1917,7 +1953,6 @@ names_cfgenv() {
         case $1 in declare | typeset | local) return 0 ;; esac
         ;;
     esac
-    k=$((k + 1))
   done
   return 1
 }
@@ -4391,8 +4426,11 @@ git_state_after() {
             # A short cluster takes the next word when its first value
             # option (f or t) ends it; -fof carries its value attached.
             nm=${a#-}
-            x=${nm%%[ft]*}
-            [ "$x" = "$nm" ] || [ "$((${#x} + 1))" != "${#nm}" ] || skip=1
+            case $nm in
+              *[ft])
+                case ${nm%?} in *[ft]*) ;; *) skip=1 ;; esac
+                ;;
+            esac
             ;;
           --?*)
             # A value option in any abbreviation git takes (--c, --comm)
@@ -4459,9 +4497,12 @@ git_state_after() {
       # word leaves no positional. A value option's value, abbreviated or not
       # (--sor -committerdate), is neither a name nor a cluster; after -- every
       # word is a name.
-      # Each list-mode source is kept apart, so a negation clears only its
-      # own, and a later list option sets it again.
-      local bl_l=0 bl_p=0 bl_c=0 bpos=0 skip=0 ends=0 x nm
+      # List mode is kept in four groups: --list and its siblings (-l, -a,
+      # -r), which --no-list clears; the --contains and --merged filters,
+      # which git keeps in list mode whatever follows; --points-at, which
+      # --no-points-at clears; and --show-current, which --no-show-current
+      # clears. A later list option sets its group again.
+      local bl_l=0 bl_f=0 bl_p=0 bl_c=0 bpos=0 skip=0 ends=0 x nm
       for a in "${SW[@]:$2}"; do
         if [ "$skip" = 1 ]; then
           skip=0
@@ -4472,12 +4513,13 @@ git_state_after() {
           continue
         fi
         case $a in
-          --list | -l | -a | --all | -r | --remotes | --contains* | --no-contains* | --merged* | --no-merged*) bl_l=1 ;;
+          --list | -l | -a | --all | -r | --remotes) bl_l=1 ;;
+          --contains* | --no-contains* | --merged* | --no-merged*) bl_f=1 ;;
           --points-at*) bl_p=1 ;;
           --show-current) bl_c=1 ;;
         esac
         case $a in
-          --) ends=1 ;;
+          -- | --end-of-options) ends=1 ;;
           --*)
             nm=${a#--}
             nm=${nm%%=*}
@@ -4509,7 +4551,7 @@ git_state_after() {
           *) bpos=$((bpos + 1)) ;;
         esac
       done
-      [ "$bl_l$bl_p$bl_c" != 000 ] || [ "$bpos" = 0 ] || ST_REF=1
+      [ "$bl_l$bl_f$bl_p$bl_c" != 0000 ] || [ "$bpos" = 0 ] || ST_REF=1
       ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase)
