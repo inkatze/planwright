@@ -67,8 +67,9 @@
 # refresh by PLANWRIGHT_POLICY_GUARD_FETCH_TIMEOUT (default 20), each with a
 # two-second kill grace, and all of them by a deadline for the whole call;
 # any read failure denies. A reserved act after an earlier segment of the same
-# command that changes git configuration (HOME or XDG_CONFIG_HOME included,
-# set there or on the act itself), the checked-out branch, or refs (or,
+# command that changes git configuration (HOME or XDG_CONFIG_HOME included:
+# set, dropped or bound there, or set on the act itself), the checked-out
+# branch, or refs (or,
 # for a rewrite, that pushes, fetches, or makes a commit) is refused: every
 # segment is checked against the state as it stands before the command runs.
 # A guard that crashes or is signalled under a tier denies rather than leaving
@@ -1865,13 +1866,15 @@ RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$
 # names_cfgenv <builtin> — 0 when the segment in SW[] may set or drop HOME or
 # XDG_CONFIG_HOME: a word naming one bare, subscripted (HOME[0] makes it an
 # array, which is not exported), assigned, or attached to an option
-# (printf -vHOME, read -aHOME); a name the guard cannot read (an expansion,
-# a brace or a glob builds it); or any nameref, which a later assignment can
-# bind to either. A for or select loop sets only the names before its `in`
-# (zsh takes several), and printf only its -v target. A longer name sharing
-# the prefix (HOMEBREW_*) is not it.
+# (printf -vHOME, read -aHOME); a word the shell still expands (an
+# expansion, a brace or an unquoted glob, which the tokenizer marks not
+# literal), since it could build either; or any nameref, which a later
+# assignment can bind to either. A for or select loop sets only the names
+# before its `in` (zsh takes several), and printf only its -v target before
+# --. A quoted word is what it spells, and a longer name sharing the prefix
+# (HOMEBREW_*) is not it.
 names_cfgenv() {
-  local w k=1 n=${#SW[@]}
+  local w wl k=1 n=${#SW[@]}
   case $1 in
     for | select)
       n=1
@@ -1882,13 +1885,31 @@ names_cfgenv() {
   esac
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
+    wl=${SWL[$k]:-0}
     if [ "$1" = printf ]; then
       case $w in
-        -v) w=${SW[$((k + 1))]:-} ;;
+        --) return 1 ;;
+        -v)
+          w=${SW[$((k + 1))]:-}
+          wl=${SWL[$((k + 1))]:-1}
+          ;;
         -v?*) w=${w#-v} ;;
-        *) w='' ;;
+        *)
+          w=''
+          wl=1
+          ;;
       esac
     fi
+    # An assignment's value may expand freely; only its name must be read.
+    case $w in
+      *=*)
+        case ${w%%=*} in
+          *'$'* | *'`'*) return 0 ;;
+          *'{'* | *'*'* | *'?'* | *'['*) [ "$wl" = 1 ] || return 0 ;;
+        esac
+        ;;
+      *) [ "$wl" = 1 ] || return 0 ;;
+    esac
     case $w in
       HOME | HOME=* | HOME+=* | 'HOME['* | XDG_CONFIG_HOME | XDG_CONFIG_HOME=* | XDG_CONFIG_HOME+=* | 'XDG_CONFIG_HOME['*) return 0 ;;
       -*[av]HOME | -*[av]'HOME['* | -*[av]XDG_CONFIG_HOME | -*[av]'XDG_CONFIG_HOME['*) return 0 ;;
@@ -1896,7 +1917,6 @@ names_cfgenv() {
         case $1 in declare | typeset | local) return 0 ;; esac
         ;;
     esac
-    case ${w%%=*} in *'$'* | *'`'* | *'{'* | *'*'* | *'?'* | *'['*) return 0 ;; esac
     k=$((k + 1))
   done
   return 1
@@ -4257,7 +4277,7 @@ classify_git() {
   fi
   if [ "$TIER" = tower ] && { [ "$LC" = fetch ] || { [ "$LC" = remote ] && [ -n "$rsub" ] && [ "$rsub" != show ] && [ "$rsub" != get-url ]; }; } \
     && { [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; }; then
-    deny_now "this git $LC runs with -c configuration, a GIT_* variable, or a git config or remote change (an upstream-recording fetch or pull included) in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run it on its own, without them."
+    deny_now "this git $LC runs with -c configuration, a GIT_* variable, or a git config or remote change (an upstream-recording fetch or pull included) in the same command, any of which can set a refspec writing a local branch, or record what a later fetch or pull reads, where the guard cannot read it - refusing (fail closed). Run it on its own, without them."
     return 0
   fi
   [ "$TIER" != tower ] || classify_tower_git "$LC" "$k" "$dir" "$dir_ok"
@@ -4290,7 +4310,8 @@ classify_git() {
 
 # act_gate <what> <kind> — refuse a reserved act whose repository, config, or
 # state the guard cannot read: a foreign repository option, a GIT_* variable
-# or -c setting, or a change an earlier segment of the same command makes.
+# or -c setting, HOME or XDG_CONFIG_HOME on the act or before it, or a change
+# an earlier segment of the same command makes.
 # <kind> is merge, rewrite, or push. Returns 1 after queuing the refusal.
 act_gate() {
   local what=$1 kind=$2
@@ -4307,7 +4328,7 @@ act_gate() {
     return 1
   fi
   if [ "$G_CFGENV" = 1 ]; then
-    deny_now "$what runs after HOME or XDG_CONFIG_HOME may be set, dropped or bound (by an assignment, a builtin, a nameref, or a name the guard cannot read) in the same command, which can move the global configuration git reads away from the one the guard reads - refusing (fail closed). Run it as its own command."
+    deny_now "$what runs with, or after, HOME or XDG_CONFIG_HOME set, dropped or possibly bound (by an assignment, a builtin, a nameref, or a name the guard cannot read) in the same command, which can move the global configuration git reads away from the one the guard reads - refusing (fail closed). Run it without that setting, as its own command."
     return 1
   fi
   if [ "$ST_CFG" = 1 ] || [ "$ST_REF" = 1 ]; then
@@ -4366,17 +4387,20 @@ git_state_after() {
         case $a in
           --) args=1 ;;
           --get | --get-all | --get-regexp | --get-urlmatch | --get-color | --get-colorbool | --list | -l) cro=1 ;;
-          -f | -[!-]*f) skip=1 ;;
-          --*=*) ;;
+          -[!-]*)
+            # A short cluster takes the next word when its first value
+            # option (f or t) ends it; -fof carries its value attached.
+            nm=${a#-}
+            x=${nm%%[ft]*}
+            [ "$x" = "$nm" ] || [ "$((${#x} + 1))" != "${#nm}" ] || skip=1
+            ;;
           --?*)
-            # A value option in any abbreviation git takes (--comm) takes
-            # the next word, whatever it spells.
+            # A value option in any abbreviation git takes (--c, --comm)
+            # takes the next word, whatever it spells.
             nm=${a#--}
-            if [ "${#nm}" -ge 2 ]; then
-              for x in comment file blob type default value; do
-                case $x in "$nm"*) skip=1 ;; esac
-              done
-            fi
+            for x in comment file blob type default value; do
+              case $x in "$nm"*) skip=1 ;; esac
+            done
             ;;
           -*) ;;
           list | get)
@@ -4435,7 +4459,9 @@ git_state_after() {
       # word leaves no positional. A value option's value, abbreviated or not
       # (--sor -committerdate), is neither a name nor a cluster; after -- every
       # word is a name.
-      local bl=0 bneg=0 bpos=0 skip=0 ends=0 x nm
+      # Each list-mode source is kept apart, so a negation clears only its
+      # own, and a later list option sets it again.
+      local bl_l=0 bl_p=0 bl_c=0 bpos=0 skip=0 ends=0 x nm
       for a in "${SW[@]:$2}"; do
         if [ "$skip" = 1 ]; then
           skip=0
@@ -4446,7 +4472,9 @@ git_state_after() {
           continue
         fi
         case $a in
-          --list | -l | -a | --all | -r | --remotes | --show-current | --contains* | --no-contains* | --merged* | --no-merged* | --points-at*) bl=1 ;;
+          --list | -l | -a | --all | -r | --remotes | --contains* | --no-contains* | --merged* | --no-merged*) bl_l=1 ;;
+          --points-at*) bl_p=1 ;;
+          --show-current) bl_c=1 ;;
         esac
         case $a in
           --) ends=1 ;;
@@ -4457,9 +4485,12 @@ git_state_after() {
               case $x in "$nm"*) ST_REF=1 ;; esac
             done
             if [ "${#nm}" -ge 3 ]; then
-              for x in no-list no-show-current no-points-at; do
-                case $x in "$nm"*) bneg=1 ;; esac
-              done
+              x=no-list
+              case $x in "$nm"*) bl_l=0 ;; esac
+              x=no-points-at
+              case $x in "$nm"*) bl_p=0 ;; esac
+              x=no-show-current
+              case $x in "$nm"*) bl_c=0 ;; esac
             fi
             case $a in
               *=*) ;;
@@ -4478,8 +4509,7 @@ git_state_after() {
           *) bpos=$((bpos + 1)) ;;
         esac
       done
-      [ "$bneg" = 0 ] || bl=0
-      [ "$bl" = 1 ] || [ "$bpos" = 0 ] || ST_REF=1
+      [ "$bl_l$bl_p$bl_c" != 000 ] || [ "$bpos" = 0 ] || ST_REF=1
       ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase)

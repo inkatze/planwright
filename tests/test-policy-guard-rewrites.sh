@@ -390,7 +390,6 @@ for tier in worker tower; do
 done
 for cmd in 'git branch --list "feat*" && git push origin planwright/demo/task-1' \
   'git branch -l "feat*" && git push origin planwright/demo/task-1' \
-  'git branch -r "origin/*" && git push origin planwright/demo/task-1' \
   'git branch --contains HEAD "feat*" && git push origin planwright/demo/task-1' \
   'git branch --points-at HEAD "feat*" && git push origin planwright/demo/task-1' \
   'git branch --list -- "feat*" && git push origin planwright/demo/task-1' \
@@ -399,6 +398,45 @@ for cmd in 'git branch --list "feat*" && git push origin planwright/demo/task-1'
   pg worker "$cmd"
   expect defer "[worker] a listing beside the push still defers: $cmd"
 done
+
+echo "# a quoted word, a later list option or a short value option is read as git and the shell read it"
+for cmd in "read -r -p 'Continue? ' ans; git push origin planwright/demo/task-1" \
+  "unset 'arr[0]'; git push origin planwright/demo/task-1" \
+  "printf -v 'out[0]' %s x; git push origin planwright/demo/task-1" \
+  "mapfile -d '*' -t lines < f; git push origin planwright/demo/task-1" \
+  'printf -- -v HOME; git push origin planwright/demo/task-1' \
+  'git branch --no-list --list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list --no-points-at "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list --no-show-current "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --no-show-current -l "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list -- --no-list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --so -committerdate && git push origin planwright/demo/task-1' \
+  'git branch --points-at HEAD --no-points-at && git push origin planwright/demo/task-1' \
+  'git branch -r --list "origin/*" && git push origin planwright/demo/task-1' \
+  'git config -t bool --get core.bare && git push origin planwright/demo/task-1' \
+  'git config --t bool --get push.default && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd"
+done
+for cmd in 'git config --c get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --c list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -f list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --file list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --file f push.default && git push origin planwright/demo/task-1' \
+  'git config -fof remote.origin.push --get && git push origin planwright/demo/task-1' \
+  'unset HOM*; git push' 'unset H[O]ME; git push' 'readonly HOME=/tmp/h; git push' \
+  'local HOME=/tmp/h; git push' 'let HOME=1; git push'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+done
+for tier in worker tower; do
+  pg "$tier" 'git branch --sort=-committerdate planwright/demo/x && git push origin planwright/demo/x'
+  expect deny "[$tier] an attached value option leaves the create beside it read"
+done
+pg worker 'HOME=/tmp/h git push origin planwright/demo/task-1'
+reason_has 'without that setting' "[worker] the HOME refusal on the act's own prefix names the remedy that applies"
+pg tower 'git fetch --set-upstream origin x; git fetch origin'
+reason_has 'record what a later fetch' "[tower] the fetch refusal names what an upstream-recording fetch changes"
 
 echo "# no worker or tower deletes a spec's amendment or spec-rework branch"
 Z40=0000000000000000000000000000000000000000
