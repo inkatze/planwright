@@ -373,7 +373,8 @@ else
 fi
 
 # REQ-A1.3: the stop-conditions table carries the exit-3 row.
-if printf '%s' "$oc" | grep -qE 'Selection transient-evidence hold'; then
+oc_stops=$(awk '/^## Stop conditions/ { on = 1; next } /^## / { on = 0 } on' "$REPO_ROOT/skills/orchestrate/SKILL.md" | tr '\n' ' ')
+if printf '%s' "$oc_stops" | grep -qE 'Selection transient-evidence hold'; then
   ok "orchestrate: stop-conditions table carries the selection exit-3 row (REQ-A1.3)"
 else
   fail "orchestrate: stop-conditions table has no selection exit-3 row ('Selection transient-evidence hold' missing, REQ-A1.3)"

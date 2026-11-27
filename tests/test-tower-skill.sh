@@ -398,6 +398,43 @@ else
   fail "the posture check misses a --settings layer, the hook-path check, projection-only hook reads, or the re-run before lifting the block"
 fi
 
+# --- bring-up: placement, isolation probe, handshake (tower-placement Task 6) ---
+
+bu_check() { # bu_check <label> <extended-regex>...: each must match the bring-up
+  local label=$1 re
+  shift
+  for re in "$@"; do
+    if ! printf '%s\n' "$bringup" | grep -qiE -- "$re"; then
+      fail "bring-up $label: no match for /$re/"
+      return
+    fi
+  done
+  ok "bring-up $label"
+}
+
+# shellcheck disable=SC2016
+bu_check "runs the classifier, counts none as a main tree, and responds per knob (REQ-B1.1, REQ-B1.2)" \
+  'scripts/tower-placement\.sh' '`none`[^.]*main tree' '`warn`[^.]*once' '`refuse`[^.]*no repo-mutating route' '`allow` says nothing'
+# shellcheck disable=SC2016
+bu_check "counts a failed classifier read as refuse; a linked worktree passes (REQ-B1.2)" \
+  'failed read as `refuse` anywhere' 'linked worktree passes under every value'
+# shellcheck disable=SC2016
+bu_check "names its own tree, never --worktree, as the supported launch (REQ-A1.1)" \
+  'supported launch is its own tree[^.]*never `--worktree`'
+bu_check "runs the isolation probe, warns once naming the supported launch, never blocks (REQ-B1.3)" \
+  'isolation probe' 'warn once, naming the supported launch, never block'
+bu_check "reads once and on request, never polled (REQ-B1.5)" \
+  'never in a poll loop'
+bu_check "re-marks the session through the activation handshake (REQ-C1.8, REQ-C1.9)" \
+  'scripts/tower-session\.sh activate' 'handshake' 're-marks this session' 'Steps 1 and 2 read once here, again on request'
+# shellcheck disable=SC2016
+bu_check "judges plugin enforcement active only on the ACTIVE refusal (REQ-B1.4)" \
+  'only a refusal reading `tower-session: ACTIVE:`' 'plugin enforcement[^.]*meets the floor'
+bu_check "falls back to read-only when enforcement is missing or broken (REQ-B1.4)" \
+  'missing or broken[^.]*falls back to read-only'
+bu_check "names every layer read, the plugin hooks file included (REQ-B1.4)" \
+  'names? every (settings )?layer' 'hooks/hooks\.json'
+
 # --- values entering commands, worker-surfaced needs, relayed text -------------
 
 # shellcheck disable=SC2016
