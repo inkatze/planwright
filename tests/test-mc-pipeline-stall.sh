@@ -248,11 +248,6 @@ rm -f "$runtime"/pipeline-stall* "$tmp/broken.7"
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.12"
 # WAITING: a run held by its concurrency group behind a running review.
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tWAITING\n' >"$tmp/evidence.13"
-# The walk's other unfinished states read the same way.
-printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tEXPECTED\n' >"$tmp/evidence.18"
-printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tREQUESTED\n' >"$tmp/evidence.19"
-: >"$tmp/walk.18"
-: >"$tmp/walk.19"
 : >"$tmp/walk.12"
 : >"$tmp/walk.13"
 printf 'state\tdraft\ncheck\tbuild\tFAILURE\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.14"
@@ -267,35 +262,32 @@ printf 'state\tdraft\ncheck\tPR-Agent\tSUCCESS\n' >"$tmp/evidence.16"
 : >"$tmp/walk.16"
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tSUCCESS\n' >"$tmp/evidence.17"
 : >"$tmp/walk.17"
-{
+# Every other unfinished state of the readiness walk reads the same way.
+n=18
+for s in PENDING QUEUED IN_PROGRESS EXPECTED REQUESTED; do
+  printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\t%s\n' "$s" >"$tmp/evidence.$n"
+  : >"$tmp/walk.$n"
+  n=$((n + 1))
+done
+stall_rows() {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
   row 14 true MERGEABLE FAILURE
   row 15 true MERGEABLE SUCCESS
   row 16 true MERGEABLE SUCCESS
   row 17 true MERGEABLE SUCCESS
-  row 18 true MERGEABLE PENDING
-  row 19 true MERGEABLE PENDING
-} | put $((T + 60 * HOUR))
+  for n in 18 19 20 21 22; do row "$n" true MERGEABLE PENDING; done
+}
+stall_rows | put $((T + 60 * HOUR))
 run $((T + 60 * HOUR))
-{
-  row 12 true MERGEABLE FAILURE
-  row 13 true MERGEABLE PENDING
-  row 14 true MERGEABLE FAILURE
-  row 15 true MERGEABLE SUCCESS
-  row 16 true MERGEABLE SUCCESS
-  row 17 true MERGEABLE SUCCESS
-  row 18 true MERGEABLE PENDING
-  row 19 true MERGEABLE PENDING
-} | put $((T + 62 * HOUR))
+stall_rows | put $((T + 62 * HOUR))
 run $((T + 62 * HOUR))
 ev=$(mc_run_events | tail -n 1)
-case $ev in *"red check PR-Agent (1): acme/web#12"*) ok "a draft's failed PR-Agent run is a red check" ;; *) fail "a draft's failed PR-Agent run is not named red: $ev" ;; esac
-case $ev in *"checks pending (3): "*) ok "a draft's waiting, expected or requested PR-Agent run is a pending check" ;; *) fail "a draft's unfinished PR-Agent runs are not all pending: $ev" ;; esac
-for n in 13 18 19; do
+case $ev in *"red check PR-Agent (1): acme/web#12"*) ok "a draft's failed PR-Agent run is the only red one" ;; *) fail "a draft's PR-Agent runs are not read red only when failed: $ev" ;; esac
+case $ev in *"checks pending (6): "*) ok "a draft's PR-Agent run in any unfinished state is a pending check" ;; *) fail "a draft's unfinished PR-Agent runs are not all pending: $ev" ;; esac
+for n in 13 18 19 20 21 22; do
   case $ev in *"acme/web#$n"*) ;; *) fail "acme/web#$n is not named: $ev" ;; esac
 done
-case $ev in *"red check PR-Agent (1): acme/web#12"*) ok "and only the failed one is red" ;; *) fail "an unfinished PR-Agent run read as red: $ev" ;; esac
 case $ev in *"awaiting a review request (1): acme/web#15"*) ok "a draft whose review is due awaits a review request" ;; *) fail "the request verdict is not named: $ev" ;; esac
 case $ev in *"awaiting a flip (1): acme/web#17"*) ok "only the draft whose review passed awaits a flip" ;; *) fail "awaiting a flip is not just the reviewed draft: $ev" ;; esac
 case $ev in *"no CI on its head (1): acme/web#16"*) ok "a draft with only a PR-Agent run has no CI" ;; *) fail "a review-only draft is not named as having no CI: $ev" ;; esac
