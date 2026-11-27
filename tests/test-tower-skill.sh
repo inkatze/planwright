@@ -417,7 +417,7 @@ bu_check "runs the classifier, counts none as a main tree, and responds per knob
   'scripts/tower-placement\.sh' '`none`[^.]*main tree' '`warn`[^.]*once' '`refuse`[^.]*no repo-mutating route' '`allow` says nothing'
 # shellcheck disable=SC2016
 bu_check "counts a failed classifier read as refuse; a linked worktree passes (REQ-B1.2)" \
-  'failed read as `refuse`' 'linked worktree passes under every value'
+  'failed read as `refuse` anywhere' 'linked worktree passes under every value'
 # shellcheck disable=SC2016
 bu_check "names its own tree, never --worktree, as the supported launch (REQ-A1.1)" \
   'supported launch is its own tree[^.]*never `--worktree`'

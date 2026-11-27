@@ -60,9 +60,9 @@ is the one sweep output read.
 
 1. **Placement (REQ-B1.1, REQ-B1.2, D-4).** Run `scripts/tower-placement.sh`:
    it prints `main`, `linked`, or `none` beside the resolved
-   `tower_placement`; `none` counts as a main tree, a failed read as `refuse`,
-   and a linked worktree passes under every value. In a main tree, `warn` says so once and
-   continues; `refuse` takes no repo-mutating route and no relay until the
+   `tower_placement`; `none` counts as a main tree, a failed read as `refuse`
+   anywhere, and a linked worktree passes under every value. In a main tree,
+   `warn` says so once and continues; `refuse` takes no repo-mutating route and no relay until the
    tower moves or the operator acknowledges, questions and read-only work
    continuing; `allow` says nothing. The supported launch is its own tree (a
    linked worktree or a separate clone), never `--worktree`.

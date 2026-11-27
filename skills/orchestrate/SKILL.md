@@ -110,7 +110,8 @@ Each read is bounded, inline, repeated on request, not polled.
 
 1. **Placement.** `scripts/tower-placement.sh` prints `main`, `linked`, or
    `none` beside the resolved `tower_placement`; `none` counts as a main tree,
-   a failed read as `refuse`, and a linked worktree passes under every value.
+   a failed read as `refuse` anywhere, and a linked worktree passes under every
+   value.
    In a main tree, `warn` says so once and continues; `refuse` holds every
    outward act (dispatch, relay, and the bookkeeping push and PR) until the
    orchestrator moves or the operator acknowledges, status and read-only
@@ -121,7 +122,7 @@ Each read is bounded, inline, repeated on request, not polled.
    isolation: warn once, naming the supported launch, never blocking.
 3. **Posture.** The activation handshake, `scripts/tower-session.sh activate`:
    only a refusal reading `tower-session: ACTIVE:` proves plugin enforcement,
-   which then meets the floor, and it re-marks the session an orchestrator.
+   which meets the floor, and it re-marks the session an orchestrator.
    Any other outcome means it is missing or broken, and the orchestrator holds
    its outward acts as `refuse` does. Name every layer read, `hooks/hooks.json`
    included.

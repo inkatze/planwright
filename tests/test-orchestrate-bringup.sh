@@ -67,7 +67,7 @@ check "the classifier is called and none counts as a main tree (REQ-B1.1)" "$bri
   'scripts/tower-placement\.sh' '`none`[^.]*main tree'
 
 check "a failed classifier read counts as refuse (REQ-B1.2)" "$bringup" \
-  'failed read as `refuse`'
+  'failed read as `refuse` anywhere'
 
 check "a linked worktree passes under every value (REQ-B1.2)" "$bringup" \
   'linked worktree passes under every value'
