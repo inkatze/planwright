@@ -110,8 +110,8 @@ Each read is bounded, inline, repeated on request, not polled.
 
 1. **Placement.** `scripts/tower-placement.sh` prints `main`, `linked`, or
    `none` beside the resolved `tower_placement`; `none` counts as a main tree,
-   a linked worktree passes under every value. In a main tree, `warn` says so
-   once and continues; `refuse` holds every outward act (dispatch, relay, and
+   a failed read as `refuse`, a linked worktree passes under every value. In a
+   main tree, `warn` says so once and continues; `refuse` holds every outward act (dispatch, relay, and
    the bookkeeping push and PR) until the orchestrator moves or the operator
    acknowledges, status and read-only reconcile continuing; `allow` says
    nothing. An unattended `refuse` notifies and parks in Awaiting input.
@@ -119,10 +119,11 @@ Each read is bounded, inline, repeated on request, not polled.
    <primary checkout> rev-parse --git-dir`): a refusal means worktree
    isolation: warn once, naming the supported launch, never blocking.
 3. **Posture.** The activation handshake, `scripts/tower-session.sh activate`:
-   only a refusal opening `ACTIVE` proves plugin enforcement, which then meets
-   the floor, and it re-marks the session an orchestrator. Any other outcome
-   means it is missing or broken, and the orchestrator holds its outward acts as `refuse`
-   does. Name every layer read, `hooks/hooks.json` included.
+   only a refusal reading `tower-session: ACTIVE:` proves plugin enforcement,
+   which then meets the floor, and it re-marks the session an orchestrator.
+   Any other outcome means it is missing or broken, and the orchestrator holds
+   its outward acts as `refuse` does. Name every layer read, `hooks/hooks.json`
+   included.
 
 ## Selection (REQ-F1.2)
 
@@ -293,7 +294,8 @@ after a worker.
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`
   pre-approves the routine `/execute-task` toolset and denies the
-  PR-merge/force-push guardrails; a human merges it in (never edits settings.json, REQ-I1.2).
+  PR-merge/force-push guardrails; a human merges it in (planwright never edits
+  settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a detached session
   `scripts/fleet-dispatch-worktree.sh` creates. Every task dispatch first
   renders the unit's task brief, `scripts/fleet-task-brief.sh render <spec>
@@ -442,11 +444,10 @@ dispatched arm); attended, present it and wait.
 ## Stop conditions (mandatory human handoff)
 
 Each is defined at its point of use; this is the enumeration, not a second
-definition: a spec not Ready or Active, a missing or erroring validator on a
-dispatch path, or a missing or partial kickoff brief (pre-flight steps 4 to
-6); a freshness-gate halt; a taskless or unreadable `tasks.md` (selection exit
-2); cohesion ambiguity (ask); a relayed worker halt (recorded, never
-re-dispatched); `gh` unreachable (record Awaiting input, continue local,
+definition: a Bring-up `refuse` or posture hold; pre-flight steps 4 to 6
+(spec status, validator, kickoff brief); a freshness-gate halt; a taskless or
+unreadable `tasks.md` (selection exit 2); cohesion ambiguity (ask); a relayed
+worker halt (recorded, never re-dispatched); `gh` unreachable (record Awaiting input, continue local,
 REQ-K1.6, K1.7). Selection transient-evidence hold (exit 3) is reported and
 lock contention (`acquire` exit 1) is a clean no-op; neither is a halt.
 

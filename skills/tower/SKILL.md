@@ -58,24 +58,23 @@ Once per session, before the first ask; every step is heartbeat-class,
 ingesting no raw diff, file sweep, or log; the flight sweep's bounded render
 is the one sweep output read.
 
-1. **Placement (REQ-B1.1, REQ-B1.2, D-4).** Run `scripts/tower-placement.sh`
-   once: it prints `main`, `linked`, or `none` beside the resolved
-   `tower_placement`; `none` counts as a main tree, and a linked worktree
-   passes under every value. In a main tree, `warn` says so once and
+1. **Placement (REQ-B1.1, REQ-B1.2, D-4).** Run `scripts/tower-placement.sh`:
+   it prints `main`, `linked`, or `none` beside the resolved
+   `tower_placement`; `none` counts as a main tree, a failed read as `refuse`,
+   and a linked worktree passes under every value. In a main tree, `warn` says so once and
    continues; `refuse` takes no repo-mutating route and no relay until the
    tower moves or the operator acknowledges, questions and read-only work
    continuing; `allow` says nothing. The supported launch is its own tree (a
    linked worktree or a separate clone), never `--worktree`.
    **Isolation probe (REQ-B1.3, D-6).** One harmless read of the primary
    checkout (`git -C <primary checkout> rev-parse --git-dir`): a refusal means
-   worktree isolation: warn once, naming the supported launch; it never blocks.
+   worktree isolation: warn once, naming the supported launch, never blocking.
    **Posture check (REQ-A1.3, REQ-B1.4, D-8, D-14).** Run the activation
-   handshake, `scripts/tower-session.sh activate tower`; only a refusal opening
-   `ACTIVE` proves the plugin hooks enforce the deny floor, and it re-marks
-   this session (REQ-C1.8, REQ-C1.9). Plugin enforcement then meets the floor;
-   any other outcome means it is missing or
-   broken, the profile's floor below must hold, else the tower falls back
-   to read-only. The profile is `config/tower-settings.json` or an extension of
+   handshake, `scripts/tower-session.sh activate tower`; only a refusal reading
+   `tower-session: ACTIVE:` proves plugin enforcement, which meets the floor,
+   and it re-marks this session (REQ-C1.8, REQ-C1.9); any other outcome means
+   it is missing or broken: the profile's floor below must hold, else the
+   tower falls back to read-only. The profile is `config/tower-settings.json` or an extension of
    it, whose **deny block is the floor**; the command guard hook only
    pre-approves. Read each settings layer loaded here (user, project, local,
    managed, any `--settings` file) by `jq` projection only (`.permissions.deny`,
@@ -349,7 +348,8 @@ landing reach the attention store by push, and the tower renders them through
 
 ## Refusals
 
-Declined conversationally, the gate or profile deny stated, never silently.
+Declined conversationally, the gate or profile deny stated and the thing
+handed back, never silently.
 
 - **"Merge it."** A human gate; the profile denies the merge under every
   value, on both flight rules (REQ-G1.1). Hand the PR link back.

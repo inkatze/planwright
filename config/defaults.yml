@@ -912,11 +912,12 @@ tower_batch_max: 3
 
 # How a tower's bring-up is to respond to running in a checkout's main tree
 # rather than its own linked worktree; the bring-up of /tower and /orchestrate
-# reads it. `warn` says so once and continues; `refuse`
-# holds repo-mutating routes and relay until the tower moves or the operator
-# acknowledges; `allow` says nothing, and is how a dedicated tower clone (which
-# git cannot tell from the primary checkout) declares itself, set in that
-# clone's machine-local layer. Read by scripts/tower-placement.sh through the
+# reads it. `warn` says so once and continues; `refuse` holds repo-mutating
+# routes and relay (for /orchestrate, dispatch, relay, and the bookkeeping push
+# and PR) until the tower moves or the operator acknowledges, and a failed read
+# counts as `refuse`; `allow` says nothing, and is how a dedicated tower clone
+# (which git cannot tell from the primary checkout) declares itself, set in
+# that clone's machine-local layer. Read by scripts/tower-placement.sh through the
 # shared knob resolver; a value outside the three is malformed under the
 # by-layer policy.
 tower_placement: warn

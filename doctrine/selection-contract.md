@@ -5,7 +5,7 @@ decides ready-task candidacy and what each of its exit codes means. The skill
 names these at its point of use and follows the rules recorded here; lifting the
 heavy mechanics out of the skill body keeps `skills/orchestrate/SKILL.md` within
 its instruction budget (skill-rigor REQ-E1.1's compensating-trim path) while the
-full contract stays authoritative in one place. The stop-conditions table and the
+full contract stays authoritative in one place. The stop-conditions enumeration and the
 selection prose keep the lean report-and-end description inline; this doc carries
 the reasons.
 
