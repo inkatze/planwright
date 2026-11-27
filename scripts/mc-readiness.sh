@@ -175,9 +175,10 @@ THE WALK refuses, each failure one line:
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
     for its sign-off instead of the cadence and the required steps (its bot
-    review is still required, as above). The exception is a post-pr gap (no completion, one only on heads outside the
-    pull request's history such as another unit's in a reused worktree, or a
-    step never recorded) on a draft whose bot review is due: that point waits
+    review is still required, as above). The exception is a post-pr gap (no
+    completion, one only on heads outside the pull request's history such as
+    another unit's in a reused worktree, or a step never recorded) on a
+    draft whose bot review is due: that point waits
     on the run a review request fires, so it is pending the request, not a
     gap. When the due review and such gaps are all the walk holds, the
     verdict is request-review (below); with any other refusal the verdict

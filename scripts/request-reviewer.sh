@@ -35,9 +35,9 @@
 #   5. A request the host accepted is not proof: GitHub has answered success
 #      while adding no reviewer, and PR-Agent runs on review_requested (on a
 #      draft too: the request is what starts the review the ready flip waits
-#      for), so a request that never lands loses that run silently. Poll until the
-#      reviewer has a review_requested event newer than step 1's, or is a
-#      requested reviewer it was not in step 1, up to the bound below; a read
+#      for), so a request that never lands loses that run silently. Poll
+#      until the reviewer has a review_requested event newer than step 1's,
+#      or is a requested reviewer it was not in step 1, up to the bound below; a read
 #      that fails is polled past. A reviewer already requested in step 1
 #      with no newer event has not landed: no new event fired PR-Agent.
 #
@@ -53,8 +53,8 @@
 # read succeeded to show one), the draft state held or restored. The output
 # names the fallback that fires PR-Agent: on a ready PR, converting it to
 # draft and marking it ready again; on a draft, another request, never its
-# ready flip, which waits for that run. A re-draft
-# failure (4, 5) outranks 1 and 6.
+# ready flip, which waits for that run. A re-draft failure (4, 5) outranks 1
+# and 6.
 #
 # Environment: PLANWRIGHT_REQUEST_REVIEWER_POLL_SECONDS (default 3) is the
 # landing poll interval and PLANWRIGHT_REQUEST_REVIEWER_MAX_POLLS (default 10)

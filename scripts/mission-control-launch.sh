@@ -863,7 +863,7 @@ mappings for $cs_unit:
 Before the push, run \`$cs_root/scripts/step-run.sh audit --through pre-pr\`;
 before reporting the PR done, \`$cs_root/scripts/step-run.sh audit --through post-pr --base origin/<base branch>\`.
 Close every gap it names first, except a post-pr gap on a draft whose readiness
-reads request-review: that waits on the bot review a review request fires, and the flip waits for both. Mission control's
+reads request-review: that waits on the bot review a review request fires, and the flip comes only after it. Mission control's
 readiness check runs the same audit and refuses a PR with any other gap. The PR body carries the rendered
 records (\`$cs_root/scripts/step-record.sh render\`) in a \`<details>\` block.
 
