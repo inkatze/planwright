@@ -3052,8 +3052,8 @@ amend, a squash, a fixup, a rebase, a git or gh alias, a `gh api` call that
 can write (GraphQL, a field or input, or any method but GET), a push to
 `main`, `master`, or a spec branch, and a `git send-pack` or `git subtree`.
 Those stay yours on every occasion: the tower refuses to record a rule that
-reaches one, and refuses again at match time whatever a rule's wording
-claims. A push answers to a rule only when it names a remote and every one of
+reaches one (a `git send-pack` or `git subtree` where a command prefix names
+it), and refuses again at match time whatever a rule's wording claims. A push answers to a rule only when it names a remote and every one of
 its refspecs names its destination as `<src>:<dst>`: `git push origin
 feature:feature` can be answered, while `git push origin feature`, a bare
 `git push`, and any push with one bare-name refspec reach you, since git

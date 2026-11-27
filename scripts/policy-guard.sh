@@ -72,11 +72,12 @@
 # segment is checked against the state as it stands before the command runs.
 # Where a loop, a background list, a pipeline or a coprocess can run a later
 # segment's change before an earlier act that reads it, that is refused too,
-# a directory change (cd, pushd, popd) or a variable set counting there as
-# well; and a command other than git that writes a path through a .git
-# directory or a git configuration file (an output redirect, cp, tee, sed -i,
-# an expanded path for a file-writing command or a wrapper) counts as a
-# configuration and ref change.
+# a directory change (cd, pushd, popd) or a set of a variable git reads
+# counting there as well; and a write that may reach a path through a .git
+# directory or a git configuration file counts as a configuration and ref
+# change: an output redirect naming one or expanded (git's own segment
+# included), a command other than git naming one, or an expanded word of a
+# file-writing command or a wrapper.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -1408,18 +1409,21 @@ stack_is_spec() {
 # stack_hint <merge|pull> — set SH to the stacked-base form a refusal offers:
 # none without a stacked base, --ff-only where it is the launch's spec branch.
 stack_hint() {
-  local how
+  local how tip=''
   SH=''
   [ -n "$STACK_BRANCH" ] || return 0
   record_spec_branch "$UNIT_TOP"
   case $1 in
-    merge) how="$BASE_REMOTE/$STACK_BRANCH" ;;
+    merge)
+      how="$BASE_REMOTE/$STACK_BRANCH"
+      tip=', or its tip commit id'
+      ;;
     *) how="$BASE_REMOTE $STACK_BRANCH" ;;
   esac
   if stack_is_spec; then
     SH=" or git $1 --ff-only $(sanitize_printable "$how" 'the spec branch') (this stacked PR's base, its launch's spec branch)"
   else
-    SH=" or git $1 $(sanitize_printable "$how" 'the stacked base') (this stacked PR's base$([ "$1" != merge ] || printf %s ', or its tip commit id'))"
+    SH=" or git $1 $(sanitize_printable "$how" 'the stacked base') (this stacked PR's base$tip)"
   fi
 }
 

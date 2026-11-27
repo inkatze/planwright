@@ -324,6 +324,9 @@ run match --decision "$git_rule" --command 'git status' >"$tmp/o" || fail "a pla
 rc=0
 run capture --kind standing --text 'let the workers send packs' --covers-command 'git send-pack ' --now 1013 >"$tmp/o" || rc=$?
 [ "$rc" != 0 ] && grep -q 'send-pack' "$errf" || fail "a coverage naming git send-pack was captured (exit $rc)"
+rc=0
+run capture --kind standing --text 'let the workers split subtrees' --covers-command 'git subtree ' --now 1014 >"$tmp/o" || rc=$?
+[ "$rc" != 0 ] && grep -q 'subtree' "$errf" || fail "a coverage naming git subtree was captured (exit $rc)"
 echo "ok: git send-pack and git subtree push reach the operator under a rule covering git"
 
 # A tr that fails, prints nothing, or prints less would fold the command to
