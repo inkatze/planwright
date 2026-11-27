@@ -152,9 +152,9 @@ c=$(cat "$tmp/collected-pa" 2>/dev/null)
 hasnt "a workflow naming the PR-Agent image only in a comment states no bot-review requirement" "require${tab}pr-agent"
 rm -f "$repo/.github/workflows/pr-agent.yml"
 
-# A superseded run: two ci runs started together on the head, the older one
-# cancelled by the newer. The cancelled one's other jobs are superseded by the
-# live run's same-name checks, which start later, but its matrix jobs are
+# A superseded run: two ci runs on the head, the older one cancelled by the
+# newer, whose jobs start after it. The cancelled one's other jobs are
+# superseded by the live run's same-name checks, but its matrix jobs are
 # reported under their unexpanded names, which no shard name replaces. Once a
 # later run of the same workflow on the head passed one of its shards, that
 # cancellation is no flip condition; a cancelled run with no passing
