@@ -1171,6 +1171,9 @@ run_checks "checks (default): a shard started in the placeholder's own second su
   "$(ci_check_run 601 "$SHARDS" CANCELLED "$TIE"),$(ci_check_run 780 'test (shard 1/2)' SUCCESS "$TIE")"
 run_checks "checks (default): a failed placeholder is never dropped" deny \
   "$(ci_check_run 601 "$SHARDS" FAILURE),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" 'job-total[ }]*[)] is FAILURE'
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+run_checks "checks (default): a placeholder of exactly the length bound still fits" defer \
+  "$(ci_check_run 601 "t$(printf '%0116d' 0) (\${{ m }})" CANCELLED),$(ci_check_run 780 "t$(printf '%0116d' 0) (x)" SUCCESS)"
 run_checks "checks (default): a pass in the cancelled check's own run supersedes nothing" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
