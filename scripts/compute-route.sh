@@ -182,6 +182,7 @@ registry() {
   "$script_dir/host-registry.sh" get "$host" "$1" 2>"$work/registry.err"
 }
 reg_fail() {
+  # shellcheck disable=SC2016 # $ is sed's last-line address
   _why=$(sed -n '/^host-registry: /h;${g;p;}' "$work/registry.err")
   _rc=$1
   shift

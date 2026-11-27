@@ -237,10 +237,14 @@ has "and gives the helper's reason" "host mac: ceiling: required" "$ERR"
 assert_eq "and never probes the host" "" "$LOG"
 host_line 'shared=yes hold=yes'
 chmod 000 "$reg"
-FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
+if hermetic_access_denied r "$reg"; then
+  FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
+  assert_eq "a configured registry that cannot be read runs locally" "local ran a" "$OUT"
+  has "and says the registry cannot be read" "host registry cannot be read" "$ERR"
+else
+  ok "a configured registry that cannot be read runs locally (skipped: this user reads a mode-000 file)"
+fi
 chmod 600 "$reg"
-assert_eq "a configured registry that cannot be read runs locally" "local ran a" "$OUT"
-has "and says the registry cannot be read" "host registry cannot be read" "$ERR"
 printf 'fleet_compute_host: mac\n' >"$local_cfg"
 FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
 assert_eq "with no registry configured no host is shared" "remote ran" "$OUT"
