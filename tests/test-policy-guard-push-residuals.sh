@@ -85,6 +85,10 @@ expect deny "[worker] a bare push whose branch.<b>.remote names a branches-file 
 gitq -C "$LEG" config --unset branch.planwright/demo/task-1.remote
 pg worker 'git push origin planwright/demo/task-1' "$LEG"
 expect defer "[worker] a push to a config remote beside legacy files for other names still defers"
+printf 'URL: %s\nPush: refs/heads/planwright/demo/task-1:refs/heads/main\n' "$ORIGIN" >"$LEG/.git/remotes/origin"
+pg worker 'git push origin planwright/demo/task-1' "$LEG"
+expect deny "[worker] a legacy remotes file named like a configured remote denies, since git may read it"
+rm -f "$LEG/.git/remotes/origin"
 LEGWT="$SANDBOX/legacy-linked"
 gitq -C "$LEG" worktree add -b planwright/demo/task-8 "$LEGWT" HEAD
 pg worker 'git push leg2' "$LEGWT"
@@ -108,7 +112,9 @@ for tier in worker tower; do
     reason_has 'protected branch' "[$tier] $cmd denies as a push to the protected branch it resolves to"
   done
 done
-for cmd in 'git push origin z' 'git push origin x:feature-x'; do
+gitq -C "$SYM" tag t1
+gitq -C "$SYM" symbolic-ref refs/heads/w refs/tags/t1
+for cmd in 'git push origin z' 'git push origin x:feature-x' 'git push origin w'; do
   pg worker "$cmd" "$SYM"
   expect defer "[worker] $cmd (a symref to an unprotected branch, or a named destination) defers"
 done
@@ -161,6 +167,17 @@ for cmd in "git send-pack $ORIGIN HEAD:refs/heads/feature-y" 'git subtree push -
   'git subtree split -P d' 'git subtree push -P d origin HEAD:feature-y'; do
   pg worker "$cmd" "$SP"
   expect defer "[worker] $cmd (an unprotected destination, or no push) defers"
+done
+for cmd in "git send-pack --atomic --thin $ORIGIN HEAD:refs/heads/feature-y" "git send-pack --dry-run -v $ORIGIN HEAD:refs/heads/feature-y" \
+  "git send-pack --signed=if-asked -- $ORIGIN HEAD:refs/heads/feature-y" 'git subtree push -Pd --squash origin feature-y' \
+  'git subtree -m msg split -P d' "git send-pack $ORIGIN :refs/heads/feature-y"; do
+  pg worker "$cmd" "$SP"
+  expect defer "[worker] $cmd (options that change neither what nor where, or no protected target) defers"
+done
+for cmd in 'git subtree push -Pd origin main' 'git subtree --message x push -P d origin main' \
+  'git subtree push -P d -- origin main' "git send-pack \$URL HEAD:refs/heads/feature-y"; do
+  pg worker "$cmd" "$SP"
+  expect deny "[worker] $cmd (a protected target, or an expansion) denies"
 done
 pg worker "git send-pack $ORIGIN :refs/heads/planwright/demo/task-2" "$SP"
 expect deny "[worker] a send-pack deleting a unit branch denies, as a push deleting one does"
