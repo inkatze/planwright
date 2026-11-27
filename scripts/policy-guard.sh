@@ -76,8 +76,8 @@
 # counting there as well; and a write that may reach a path through a .git
 # directory or a git configuration file counts as a configuration and ref
 # change: an output redirect naming one or expanded (git's own segment
-# included), a command other than git naming one, or an expanded word of a
-# file-writing command or a wrapper.
+# included), a command other than git or a read-only one naming one, or an
+# expanded word of a file-writing command, a wrapper, or cd.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -1920,7 +1920,7 @@ GIT_ENV_SET=0
 # are classified), records for the segment before it the first act of each
 # kind it queued and the last change of each class act_gate reads: config,
 # refs, the environment or the directory for every act (RO_CHANGES counts the
-# changes no flag shows: a cd, or a variable git or its lookup reads); a push,
+# changes no flag shows, as seg_effects lists them); a push,
 # fetch or commit-making command for a rewrite (an amend or a rebase); a fetch
 # writing a local ref for a merge or a pull. reorder_check refuses a change
 # after the first act that reads it in a command carrying any of those
@@ -1947,11 +1947,12 @@ seg_mark() {
 }
 
 # seg_effects <seg> — the changes a segment makes that its classification
-# does not flag: a directory change or a set of a variable git reads, which a
-# loop's next pass runs before its acts, and a write to git's own state other
-# than by git itself (an output redirect, git's own included, or another
-# command). Run once the segment is classified, so its own act reads the
-# state before them and the next segment's seg_mark counts them as its.
+# does not flag: a directory change, or an assignment, export or unset of a
+# variable git, its configuration or its command lookup reads, which a loop's
+# next pass runs before its acts; and a write that may reach git's own state
+# (an output redirect on any segment, or a command other than git). Run once
+# the segment is classified, so its own act reads the state before them and
+# the next segment's seg_mark counts them as its.
 seg_effects() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]} w
   seg_command_name "$1"
