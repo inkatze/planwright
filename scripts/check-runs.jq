@@ -6,8 +6,9 @@
 # window-lock and flip-point exclusions, judges every check, and others read
 # the combined rollup state or the raw rollup (obs:f3adc102).
 #
-# A cancelled check that a newer run of its workflow made obsolete is dropped
-# first (drop_superseded_cancels, below). Then a check run listed in
+# A cancelled check is dropped first once another run of its workflow passed,
+# starting no earlier, a check of the same name or one its placeholder fits
+# (drop_superseded_cancels, below, has the exact rule). Then a check run listed in
 # $base_state as <workflow>/<name> is left out of the flip conditions, and
 # only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
@@ -51,26 +52,39 @@ def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED
 def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
   and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
 
+# The longest name, and the most expressions, a placeholder match considers.
+# Check names come from the workflow a pull request carries, and the readers
+# run this selection unbounded inside a hook, so a longer or busier name is
+# never matched and its cancellation keeps counting.
+def placeholder_name_max: 256;
+def placeholder_expressions_max: 8;
+
 # A matrix job cancelled before it expanded keeps `${{ … }}` in its name. Its
 # fixed parts, the text around each expression, are what an expanded name of
 # that job must keep: `test (shard 1/2)` fits `test (shard ${{ matrix.shard
-# }}/…)`. A name with no expression has none.
-def placeholder_parts: if contains("${{") then [splits("\\$\\{\\{.*?\\}\\}")] else null end;
+# }}/…)`. A name with no expression, or past the bounds above, has none. An
+# expression is taken to end at its first `}}`, so one holding `}}` in a
+# string fits nothing.
+def placeholder_parts:
+  if contains("${{") and length <= placeholder_name_max
+  then [splits("\\$\\{\\{.*?\\}\\}")] | if length - 1 <= placeholder_expressions_max then . else null end
+  else null end;
 
 # Whether a name fits a placeholder's parts: it starts with the first, ends
 # with the last, and holds every middle part in order, with at least one
-# character in place of each expression. Plain string matching, so no name can
-# make it slow and jq and gojq agree. A placeholder that starts or ends with an
-# expression fits nothing, since a bare prefix or suffix would let unrelated
-# jobs fit it. An expression's stand-in may itself hold fixed text, so a
-# sibling job shaped like a shard can fit; the later run's own entries for the
-# job still count.
+# character in place of each expression. Plain string matching with no
+# backtracking, so jq and gojq agree; the bounds above keep it cheap. A
+# placeholder that starts or ends with an expression fits nothing, since a
+# bare prefix or suffix would let unrelated jobs fit it. An expression's
+# stand-in may itself hold fixed text, so a sibling job shaped like a shard
+# can fit; the later run's own entries for the job still count.
 def fits_parts($parts):
   . as $name | ($parts | length) as $k
-  | $k >= 2 and $parts[0] != "" and $parts[$k - 1] != ""
+  | $k >= 2 and $parts[0] != "" and $parts[$k - 1] != "" and ($name | length) <= placeholder_name_max
     and ($name | startswith($parts[0])) and ($name | endswith($parts[$k - 1]))
     and (reduce $parts[1:$k - 1][] as $part ({at: (($parts[0] | length) + 1)};
         if .at == null then .
+        elif $part == "" then {at: (.at + 1)}
         else ($name[.at:] | split($part)) as $pieces
           | if ($pieces | length) < 2 then {at: null}
             else {at: (.at + ($pieces[0] | length) + ($part | length) + 1)} end

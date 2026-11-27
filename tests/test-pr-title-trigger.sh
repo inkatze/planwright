@@ -65,9 +65,9 @@ uncommented() { sed 's/#.*$//' "$1"; }
 # over-matching here would be a false PASS, the one direction that hides the
 # defect this file exists to catch.
 #
-# block_body <file> <key> mark also prints a `#block` line where each block
-# starts, for a reader folding a value across lines; no stripped line can read
-# `#block`.
+# block_body <file> <key> [mark]: with mark, also prints a `#block` line where
+# each block starts, for a reader folding a value across lines; no stripped
+# line can read `#block`.
 block_body() {
   uncommented "$1" | awk -v key="$2" -v mark="${3:-}" '
     {
@@ -98,15 +98,15 @@ block_body() {
 # `format('<text>{0}…', <arg>…)` the value can evaluate to is also emitted
 # with every `{n}` replaced by `${{ <arg n> }}`: an expression choosing between
 # `ci-release-<sha>` and `ci-<ref>` then still collides with a plain
-# `ci-${{ github.ref }}` in another workflow. A flow-mapping `concurrency:` is
-# not read, and fails C3 by name below. The expansion is an approximation of
+# `ci-${{ github.ref }}` in another workflow. A flow-mapping or block-scalar
+# `concurrency:` value is not read, and fails C3 by name below. The expansion is an approximation of
 # GitHub's: placeholders are filled one at a time and `{{`/`}}` escapes are not
 # honoured, which no workflow here uses.
 concurrency_groups() {
   # The awk program's q carries the two YAML quote characters, so its
   # single-quoted text never has to contain one.
   {
-    uncommented "$1" | sed -n 's/^[[:space:]]*concurrency:[[:space:]]*\([^[:space:]{].*\)$/group: \1/p'
+    uncommented "$1" | sed -n 's/^[[:space:]]*concurrency:[[:space:]]*\([^[:space:]{>|].*\)$/group: \1/p'
     block_body "$1" concurrency mark
   } | awk -v q="\"'" '
     function trim(s) {
@@ -243,9 +243,10 @@ group_workflows=0
 ci_groups=""
 for wf in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
   [ -f "$wf" ] || continue
-  if uncommented "$wf" | grep -qE '^[[:space:]]*concurrency:[[:space:]]*[{]'; then
-    fail "C3 ${wf#"$REPO_ROOT"/} declares a flow-mapping concurrency block, which
-    this reader does not parse; write it as a block mapping"
+  if uncommented "$wf" | grep -qE '^[[:space:]]*concurrency:[[:space:]]*[{>|]'; then
+    fail "C3 ${wf#"$REPO_ROOT"/} declares a flow-mapping or block-scalar
+    concurrency value, which this reader does not parse; write it as a block
+    mapping or a one-line group"
   fi
   wf_groups="$(concurrency_groups "$wf")"
   [ -n "$wf_groups" ] && group_workflows=$((group_workflows + 1))

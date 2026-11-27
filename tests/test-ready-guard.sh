@@ -1115,6 +1115,21 @@ run_checks "checks (default): a pass of another job sharing the first word super
     "$(ci_check_run 601 'build v1.2 (${{ matrix.os }})' CANCELLED),$(ci_check_run 780 'build v1x2 (linux)' SUCCESS)" 'v1.2 [(][^ ]+ matrix.os [^ ]+ is CANCELLED'
   run_checks "checks (default): a shard whose fixed text holds regex characters fits its placeholder" defer \
     "$(ci_check_run 601 'a+b [${{ matrix.os }}]' CANCELLED),$(ci_check_run 780 'a+b [linux]' SUCCESS)"
+  run_checks "checks (default): an empty stand-in for the last expression does not fit the placeholder" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard 12/)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): an empty stand-in for a lone expression does not fit the placeholder" deny \
+    "$(ci_check_run 601 'test (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test (shard )' SUCCESS)" 'matrix.shard [^ ]+ is CANCELLED'
+  run_checks "checks (default): a shard holding every middle part in order fits the placeholder" defer \
+    "$(ci_check_run 601 't ${{ a }} x ${{ b }} y ${{ c }} z' CANCELLED),$(ci_check_run 780 't 1 x 2 y 3 z' SUCCESS)"
+  run_checks "checks (default): a name missing a middle part does not fit the placeholder" deny \
+    "$(ci_check_run 601 't ${{ a }} x ${{ b }} y ${{ c }} z' CANCELLED),$(ci_check_run 780 't 1 q 2 y 3 z' SUCCESS)" 'c [^ ]+ z is CANCELLED'
+  run_checks "checks (default): a name holding the middle parts out of order does not fit the placeholder" deny \
+    "$(ci_check_run 601 't ${{ a }} x ${{ b }} y ${{ c }} z' CANCELLED),$(ci_check_run 780 't 1 y 2 x 3 z' SUCCESS)" 'c [^ ]+ z is CANCELLED'
+  run_checks "checks (default): two expressions side by side take one character each" defer \
+    "$(ci_check_run 601 'a ${{ x }}${{ y }} z' CANCELLED),$(ci_check_run 780 'a 12 z' SUCCESS)"
+  long_tail=$(printf '%0260d' 0)
+  run_checks "checks (default): a placeholder past the length bound fits nothing, so its cancellation counts" deny \
+    "$(ci_check_run 601 "t \${{ a }} $long_tail" CANCELLED),$(ci_check_run 780 "t 1 $long_tail" SUCCESS)" '0000 is CANCELLED'
   run_checks "checks (default): a placeholder ending in its expression fits no job" deny \
     "$(ci_check_run 601 'build ${{ matrix.os }}' CANCELLED),$(ci_check_run 780 'build docs' SUCCESS)" 'check build [^ ]+ matrix.os [^ ]+ is CANCELLED'
   run_checks "checks (default): a placeholder starting with its expression fits no job" deny \
@@ -1134,9 +1149,9 @@ run_checks "checks (default): a pass in the cancelled check's own run supersedes
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
   "$(ci_check_run 780 check SUCCESS),$(ci_check_run 800 check CANCELLED 2026-11-26T11:00:00Z)" 'check is CANCELLED'
-run_checks "checks (default): a cancellation with no start time supersedes nothing" deny \
+run_checks "checks (default): a cancellation with no start time is never dropped" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED 0001-01-01T00:00:00Z),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
-run_checks "checks (default): a cancellation naming no workflow run supersedes nothing" deny \
+run_checks "checks (default): a cancellation naming no workflow run is never dropped" deny \
   '{"name":"'"$SHARDS"'","workflowName":"ci","status":"COMPLETED","conclusion":"CANCELLED","startedAt":"2026-11-26T10:34:03Z"},'"$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older run's failure tied with a later run's pass denies" deny \
   "$(ci_check_run 601 check FAILURE),$(ci_check_run 780 check SUCCESS)" 'check is FAILURE'

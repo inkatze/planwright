@@ -134,7 +134,7 @@ fixture
 set_policy unit-owner
 echo run-superseded >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
-check "a run's cancellations a later run superseded never hold the flip" [ "$CODE" = 0 ]
+check "a run's cancellations superseded by a later passing run never hold the flip" [ "$CODE" = 0 ]
 fixture
 set_policy unit-owner
 echo run-cancelled-alone >"$GHS/ci"
