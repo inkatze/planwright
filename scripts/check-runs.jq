@@ -6,8 +6,8 @@
 # window-lock and flip-point exclusions, judges every check, and others read
 # the combined rollup state or the raw rollup (obs:f3adc102).
 #
-# A cancelled check is dropped first once another run of its workflow passed,
-# starting no earlier, a check of the same name or one its placeholder fits
+# A matrix job cancelled under its unexpanded name is dropped first once
+# another run of its workflow passed, starting no earlier, a shard it fits
 # (drop_superseded_cancels, below, has the exact rule). Then a check run listed in
 # $base_state as <workflow>/<name> is left out of the flip conditions, and
 # only the latest run of each check context counts: a re-run supersedes the
@@ -52,19 +52,22 @@ def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED
 def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
   and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
 
-# The longest name, and the most expressions, a placeholder match considers.
-# Check names come from the workflow a pull request carries, and the readers
-# run this selection unbounded inside a hook, so a longer or busier name is
-# never matched and its cancellation keeps counting.
-def placeholder_name_max: 256;
-def placeholder_expressions_max: 8;
+# The longest name, the most expressions, and the most cancelled placeholders
+# a match considers. Check names come from the workflow a pull request
+# carries, and ready-guard.sh runs this selection inside a hook with no time
+# bound on jq, so past any bound a name is never matched and its cancellation
+# keeps counting. At these bounds a 99-entry rollup built to fail every match
+# late costs well under a second.
+def placeholder_name_max: 128;
+def placeholder_expressions_max: 4;
+def placeholder_rows_max: 16;
 
 # A matrix job cancelled before it expanded keeps `${{ … }}` in its name. Its
 # fixed parts, the text around each expression, are what an expanded name of
-# that job must keep: `test (shard 1/2)` fits `test (shard ${{ matrix.shard
-# }}/…)`. A name with no expression, or past the bounds above, has none. An
-# expression is taken to end at its first `}}`, so one holding `}}` in a
-# string fits nothing.
+# that job must keep: `test (shard 1/2)` fits
+# `test (shard ${{ matrix.shard }}/${{ strategy.job-total }})`. A name with no
+# expression, or past the bounds above, has none. An expression is taken to
+# end at its first `}}`, so one holding `}}` in a string fits nothing.
 def placeholder_parts:
   if contains("${{") and length <= placeholder_name_max
   then [splits("\\$\\{\\{.*?\\}\\}")] | if length - 1 <= placeholder_expressions_max then . else null end
@@ -92,29 +95,33 @@ def fits_parts($parts):
       | .at != null and .at <= ($name | length) - ($parts[$k - 1] | length));
 
 # When a newer run on the head cancels an older run of its workflow, the older
-# run's checks end CANCELLED. A cancelled matrix job is reported under its
-# unexpanded placeholder, which the newer run's shard names never replace, and
-# a cancelled job can tie the newer run's start to the second, where a tie goes
-# to the check that did not pass. So a finished CANCELLED check with a known
-# time is dropped when another workflow run of the same workflow has a check
-# that succeeded (SUCCESS or NEUTRAL, a skip running nothing) and started no
-# earlier, with the same name, or for a placeholder, a name its parts fit.
-# Only cancellations go: a failure, a check still running, and a pass are
-# never dropped, whatever ran after them, so a later failing re-run and a
-# reused run's earlier macOS passes count as before. A cancellation with no
-# such successor still counts.
+# run's checks end CANCELLED. Under the same name the newer run's check simply
+# supersedes them, as the latest run of their context: a successor's jobs
+# start after the run it cancelled has finished cancelling. A matrix job
+# cancelled before it expanded is reported under its unexpanded placeholder,
+# though, which the newer run's shard names never replace. So a finished
+# CANCELLED placeholder with a known time is dropped when another workflow run
+# of the same workflow has a check that succeeded (SUCCESS or NEUTRAL, a skip
+# running nothing), started no earlier, under a name its parts fit. Nothing
+# else is dropped: a failure, a check still running and a pass never are, and
+# a same-name cancellation keeps the latest-run rule, a tie going to it, so a
+# timed-out job reported cancelled cannot hide behind a same-second pass. A
+# placeholder with no such successor still counts.
 def drop_superseded_cancels:
-  if any(.[]; check_cancelled) | not then . else
-    [.[] | (.name // "" | tostring) as $name | check_cancelled as $cancelled
-      | {entry: ., run_id: check_run_id, workflow: (.workflowName // ""), name: $name,
-         started: check_started, cancelled: $cancelled, succeeded: check_succeeded,
-         parts: (if $cancelled then ($name | placeholder_parts) else null end)}] as $rows
+  if any(.[]; check_cancelled and ((.name // "" | tostring) | contains("${{"))) | not then . else
+    (reduce (.[] | check_cancelled and ((.name // "" | tostring) | contains("${{"))) as $p
+      ({n: 0, ok: []}; .ok += [$p and .n < placeholder_rows_max] | .n += (if $p then 1 else 0 end))
+      | .ok) as $placeholder_ok
+    | [to_entries[] | .key as $i | .value
+      | {entry: ., run_id: check_run_id, workflow: (.workflowName // ""), name: (.name // "" | tostring),
+         started: check_started, succeeded: check_succeeded,
+         parts: (if $placeholder_ok[$i] then (.name // "" | tostring | placeholder_parts) else null end)}] as $rows
     | [$rows[] | select(.succeeded and .run_id != null and .workflow != "")] as $successes
     | [$rows[]
         | . as $row
-        | ($row.cancelled and $row.run_id != null and $row.started != ""
-            and any($successes[]; .run_id != $row.run_id and .workflow == $row.workflow and .started >= $row.started
-              and (.name == $row.name or ($row.parts != null and (.name | fits_parts($row.parts)))))) as $superseded
+        | ($row.parts != null and $row.run_id != null and $row.started != ""
+            and any($successes[]; .run_id != $row.run_id and .workflow == $row.workflow
+              and .started >= $row.started and (.name | fits_parts($row.parts)))) as $superseded
         | select($superseded | not)
         | .entry]
   end;

@@ -60,14 +60,12 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       supersedes the runs before it), but
                                       not a check ready_base_state_checks
                                       names (it describes the base), nor a
-                                      cancelled check once another run of
-                                      its workflow on the head passed
-                                      (SUCCESS or NEUTRAL), starting no
-                                      earlier, a check of the same name or,
-                                      for an unexpanded matrix name with
-                                      fixed text at both ends, a shard of
-                                      that shape; SUCCESS, NEUTRAL and
-                                      SKIPPED pass
+                                      matrix job cancelled under its
+                                      unexpanded name once another run of
+                                      its workflow on the head passed a
+                                      shard of it (within
+                                      scripts/check-runs.jq's bounds);
+                                      SUCCESS, NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or
@@ -1092,9 +1090,11 @@ collect() {
   cl_owner=${2%%/*}
   cl_name=${2#*/}
   cl_runs=$(cat -- "$script_dir/check-runs.jq") || mc_fail "check-runs.jq is missing or unreadable (broken install)"
-  # gh --jq takes no variables, so the list the shared module reads is bound inline.
+  # gh --jq takes no variables, so the list the shared module reads, and the
+  # cap, are bound inline. A rollup at the cap is refused as truncated by the
+  # walk, so its checks are not selected first.
   cl_base=$(/bin/sh "$script_dir/base-state-checks.sh") || cl_base='[]'
-  cl_runs="${cl_base:-[]} as \$base_state | $cl_runs"
+  cl_runs="$CAP as \$cap | ${cl_base:-[]} as \$base_state | $cl_runs"
   # shellcheck disable=SC2016 # a jq program
   gh pr view "$3" --repo "$2" --json headRefOid,headRefName,baseRefName,isDraft,labels,files,body,statusCheckRollup --jq "$cl_runs"'
     def clean: tostring | gsub("[\t\r\n]"; " ");
@@ -1106,13 +1106,13 @@ collect() {
     "count\tchecks\t" + ((.statusCheckRollup // []) | length | tostring),
     "count\tlabels\t" + ((.labels // []) | length | tostring),
     (.labels[]? | "label\t" + (.name | clean)),
-    ((.statusCheckRollup // []) | bypassed_check_runs[]
+    ((.statusCheckRollup // []) | select(length < $cap) | bypassed_check_runs[]
       | "bypass\t" + ((.name // "-") | clean) + "\t" + ((.conclusion // "") | if . == "" then "UNKNOWN" else . end | clean)),
     (.files[]? | "path\t" + (.path | clean) + "\t" + ((.changeType // "-") | clean)),
-    ((.statusCheckRollup // []) | latest_check_runs[]
+    ((.statusCheckRollup // []) | select(length < $cap) | latest_check_runs[]
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
       + (if (.conclusion // "") != "" then .conclusion else (.state // "PENDING") end | clean)),
-    ((.statusCheckRollup // []) | latest_check_runs[]
+    ((.statusCheckRollup // []) | select(length < $cap) | latest_check_runs[]
       | (check_run_id // empty) as $run_id
       | "runref\t" + ((.name // .context // "-") | clean) + "\t" + $run_id),
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \

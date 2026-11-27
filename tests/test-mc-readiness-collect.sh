@@ -153,22 +153,25 @@ hasnt "a workflow naming the PR-Agent image only in a comment states no bot-revi
 rm -f "$repo/.github/workflows/pr-agent.yml"
 
 # A superseded run: two ci runs started together on the head, the older one
-# cancelled by the newer. The cancelled one's matrix jobs are reported under
-# their unexpanded names, which the live run's shard names never supersede,
-# and its check job ties the live one's start. Once a later run of the same
-# workflow on the head passed one of its shards, the cancellation is no flip
-# condition; a cancelled run with no passing successor still is, and nothing
-# but a cancellation is ever dropped.
+# cancelled by the newer. The cancelled one's other jobs are superseded by the
+# live run's same-name checks, which start later, but its matrix jobs are
+# reported under their unexpanded names, which no shard name replaces. Once a
+# later run of the same workflow on the head passed one of its shards, that
+# cancellation is no flip condition; a cancelled run with no passing
+# successor still is, and nothing but such a cancellation is ever dropped.
 mv "$tmp/pr.json" "$tmp/pr.json.keep"
 superseded_pr() { # superseded_pr <rollup entries>: the pull request read with that rollup
   printf '{"headRefOid": "%s", "labels": [], "files": [{"path": "src/app.c"}], "body": "", "isDraft": false, "statusCheckRollup": [%s]}\n' \
     "$head" "$1" >"$tmp/pr.json"
 }
 # ci_check_run <run id> <name> <conclusion> [<started>] [<workflow>]: one check
-# run of that workflow run, by default a ci one started with its run's peers.
+# run of that workflow run, by default a ci one. Run 601 is the cancelled run;
+# any other run is its successor, whose jobs start later, as on GitHub.
 ci_check_run() {
+  local started=${4:-2026-11-26T10:34:15Z}
+  [ -n "${4:-}" ] || [ "$1" != 601 ] || started=2026-11-26T10:34:05Z
   printf '{"__typename": "CheckRun", "name": "%s", "workflowName": "%s", "status": "COMPLETED", "conclusion": "%s", "startedAt": "%s", "detailsUrl": "https://github.com/acme/web/actions/runs/%s/job/1"}' \
-    "$2" "${5:-ci}" "$3" "${4:-2026-11-26T10:34:03Z}" "$1"
+    "$2" "${5:-ci}" "$3" "$started" "$1"
 }
 collect_superseded() { # collect_superseded <label> <out name>: collect over the rollup superseded_pr wrote, loading it into c
   PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/$2"
