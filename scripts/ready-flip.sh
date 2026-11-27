@@ -852,8 +852,10 @@ ROLLUP_JQ='
 HEAD_MOVED=0
 pred_ci() {
   local i=0 raw oid verdict bypass greens last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS)) bot=false
-  # The pinned head's own workflows decide, as the readiness check's do.
-  ! git grep -qE '^[^#]*pragent/pr-agent' "$HEAD_SHA" -- '.github/workflows/*.yml' 2>/dev/null || bot=true
+  # The pinned head's own workflows decide, as the readiness check's do. Only
+  # a clean no-match (exit 1) drops the wait: an unreadable tree keeps it.
+  git grep -qE '^[^#]*pragent/pr-agent' "$HEAD_SHA" -- '.github/workflows/*.yml' 2>/dev/null
+  [ "$?" = 1 ] || bot=true
   # The read count bounds the wait, and so does the clock: every nap here ends
   # by the deadline, so only a head re-read, which naps on its own, can
   # overrun it, by that re-read's pauses.
