@@ -1,7 +1,7 @@
 # Mission control — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-13
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -741,6 +741,10 @@ fifth follow-on.)*
 *(Amended at sign-off lens pass 2026-10-24: deadline-watch's day-one sources
 stated, since no calendar adapter ships and `cited` forbids polling.)*
 
+*(Amended at Amendment 22, 2026-11-23: deadline-watch reads the program's
+commitment store as one more source, so a commitment's date is kept once;
+see D-115.)*
+
 ### D-28: Decision-domain walk  (N)
 
 **Decision:** Domains touched and decided here: data storage and modelling
@@ -966,6 +970,10 @@ cadence and the gate data's steps, by the operator's ruling that spec-only
 pull requests skip the code review steps; it shipped in PR #852, and
 REQ-D1.14 supersedes REQ-D1.9 to say so.)*
 
+*(Amended at Amendment 21, 2026-11-22: a bundle that predates kickoff
+reads as signed off in that hold exactly as REQ-D1.18 defines a legacy
+bundle; see the D-45 note.)*
+
 ### D-34: A repository-changing launch gets its own worktree  (N)
 
 **Decision:** The worker, reviewer, ad-hoc and kickoff kinds start in a
@@ -1078,6 +1086,11 @@ profile is unchanged.
 
 **Chosen because:** the operator chose it (2026-11-04), and it widens one
 session by one branch it was launched to publish.
+
+*(Amended at Amendment 21, 2026-11-22: the kickoff kind's one push is
+unchanged and stays the only route for a spec edit; a worker keeping a
+spec-branch pull request current with clean base merges is a separate
+route, D-114.)*
 
 ### D-37: The panel activates from a bring-up record, not the environment  (S)
 
@@ -1392,6 +1405,17 @@ audit found every zone flight resting on one of those instead).
 **Chosen because:** the operator's decisions (2026-11-07): edit the spec in
 the same pull request, worker statement plus mechanical check, path list
 plus judgment for routing, pause zones unchanged.
+
+*(Amended at Amendment 21, 2026-11-22: a bundle finished before kickoff
+existed has no anchor to compare, so readiness reads it as signed off when
+it is Done at the head and the pull request's base, read at the base commit
+the forge reports, holds no brief for it and holds it Done or with no
+Status line; REQ-D1.18 supersedes REQ-D1.13 to say so, and the D-33
+spec-only hold reads it the same way. A retro kickoff of every such bundle
+was the alternative; it held unrelated pull requests on bundles nobody is
+changing in meaning. The base is read at the forge's commit rather than a
+local ref, so a stale ref cannot let a pull request that renames a brief
+away read as legacy.)*
 
 ### D-46: Every mission-control session reads its own context from its transcript  (N)
 
@@ -1778,6 +1802,11 @@ one" and the auto-close alternative are narrowed by D-65; a sweep closes on a
 passing machine check with the evidence recorded, never on a person's
 confirmation or a bare assertion.)*
 
+*(Amended at amendment 20 2026-11-20: the intake rows and the turn-end and
+handover refusals are built by control-plane's request ledger (control-plane
+D-22, D-25), which holds a turn's first stop once rather than every stop;
+REQ-F1.26 supersedes REQ-F1.19. The follow-up item rules stand.)*
+
 ### D-57: One lease shape, and rules carry clauses the guard keeps  (N; C, D-5, D-24, D-53)
 
 **Decision:** A rule entry may carry an enforcement clause (match, effect,
@@ -1975,6 +2004,122 @@ counts misses caught by the operator against those the system raised first.
 
 **Chosen because:** every core failure so far was found by the operator;
 the system should find the next one first, and learn from each it did not.
+
+### D-114: A spec-branch pull request's worker keeps its branch current with clean base merges only  (N; C, human-gates D-7)
+
+**Decision:** A worker launched onto a spec-branch pull request (its head
+the sign-off branch `planwright/<spec>/spec`, an amendment branch
+`planwright/<spec>/amendment-<n>` or a spec-rework branch
+`planwright/<spec>/spec-rework`, named in its launch-written session
+record) may merge the base, the remote's default branch, into that branch
+and push the result, and no other merge or push there, while
+`worker_base_merge` resolves `allow`. The policy guard admits the merge as
+the command's only act, in the session's own linked worktree holding the
+branch, and admits the push only from that worktree, by explicit refspec,
+when it fast-forwards the pull request's head and every commit it adds that
+the base lacks is a two-parent merge whose second parent is a base commit
+and whose tree is exactly the clean merge of its parents, on a
+first-parent line that starts at that head. The base and the head are read
+from the remote, never from a local ref; local state that could make the
+guard read something other than what git merges or the push sends
+(rewritten transports, merge drivers, attributes, replace refs, grafts, a
+shallow clone, a git older than 2.40) refuses. On the sign-off branch the
+protected-set read exempts only the core floor's own `planwright/*/spec`
+entry, so an operator's `protected_branches` addition matching the branch
+still refuses. One push may carry several merges, and a push that adds
+nothing is admitted. A spec edit is never a clean merge, so it stays with
+the kickoff session (D-36) and the operator's sign-off, and so does a base
+merge that needs a hand resolution.
+
+**Alternatives considered:**
+- Hand every moved main to the operator (the Update branch button).
+  Rejected because: it put a manual step on every spec-branch pull request whose
+  main moved, the toil the operator ruled out.
+- Route the sync through a fresh kickoff session. Rejected because: a
+  kickoff is a walk with the operator, too heavy to rerun for a merge that
+  changes no spec text.
+- Also admit commits touching only the spec's own bundle files. Rejected
+  because: that is a spec edit without a sign-off, the drift D-45 exists
+  to stop.
+
+**Chosen because:** the operator's rulings: "Narrow it" (2026-11-18) and
+the Amendment 21 rulings (2026-11-22). Human-gates REQ-E1.1 forbids a
+worker's merge into a spec branch, so the builds stay draft until the
+human-gates batch amendment admitting exactly this merge and push, and this
+amendment, are both signed; whether spec-rework is included follows that
+batch's answer.
+
+### D-115: Dated commitments are a store the handover, the watcher and the runner all read  (N; C, D-27, D-30, D-65, D-68)
+
+**Decision:** A program keeps a commitment store in its program home: per
+commitment an id (`commit-<n>`, allocated by `add`), when (a day), the
+event (what is owed to whom), the required pull requests (`owner/repo#n`),
+the commitment's own state (open or closed), and the operator's words
+quoted, in the follow-up ledger's
+row format and under its writer rules (D-65), every verb under the store's
+lock. A new script, `scripts/mc-commitments.sh`, owns the verbs: `add` and
+`change` (only the live holder of the program's name, with the operator's
+words; text with a control byte refused), `ack` (one commitment by id,
+recording session and time; idempotent), `close` (reason `delivered`,
+`waived` or `moved`, and a note; never a delete), `list`, `state` (each
+required pull request's live state, read one pull request at a time
+through a new `pr-state` verb on the forge adapter, `unknown` with the
+reason when unreadable) and `watch` (the pass below). The adapter's
+existing `refresh` snapshot lists only open, tracked pull requests, so it
+cannot say merged or closed. Four readers use it:
+
+- **Deadline-watch (D-27)** gains the store as one more source, read under
+  every mode including `cited`, each open commitment a unit named by its id
+  with its day; the operator-stated dates file keeps working unchanged, and
+  a closed commitment drops out. The commitment's date is therefore typed
+  once, and `add` refuses an id the dates file uses so one can never shadow
+  the other.
+- **The handover (D-30)** writes each open commitment into the handover
+  file as an item named by the commitment's id; `verify` and `resume` read
+  the store, print each open commitment and mark every one the file lacks
+  (as a commitment added after the file was written is); `take` and `resume` refuse
+  until the session has acknowledged every open commitment by id, naming
+  the missing ids (REQ-P1.17). An acknowledgement is per session, so a
+  later successor acknowledges again. The store, not the file, is the
+  gate, so a late commitment is never missed.
+- **The runner** runs the `watch` pass for every open commitment: it
+  records each pull request's live state, raises an event when a pull
+  request's state changes and once a day while the commitment is inside the
+  deadline horizon or overdue (events name the id, date and states, never
+  the event text or quoted words), reports `ready to close` once every
+  required pull request has merged, and shows an unreadable pull request as
+  `unknown` with a failure-class event (D-65's channel), never blocking a
+  take.
+- **The panel and the first turn after silence** list open commitments
+  with the deadline-watch's other dates, earliest first.
+
+**Alternatives considered:**
+- Keep commitments a separate list beside the deadline watcher. Rejected
+  because: a date entered in one and forgotten in the other is the failure
+  this exists to end, and the operator chose one list ("One list").
+- Close a commitment automatically when every required pull request
+  merges. Rejected because: a merge may not mean the customer was told; the
+  operator chose a session closing it with a reason.
+- Let any session record a commitment. Rejected because: a wrong date could
+  enter without the operator having said it; the operator chose the holding
+  mission control on their word.
+- Block `take` only on urgent commitments, or accept one blanket
+  confirmation. Rejected because: a later commitment, or one waved through
+  unread, is how a dated promise is dropped; the operator chose naming each.
+- Stop the pass when the forge cannot be read, or show the last known state.
+  Rejected because: one outage would silence every commitment, and a stale
+  green can hide a problem near the date; the operator chose `unknown`
+  loudly.
+
+**Chosen because:** the operator's rulings (2026-11-23, Sources) and the
+work-machine report that a dated customer commitment kept as handover
+prose was dropped. It composes the existing parts (D-27's watcher, D-30's
+handover file and D-65's ledger and raise path) and adds no knob: the
+horizon is `mission_control_deadline_horizon`.
+
+*(Decision-domain notes: authorization is REQ-P1.15's, the holding mission
+control on the operator's word; failure handling is REQ-P1.18's; source of
+truth is the store, with the forge for pull request state.)*
 
 ## Cross-cutting concerns
 

@@ -110,6 +110,7 @@
 # branch is called, plus:
 #   checkout	<primary checkout>
 #   branch	<origin's default branch>
+#   before	<old oid>              (only after a move; empty when unborn)
 #   record	<log path>|unwritten   (only after a move)
 # Exits as sync does (3 also covers asking origin for its default branch and
 # a git read error, 4 a local history origin lacks, 6 also an operation in
@@ -485,6 +486,7 @@ ff_primary() {
   actor=$(sanitize_printable "${PLANWRIGHT_WORKER_HANDLE:-${PLANWRIGHT_TOWER_ID:-}}" unknown)
   printf 'sync\tfast-forward\n'
   printf 'main\t%s\n' "$after"
+  printf 'before\t%s\n' "$before"
   if printf '%s\tff-primary\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$primary" "$default" "$before" "$after" "$actor" >>"$rec" 2>/dev/null; then
     printf 'record\t%s\n' "$rec"
   else

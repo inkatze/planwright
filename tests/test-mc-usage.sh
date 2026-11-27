@@ -38,6 +38,7 @@ cleanup() {
     env PLANWRIGHT_FLEET_STATE_DIR="$fleet" /bin/sh "$repo_root/scripts/fleet-streamjson.sh" \
       stop "$(basename "$d")" --grace 1 >/dev/null 2>&1 || :
   done
+  [ -z "${tether_owner:-}" ] || kill "$tether_owner" 2>/dev/null || :
   rm -rf "$tmp"
 }
 trap cleanup EXIT
@@ -52,7 +53,10 @@ export PLANWRIGHT_USAGE_MIRROR="$mirror"
 
 # The launcher needs the shipped defaults and profiles; the shim stands in
 # for claude. A resumed session stays up reading its stdin, so a handover
-# steered into it is recorded.
+# steered into it is recorded. Its supervisor holds that stdin open for as
+# long as the shim runs, so the shim ends itself once SHIM_OWNER (this suite)
+# is gone: a suite killed before its cleanup would otherwise leave the pair
+# running for good.
 reset_mc_fixture
 write_mc_posture_pass
 cp "$repo_root/config/defaults.yml" "$core/config/defaults.yml"
@@ -66,6 +70,13 @@ printf '%s\n' "$*" >>"$SHIM_DIR/argv"
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"0b6f0c1e-1111-4222-8333-444455556666"}'
 case " $* " in
   *" --resume "*)
+    (
+      while kill -0 "$SHIM_OWNER"; do
+        kill -0 "$$" || exit 0
+        sleep 1
+      done
+      kill "$$"
+    ) >/dev/null 2>&1 </dev/null &
     while IFS= read -r line; do printf '%s\n' "$line" >>"$SHIM_DIR/resumed-stdin"; done
     ;;
   *)
@@ -76,8 +87,8 @@ esac
 exit 0
 SHIM
 chmod +x "$tmp/bin/claude"
-export PATH="$tmp/bin:$PATH" SHIM_DIR="$tmp/shim"
-write_tracked() { # write_tracked [<extra line>]
+export PATH="$tmp/bin:$PATH" SHIM_DIR="$tmp/shim" SHIM_OWNER=$$
+write_tracked() { # write_tracked [<extra lines>]
   cat >"$tracked" <<EOF
 mission_control_programs: [alpha]
 program_alpha_repositories: [$repo]
@@ -248,6 +259,7 @@ case $RC in 0 | 3) ok "a fixture claude quota hold" ;; *) fail "the fixture quot
 mc_run mc-event.sh emit --program alpha --now "$((now + 10))" -- session-landed mc-alpha-worker-a "acme/app#7 MERGED, retired"
 mc_run mc-event.sh emit --program alpha --now "$((now + 11))" -- alpha-item pr-9 "approve the release"
 mc_run mc-event.sh emit --program alpha --now "$((now + 12))" -- stall-dead mc-alpha-worker-b "worker: pid gone"
+mc_run mc-event.sh emit --program alpha --now "$((now + 12))" -- tmux-server-lost tmux-server "the tmux server was replaced; relaunch them"
 mc_run mc-event.sh emit --program alpha --now "$((now + 13))" -- pending-prompt mc-alpha-worker-c "a routine prompt"
 
 # ---------------------------------------------------------------------------
@@ -324,6 +336,7 @@ expect_rc "report" 0
 expect_out "a landing is reported" "landed${tab}mc-alpha-worker-a${tab}acme/app#7 MERGED, retired"
 expect_out "a decision is reported" "decision${tab}pr-9${tab}approve the release"
 expect_out "a failure is reported" "failed${tab}mc-alpha-worker-b${tab}"
+expect_out "a lost tmux server is reported as a failure" "failed${tab}tmux-server${tab}the tmux server was replaced"
 expect_out "a launch past the hold is reported" "bypass${tab}${limited}${tab}"
 expect_no_out "a routine event is not reported" "mc-alpha-worker-c"
 expect_no_out "a routine launch is not reported" "next-one"
@@ -372,6 +385,20 @@ printf 'frame\t%s\t0.1\t%s\t0.1\t%s\tend\n' "$((after + 700))" "$((after + 3600)
 watch "$((after + 800))"
 expect_out "a frame from after the quota hold, under the threshold, releases it" "released-quota${tab}claude"
 rm -rf "$fleet/streamjson/mc-alpha-frames"
+
+# With every weekly rung parked at 100, the watch still releases a quota hold
+# once both windows have room.
+write_tracked "$(printf '%s\n' 'fleet_usage_weekly_downshift: 100' 'fleet_usage_weekly_reduce_concurrency: 100' \
+  'fleet_usage_weekly_defer_heavy: 100' 'fleet_usage_weekly_defer_all: 100')"
+mc_run quota-hold.sh hold --vendor claude --unit "alpha:wall-one" --step worker --reason "fixture limit" --now "$((after + 820))"
+case $RC in 0 | 3) ok "a fixture quota hold under weekly rungs at 100" ;; *) fail "the wall fixture quota hold failed ($RC): $ERR" ;; esac
+mkdir -p "$fleet/streamjson/mc-alpha-frames"
+printf 'frame\t%s\t0.02\t%s\t0.4\t%s\tend\n' "$((after + 830))" "$((after + 3600))" "$((after + 86400))" >"$fleet/streamjson/mc-alpha-frames/ratelimit"
+watch "$((after + 840))"
+expect_rc "a watch under weekly rungs at 100" 0
+expect_out "weekly rungs at 100 do not keep a quota hold whose windows have room" "released-quota${tab}claude"
+rm -rf "$fleet/streamjson/mc-alpha-frames"
+write_tracked
 
 # A drain outside a reset keeps a resume it could not make, uncounted.
 mc_run mc-usage.sh enqueue --program alpha --resume "$limited"
@@ -450,6 +477,33 @@ grep -q '^mission_control_default_duties:.*usage-window' "$repo_root/config/defa
   || fail "usage-window is not in the default duties"
 grep -q '^mission_control_usage_hold: 90$' "$repo_root/config/defaults.yml" \
   || fail "the shipped hold threshold is not 90"
+
+# ---------------------------------------------------------------------------
+# A resumed shim ends with the process that owns it, so a suite killed before
+# its cleanup runs leaves no supervisor behind.
+# ---------------------------------------------------------------------------
+sleep 600 &
+tether_owner=$!
+SHIM_OWNER=$tether_owner mc_run fleet-streamjson.sh launch mc-alpha-tether-one tether \
+  --prompt-file "$tmp/brief.md" --profile tower -- --resume 0b6f0c1e-1111-4222-8333-444455556666
+expect_rc "a resumed shim launches" 0
+tdir="$fleet/streamjson/mc-alpha-tether-one"
+tsup=$(head -n 1 "$tdir/supervisor.pid" 2>/dev/null)
+kill "$tether_owner" 2>/dev/null || :
+wait "$tether_owner" 2>/dev/null
+tether_owner=''
+pf_i=0
+while [ "$pf_i" -lt 100 ] && [ -n "$tsup" ] && kill -0 "$tsup" 2>/dev/null; do
+  sleep 0.1
+  pf_i=$((pf_i + 1))
+done
+if [ -z "$tsup" ]; then
+  fail "the tethered launch recorded no supervisor"
+elif kill -0 "$tsup" 2>/dev/null; then
+  fail "the supervisor of a resumed shim outlived the process that owns the shim"
+else
+  ok "a resumed shim and its supervisor end with the shim's owner"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

@@ -316,6 +316,86 @@ for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success
 done
 echo "ok: a print-backend unit is refused with its own exit (8) under every evidence"
 
+# --- a parked session is never reaped, under positive evidence (exit 5) ----
+mkdir -p "$gate_home/mission-control/sessions"
+for why in operator ci ready-flip; do
+  printf 'format\t1\nname\tw1\nwaiting\t%s\n' "$why" >"$gate_home/mission-control/sessions/w1"
+  for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success'; do
+    det "${st% *}" dead-or-unknown "${st#* }" stream-json-persistent dead
+    gate w1 trig why
+    expect 5 "a session waiting on $why ($st)"
+    never_stopped "a session waiting on $why ($st)"
+    case $err in
+      *"waiting on $why"*) ;;
+      *) fail "a parked session's refusal does not name the wait: $err" ;;
+    esac
+  done
+done
+rm -f "$gate_home/mission-control/sessions/w1"
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
+gate w1 trig why
+expect 0 "the same session once its wait is cleared"
+echo "ok: a session with a live wait is never reaped, and is again once the wait is cleared"
+
+# A registry row whose wait cannot be read is not evidence of no wait: a row
+# that is a symbolic link, not a regular file, or unreadable is refused (5).
+printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$tmp/parked-row-target"
+ln -s "$tmp/parked-row-target" "$gate_home/mission-control/sessions/w1"
+det finished-but-unreaped dead-or-unknown completion:result=success stream-json-persistent dead
+gate w1 trig why
+expect 5 "a session whose registry row is a symbolic link"
+never_stopped "a session whose registry row is a symbolic link"
+rm -f "$gate_home/mission-control/sessions/w1"
+mkdir "$gate_home/mission-control/sessions/w1"
+gate w1 trig why
+expect 5 "a session whose registry row is a directory"
+never_stopped "a session whose registry row is a directory"
+rmdir "$gate_home/mission-control/sessions/w1"
+printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$gate_home/mission-control/sessions/w1"
+chmod 000 "$gate_home/mission-control/sessions/w1"
+if [ ! -r "$gate_home/mission-control/sessions/w1" ]; then
+  gate w1 trig why
+  expect 5 "a session whose registry row cannot be read"
+  never_stopped "a session whose registry row cannot be read"
+  echo "ok: a registry row that cannot be read is refused, never taken for no wait"
+else
+  echo "skip: the unreadable registry row case (the mode does not deny reading here)"
+fi
+chmod 600 "$gate_home/mission-control/sessions/w1"
+rm -f "$gate_home/mission-control/sessions/w1" "$tmp/parked-row-target"
+echo "ok: a registry row that is a link or not a file is refused, never taken for no wait"
+
+# A registry directory that cannot be searched hides the row, so its absence
+# is not evidence of no wait either; nor is a fleet home that cannot be
+# resolved at all.
+printf 'format\t1\nname\tw1\nwaiting\toperator\n' >"$gate_home/mission-control/sessions/w1"
+chmod 000 "$gate_home/mission-control/sessions"
+if [ ! -r "$gate_home/mission-control/sessions" ] && [ ! -x "$gate_home/mission-control/sessions" ]; then
+  gate w1 trig why
+  chmod 700 "$gate_home/mission-control/sessions"
+  expect 5 "a session whose registry directory cannot be searched"
+  never_stopped "a session whose registry directory cannot be searched"
+  echo "ok: a registry directory that cannot be searched is refused"
+else
+  chmod 700 "$gate_home/mission-control/sessions"
+  echo "skip: the unsearchable registry directory case (the mode does not deny searching here)"
+fi
+rm -f "$gate_home/mission-control/sessions/w1"
+reset_calls
+rc=0
+env "${env_scrub[@]}" PLANWRIGHT_FLEET_STATE_DIR= \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_REPO_ROOT="$repo_cfg" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" PLANWRIGHT_LOCAL_CONFIG="" \
+  env PATH="$sig_dir:$PATH" SIG_LOG="$tmp/sig-calls" SIG_RUNS="$tmp/sig-runs" \
+  /bin/sh -c "$sig_harness" "$gs/fleet-cleanup.sh" process w1 trig why >"$tmp/out" 2>"$tmp/err" || rc=$?
+err=$(cat "$tmp/err")
+expect 5 "a session whose fleet home cannot be resolved"
+never_stopped "a session whose fleet home cannot be resolved"
+case $err in
+  *"fleet home cannot be resolved"*) echo "ok: a fleet home that cannot be resolved is refused, never taken for no wait" ;;
+  *) fail "the unresolvable fleet home was refused for another reason: $err" ;;
+esac
+
 # --- a live peer's worker is never touched, under any evidence (exit 7) -----
 for st in 'dead death-evidence' 'finished-but-unreaped completion:result=success' \
   'unclassified completion-failed:exit=1' 'working runtime-running'; do
@@ -707,7 +787,7 @@ xr_det "$xb"
 G_SCRIPTS=$xr gate "$xw" trig why --repo-root "$tmp/xr-B" --grace 1
 expect 0 "a verdict for checkout B closing checkout B's unit"
 wait "$xrun" 2>/dev/null || :
-! kill -0 "$xrun" 2>/dev/null || fail "a verdict bound to checkout B's unit did not close it"
+! kill -0 "$xrun" 2>/dev/null || fail "a verdict bound to checkout B's unit did not close it" # hermetic-exempt: the wait above returning is the close; a PID reused in that instant fails loudly, never passes
 echo "ok: a headless close refuses a unit the handle resolves to in another checkout, and closes the one the verdict describes"
 
 # --- the audit record names worker, owner, evidence, and what was released --
@@ -982,7 +1062,8 @@ hits=$(printf '%s\n' "$code" | grep -nE "/(usr/)?s?bin/(${sig_tools// /|})([^[:a
 [ -z "$hits" ] || fail "kill-path audit: fleet-cleanup.sh reaches a tool the harness cannot see: $hits"
 sourced=$(printf '%s\n' "$code" | grep -E '(^|[;&])[[:space:]]*(\.|source)[[:space:]]' || :)
 # shellcheck disable=SC2016 # the script's own source text, matched literally
-[ "$sourced" = '. "$script_dir/echo-safety.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh: $sourced"
+[ "$sourced" = '. "$script_dir/echo-safety.sh"
+. "$script_dir/untrusted-git-lib.sh"' ] || fail "source audit: fleet-cleanup.sh sources more than echo-safety.sh and untrusted-git-lib.sh: $sourced"
 arm=$(awk '/^  process\)$/ { on = 1 } on { print } on && /^    ;;$/ { exit }' "$FC_REAL" \
   | sed -e 's/^[[:space:]]*#.*//' -e 's/[[:space:]]#.*//')
 [ -n "$arm" ] || fail "source audit: no process arm found in fleet-cleanup.sh"

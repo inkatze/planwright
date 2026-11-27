@@ -17,9 +17,13 @@
 #
 #   completed   the task branch (planwright/<spec>/task-<id>) is merge-reachable
 #               into the base ref, OR a `Planwright-Task: <spec>/<id>` trailer
-#               (D-2) is reachable from base, OR gh reports its PR MERGED. The
-#               trailer is the durable anchor that survives branch deletion and
-#               covers solo direct-to-base commits and squash merges (R2).
+#               (D-2) is reachable from base, OR gh reports its PR MERGED, OR a
+#               PR merged into base from a branch of this repository (not a
+#               fork) carries that line at column 0 of its body (outside a
+#               fenced block; evidence `pr-body`). The trailer is the durable anchor
+#               that survives branch deletion and covers solo direct-to-base
+#               commits and squash merges (R2); the body line covers a squash
+#               whose message dropped it.
 #   in-progress the branch exists with commits beyond base (not yet merged), OR
 #               gh reports its PR OPEN, OR a FRESH runtime dispatch marker (D-3)
 #               holds it across the branch-create → first-commit window, OR
@@ -403,9 +407,7 @@ load_repo() {
   fi
 
   # Collect the Planwright-Task trailer values reachable from base (the completion
-  # anchors). Each value is validated before use; a malformed/hostile value is
-  # refused on the output stream and never matched against a task. Well-formed
-  # values for OTHER specs are simply ignored (not ours, not an error).
+  # anchors), validated by collect_ours.
   #
   # The whole commit message is scanned (%B), not git's footer-only trailer
   # parser (%(trailers)). A squash or rebase merge concatenates the constituent
@@ -420,11 +422,13 @@ load_repo() {
   #
   # Trust boundary: this scan honors any well-formed `Planwright-Task: <id>` line
   # for THIS spec that sits at column 0 anywhere in a reachable message — that is
-  # by design (the trailer is a completion *declaration*). The spec-id gate below
-  # ignores other specs' trailers and the grammar refuses malformed values, so the
-  # only thing this treats as completion is a well-formed column-0 declaration for
-  # this exact spec; it is not a defense against a committer who writes that line.
+  # by design (the trailer is a completion *declaration*). The spec-id gate in
+  # collect_ours ignores other specs' trailers and the grammar refuses malformed
+  # values, so the only thing this treats as completion is a well-formed column-0
+  # declaration for this exact spec; it is not a defense against a committer who
+  # writes that line.
   reachable_ours=" "
+  body_ours=" "
   if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
     # awk (not sed) so the key can match case-insensitively via tolower() without
     # relying on a non-portable sed `I` flag; `sub(/^[^:]*:[[:space:]]*/,"")` strips
@@ -436,39 +440,8 @@ load_repo() {
     # shellcheck disable=SC2086
     trailer_raw=$(git -C "$repo_root" log $scan_refs --format='%B' 2>/dev/null \
       | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
-    # Iterate values line by line; blank lines (commits without the trailer) are
-    # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
-    while IFS= read -r tval; do
-      [ -n "$tval" ] || continue
-      # Strip surrounding whitespace a trailer may carry.
-      tval=$(printf '%s' "$tval" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-      [ -n "$tval" ] || continue
-      # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
-      spec_part=${tval%%/*}
-      id_part=${tval#*/}
-      well_formed=1
-      case "$tval" in
-        */*) ;;
-        *) well_formed=0 ;;
-      esac
-      case "$spec_part" in
-        '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
-      esac
-      case "$id_part" in
-        '' | *[!0-9.]*) well_formed=0 ;;
-      esac
-      if [ "$well_formed" -ne 1 ] || ! printf '%s' "$id_part" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-        printf 'refused%sPlanwright-Task%s%s\n' "$TAB" "$TAB" "$tval"
-        continue
-      fi
-      [ "$spec_part" = "$spec_id" ] || continue # another spec's trailer
-      case "$reachable_ours" in
-        *" $id_part "*) ;;
-        *) reachable_ours="$reachable_ours$id_part " ;;
-      esac
-    done <<EOF
-$trailer_raw
-EOF
+    collect_ours "$trailer_raw"
+    reachable_ours=$ours
   fi
 
   # Probe gh once for PR state, keyed by head ref. No-remote / no-gh is the
@@ -492,8 +465,138 @@ EOF
     else
       return 3
     fi
+    # A squash can still drop the trailer (a merge that rewrites the message, a
+    # branch committed without it) while the PR body keeps the declaration, so
+    # merged PRs' bodies are read for the same column-0 line. The search only
+    # narrows the fetch; pr_body_values's anchored match decides. A failed
+    # search, or one that fills its page (older declarations would be cut
+    # off unseen), is the same degradation as a failed list: nothing
+    # completes on it.
+    if gh_out=$(cd "$repo_root" && gh pr list --state merged --search '"Planwright-Task" in:body' \
+      --limit 1000 --json number,state,isCrossRepository,baseRefName,body \
+      --jq '.[] | [(.number|tostring), .state, (.isCrossRepository|tostring), .baseRefName, (.body // "")] | @tsv' 2>/dev/null) \
+      && [ "$(printf '%s' "$gh_out" | awk 'END { print NR }')" -lt 1000 ]; then
+      collect_ours "$(printf '%s\n' "$gh_out" | pr_body_values "$(base_branch_name)")" body
+      body_ours=$ours
+    else
+      gh_lines=""
+      return 3
+    fi
   fi
   return 0
+}
+
+# collect_ours <values> [body] — set ours to the task ids of this spec among
+# newline-separated Planwright-Task values. Each value is validated before use;
+# a malformed/hostile value is refused on the output stream and never matched
+# against a task. Well-formed values for OTHER specs are simply ignored (not
+# ours, not an error). With `body`, a value naming another spec is ignored
+# unvalidated too: PR bodies quote the line as prose (a placeholder, another
+# spec's example), and every spec's run would otherwise repeat its refusal.
+# Read from a here-doc so the loop runs in this shell.
+collect_ours() {
+  ours=" "
+  while IFS= read -r tval; do
+    [ -n "$tval" ] || continue
+    tval=$(printf '%s' "$tval" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$tval" ] || continue
+    # Well-formed shape: <spec-id>/<task-id>, both against their grammars.
+    spec_part=${tval%%/*}
+    id_part=${tval#*/}
+    [ "${2:-}" != body ] || [ "$spec_part" = "$spec_id" ] || continue
+    well_formed=1
+    case "$tval" in
+      */*) ;;
+      *) well_formed=0 ;;
+    esac
+    case "$spec_part" in
+      '' | *[!a-z0-9-]* | [!a-z0-9]* | flight) well_formed=0 ;;
+    esac
+    case "$id_part" in
+      '' | *[!0-9.]*) well_formed=0 ;;
+    esac
+    if [ "$well_formed" -ne 1 ] || ! printf '%s' "$id_part" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+      printf 'refused%sPlanwright-Task%s%s\n' "$TAB" "$TAB" "$tval"
+      continue
+    fi
+    [ "$spec_part" = "$spec_id" ] || continue
+    case "$ours" in
+      *" $id_part "*) ;;
+      *) ours="$ours$id_part " ;;
+    esac
+  done <<EOF
+$1
+EOF
+}
+
+# base_branch_name — the branch name a PR targeting base carries as its
+# baseRefName: base without a refs/ or remote prefix, the checked-out branch
+# for HEAD, empty (no PR matches) for a detached HEAD. A name resolves as git
+# resolves it, a local branch before a remote-tracking ref, so a branch
+# `release/1.0` stays whole beside a remote named `release`.
+base_branch_name() {
+  bb=$base
+  case "$bb" in
+    HEAD) bb=$(git -C "$repo_root" symbolic-ref --quiet --short HEAD 2>/dev/null) || bb="" ;;
+    refs/heads/*) bb=${bb#refs/heads/} ;;
+    refs/remotes/*) bb=${bb#refs/remotes/} ;;
+  esac
+  case "$base" in
+    refs/remotes/*) ;;
+    *)
+      if [ -z "$bb" ] || git -C "$repo_root" show-ref --verify --quiet "refs/heads/$bb" \
+        || ! git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$bb"; then
+        printf '%s' "$bb"
+        return 0
+      fi
+      ;;
+  esac
+  for bb_remote in $(git -C "$repo_root" remote 2>/dev/null); do
+    case "$bb" in
+      "$bb_remote"/*)
+        bb=${bb#"$bb_remote"/}
+        break
+        ;;
+    esac
+  done
+  printf '%s' "$bb"
+}
+
+# pr_body_values <base-branch> — read `<number> <state> <cross-repository>
+# <baseRefName> <body>` rows (body escaped as jq's @tsv escapes it) and print
+# the value of each column-0 Planwright-Task line in the body of a PR merged
+# into <base-branch> from a branch of this repository. A fork's PR is skipped:
+# its author can edit the body after the merge without write access here.
+# An indented line, a mid-line mention and a line inside a fenced block are
+# not declarations. The key matches case-insensitively, as the commit scan's.
+# A tab or control byte never reaches the output, which is a TSV stream. The
+# value's edges are trimmed as the commit scan trims them; a control byte left
+# inside becomes `?`, so the value never passes as a valid one (refused, or
+# ignored when the byte sits in another spec's name).
+pr_body_values() {
+  awk -F"$TAB" -v b="$1" '
+    function decode(l,  p) {
+      gsub(/\\r/, "", l)
+      gsub(/\\t/, " ", l)
+      while ((p = index(l, "\001")) > 0) l = substr(l, 1, p - 1) "\\" substr(l, p + 1)
+      return l
+    }
+    b != "" && $1 ~ /^[0-9]+$/ && $2 == "MERGED" && $3 == "false" && $4 == b {
+      s = $5
+      gsub(/\001/, "", s)
+      gsub(/\\\\/, "\001", s)
+      n = split(s, lines, /\\n/)
+      fence = 0
+      for (i = 1; i <= n; i++) {
+        l = decode(lines[i])
+        if (l ~ /^ *(```|~~~)/) { fence = !fence; continue }
+        if (fence || tolower(l) !~ /^planwright-task:/) continue
+        sub(/^[^:]*:[[:space:]]*/, "", l)
+        sub(/[[:space:]]+$/, "", l)
+        gsub(/[[:cntrl:]]/, "?", l)
+        print l
+      }
+    }'
 }
 
 gh_state_for() {
@@ -686,7 +789,10 @@ parse_deps() {
   raw_deps=$1
   clean_deps=""
   deps_malformed=0
-  for tok in $(printf '%s' "$raw_deps" | tr ',' ' '); do
+  # An item may carry a `Task ` prefix ("Task 1, Task 4.2"): it reads as the
+  # bare id. Only a `Task` directly before an id is dropped, so `Task foo` is
+  # still malformed.
+  for tok in $(printf '%s' "$raw_deps" | tr ',' ' ' | sed -E 's/(^|[[:space:]])Task[[:space:]]+([0-9])/\1\2/g'); do
     # A prose dependency list commonly ends its final entry with a period
     # ("...Task 13."). Strip a trailing run of periods so the id is still
     # recognized: a task id (n or n.m) always ends in a digit, so this only ever
@@ -765,6 +871,11 @@ derive_task() {
   [ "$gh_state" = MERGED ] && pr_merged=1
   [ "$gh_state" = OPEN ] && pr_open=1
 
+  body_done=0
+  case "$body_ours" in
+    *" $id "*) body_done=1 ;;
+  esac
+
   # Fresh runtime marker: only consulted as in-progress evidence, and only
   # meaningful while the branch carries no commits (branch evidence supersedes
   # it). A stale or malformed marker holds nothing — the task reverts to ready.
@@ -805,8 +916,8 @@ EOF
   # dispatch branch from masking commits pushed elsewhere.
   rbr_commits=0
   if [ "$br_commits" -eq 0 ] && [ "$br_merged" -eq 0 ] && [ "$trailer_done" -eq 0 ] \
-    && [ "$pr_merged" -eq 0 ] && [ "$pr_open" -eq 0 ] && [ "$marker_fresh" -eq 0 ] \
-    && remote_branch_ahead "$branch"; then
+    && [ "$pr_merged" -eq 0 ] && [ "$body_done" -eq 0 ] && [ "$pr_open" -eq 0 ] \
+    && [ "$marker_fresh" -eq 0 ] && remote_branch_ahead "$branch"; then
     rbr_commits=1
   fi
 
@@ -825,6 +936,9 @@ EOF
   elif [ "$pr_merged" -eq 1 ]; then
     evstate=completed
     evidence="pr-merged"
+  elif [ "$body_done" -eq 1 ]; then
+    evstate=completed
+    evidence="pr-body"
   elif [ "$br_commits" -eq 1 ]; then
     evstate=in-progress
     evidence="branch-commits"

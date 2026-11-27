@@ -114,8 +114,9 @@
 #                                           PLANWRIGHT_REPO_ROOT,
 #                                           PLANWRIGHT_ORCH_STATE_DIR, and an
 #                                           inherited
-#                                           PLANWRIGHT_WORKER_SPEC_ROOT or
-#                                           PLANWRIGHT_WORKER_SESSION_RECORD) the tmux
+#                                           PLANWRIGHT_WORKER_SPEC_ROOT,
+#                                           PLANWRIGHT_WORKER_SESSION_RECORD or
+#                                           PLANWRIGHT_SESSION_HANDLE) the tmux
 #                                           server's environment may carry from
 #                                           whichever session started it: a
 #                                           worker is not a tower, and resolves
@@ -144,7 +145,8 @@
 #                                           2026-07-19 bare launch that dropped
 #                                           the pin.
 #
-# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED and
+# Every exec'ing form also drops an inherited PLANWRIGHT_COPY_CHECKED,
+# PLANWRIGHT_MC_PROGRAM, PLANWRIGHT_MC_TARGET, PLANWRIGHT_MC_DUTY and
 # PLANWRIGHT_SESSION_BACKEND, then sets PLANWRIGHT_SESSION_BACKEND=stream-json
 # only when PLANWRIGHT_LAUNCH_BACKEND (dropped too) asks for it, as the
 # stream-json rung does. PLANWRIGHT_ROOT and CLAUDE_PLUGIN_ROOT, when they come
@@ -536,6 +538,11 @@ export "$GHOST_TEXT_KEY=$GHOST_TEXT_VALUE"
 # one, through PLANWRIGHT_LAUNCH_BACKEND, which goes no further.
 launch_backend=${PLANWRIGHT_LAUNCH_BACKEND:-}
 unset PLANWRIGHT_COPY_CHECKED PLANWRIGHT_SESSION_BACKEND PLANWRIGHT_LAUNCH_BACKEND
+# A mission-control duty runs with its program exported, and a session it
+# launches would hand that to the panel mod, which then takes the program's
+# wakes in that session. No launched session is activated that way: a
+# mission-control session is activated by its own record.
+unset PLANWRIGHT_MC_PROGRAM PLANWRIGHT_MC_TARGET PLANWRIGHT_MC_DUTY
 if [ "$launch_backend" = stream-json ]; then
   PLANWRIGHT_SESSION_BACKEND=stream-json
   export PLANWRIGHT_SESSION_BACKEND
@@ -543,7 +550,7 @@ fi
 if [ "$opt_pins" -eq 1 ]; then
   unset PLANWRIGHT_TOWER_ID PLANWRIGHT_TOWER_SESSION_ID PLANWRIGHT_TOWER_PID \
     PLANWRIGHT_TOWER_CHECKOUT PLANWRIGHT_REPO_ROOT PLANWRIGHT_ORCH_STATE_DIR \
-    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD
+    PLANWRIGHT_WORKER_SPEC_ROOT PLANWRIGHT_WORKER_SESSION_RECORD PLANWRIGHT_SESSION_HANDLE
 fi
 if [ -n "$opt_handle" ]; then
   PLANWRIGHT_WORKER_HANDLE=$opt_handle

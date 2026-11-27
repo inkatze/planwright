@@ -207,6 +207,7 @@ fi
 # only under the policy carrying both arms must miss in column 4 alone.
 both_arms_guard() {
   cat >/dev/null
+  # hermetic-exempt: corpus_replay sets the record per column for this stand-in
   if grep -qx 'policy=own-branch scratch' "$PLANWRIGHT_WORKER_SESSION_RECORD"; then
     printf '%s\n' '{"hookSpecificOutput":{"permissionDecision":"allow"}}'
   fi

@@ -34,7 +34,7 @@
 # Task 3 gave commit-msg a second screen (purged identifiers), which fails
 # closed without its scanner and seed file; the fixture below carries both so
 # these scenarios still exercise the hook as it actually ships. That screen's
-# own contract lives in tests/test-check-purged-identifiers.sh.
+# own contract lives in tests/test-check-purged-identifiers-hook.sh.
 #
 # Every expected rejection asserts the hook's own "planwright githooks" stderr
 # marker, so a failure for an unrelated fixture reason cannot masquerade as a
@@ -131,7 +131,7 @@ gitc "$r" push -q origin main
 # unreachable — so a fixture that wants normal commits to succeed has to carry
 # both. The seed holds one test-only token, planted in this fixture alone and
 # named in none of the messages below; the screen's own behaviour is covered by
-# tests/test-check-purged-identifiers.sh.
+# tests/test-check-purged-identifiers-hook.sh.
 mkdir -p "$r/scripts" "$r/config"
 ln "$repo_root/scripts/check-purged-identifiers.sh" "$r/scripts/check-purged-identifiers.sh" 2>/dev/null \
   || { cp "$repo_root/scripts/check-purged-identifiers.sh" "$r/scripts/" && chmod +x "$r/scripts/check-purged-identifiers.sh"; } \

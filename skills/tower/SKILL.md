@@ -70,7 +70,7 @@ is the one sweep output read.
    checkout (`git -C <primary checkout> rev-parse --git-dir`): a refusal means
    worktree isolation: warn once, naming the supported launch; it never blocks.
    **Posture check (REQ-A1.3, REQ-B1.4, D-8, D-14).** Run the activation
-   handshake, `scripts/tower-session.sh activate`; only a refusal opening
+   handshake, `scripts/tower-session.sh activate tower`; only a refusal opening
    `ACTIVE` proves the plugin hooks enforce the deny floor, and it re-marks
    this session (REQ-C1.8, REQ-C1.9). Plugin enforcement then meets the floor;
    any other outcome means it is missing or
@@ -89,10 +89,10 @@ is the one sweep output read.
    repo-mutating route and no relay** until the operator wires it or
    acknowledges running without it; questions and read-only offloads continue.
    Check that `scripts/tower-command-guard.sh` is wired as a PreToolUse hook
-   whose hook path resolves; if not, say so once, naming the file to merge, and
+   whose hook path resolves; if not, name the file to merge once, and
    continue. On "wired", re-run this check before lifting the block. The
-   posture allows Edit and Write; not authoring is this skill's own rule. Never
-   edit a settings file: the tower cannot grant itself permissions.
+   posture allows Edit and Write; not authoring is this skill's rule. Never
+   edit a settings file from the tower.
 2. **Reconstruct from durable evidence (REQ-F1.4, D-9).** Read what is in
    flight through the shared flight sweep: the index at
    `scripts/flight-sweep.sh path` when newer than this session's start (the

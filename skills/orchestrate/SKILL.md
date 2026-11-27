@@ -75,7 +75,11 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
    operands alike). Validate the mapped identifier against the anchored pattern
    `^[a-z0-9][a-z0-9-]*$` (≤64 chars, REQ-A1.8) **before** it appears in any
    path or command; a failing token is never interpolated.
-2. **Resolve the spec path**, in order: (a) an explicit spec argument (in a
+2. **Resolve the spec path**, first running `scripts/orchestrate-primary-ff.sh`
+   except under `--bookkeeping` (opt-in, `orchestrate_fast_forward_primary`:
+   fast-forwards a clean, lagging primary checkout, else refuses untouched);
+   any outcome is step-report state, no exit a halt. Then, in order: (a) an
+   explicit spec argument (in a
    holder, the bundle's path under its marked root);
    (b) the current branch parsed against `planwright/<spec>/task-<ids>` (D-36),
    giving `<root>/<spec>/`, `<root>` the primary view `scripts/resolve-root.sh
@@ -117,7 +121,7 @@ Each read is bounded, inline, repeated on request, not polled.
    isolation: warn once, naming the supported launch, never blocking.
 3. **Posture.** The activation handshake, `scripts/tower-session.sh activate`:
    only a refusal opening `ACTIVE` proves plugin enforcement, which then meets
-   the floor, and it re-marks the session. Any other outcome means it is
+   the floor, and it re-marks the session an orchestrator. Any other outcome means it is
    missing or broken, and the orchestrator holds its outward acts as `refuse`
    does. Name every layer read, `hooks/hooks.json` included.
 
@@ -484,12 +488,11 @@ These hold at every step, each list rule labelled with its
 
 ## Observations
 
-When something outside the current step's scope surfaces (a selection-policy
-gap, a backend rough edge, a drift in a shared script), record it through the
-shared helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
-'<observation>'`. Commit the fragment within the step that produced it so the
-tree returns to clean; surface a non-zero exit rather than dropping it. Do not
-act on observations during the step; they seed `/spec-draft`.
+When something outside the current step's scope surfaces, record it through the
+shared helper: `scripts/obs-record.sh --slug <topic> --scope
+<repo> --text '<observation>'`. Commit the fragment within the step that produced
+it so the tree returns to clean; surface a non-zero exit rather than dropping it.
+Do not act on observations during the step; they seed `/spec-draft`.
 
 ## Maintenance
 

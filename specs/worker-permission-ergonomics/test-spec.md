@@ -1,7 +1,7 @@
 # Worker Permission Ergonomics — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-11-10
+**Last reviewed:** 2026-11-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -640,3 +640,93 @@ no lease, an expired, closed or unreadable one, another worker's, or a path in
 another worktree, the protected path is refused; the hook crashing and an
 unparsable payload still refuse; each row is shown refused by the hook alone
 before it leaves the static profile.
+
+## 2026-11-19 delta
+
+### REQ-F1.9 — The floor holds under every policy value, the own-unit acts aside [test]
+
+Supersedes REQ-F1.5's entry, which it keeps unchanged but for
+`git push origin <unit branch>`, which now allows as an own-unit act; every
+other row of that entry still defers at every policy value, and a `Bash(…)`
+deny match defers an own-unit act too: under a recorded unit of `main`, the
+otherwise exact `git push origin main` defers.
+
+### REQ-F1.10 — A worker's own push and own PR body edit [test]
+
+`tests/test-worker-command-guard-own-unit.sh` (Task 21), at every policy
+value, with the GitHub read stubbed by a `gh` shim first on the hook's
+`PATH` (a sleeping shim for the hang case): the plain and `<unit>:<unit>` pushes allow
+alone, after `cd <worktree> &&` and after `git status &&`; `-u`, `--force`,
+`--force-with-lease`, a `+` refspec, `<unit>:main`, `--delete`, another
+remote, another branch, a recorded unit of `main`, and a push inside a loop,
+a pipeline, a background job, an `if` body, a substitution, `fish -c`, or
+after `||` defer. `gh pr edit <n> --body-file <scratch file>` allows alone,
+through a tracked assignment, and after a step write when the stub answers
+open, same-repository, head the unit branch; another flag, a body file
+outside the scratch root or a symlink, a head of another branch, a fork, a
+closed pull request, a stub that hangs past the bound, and one that fails
+each defer. A record with no audit-log home, a working directory outside the
+worktree, and one in a repository nested inside it defer every act. Each approval
+writes one audit line with arm `own-unit`. A relaunch onto a pull request's
+worktree records its head branch as the unit branch.
+
+### REQ-E1.10 — An export of the step-context names [test]
+
+The same suite: `export PLANWRIGHT_STEP_UNIT_KIND=flight PLANWRIGHT_STEP_SPEC=
+PLANWRIGHT_STEP_BRANCH=<unit> PLANWRIGHT_STEP_WORKTREE=<worktree> &&
+<root>/scripts/step-record.sh write …` and the same export before
+`step-run.sh resolve` and `step-run.sh audit` allow; an export carrying
+another name, a value with `$` or a substitution, a value failing its
+field's check, a `WORKTREE` naming another directory or holding `..`, a
+later segment re-assigning an exported name, the export inside a loop or a
+substitution, and a record with no audit-log home defer. Each approval
+writes one audit line with arm `own-unit`.
+
+## 2026-11-20 delta
+
+### REQ-F1.11 — An own-unit act may follow a commit or a gate task [test]
+
+Supersedes REQ-F1.10's entry, which it keeps unchanged.
+`tests/test-worker-command-guard-own-unit.sh` (Task 22): under a policy with
+the `own-branch` arm, `git add -A && git commit -m <msg> && git push origin
+<unit>` and `git commit -m <msg> && git push origin <unit>` allow; under one
+without it they defer. At every policy value, `mise run <task> && git push
+origin <unit>`, `bash tests/<x>.sh && git push origin <unit>`, a `lefthook
+run`, `bats`, direct `scripts/<x>.sh` and declared command-step partner, and a
+gate task before the body edit and before the step export allow; a commit
+before them allows under the `own-branch` arm. These defer: a partner joined
+by `;`, `||` or `&`, `mise run <task> && echo ok; git push origin <unit>`, a
+partner after the act, a file writer, in-place edit or write-redirect, a
+spec-root write, `git rm`, `git mv`, `git restore`, `git checkout`,
+`git fetch`, `git merge` or a plugin script other than a step script in the
+same command, a commit carrying a flag the `own-branch` arm refuses, and a
+commit with another branch checked out. A commit chain's audit line reads
+`own-branch,own-unit`; a gate chain's reads `own-unit`. Once Task 20 has
+landed, a declared check command partner allows too.
+
+## 2026-11-22 delta
+
+### REQ-F1.12 — Hand-timed step records defer; step scripts stay on the worker's own cache [test]
+
+The guard's step-script suite (Task 23), at every policy value, each
+deferred row first shown allowing against the pre-change guard. These
+defer: `step-record.sh write` for a step, a re-fire (`--refire-of`) and a
+full-suite (`--full-suite`) record; a `--completion` write carrying
+`--start`, `--end`, `--start=<ts>` or `--end=<ts>`; each of those alone,
+behind a `PLANWRIGHT_STEP_*` prefix, after a REQ-E1.10 export, and before an
+own-unit push; a `supersede` without `--source`; any step-script call with
+`--worktree` naming another directory, and every one but `args-digest`
+under a record naming no worktree; a step-context `WORKTREE` naming another
+directory; `--worktree=<dir>`, a doubled `--worktree`, a relative one, and a
+`--start` reached through `$X`; `excerpt` of a file outside the worktree and
+the scratch root; an unknown verb or leading word. These allow, with
+`--worktree` absent and with it naming the recorded worktree: a `--completion` write, a `supersede`
+with `--source`, `render`, `list`, `lookup`, `heads`, `untrue`,
+`fingerprint`, `new-run`, `regenerate`, `status`, `args-digest`, `excerpt`
+of a worktree file and of a scratch file, and `step-run.sh` `resolve`,
+`audit`, `command`, `begin`, `end`, `resume` and `refire`. Existing guard
+suite rows move to a passing form where they allow a step-script call
+(the REQ-F1.10 and REQ-E1.10 rows pairing an act or export with a step
+write among them) and where a step write only carries another defect, so
+each still defers for that defect alone; a corpus row replays the reported
+hand-timed write as a floor row.

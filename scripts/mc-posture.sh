@@ -43,6 +43,10 @@ Output, tab separated, one line:
   posture  pass
   posture  fail  <one-line reason>
 
+Every reason ends with (jq: <path>), the jq resolved from PATH when the
+check starts. A layer whose jq run fails is read once more before it fails;
+a failure that stands names jq's exit status and its stderr.
+
 Exit codes: 0 pass; 1 fail; 2 usage, or jq, sed, awk or grep absent.
 HELP
 }
@@ -58,9 +62,12 @@ usage() {
   exit 2
 }
 
-# fail <reason>: the one result line, with control characters dropped.
+# fail <reason>: the one result line, with control characters dropped. It
+# names the jq the check resolved, since a session can resolve another one
+# than the operator's shell does.
+jq=''
 fail() {
-  printf 'posture\tfail\t%s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177')"
+  printf 'posture\tfail\t%s\n' "$(printf '%s%s' "$1" "${jq:+ (jq: $jq)}" | tr -d '\000-\037\177')"
   exit 1
 }
 
@@ -73,7 +80,12 @@ esac
 [ "$#" -ge 1 ] && [ "$1" = check ] || usage
 shift
 # A reader missing would read every layer as empty of what it looks for.
-for t in jq sed awk grep; do
+jq=$(command -v jq) || jq=''
+[ -n "$jq" ] || {
+  printf '%s\n' "$me: jq is required and was not found on PATH: ${PATH-}" >&2
+  exit 2
+}
+for t in sed awk grep; do
   command -v "$t" >/dev/null 2>&1 || {
     printf '%s\n' "$me: $t is required" >&2
     exit 2
@@ -145,6 +157,8 @@ layers+=("$user_dir/settings.json" "$project/.claude/settings.json" "$project/.c
 [ -f "$floor" ] && [ -r "$floor" ] || fail "the shipped mission-control profile ${floor#"$root"/} cannot be read"
 
 US=$(printf '\037')
+NL='
+'
 tmpd=$(mktemp -d "${TMPDIR:-/tmp}/mc-posture.XXXXXX") || fail "a scratch directory cannot be created"
 trap 'rm -rf "$tmpd"' EXIT
 # One jq run per layer, one line per fact: `F <disableAllHooks>
@@ -164,9 +178,32 @@ project_facts='
       | (.matcher // "") as $m | list(.hooks; "hooks")[] | select(.type == "command")
       | if ($m | ctl) or (.command | ctl) then "X" else "H " + $m + "\u001f" + .command end)'
 
-facts() { jq -r "$project_facts" "$1" 2>/dev/null; }
+jq_err="$tmpd/jq-err"
+# facts <file>: the file's facts in fx. A failed run is retried once, so a
+# fork or exec failing under load does not refuse a launch; a failure that
+# stands leaves why_jq, naming jq's exit status and its stderr on one line.
+# Called directly, never in a command substitution, which would drop both.
+fx='' why_jq=''
+facts() {
+  local rc err
+  fx=$("$jq" -r "$project_facts" "$1" 2>"$jq_err") && return 0
+  fx=$("$jq" -r "$project_facts" "$1" 2>"$jq_err") && return 0
+  rc=$?
+  # jq's errors quote the layer's content: C1 controls go, as in the repo's
+  # other sanitizers, since fail() drops only C0 and DEL.
+  err=$(tr -d '\200-\237' <"$jq_err" | tr '\t\r' '  ')
+  err=${err//"$NL"/ }
+  case $rc in
+    126) why_jq="jq at $jq cannot be executed (exit $rc)" ;;
+    127) why_jq="jq not found at $jq (exit $rc)" ;;
+    *) why_jq="jq exited $rc" ;;
+  esac
+  [ -z "$err" ] || why_jq="$why_jq: ${err:0:400}"
+  return 1
+}
 
-floor_facts=$(facts "$floor") || fail "the shipped profile ${floor#"$root"/} cannot be parsed"
+facts "$floor" || fail "the shipped profile ${floor#"$root"/} cannot be parsed: $why_jq"
+floor_facts=$fx
 printf '%s\n' "$floor_facts" | grep -q '^D ' || fail "the shipped deny floor in ${floor#"$root"/} is empty"
 
 union_deny="$tmpd/deny"
@@ -181,7 +218,8 @@ managed_only=0 managed_rules=0
 for l in ${layers[@]+"${layers[@]}"} "$managed"; do
   [ -e "$l" ] || [ -L "$l" ] || continue
   [ -f "$l" ] && [ -r "$l" ] || fail "the settings layer $l cannot be read"
-  lf=$(facts "$l") || fail "the settings layer $l cannot be parsed"
+  facts "$l" || fail "the settings layer $l cannot be parsed: $why_jq"
+  lf=$fx
   printf '%s\n' "$lf" | grep -qx X && fail "the settings layer $l carries a control character in a deny entry, hook or hook switch"
   read -r f_off f_hooks f_rules <<<"$(printf '%s\n' "$lf" | sed -n 's/^F //p')"
   [ "$f_off" != true ] || fail "every hook is turned off (disableAllHooks) in the settings layer $l"
@@ -228,7 +266,7 @@ guard_dir() {
 planwright_guard() {
   [ -n "$1" ] && [ -f "$1/$2" ] && [ -x "$1/$2" ] || return 1
   [ "$1/$2" -ef "$root/$2" ] && return 0
-  jq -e '.name == "planwright"' "$1/.claude-plugin/plugin.json" >/dev/null 2>&1
+  "$jq" -e '.name == "planwright"' "$1/.claude-plugin/plugin.json" >/dev/null 2>&1
 }
 
 while IFS= read -r fh_line; do

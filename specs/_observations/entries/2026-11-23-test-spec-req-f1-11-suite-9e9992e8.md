@@ -1,0 +1,1 @@
+- 2026-11-23 [planwright] The human-gates (or worker-permission-ergonomics) test-spec.md names the own-unit suite for REQ-F1.11 while the check-command rows live in the checks suite; the test-spec needs an amendment.

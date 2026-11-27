@@ -89,6 +89,9 @@
 #                     ready_flip_ci_wait, the planwright/pre-ready-flip and
 #                     planwright/pre-spec-ready-flip statuses excluded; a host
 #                     read that fails is retried within the same bound
+#                     (The bot review is not among these: the repo's PR-Agent
+#                     workflow runs on the flip itself, so the flip never waits
+#                     for one; see docs/CONTRIBUTING.md, *The bot review*.)
 #   ready-guard       scripts/ready-guard.sh defers `gh pr ready <n>`: the
 #                     shipped currency and mergeability floor, called directly
 #                     because the flip runs below any hook
@@ -826,22 +829,25 @@ ROLLUP_JQ='
   elif ((.statusCheckRollup // []) | length) >= 100 then "truncated" else
   [ (.statusCheckRollup // []) | latest_check_runs[]
     | select((.__typename == "StatusContext" and ((.context // "") as $n | any($ex[]; . == $n))) | not)
+    | (.name // .context // "-" | tostring) as $n
     | if .__typename == "StatusContext" then
-        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending" else "failing" end)
+        (if .state == "SUCCESS" then "green" elif (.state == "PENDING" or .state == "EXPECTED") then "pending \($n)" else "failing" end)
       else
-        (if .status != "COMPLETED" then "pending" elif .conclusion == "SUCCESS" then "green"
+        (if .status != "COMPLETED" then "pending \($n)" elif .conclusion == "SUCCESS" then "green"
          elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral" else "failing" end)
       end ] as $v
+  | ([(.statusCheckRollup // []) | bypassed_check_runs[] | (.name // "-" | tostring)] | join(", ")) as $bypass
   | if any($v[]; . == "failing") then "failing"
-    elif any($v[]; . == "pending") then "pending"
-    elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)"
+    elif any($v[]; startswith("pending")) then
+      "pending " + ([$v[] | select(startswith("pending ")) | ltrimstr("pending ")] | join(", "))
+    elif any($v[]; . == "green") then "green \([$v[] | select(. == "green")] | length)|\($bypass)"
     else "none" end end'
 
 # Set when the host keeps reporting another head: someone else moved the
 # branch, so a park could not be pushed on top of it and none is attempted.
 HEAD_MOVED=0
 pred_ci() {
-  local i=0 raw oid verdict last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
+  local i=0 raw oid verdict bypass greens last='the check rollup could not be read' deadline=$((SECONDS + WAIT_SECS))
   # The read count bounds the wait, and so does the clock: every nap here ends
   # by the deadline, so only a head re-read, which naps on its own, can
   # overrun it, by that re-read's pauses.
@@ -875,7 +881,11 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
       fi
       case $verdict in
         green\ *)
-          set_pred ci-rollup pass "${verdict#green } check(s) green on ${HEAD_SHA:0:12}"
+          # The verdict is `green <count>|<bypassed checks>`.
+          bypass=${verdict#*|}
+          greens=${verdict#green }
+          greens=${greens%%|*}
+          set_pred ci-rollup pass "$greens check(s) green on ${HEAD_SHA:0:12}${bypass:+; the operator bypasses at merge: $bypass}"
           return
           ;;
         failing)
@@ -887,7 +897,7 @@ $ROLLUP_JQ" 2>/dev/null) || verdict=''
           return
           ;;
         moved) ;;
-        pending) last='checks still pending' ;;
+        pending\ *) last="checks still pending: ${verdict#pending }" ;;
         none) last='no check has reported a success' ;;
         *) last='the check rollup could not be read' ;;
       esac

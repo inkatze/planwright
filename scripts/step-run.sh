@@ -74,8 +74,11 @@
 #           the slot released only once it is gone; a signal then exits
 #           128+n after the record. A refused context value, location, or
 #           args word (resolve-steps.sh --line's checks) fails the step
-#           without running it. A re-fire must name a step whose row
-#           declares refire post-pr that this run has not re-fired. In its
+#           without running it, and so does a location in a git checkout
+#           that is not as its trusted commit holds it
+#           (committed_location), here and at begin. A re-fire must name a
+#           step whose row declares refire post-pr that this run has not
+#           re-fired. In its
 #           own group the check has no terminal: one that reads /dev/tty
 #           under a controlling terminal stops, as any background job does.
 # begin     the same up to the run, for a session-hosted (in-session or
@@ -110,13 +113,35 @@
 #           in commit-id form only). Per point with a required step:
 #           `gap<TAB><point><TAB>incomplete<TAB>-` with no counted
 #           completion in any run, then `...missing<TAB><step>` or
-#           `...failed<TAB><step>:<outcome>` over all runs;
+#           `...failed<TAB><step>:<outcome>` over all runs, or
+#           `...unrun<TAB><step>` for a skill or prompt record passed or
+#           applied with start equal to end and no head move (judged by its
+#           times alone without an end head; a command is exempt), the
+#           message telling the worker to record it skipped, reason
+#           missing, in a fresh run, or else `...unaudited<TAB><step>` for
+#           a record the step-record truth check (step-record.sh untrue)
+#           would refuse; a record's start and end are those of its
+#           standing supersede (step-record.sh supersede) when it has one;
 #           `...stale<TAB><head>` naming the newest completion when none
 #           counts, then that run's step gaps; the judged run's step gaps;
+#           ahead of those, `...mismatch<TAB>run` for a record of the judged
+#           run whose stored run or point differs from its path, and
+#           `...mismatch<TAB>head:<step>` or `outcome:<step>` for a step's
+#           latest record whose heads are not on the completion's branch in
+#           order, or whose skip code or moved head (a resume skip aside)
+#           contradicts its outcome; any such gap withholds `covered`;
 #           else `covered<TAB><point>`. Then `audit<TAB>complete|gaps<TAB>
 #           <head>`, the head --head or the worktree's. Exit 0 complete, 1
-#           gaps, 2 usage (an unknown --base included), 4 the records or the
-#           cadence could not be read.
+#           gaps, 2 usage (an unknown --base included), 4 the records, the
+#           cadence or the session events could not be read. The records
+#           that decided each point are also held to the session events
+#           (step-events-audit.sh): `gap<TAB><point><TAB>fault<TAB><detail>`
+#           per record whose start is off its Skill call, a polish or
+#           self-review passed or applied with no Agent call in its span, a
+#           polish passed on a moved head,
+#           or a fix-round starting before the first event (unless it repeats
+#           an earlier run's record of that round); `note<TAB><point>
+#           <TAB>unverified<TAB><detail>` where the events cannot settle the record.
 #
 # The context: SPEC, TASK_IDS, UNIT_KIND, BRANCH, BASE_BRANCH, WORKTREE, and
 # PR_NUMBER of the PLANWRIGHT_STEP_* fields come from the caller's
@@ -164,6 +189,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 SR="$script_dir/step-record.sh"
 SP="$script_dir/step-pool.sh"
 RS="$script_dir/resolve-steps.sh"
+SEA="$script_dir/step-events-audit.sh"
 CR="$script_dir/compute-route.sh"
 TAB=$'\t'
 NL=$'\n'
@@ -189,12 +215,190 @@ is_in_run_point() {
 # step inherits them untouched (REQ-A1.6 forbids scrubbing its environment).
 no_git_selectors() {
   unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+    GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_CEILING_DIRECTORIES
 }
 rgit() (
   no_git_selectors
   exec git "$@"
 )
+
+# trusted_commit <root>: print the commit a location in the git checkout
+# <root> is held to. It mirrors the worker command guard's trusted_rev and the
+# record checks in its session_record_load, and changes together with them:
+# HEAD with no worker session record; under a record, its worktree is held to
+# the merge base of HEAD and the record's pr_base remote-tracking ref (read by
+# show-ref --verify, a symbolic ref refused), a repository nested in it trusts
+# nothing, and a checkout outside it keeps HEAD. An unusable record trusts
+# nothing anywhere, since the worker may still commit and the runner cannot
+# tell where; docs/permission-matcher-model.md lists each such record, as
+# the checks below and the guard's session_record_load apply them. Unlike the
+# guard it keeps no exception for a planwright root. Returns 1, printing
+# nothing, wherever nothing is trusted.
+trusted_commit() {
+  local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' r_sc='' n_wt=0 n_base=0 n_sc=0 size rdir sc oid rev
+  if [ -z "$rec" ]; then
+    printf HEAD
+    return 0
+  fi
+  case $rec in
+    /?*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$rec" ] && [ ! -L "$rec" ] && [ -O "$rec" ] && [ -r "$rec" ] || return 1
+  size=$(wc -c <"$rec" 2>/dev/null) || return 1
+  [ "${size// /}" -le 4096 ] 2>/dev/null || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      worktree_root=*)
+        r_wt=${line#worktree_root=}
+        n_wt=$((n_wt + 1))
+        ;;
+      pr_base=*)
+        r_base=${line#pr_base=}
+        n_base=$((n_base + 1))
+        ;;
+      scratch_root=*)
+        r_sc=${line#scratch_root=}
+        n_sc=$((n_sc + 1))
+        ;;
+    esac
+  done <"$rec"
+  [ "$n_wt" -eq 1 ] || return 1
+  [ "$n_base" -eq 1 ] || r_base=''
+  case $r_wt in
+    /?*) ;;
+    *) return 1 ;;
+  esac
+  case $r_wt in
+    *[[:cntrl:]]*) return 1 ;;
+  esac
+  [ -d "$r_wt" ] && [ -e "$r_wt/.git" ] && [ "$(cd "$r_wt" 2>/dev/null && pwd -P)" = "$r_wt" ] || return 1
+  rdir=$(cd "${rec%/*}/" 2>/dev/null && pwd -P) || return 1
+  case $rdir/ in
+    "$r_wt"/*) return 1 ;;
+  esac
+  # The scratch root it names, which the worker writes, must not hold it; the
+  # root counts on the guard's terms (named once, absolute, free of control
+  # characters, this user's own canonical directory, apart from the worktree).
+  case $r_sc in
+    *[[:cntrl:]]*) r_sc='' ;;
+  esac
+  if [ "$n_sc" -eq 1 ] && [ "${r_sc#/}" != "$r_sc" ] && [ -d "$r_sc" ] && [ -O "$r_sc" ] \
+    && sc=$(cd "$r_sc" 2>/dev/null && pwd -P) && [ "$sc" = "$r_sc" ]; then
+    case $sc/ in
+      "$r_wt"/*) ;;
+      *)
+        case $r_wt/ in
+          "$sc"/*) ;;
+          *)
+            case $rdir/ in
+              "$sc"/*) return 1 ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+  fi
+  if [ "$1" != "$r_wt" ]; then
+    case $1/ in
+      "$r_wt"/*) return 1 ;;
+    esac
+    printf HEAD
+    return 0
+  fi
+  case $r_base in
+    [A-Za-z0-9]*/?*) ;;
+    *) return 1 ;;
+  esac
+  case $r_base in
+    *[!A-Za-z0-9._/+@-]* | *..* | *//* | */ | *.lock | *.lock/* | */.* | *.) return 1 ;;
+  esac
+  case ${r_base%%/*} in
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  ! rgit -C "$1" symbolic-ref -q "refs/remotes/$r_base" >/dev/null 2>&1 || return 1
+  oid=$(rgit -C "$1" show-ref --verify --hash "refs/remotes/$r_base" 2>/dev/null) || return 1
+  case $oid in
+    '' | *[!0-9a-f]*) return 1 ;;
+  esac
+  rev=$(rgit -C "$1" merge-base HEAD "$oid" 2>/dev/null) || return 1
+  case $rev in
+    '' | *[!0-9a-f]*) return 1 ;;
+  esac
+  printf '%s' "$rev"
+}
+
+# committed_location <abs-path>: 0 when a step's location may run. The
+# declaration names a file, not its content, and a worker can Write any file
+# in its worktree, so a location in a git checkout runs only as that
+# checkout's trusted commit holds it (trusted_commit): a regular file whose
+# bytes are the blob that commit records at that path. A location spelled
+# inside the unit's worktree is held to it even when a symlinked folder
+# resolves it elsewhere, and so is refused. A location with no `.git` entry in
+# any folder above it (an installed tool) keeps the declaration's trust; any
+# other is held to the checkout that entry marks, so a git that cannot answer
+# for it (a broken or foreign `.git`, a location inside a checkout's git
+# folder) refuses rather than trusts. Under a worker session record, a
+# location in a repository nested in the worktree is refused whatever it
+# holds, however it is spelled. LOC_NO_TRUST says the refusal was for
+# want of any trusted commit, so the message names no edit as the remedy.
+LOC_NO_TRUST=0
+committed_location() {
+  local loc=$1 d full root line meta want have rev r
+  LOC_NO_TRUST=0
+  d=$(cd -P -- "$(dirname -- "$loc")" 2>/dev/null && pwd -P) || return 1
+  full="$d/$(basename -- "$loc")"
+  case $loc in
+    "$worktree"/*)
+      root=$worktree
+      # Under a record, as the guard does, a repository nested in the
+      # worktree trusts nothing; with none, the outer HEAD answers.
+      case ${PLANWRIGHT_WORKER_SESSION_RECORD:+set}:$d/ in
+        set:"$worktree"/*)
+          r=$d
+          while [ "$r" != "$worktree" ]; do
+            if [ -e "$r/.git" ] || [ -L "$r/.git" ]; then
+              LOC_NO_TRUST=1
+              return 1
+            fi
+            r=${r%/*}
+            [ -n "$r" ] || break
+          done
+          ;;
+      esac
+      ;;
+    *)
+      root=$d
+      while [ ! -e "$root/.git" ] && [ ! -L "$root/.git" ]; do
+        [ "$root" != / ] || return 0
+        root=${root%/*}
+        [ -n "$root" ] || root=/
+      done
+      [ "$(rgit -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
+      ;;
+  esac
+  case $full in
+    "$root"/*) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$full" ] && [ ! -L "$full" ] || return 1
+  rev=$(trusted_commit "$root") || {
+    LOC_NO_TRUST=1
+    return 1
+  }
+  line=$(rgit -C "$root" -c core.quotePath=false ls-tree --full-tree "$rev" -- "${full#"$root"/}" 2>/dev/null) || return 1
+  case $line in
+    *"$NL"* | '') return 1 ;;
+  esac
+  meta=${line%%"$TAB"*}
+  [ "${line#*"$TAB"}" = "${full#"$root"/}" ] || return 1
+  case $meta in
+    '100644 blob '* | '100755 blob '*) want=${meta##* } ;;
+    *) return 1 ;;
+  esac
+  have=$(rgit -C "$root" hash-object --no-filters -- "$full" 2>/dev/null) || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ]
+}
 
 worktree=''
 if [ "${1:-}" = --worktree ]; then
@@ -707,6 +911,18 @@ render_line() {
     cat "$work/ctx.err" >&2
     finish failed "$1"
   fi
+  if ! committed_location "$ROW_LOCATION"; then
+    if [ "$LOC_NO_TRUST" = 1 ]; then
+      printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record names no usable worktree or base, the base ref is missing, symbolic or shares no commit with HEAD, or the checkout is nested in that worktree); no edit to the location makes it runnable here, though fetching a missing base ref may\n' \
+        "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    else
+      printf 'step-run: step %s not run: its location %s is in a git checkout, but not as its trusted commit holds it (HEAD, or the base in the worktree a worker session record names), or git cannot answer for that checkout; put it back, or outside that worktree commit it\n' \
+        "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    fi
+    cat "$work/loc.err" >>"$1"
+    cat "$work/loc.err" >&2
+    finish failed "$1"
+  fi
 }
 
 # group_gone <pgid>: no process of the group is left.
@@ -930,7 +1146,7 @@ audit_fresh() {
 }
 
 cmd_audit() {
-  local through='' head='' base='' points=() p rc kind pt hd gaps last='' cur='' decided='' stale='' any=0 pg=0 g line
+  local through='' head='' base='' points=() p rc kind pt hd gaps jr judged='' ev_runs=() ev_id ev_pt last='' cur='' decided='' stale='' drun='' dhd='' any=0 pg=0 g line unrun=0
   while [ $# -gt 0 ]; do
     case $1 in
       --through | --head | --base) [ $# -ge 2 ] || usage ;;
@@ -963,17 +1179,23 @@ cmd_audit() {
     cat "$work/resolve.err" >&2
     die 4 "the configured cadence did not resolve (resolve-steps exit $rc)"
   fi
-  /bin/sh "$SR" --worktree "$worktree" list >"$work/records" || die 4 "cannot read the step records"
+  /bin/sh "$SR" --worktree "$worktree" list --effective >"$work/records" || die 4 "cannot read the step records"
+  /bin/sh "$SR" --worktree "$worktree" untrue >"$work/untrue" \
+    || die 4 "cannot run the step-record truth check over the step records (step-record.sh untrue)"
   # Records are untrusted: run, kind and point come from the path and must
   # agree with the stored fields, and a head counts only in commit-id form.
   # Per point: `point`, then one `cand` per run holding its completion (newest
   # run first) with that run's step gaps, or `none` with the gaps over all runs.
-  awk -F '\t' -v PTS="${points[*]}" '
+  : >"$work/side" || die 4 "cannot write runner state"
+  awk -F '\t' -v PTS="${points[*]}" -v SIDE="$work/side" '
     function hex(v) { return v ~ /^[0-9a-f]+$/ && (length(v) == 40 || length(v) == 64) }
     function flush(   ok) {
       if (!inrec) return
       inrec = 0
-      if (bad || F["run"] != R || F["point"] != K) return
+      nk = split("run point type step kind start end head end-head outcome refire-of skip-code", KEYS, " ")
+      for (ki = 1; ki <= nk; ki++) if (!(KEYS[ki] in F)) F[KEYS[ki]] = ""
+      if (bad) return
+      if (F["run"] != R || F["point"] != K) { if (!((R, K) in runbad)) { runbad[R, K] = 1; print "run\t" R "\t" K >SIDE }; return }
       if (T == "done" && F["type"] == "completion") {
         if (hex(F["head"])) { done[R, K] = F["head"]; if (!(R in hasrun)) { hasrun[R] = 1; runs[++nruns] = R } }
         return
@@ -982,7 +1204,19 @@ cmd_audit() {
       if (T != "step" || F["type"] != "step" || F["step"] !~ /^[a-z][a-z0-9-]*$/ || F["refire-of"] != "") return
       o = F["outcome"]
       if (o !~ /^[a-z]+$/) o = "malformed"
+      key = R SUBSEP K SUBSEP F["step"]
+      if (!(key in S)) ord[++no] = key
+      S[key] = "step\t" R "\t" K "\t" F["step"] "\t" (hex(F["head"]) ? F["head"] : "-") "\t" (hex(F["end-head"]) ? F["end-head"] : "-") "\t" o "\t" (F["skip-code"] == "" ? "-" : F["skip-code"])
       ok = (o == "passed" || o == "applied" || o == "skipped") && hex(F["end-head"])
+      # A model-session step cannot run in zero seconds without moving the head.
+      if ((o == "passed" || o == "applied") && (F["kind"] == "skill" || F["kind"] == "prompt") \
+          && length(F["start"]) > 0 && F["start"] == F["end"] && (length(F["end-head"]) == 0 || F["end-head"] == F["head"])) {
+        ok = 0; o = "0unrun"
+      }
+      if (!ok && o == "ok") o = "malformed"
+      # A record the step-record truth check would refuse covers nothing: the
+      # step is reported unaudited, not done.
+      if (ok && ((R ":" K ":" substr(b, 1, 3), F["step"]) in untrue)) { ok = 0; o = "unaudited" }
       st[R, K, F["step"]] = ok ? "ok" : o
       seen_any[K, F["step"]] = 1
       if (ok) ever[K, F["step"]] = 1
@@ -995,7 +1229,7 @@ cmd_audit() {
         if (r != "") s = ((r, p, id) in st) ? st[r, p, id] : ""
         else s = ever[p, id] ? "ok" : (((p, id) in seen_any) ? lastbad[p, id] : "")
         if (s == "ok") continue
-        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : "failed:" id ":" s)
+        out = out (out == "" ? "" : " ") (s == "" ? "missing:" id : s == "0unrun" ? "unrun:" id : s == "unaudited" ? "unaudited:" id : "failed:" id ":" s)
       }
       return out == "" ? "-" : out
     }
@@ -1003,6 +1237,7 @@ cmd_audit() {
       if ($1 != "skip" && $2 != "" && !(($3, $2) in want)) { want[$3, $2] = 1; req[$3, ++nr[$3]] = $2 }
       next
     }
+    FILENAME == ARGV[2] { untrue[$1, $2] = 1; next }
     $1 == "record" {
       flush(); inrec = 1; bad = 0; split("", F)
       n = split($2, part, "/"); b = part[n]; R = part[n - 1]; T = ""; K = ""
@@ -1014,17 +1249,18 @@ cmd_audit() {
     inrec { k = $1; if ((k in F) && k != "excerpt" && k != "warning" && k != "holder") bad = 1; F[k] = substr($0, length(k) + 2) }
     END {
       flush()
+      for (i = 1; i <= no; i++) print S[ord[i]] >SIDE
       np = split(PTS, P, " ")
       for (i = 1; i <= np; i++) {
         p = P[i]
         if (!nr[p]) continue
         print "point\t" p
         c = 0
-        for (r = nruns; r >= 1; r--) if ((runs[r], p) in done) { print "cand\t" p "\t" done[runs[r], p] "\t" gaps_of(p, runs[r]); c++ }
+        for (r = nruns; r >= 1; r--) if ((runs[r], p) in done) { print "cand\t" p "\t" done[runs[r], p] "\t" gaps_of(p, runs[r]) "\t" runs[r]; c++ }
         if (!c) print "none\t" p "\t-\t" gaps_of(p, "")
       }
-    }' "$work/rows" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
-  while IFS=$TAB read -r kind pt hd gaps; do
+    }' "$work/rows" "$work/untrue" "$work/records" >"$work/plan" || die 4 "cannot read the step records"
+  while IFS=$TAB read -r kind pt hd gaps jr; do
     [ "$kind" != point ] || last=$pt
   done <"$work/plan"
   # emit_gaps <point> <gaps>: one line per gap the plan names.
@@ -1035,12 +1271,42 @@ cmd_audit() {
       case $w in
         missing:*) printf 'gap\t%s\tmissing\t%s\n' "$1" "${w#missing:}" ;;
         failed:*) printf 'gap\t%s\tfailed\t%s\n' "$1" "${w#failed:}" ;;
+        unrun:*)
+          printf 'gap\t%s\tunrun\t%s\n' "$1" "${w#unrun:}"
+          unrun=1
+          ;;
+        unaudited:*) printf 'gap\t%s\tunaudited\t%s\n' "$1" "${w#unaudited:}" ;;
       esac
     done
+  }
+  # emit_mismatches <point> <run> <completion-head>: a record of the deciding
+  # run that does not match the branch it claims (head, run or outcome).
+  emit_mismatches() {
+    local k r q s sh eh o sc
+    while IFS=$TAB read -r k r q s sh eh o sc; do
+      [ "$r" = "$2" ] && [ "$q" = "$1" ] || continue
+      if [ "$k" = run ]; then
+        printf 'gap\t%s\tmismatch\trun\n' "$1"
+      elif [ "$k" != step ]; then
+        continue
+      elif [ "$eh" != - ] && ! git_keep_config merge-base --is-ancestor "$eh" "$3" 2>/dev/null; then
+        printf 'gap\t%s\tmismatch\thead:%s\n' "$1" "$s"
+      elif [ "$sh" != - ] && [ "$eh" != - ] && ! git_keep_config merge-base --is-ancestor "$sh" "$eh" 2>/dev/null; then
+        printf 'gap\t%s\tmismatch\thead:%s\n' "$1" "$s"
+      elif [ "$o" = skipped ] && { [ "$sc" = - ] || { [ "$sc" != resume ] && [ "$sh" != - ] && [ "$sh" != "$eh" ]; }; }; then
+        printf 'gap\t%s\tmismatch\toutcome:%s\n' "$1" "$s"
+      elif [ "$o" != skipped ] && [ "$sc" != - ]; then
+        printf 'gap\t%s\tmismatch\toutcome:%s\n' "$1" "$s"
+      else
+        continue
+      fi
+      pg=1
+    done <"$work/side"
   }
   # finish_point: report the point the loop was reading.
   finish_point() {
     [ -n "$cur" ] || return 0
+    [ -z "$drun" ] || emit_mismatches "$cur" "$drun" "$dhd"
     g=${decided:--}
     if [ -z "$decided" ] && [ -n "$stale" ]; then
       printf 'gap\t%s\tstale\t%s\n' "$cur" "${stale%%"$TAB"*}"
@@ -1054,16 +1320,16 @@ cmd_audit() {
     if [ "$pg" -eq 0 ]; then printf 'covered\t%s\n' "$cur"; else any=1; fi
   }
   set -f
-  while IFS=$TAB read -r kind pt hd gaps; do
+  while IFS=$TAB read -r kind pt hd gaps jr; do
     case $kind in
       point)
         finish_point
-        cur=$pt decided='' stale='' pg=0
+        cur=$pt decided='' stale='' drun='' dhd='' pg=0
         ;;
       cand)
         [ -z "$decided" ] || continue
         if audit_fresh "$hd" "$head" "$([ "$pt" = "$last" ] && echo 1 || echo 0)" "$base"; then
-          decided=$gaps stale=''
+          decided=$gaps stale='' drun=$jr dhd=$hd judged="$judged $jr:$cur"
         elif [ -z "$stale" ]; then
           stale="$hd$TAB$gaps"
         fi
@@ -1077,8 +1343,27 @@ cmd_audit() {
   done <"$work/plan"
   finish_point
   set +f
+  if [ -n "$judged" ]; then
+    for jr in $judged; do ev_runs+=(--run "${jr%%:*}"); done
+    /bin/sh "$SEA" --worktree "$worktree" --records "$work/records" "${ev_runs[@]}" >"$work/events" \
+      || [ $? -eq 1 ] || die 4 "cannot judge the step records against the session events"
+    while IFS=$TAB read -r kind ev_id pt gaps; do
+      # A run that decided one point can hold superseded records of another.
+      case " $judged " in *" ${ev_id%:*} "*) ;; *) continue ;; esac
+      ev_pt=${ev_id#*:}
+      ev_pt=${ev_pt%%:*}
+      case $kind in
+        fault)
+          printf 'gap\t%s\tfault\t%s %s: %s\n' "$ev_pt" "$ev_id" "$pt" "$gaps"
+          any=1
+          ;;
+        unverified) printf 'note\t%s\tunverified\t%s %s: %s\n' "$ev_pt" "$ev_id" "$pt" "$gaps" ;;
+      esac
+    done <"$work/events"
+  fi
   line="audit${TAB}complete${TAB}$head"
   [ "$any" -eq 0 ] || line="audit${TAB}gaps${TAB}$head"
+  [ "$unrun" -eq 0 ] || echo "step-run: an unrun gap is a skill or prompt record that started and ended in the same second with no head move, so it is no evidence the step ran; record the step skipped with reason missing in a fresh run (never edit a written record)" >&2
   printf '%s\n' "$line"
   [ "$any" -eq 0 ]
 }

@@ -13,6 +13,8 @@ export LC_ALL
 unset CDPATH
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib/dead-owner.sh
+. "$here/lib/dead-owner.sh"
 repo_root=$(cd "$here/.." && pwd)
 # shellcheck source=tests/lib/poll-until.sh
 . "$here/lib/poll-until.sh"
@@ -87,6 +89,11 @@ expect_out "a refused event line is counted, beside the run's exit" "${tab}0${ta
 printf '%s\t0\t0\n' 1000 >"$wdir/$watch_slot.last"
 mc_run mc-watch.sh status --program alpha --now 1400
 expect_out "REQ-L1.4: a run past its cadence shows a negative time to the next, its expiry" "${tab}400${tab}-100${tab}0${tab}0"
+# A record is a file the operator's account can edit: control and C1 bytes
+# never reach the status line, and a field left empty by that reads as -.
+printf '1000\t\001\033\205\t4\0372\n' >"$wdir/$watch_slot.last"
+mc_run mc-watch.sh status --program alpha --now 1400
+expect_out "status strips control bytes from a run record, an emptied field reading -" "${tab}400${tab}-100${tab}-${tab}42"
 
 # ---------------------------------------------------------------------------
 # REQ-E1.5, REQ-E1.1: a killed watcher is an event, then re-armed within one
@@ -302,9 +309,7 @@ if [ -z "$read_line" ]; then
 else
   vanished="$tmp/vanished-pid/cmdline"
   read_line=${read_line//\/proc\/\$1\/cmdline/$vanished}
-  true &
-  vanished_pid=$!
-  wait "$vanished_pid"
+  vanished_pid=$(dead_owner_pid) || fail "no dead owner pid is available"
   read_err=$(/bin/bash -c "f() { $read_line; return 0; }; f $vanished_pid" 2>&1)
   read_rc=$?
   if [ "$read_rc" -eq 1 ] && [ -z "$read_err" ]; then

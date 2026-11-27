@@ -215,7 +215,7 @@ if ! grep -qx -- '--inbound' "$tmp/tmux-argv" || ! grep -qx 'accept' "$tmp/tmux-
   fail "dispatch tmux --profile: the session does not accept inbound messages"
 fi
 grep -qx -- '--identity' "$tmp/tmux-argv" && fail "dispatch tmux --profile mission-control: a non-worker profile carried the worker identity"
-for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN; do
+for v in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE PLANWRIGHT_WORKER_LAUNCH_TOKEN PLANWRIGHT_SESSION_HANDLE; do
   grep -qx -- "$v" "$tmp/tmux-argv" || fail "dispatch tmux --profile mission-control: an inherited $v is not dropped"
 done
 # A window starts from the tmux server's environment, which may carry some
@@ -234,6 +234,58 @@ PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT P
   dispatch tmux "$promptfile" --profile mission-control --mc-token tok-arg --name mc-alpha-mc-2 --scope spec:alpha-3 >/dev/null \
   || fail "dispatch tmux --profile mission-control --mc-token exited nonzero"
 grep -qx 'PLANWRIGHT_MC_TOKEN=tok-arg' "$tmp/tmux-argv" || fail "dispatch tmux --mc-token: the window does not hold the token it was given"
+# --keep-config-env hands the window the overlays that are set, a value with
+# a space intact, and no others; without it none rides the argv.
+: >"$tmp/tmux-argv"
+mkdir -p "$tmp/over lay"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u PLANWRIGHT_CONFIG_STRICT_OVERLAYS \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/over lay" /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-mc-3 --keep-config-env >/dev/null \
+  || fail "dispatch tmux --keep-config-env exited nonzero"
+if ! grep -qxF "PLANWRIGHT_ADOPTER_OVERLAY=$tmp/over lay" "$tmp/tmux-argv" \
+  || ! grep -qxF "PLANWRIGHT_CONFIG_DEFAULTS=$tmp/core-defaults.yml" "$tmp/tmux-argv" \
+  || ! grep -qx 'PLANWRIGHT_LOCAL_CONFIG=' "$tmp/tmux-argv"; then
+  fail "dispatch tmux --keep-config-env: the window is not handed each set overlay whole: $(cat "$tmp/tmux-argv")"
+fi
+grep -q '^PLANWRIGHT_CONFIG_STRICT_OVERLAYS=' "$tmp/tmux-argv" \
+  && fail "dispatch tmux --keep-config-env: an overlay that is not set reached the window"
+# Run the window's own command (everything after `-c <dir>`) against a fake
+# claude: the kept overlay must be in the launched session's environment,
+# not merely present on the argv.
+: >"$tmp/tmux-argv"
+mkdir -p "$tmp/keepbin"
+cat >"$tmp/keepbin/claude" <<EOF || exit 1
+#!/bin/sh
+printf '%s\n' "\${PLANWRIGHT_ADOPTER_OVERLAY-<unset>}" >"$tmp/keep-session-overlay"
+EOF
+chmod +x "$tmp/keepbin/claude" || exit 1
+PATH="$stubbin:$PATH" sandbox_env env PLANWRIGHT_ADOPTER_OVERLAY="$tmp/over lay" /bin/sh "$script" \
+  dispatch tmux "$promptfile" --keep-config-env >/dev/null \
+  || fail "dispatch tmux --keep-config-env without a profile exited nonzero"
+(
+  set --
+  kc_seen=0
+  while IFS= read -r kc_a; do
+    if [ "$kc_seen" = 0 ]; then
+      [ "$kc_a" = /bin/sh ] || continue
+      kc_seen=1
+    fi
+    set -- "$@" "$kc_a"
+  done <"$tmp/tmux-argv"
+  PATH="$tmp/keepbin:$PATH" PLANWRIGHT_ADOPTER_OVERLAY=from-the-server "$@"
+)
+[ "$(cat "$tmp/keep-session-overlay" 2>&1)" = "$tmp/over lay" ] \
+  || fail "dispatch tmux --keep-config-env: the launched session holds '$(cat "$tmp/keep-session-overlay" 2>&1)', not the kept overlay"
+: >"$tmp/tmux-argv"
+PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_ADOPTER_OVERLAY="$tmp/overlay" /bin/sh "$script" \
+  dispatch tmux "$promptfile" --profile mission-control --name mc-alpha-mc-4 >/dev/null \
+  || fail "dispatch tmux without --keep-config-env exited nonzero"
+grep -q '^PLANWRIGHT_ADOPTER_OVERLAY=' "$tmp/tmux-argv" && fail "dispatch tmux: an overlay reached the window without --keep-config-env"
+PATH="$stubbin:$PATH" sandbox_env /bin/sh "$script" dispatch print "$promptfile" --keep-config-env >/dev/null 2>"$tmp/keep-print.err"
+kp_rc=$?
+if [ "$kp_rc" != 2 ] || ! grep -q 'tmux rung only' "$tmp/keep-print.err"; then
+  fail "dispatch print --keep-config-env is not refused as tmux-only (exit $kp_rc): $(cat "$tmp/keep-print.err")"
+fi
 : >"$tmp/tmux-argv"
 PATH="$stubbin:$PATH" sandbox_env env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT PLANWRIGHT_MC_TOKEN=tok-1 /bin/sh "$script" \
   dispatch tmux "$promptfile" --profile worker --name mc-alpha-worker-1 --scope spec:alpha-3 >/dev/null \

@@ -1,7 +1,7 @@
 # Human gates — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-11-05
+**Last reviewed:** 2026-11-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -257,6 +257,8 @@ the approval gate survives every value.
 
 ### D-7: A worker merges its base into its own branch; conflicts are a knob  (N)
 
+Amended at Amendment 6, 2026-11-25: D-28 admits a clean base merge and its push on the one spec branch a launch record names; the exclusion of spec branches below stands for every other case.
+
 **Decision:** The allowance is the act "merge the PR base into the branch
 this session owns" (the base being the PR's base branch, or the branch the
 worktree was created from before a PR exists), governed by
@@ -295,6 +297,10 @@ local-main mutation.
 **Chosen because:** plain merge creates commits and rewrites nothing, so it
 never met the gate test; the scoping keeps the floor.
 
+**Superseded-by: D-28** (2026-11-25) — scoped to the spec-branch exclusion: a
+worker whose launch record names a spec branch may merge the PR base into
+that one branch and push only clean merges.
+
 ### D-8: Rewrite allowances — never-pushed local commits; force-push only on request  (N)
 
 **Decision:** Amend, squash, fixup, and rebase are allowed to a worker under
@@ -329,7 +335,15 @@ prepare the command and rotation checklist.
 **Chosen because:** the gate test draws the line at "irreversible for other
 people", which is the push, not the commit.
 
+**Superseded-by: D-27** (2026-11-20) — scoped to the pushed-commit
+append-only rule and the tower-only force-push: a launched worker may
+reshape and publish a leased rewrite of its own unit branch while its PR
+is a draft, under `draft_rewrite`, off by default. The never-pushed
+reshape, the tower path, and the human-run purge stand.
+
 ### D-9: Enforcement derives from the resolved policy; one spelling list; the protected set  (N)
+
+Amended at Amendment 6, 2026-11-25: the worker profile's plain-push denies of a spec branch become guard-only for the one branch a record names, D-28.
 
 **Decision:** Acts no value can permit stay in the deny profiles as the
 floor where a profile can express them (merge or rewrite of main, `master`,
@@ -445,6 +459,11 @@ prompt by operator decision and the guard is the refusing layer.
 **Chosen because:** deny precedence means a profile can never be the
 policy-following layer, and worker-permission-ergonomics D-1 already makes
 the profile the floor and the hook the refinement.
+
+**Superseded-by: D-27** (2026-11-20) — scoped to the guard-only rewrite
+entry: a rewrite of a pushed commit outside the tower path and D-27's
+draft-branch reshape and push, and a worker's deletion of its own unit
+branch.
 
 ### D-10: One doctrine source, three rule kinds, retired phrasings purged  (N)
 
@@ -1047,6 +1066,183 @@ routed as D-18's and D-25's are.
 gate test puts it and hands only the mechanics to a session whose acts the
 guard bounds to two.
 
+### D-27: A launched worker publishes a leased rewrite of its own draft branch, off by default  (N, the operator's ruling on PR #1119; supersedes D-8 in part, scopes D-9)
+
+**Decision:** Under a `draft_rewrite` knob (`deny` by default, `allow`), a
+worker mission control launched may reshape commits it has already pushed
+to its own unit branch, and publish the result only through
+`scripts/worker-branch-sync.sh push`, while that branch's single
+same-repository PR is a draft. The knob is resolved once, at launch, from
+the core, adopter, and machine-local layers, a committed repo-tracked line
+ignored, into the session
+record the launcher writes outside the worktree, as `worker_base_merge`
+already is; the guard and the helper read it from there, never from live
+config or the environment, so turning it on reaches a worker at its next
+launch and a running worker cannot change it through a settings file.
+
+The guard admits the local reshape from local state alone (own unit
+branch, outside the protected set, upstream refreshed, rebase onto the PR
+base or the branch's own remote branch, the range holding only the
+branch's own commits), with no host call. The helper's push is the one act
+others see, so it carries every check that needs the moment of the act: a
+clean tree and a branch no other worktree or session holds; the lease
+naming the branch and the full pre-rewrite tip its own reflog recorded;
+every replaced commit carrying the repository's configured author, so a
+coworker's commit fetched into the branch is never rewritten; and, read
+from the push remote's repository with every `gh` and config override
+cleared, one open same-repository PR, a draft, that no other PR takes as
+its base. It prints the replaced commits and writes an audit line. The
+reflog-recorded lease is what refuses a tip read from elsewhere: git turns
+`--force-if-includes` off beside an explicit lease, so the flag is kept
+for the pairing the operator's rules require, not as a check. A remote
+rejection for a moved branch means someone else pushed: the branch is
+treated as shared and the push is never retried. Deleting and recreating
+the branch, the one other way to publish a rewrite, is refused to the
+worker tier. The window between the draft read and the push is an
+accepted residual.
+
+A ready PR takes new commits or the tower's same-turn path, which is
+otherwise unchanged. The operator's own agent instructions may narrow
+either path (a repository the operator does not own may forbid a rewrite
+of a ready PR outright); this bundle never widens them.
+
+A refused act under `deny` tells the operator how to turn the knob on,
+through mission control as an operator item (REQ-F1.9). The switch is one
+single-purpose command that writes only that repository's machine-local
+line (REQ-F1.11). No worker, tower, or kickoff session may run it, since
+an agent able to enable its own force-push would empty the opt-in. The
+operator may run it, or mission control may run it on the operator's own
+yes for that repository, once mission control's own spec admits that one
+write. A machine-wide adopter line is the operator's own edit, which no
+command writes; where it allows, no refusal fires and no ask is raised.
+
+Residual: a worker auto-approves running its repository's own scripts,
+and a script it wrote runs as the operator's user, out of the guard's
+sight; it could overwrite the record or force-push directly. That is true
+before this decision and is not closed by it; it is accepted until the
+worker command guard approves only scripts git tracks unmodified.
+
+Q1 to Q9 are the operator's answers recorded in the kickoff brief's
+2026-11-20 amendment entry.
+
+**Alternatives considered:**
+- Keep D-8's prohibition. Rejected because: a worker on a repository that
+  requires rebased branches has no agent path, so every moved base stalls
+  until the operator pastes commands, and the operator ruled for the route
+  (Q1).
+- Default `allow`. Rejected because: every adopter would get agent
+  force-pushes without choosing them; an agent rewrite of a pushed branch
+  is something a repository owner opts into, as each automatic merge class
+  is (D-20) (Q5).
+- Check draft state at the local reshape too. Rejected because: harm starts
+  at the push (D-8), and a host call at every local rebase would tie local
+  work to the host's availability (Q6).
+- Refuse once the PR has a review thread or comment. Rejected because: the
+  operator chose the three terms without that limit (Q1).
+- A worker route for a ready PR on a relayed per-push confirmation.
+  Rejected because: the tower's same-turn path already gives that, with no
+  new route (Q3).
+- Rewriting or merging a coworker's branch. Rejected because: it changes
+  another person's work without their word; their work reaches a unit
+  through the base or a stacked PR's base (Q2, Q4).
+- Read the knob live through every layer, as other knobs resolve.
+  Rejected because: a running worker could change its own authority, and
+  a committed repo-tracked line would let a team enable it on the
+  operator's machine. The adopter layer stays: the operator chose a
+  machine-wide line as their own edit beside the per-repository command
+  (Q9).
+- The machine-local layer only. Rejected because: the operator wanted one
+  line able to cover a whole machine (Q9).
+- A narrower deny glob instead of a helper. Rejected because: a glob cannot
+  say "only this session's branch" or "only a lease this branch's reflog
+  recorded", and deny beats every allow.
+
+**Chosen because:** D-8 drew the line at "irreversible for other people",
+and a draft branch only its own worker holds, holding only that worker's
+commits, published with a lease that refuses if anyone else moved it, sits
+on the near side of that line while the PR is a draft.
+
+### D-28: A worker keeps its spec branch current with a clean base merge and its push  (N, the operator's Amendment 6 rulings; supersedes D-7 in part, scopes D-9)
+
+**Decision:** A worker whose launch-written session record names one spec
+branch (a sign-off, amendment or spec-rework branch of the pull request it
+works on) may merge the PR base into it and push the result, and nothing
+else there. The merge is the command's only act; the push is by explicit
+refspec, the command's only act, and is admitted only when it fast-forwards
+the pull request's head and every commit it adds that the base lacks is a
+two-parent merge of the base whose tree is exactly the clean merge of its
+parents. The guard's half is mission-control D-114 and REQ-I1.11, which
+this decision admits; this bundle states the rule the guard enforces, and
+the guard code is mission control's.
+
+`worker_base_merge` governs the route as it governs every base merge:
+`deny` refuses both acts, so one existing setting stops it, and there is no
+second knob. `worker_merge_conflict_policy` keeps its meaning. A conflict
+under `halt` aborts the merge and parks the unit as before. Under `resolve`
+the worker may commit its resolution locally, but the push stays refused
+because the resolution is not the clean merge; the unit parks naming the
+conflicting paths, and a spec-file resolution goes to the kickoff session
+or the operator. A resolution commit is therefore never published by the
+worker route, which keeps a spec edit the kickoff session's and the
+operator's, and amends REQ-E1.2's `resolve` arm for that case
+only (REQ-E1.2's note). The worker never resets the local commit: whoever
+resolves the conflict discards it by hand, and a resumed unit starts from
+the remote head.
+
+The worker profile denies a plain push of the sign-off branch
+(`planwright/*/spec`) by glob, and a profile deny cannot be narrowed by an
+allow (D-18); the amendment and spec-rework branches were never denied
+there, and the guard refuses an unrecorded push to them only once mission
+control's build for that (pull request 1155) has merged. The route therefore
+needs the sign-off branch's plain-push denies guard-only for the worker
+tier. Its deletion spellings stay denied through deletion-only globs, since
+the relayed kickoff session runs under the same profile (REQ-G1.9). The
+worker profile's policy-guard hooks carry no fail-closed suffix today,
+unlike the tower's, so removing the denies would leave a push open whenever
+the guard cannot run; the same change gives them that suffix, which then
+refuses every call those hooks cover, with a message worded for a worker. It is scoped to the
+one branch a record names:
+the guard keeps refusing every other spec-branch push, and a worker with
+no record, an unbound one or another branch's refuses all of them. The
+merge and push builds in mission control change the guard, the session
+record and the docs; neither changes the worker profile, so Task 23 carries
+that one change.
+
+Visual-flight branches (`planwright/flight/...`) are the worker's own unit
+branch and already take the base merge and the ordinary push under D-7;
+this decision changes nothing for them.
+
+The doctrine's spec-branch push row names the sign-off, amendment and
+spec-rework branches and the clean-merge limit, citing REQ-E1.4 and
+mission-control REQ-I1.11, with the kickoff push stated as the only route
+for a spec's content; the base-merge row gains a base-merge-only clause for
+those branches. PR #1140 is made to match that text.
+
+**Alternatives considered:**
+- Narrow the route to the sign-off and amendment branches. Rejected
+  because: mission-control REQ-I1.11 already names the spec-rework branch,
+  and two specs disagreeing about one route is a defect (the operator's Q1).
+- No knob, or a knob of its own. Rejected because: an operator who sets
+  `worker_base_merge` to `deny` expects every base merge to stop, and a
+  second setting is one more thing to document and mis-set (the operator's
+  Q2).
+- Halt a conflict under every policy value. Rejected because: the
+  operator kept the conflict setting as it is (Q3); the push refusal
+  already keeps a resolution from publishing.
+- Push a hand resolution when no spec file conflicts, or to a side review
+  branch. Rejected because: the first needs a tree check the guard cannot
+  verify cheaply, a spec branch rarely conflicts outside its bundle, and
+  the second adds an admitted ref and a review step (the operator's Q3
+  follow-up).
+- Keep the doctrine to the sign-off branch only. Rejected because: the
+  route covers three branches, and a doctrine row naming one would let the
+  guard and the list drift (Q4).
+
+**Chosen because:** a worker on a spec pull request that main has moved past
+could otherwise only hand the sync to the operator, and the clean merge is
+mechanical: it adds no content a human has not already signed, so the
+guard can verify it exactly.
+
 ## Cross-cutting concerns
 
 - **Security posture.** Every guard this bundle adds is deny-emitting, so
@@ -1096,6 +1292,20 @@ guard bounds to two.
   waiting-on-approval report goes to the operator running mission
   control, REQ-I1.18). Touched, not decided here: the sweep cadence that
   re-evaluates a waiting class PR, mission control's (REQ-I1.18).
+  The 2026-11-20 amendment, touched and decided: auth (only the launched
+  worker's own recorded unit branch, through the installed helper, D-27),
+  secrets-configuration (`draft_rewrite`, off by default, read from the
+  machine-local layer into the launch record, D-27), concurrency (the
+  lease on a reflog-recorded tip, a shared or moved branch refused and
+  never retried, the record fixed for the session's life, D-27),
+  observability (the replaced commits printed and an audit line for each
+  push and each enable, D-27), existing-seam reuse (the PR #1119
+  branch-sync helper and its guard arm, the session record's knob
+  snapshot), human comprehension (the refusal names the setting that
+  allows it, REQ-F1.9), org-design (another person's branch and commits
+  never rewritten or merged, D-27). Touched, not decided here: the
+  per-repository dedupe, the recorded "no", the listing, and mission
+  control's admitted write, routed to mission-control.
 - **Instruction budget.** Every skill prose change is measured by
   `check-instructions.sh`; a change that grows a saturated surface is
   reworked as a citation, never landed over budget.

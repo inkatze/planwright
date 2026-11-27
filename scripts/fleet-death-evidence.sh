@@ -33,6 +33,14 @@
 #       EPERM case, or procfs where ps has no -p) — a per-pid query, never a
 #       scraped process LISTING, which is exactly the truncation-prone source the incident
 #       implicates. <pid> is a positive integer, no leading zero, <=10 digits.
+#   process <pid> <start-token>
+#       As above, and a live pid whose own start token differs from the
+#       recorded one is a DIFFERENT process that reused the number: the
+#       recorded process is gone (dead). A token that cannot be read now
+#       leaves the pid-only answer.
+#   start <pid>
+#       Prints the pid's start token (exit 3 when it cannot be read), for a
+#       launcher to record beside the pid.
 #   tmux-window <session> <window>
 #       Three probes, all against the caller's tmux server: `ls` (server
 #       health — an unreachable server is unknown, never dead), `has-session`
@@ -46,7 +54,15 @@
 #       subset of the orchestrate-relay.sh tmux charset (no `:` or `/`: the
 #       relay validates combined session:window targets, while the separate
 #       per-token arguments here need neither) before any `-t` interpolation,
-#       and targets use the exact-match `=` prefix.
+#       and targets use the exact-match `=` prefix. With --in-session the
+#       session probe decides for an id too: a handle written before the
+#       server pin below may name an id a restarted server reissued.
+#   tmux-window <session> <window> <server> <name>
+#       A handle pinned to the server that issued its id (`<pid>.<start
+#       time>`, scripts/tmux-identity-lib.sh) and to the window's name. Dead
+#       once the running server is another, or the id is absent, or it
+#       carries another name; alive only when all three hold. The session is
+#       not consulted, so a renamed session still reads alive.
 #
 # Adding an evidence class for a new backend extends this wrapper; per-
 # mechanism staleness heuristics stay forbidden (D-5).
@@ -59,8 +75,22 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# Builtins only up to the probes: a PATH without the tools must still reach
+# the no-tmux verdict.
+case $0 in
+  */*) script_dir=${0%/*} ;;
+  *) script_dir=. ;;
+esac
+script_dir=$(cd "$script_dir" && pwd) || exit 2
+if [ ! -r "$script_dir/tmux-identity-lib.sh" ]; then
+  echo "fleet-death-evidence: tmux-identity-lib.sh is missing or unreadable (broken install)" >&2
+  exit 2
+fi
+# shellcheck source=scripts/tmux-identity-lib.sh
+. "$script_dir/tmux-identity-lib.sh"
+
 usage() {
-  echo "usage: fleet-death-evidence.sh process <pid> | tmux-window <session> <window>" >&2
+  echo "usage: fleet-death-evidence.sh process <pid> [<start-token>] | start <pid> | tmux-window [--in-session] <session> <window> | tmux-window <session> <window> <server> <name>" >&2
 }
 
 verdict() {
@@ -72,9 +102,55 @@ verdict() {
   esac
 }
 
+# start_token <pid> — a token naming WHEN the process began, so a pid the host
+# reissued to a later process reads as a different one. procfs first (field 22
+# of stat, in clock ticks since boot); `ps -o lstart=` where there is none.
+# Prefixed by its source so tokens from two sources are never compared. Prints
+# nothing and returns 1 when the process cannot be read.
+start_token() {
+  st_raw=''
+  if [ -r "/proc/$1/stat" ]; then
+    st_raw=$(cat "/proc/$1/stat" 2>/dev/null) || st_raw=''
+    case $st_raw in
+      *') '*)
+        # shellcheck disable=SC2086 # split on purpose, globbing is off
+        set -- $1 ${st_raw##*) }
+        if [ "$#" -ge 21 ]; then
+          shift 20
+          case $1 in '' | *[!0-9]*) ;; *)
+            printf 'p%s\n' "$1"
+            return 0
+            ;;
+          esac
+        fi
+        ;;
+    esac
+  fi
+  st_raw=$(ps -o lstart= -p "$1" 2>/dev/null) || st_raw=''
+  # shellcheck disable=SC2086 # whitespace squeeze, globbing is off
+  set -- $st_raw
+  [ "$#" -gt 0 ] || return 1
+  printf 'l%s\n' "$(printf '%s' "$*" | tr ' ' _)"
+}
+
+# alive_or_reused — the pid is live. With a recorded start token that differs
+# from the live process's own (same source), the pid names a different process
+# than the one recorded: the recorded one is gone. A token that cannot be read
+# now, or came from the other source, leaves the pid-only answer.
+alive_or_reused() {
+  if [ -n "$want_start" ]; then
+    ar_cur=$(start_token "$pid") || ar_cur=''
+    if [ -n "$ar_cur" ] && [ "${ar_cur%"${ar_cur#?}"}" = "${want_start%"${want_start#?}"}" ] \
+      && [ "$ar_cur" != "$want_start" ]; then
+      verdict dead
+    fi
+  fi
+  verdict alive
+}
+
 class="${1:-}"
 case "$class" in
-  process | tmux-window) ;;
+  process | tmux-window | start) ;;
   timeout | silence | stale | staleness | heartbeat | heartbeat-age | idle-time)
     printf '%s\n' "fleet-death-evidence: '$class' is not positive evidence of death (REQ-A1.7): a timeout or silent heartbeat proves lost observability, not death — refusing" >&2
     exit 2
@@ -89,10 +165,19 @@ shift
 case "$class" in
   process)
     pid="${1:-}"
-    if [ "$#" -ne 1 ]; then
+    want_start="${2:-}"
+    if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
       usage
       exit 2
     fi
+    # The recorded start token is data from a file: only the characters
+    # start_token itself prints are accepted.
+    case "$want_start" in
+      *[!A-Za-z0-9:_.+-]*)
+        echo "fleet-death-evidence: refusing malformed start token" >&2
+        exit 2
+        ;;
+    esac
     # A positive integer, no leading zero (kill -0 0 would signal the whole
     # process group), bounded to 10 digits so the token can never overflow the
     # tools it reaches. The refused token is never echoed — it is raw argv and
@@ -109,7 +194,7 @@ case "$class" in
     fi
     # kill -0 succeeds when the process exists and is signalable: alive.
     if kill -0 "$pid" 2>/dev/null; then
-      verdict alive
+      alive_or_reused
     fi
     # kill -0 can also fail with EPERM on a live process owned by another
     # user; disambiguate with a TARGETED ps query (0 = found, 1 = not found —
@@ -129,7 +214,7 @@ case "$class" in
       fi
     fi
     case "$ps_rc" in
-      0) verdict alive ;;
+      0) alive_or_reused ;;
       1) verdict dead ;;
       *)
         printf '%s\n' "fleet-death-evidence: ps -p exited $ps_rc — lost observability, refusing to report death" >&2
@@ -137,13 +222,44 @@ case "$class" in
         ;;
     esac
     ;;
-  tmux-window)
-    session="${1:-}"
-    window="${2:-}"
-    if [ "$#" -ne 2 ]; then
+  start)
+    pid="${1:-}"
+    case "$pid" in
+      "" | *[!0-9]* | 0*)
+        echo "fleet-death-evidence: refusing malformed pid token (a positive integer, no leading zero)" >&2
+        exit 2
+        ;;
+    esac
+    if [ "$#" -ne 1 ] || [ "${#pid}" -gt 10 ]; then
       usage
       exit 2
     fi
+    start_token "$pid" || exit 3
+    ;;
+  tmux-window)
+    # --in-session: a handle recorded before the server pin, whose id may
+    # have been reissued by a restarted server, is judged in its recorded
+    # session only.
+    in_session=0
+    if [ "${1:-}" = --in-session ]; then
+      in_session=1
+      shift
+    fi
+    session="${1:-}"
+    window="${2:-}"
+    server=''
+    wname=''
+    case $# in
+      2) ;;
+      4)
+        server=$3
+        wname=$4
+        ;;
+      *)
+        usage
+        exit 2
+        ;;
+    esac
     # The orchestrate-relay.sh tmux handle discipline (charset narrowed to
     # single-name tokens; see the header): empty, a leading dash (option
     # injection), over-length, or anything outside the conservative charset
@@ -164,6 +280,18 @@ case "$class" in
         exit 2
       fi
     done
+    if [ "$#" -eq 4 ]; then
+      if [ "$in_session" = 1 ] || ! tmux_valid_server "$server" || ! tmux_valid_name "$wname"; then
+        echo "fleet-death-evidence: refusing a malformed tmux server pin" >&2
+        exit 2
+      fi
+      case $window in
+        @*[!0-9]* | @ | [!@]*)
+          echo "fleet-death-evidence: a pinned handle names its window by id" >&2
+          exit 2
+          ;;
+      esac
+    fi
     if ! command -v tmux >/dev/null 2>&1; then
       echo "fleet-death-evidence: no tmux binary on PATH — lost observability, refusing to report death" >&2
       verdict unknown
@@ -174,17 +302,49 @@ case "$class" in
       echo "fleet-death-evidence: tmux server unreachable — lost observability, refusing to report death" >&2
       verdict unknown
     fi
+    # A pinned handle: the server that issued the id, the id, and the name it
+    # gave the window must all still hold. A server started since issued
+    # nothing this handle names.
+    if [ "$#" -eq 4 ]; then
+      now=$(tmux_server_id) || {
+        echo "fleet-death-evidence: tmux did not say which server answers — refusing to report death" >&2
+        verdict unknown
+      }
+      if [ "$now" != "$server" ]; then
+        printf '%s\n' "fleet-death-evidence: $window was issued by an earlier tmux server" >&2
+        verdict dead
+      fi
+      pr_rc=0
+      tmux_pin_read window "$window" || pr_rc=$?
+      case $pr_rc in
+        0)
+          if [ "$TP_NOW" = "$server/$window/$wname" ]; then
+            verdict alive
+          fi
+          printf '%s\n' "fleet-death-evidence: $window no longer carries the server and name it was recorded with" >&2
+          verdict dead
+          ;;
+        1)
+          if tmux ls >/dev/null 2>&1; then
+            verdict dead
+          fi
+          ;;
+      esac
+      printf '%s\n' "fleet-death-evidence: tmux did not answer for $window — refusing to report death" >&2
+      verdict unknown
+    fi
     # A window id (`@<n>`) names one window for the server's lifetime, wherever
     # it lives: a renamed session, or the window moved to another, leaves the
     # recorded session name absent while the window runs on. So an id is
     # looked up across the server, and the session probe below, which would
     # read that rename as death, is not consulted for it. A window may also be
     # NAMED `@<n>`, so the token matches a name as well as an id; a match
-    # anywhere only ever reads as alive, never as a death.
-    case $window in
-      @*[!0-9]* | @) ;;
-      @*)
-        listing=$(tmux list-windows -a -F '#{window_id}	#{window_name}' 2>/dev/null) || {
+    # anywhere only ever reads as alive, never as a death. Under --in-session
+    # the session probe decides instead.
+    case $in_session:$window in
+      1:* | *:@*[!0-9]* | *:@) ;;
+      *:@*)
+        listing=$(tmux list-windows -a -F '#{window_id} #{window_name}' 2>/dev/null) || {
           echo "fleet-death-evidence: tmux list-windows failed after the server answered — refusing to report death" >&2
           verdict unknown
         }
@@ -192,7 +352,7 @@ case "$class" in
         IFS='
 '
         for line in $listing; do
-          if [ "${line%%	*}" = "$window" ] || [ "${line#*	}" = "$window" ]; then
+          if [ "${line%% *}" = "$window" ] || [ "${line#* }" = "$window" ]; then
             IFS=$old_ifs
             verdict alive
           fi
@@ -222,7 +382,7 @@ case "$class" in
     # Probe 3: the window in the authoritative listing, matched exactly
     # against the id or name field. A listing failure after the session probe
     # succeeded is a race or a broken query: unknown, never dead.
-    listing=$(tmux list-windows -t "=$session" -F '#{window_id}	#{window_name}' 2>/dev/null) || {
+    listing=$(tmux list-windows -t "=$session" -F '#{window_id} #{window_name}' 2>/dev/null) || {
       echo "fleet-death-evidence: tmux list-windows failed after has-session succeeded — refusing to report death" >&2
       verdict unknown
     }
@@ -231,9 +391,9 @@ case "$class" in
     IFS='
 '
     for line in $listing; do
-      wid=${line%%	*}
-      wname=${line#*	}
-      if [ "$window" = "$wid" ] || [ "$window" = "$wname" ]; then
+      wid=${line%% *}
+      lname=${line#* }
+      if [ "$window" = "$wid" ] || [ "$window" = "$lname" ]; then
         found=1
         break
       fi

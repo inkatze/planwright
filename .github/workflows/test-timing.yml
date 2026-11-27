@@ -48,7 +48,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || github.event.label.name == 'measure-test-time'
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-26.04 runs the suites about 1.6x slower; revisit when 24.04 nears end of life.
+    runs-on: ubuntu-24.04
     # Serial x best-of-N over the whole suite is inherently long: it is
     # deliberately ~N times a serial suite pass, which on a 2-core runner puts
     # best-of-3 over ~140 files well past an hour. The bound is generous because
