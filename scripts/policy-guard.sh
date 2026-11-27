@@ -3903,7 +3903,7 @@ classify_gh_api() {
 
   ep=$(norm_endpoint "$endpoint")
   case $ep in
-    *%* | *..* | *//* | . | ./* | */. | */./*)
+    *%* | *..* | *//* | /* | . | ./* | */. | */./*)
       ghapi_opaque 'its path carries a percent escape, a dot segment, or an empty segment'
       return 0
       ;;
@@ -6447,9 +6447,9 @@ symref_dsts() {
       *) emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, and git could not resolve it to see where it pushes (git exit $rc) - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>." ;;
     esac
     # A name git reads as more than one ref resolves to nothing here, while
-    # push may still take its one branch, so only a full object id passes
-    # empty (an abbreviated one can also be a branch's name).
-    [ -n "$t" ] || [[ $r =~ ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$ ]] \
+    # push may still take its one branch; an object id resolves to nothing
+    # too, and git refuses to push one with no destination anyway.
+    [ -n "$t" ] \
       || emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, which git does not read as a single ref, so the guard cannot tell where it pushes - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
     case $t in
       refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;

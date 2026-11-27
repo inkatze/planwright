@@ -149,6 +149,9 @@ for tier in worker tower; do
     reason_has 'single ref' "[$tier] the $src deny says git reads no single ref"
   done
 done
+HEXSHA=$(git -C "$AMB" rev-parse HEAD)
+pg worker "git push origin $HEXSHA" "$AMB"
+expect deny "[worker] a push of a bare object id, which git refuses with no destination and which can also be a ref name, denies"
 BADREFS="$SANDBOX/bad-refs"
 clone_on "$BADREFS" planwright/demo/task-1 1
 printf 'not a packed ref line\n' >>"$BADREFS/.git/packed-refs"
@@ -262,11 +265,15 @@ for tier in worker tower; do
   # A dot segment, which a server normalizes away, is unreadable on any write.
   for cmd in 'gh api -X PUT repos/acme/widgets/./branches/main/protection -F enforce_admins=false' \
     'gh api -X PUT repos/acme/widgets/./pulls/1/merge' 'gh api -X PUT ./repos/acme/widgets/pulls/1/merge' \
-    'gh api -X PATCH repos/acme/widgets/git/refs/heads/./main -F force=true'; do
+    'gh api -X PUT repos/acme/widgets/./contents/x -f message=m -f content=eA==' \
+    'gh api -X PUT //repos/acme/widgets/pulls/1/merge'; do
     pg "$tier" "$cmd"
-    expect deny "[$tier] $cmd (a dot segment in a write's path) denies"
+    expect deny "[$tier] $cmd (a dot or empty segment in a write's path) denies"
+    reason_has 'dot segment' "[$tier] $cmd denies as an unreadable path"
   done
 done
+pg worker 'gh api repos/acme/widgets/./pulls/1'
+expect defer "[worker] a read whose path carries a dot segment defers"
 for cmd in 'gh api repos/acme/widgets/branches/main/protection' 'gh api repos/acme/widgets/rulesets' \
   'gh api -X GET repos/acme/widgets/rulesets/42' 'gh api -X GET repos/acme/widgets/branches/main/protection/required_status_checks' \
   'gh api -X PUT repos/acme/widgets/contents/.github/rulesets/main.json -f message=m -f content=eA== -f branch=feature' \
