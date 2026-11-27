@@ -1162,7 +1162,7 @@ run_checks "checks (default): an expanded shard's cancellation needs a pass of t
 run_checks "checks (default): a neutral successor supersedes a cancellation" defer \
   "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' NEUTRAL),$(ci_check_run 780 check SUCCESS)"
 run_checks "checks (default): a successor naming no workflow run supersedes nothing" deny \
-  "$SUPERSEDED,"'{"name":"test (shard 1/2)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-26T10:34:03Z"},'"$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
+  "$SUPERSEDED,"'{"name":"test (shard 1/2)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-26T10:34:15Z"},'"$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): a pass in the cancelled check's own run supersedes nothing" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
