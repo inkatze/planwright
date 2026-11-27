@@ -247,7 +247,8 @@ draft and marking it ready again fires the run instead (the re-draft is the
 operator's: the policy guard keeps it from agents). A pull request is
 flip-ready or merge-ready only with a PR-Agent run on its final head that
 passed (or was skipped by the `skip-pr-agent` label or a dependabot head) and
-its findings answered.
+its findings answered. An opted-out draft still takes one review request: the
+run it fires skips the review, and that skip is the check the flip waits for.
 
 ### Opt-in suites, outside the gate
 
