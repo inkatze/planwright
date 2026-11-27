@@ -1755,8 +1755,8 @@ assert_exit "the default workflows dir resolves to the repo's" 0 $?
 
 # rel_value <file> <key> — the value of <key> under the top-level
 # `concurrency:`, a `>-` block folded onto one line. Outside quoted literals,
-# runs of whitespace collapse to one space and the spaces beside parentheses
-# are dropped, so a literal's own spacing still counts.
+# runs of whitespace collapse to one space and the spaces just inside
+# parentheses are dropped, so a literal's own spacing still counts.
 rel_value() {
   awk -v key="$2" -v sq="'" '
     /^[^ #]/ {
@@ -1968,10 +1968,9 @@ pred_other="$(rel_predicate 'chore(main): release ')"
   rel_mutation both-drop-7 "\${{ $pred_no7$GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_NOT_TEN"
   rel_mutation literal-spacing "\${{ $pred_spaced$GROUP_TAIL" "\${{ !($pred_spaced) }}" "$REL_NOT_TEN"
   rel_mutation other-title-prefix "\${{ $pred_other$GROUP_TAIL" "\${{ !($pred_other) }}" "$REL_NOT_TEN"
+  rel_mutation job-level "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_JOB_LEVEL" '' \
+    "$(printf '%s\n' '  x:' '    concurrency:' '      group: x-${{ github.ref }}' '      cancel-in-progress: true')"
 }
-# shellcheck disable=SC2016 # literal GitHub expressions
-rel_mutation job-level "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_JOB_LEVEL" '' \
-  "$(printf '%s\n' '  x:' '    concurrency:' '      group: x-${{ github.ref }}' '      cancel-in-progress: true')"
 
 # ---------------------------------------------------------------------------
 # The platform matrix (--matrix; universal-binary REQ-B1.6). Each case is the
