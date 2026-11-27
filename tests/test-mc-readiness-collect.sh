@@ -197,11 +197,11 @@ expect_out "and the walk names its cancelled check" "fail${tab}check${tab}check 
 superseded_pr "$(ci_check_run 601 "$placeholder" CANCELLED), $(ci_check_run 780 'test (shard 1/2)' FAILURE), $(ci_check_run 780 check FAILURE)"
 collect_superseded "collect over a head whose successor failed the job" collected-redsucc
 has "a successor's failed job supersedes nothing" "check${tab}${placeholder}${tab}CANCELLED"
-# The bypass rows read the same selection: a superseded window-lock is not
-# named as a check the operator bypasses.
+# The bypass rows follow the latest-run rule too: a window-lock cancelled and
+# then passed by a later run is not named as a check the operator bypasses.
 superseded_pr "$(ci_check_run 780 window-lock SUCCESS '' release-window), $(ci_check_run 601 window-lock CANCELLED '' release-window), $live_run"
-collect_superseded "collect over a head with a superseded window-lock" collected-lock
-hasnt "a superseded window-lock is not named for bypass" "bypass${tab}window-lock"
+collect_superseded "collect over a head with a window-lock passed after its cancellation" collected-lock
+hasnt "a window-lock passed after its cancellation is not named for bypass" "bypass${tab}window-lock"
 superseded_pr "$(ci_check_run 780 window-lock FAILURE '' release-window), $(ci_check_run 781 window-lock SUCCESS '' release-window), $live_run"
 collect_superseded "collect over a head with two window-lock runs started together" collected-locktie
 has "a tie in start names the window-lock run that did not pass for bypass" "bypass${tab}window-lock${tab}FAILURE"
