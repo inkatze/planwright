@@ -156,7 +156,7 @@ rm -f "$repo/.github/workflows/pr-agent.yml"
 # cancelled by the newer. The cancelled one's matrix jobs are reported under
 # their unexpanded names, which the live run's shard names never supersede,
 # and its check job ties the live one's start. Once a later run of the same
-# workflow on the head passed the same job, the cancellation is no flip
+# workflow on the head succeeded at one of its shards, the cancellation is no flip
 # condition; a cancelled run with no passing successor still is, and nothing
 # but a cancellation is ever dropped.
 mv "$tmp/pr.json" "$tmp/pr.json.keep"

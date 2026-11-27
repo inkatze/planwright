@@ -132,6 +132,16 @@ run_helper flip --spec specs/demo --task 1
 check "a red window-lock alone is no positive green (exit 4)" [ "$CODE" = 4 ]
 fixture
 set_policy unit-owner
+echo run-superseded >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a run's cancellations a later run superseded never hold the flip" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo run-cancelled-alone >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a cancelled run with no successor is no positive green (exit 4)" [ "$CODE" = 4 ]
+fixture
+set_policy unit-owner
 echo tied-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a failure started in the same second as a success of its check is not green" [ "$CODE" = 4 ]

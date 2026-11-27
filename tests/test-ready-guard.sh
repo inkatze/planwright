@@ -1091,7 +1091,7 @@ run_checks "checks (default): a cancelled run with no passing successor denies" 
   "$SUPERSEDED" 'job-total[ }]*[)] is CANCELLED'
 run_checks "checks (default): a successor that has not reported the job yet supersedes nothing" deny \
   "$SUPERSEDED,$(ci_check_run 780 lint SUCCESS),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" 'check is CANCELLED'
-run_checks "checks (default): a successor still running supersedes nothing" deny \
+run_checks "checks (default): a successor still running still holds the flip" deny \
   "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check '' 0001-01-01T00:00:00Z ci IN_PROGRESS)" 'check is PENDING'
 run_checks "checks (default): a successor's skip of the job supersedes nothing" deny \
   "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SKIPPED),$(ci_check_run 780 check SUCCESS)" 'job-total[ }]*[)] is CANCELLED'
@@ -1099,6 +1099,19 @@ run_checks "checks (default): another workflow's passing check of the same name 
   "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check SUCCESS '' lint)" 'check is CANCELLED'
 run_checks "checks (default): a pass of another job sharing the first word supersedes nothing" deny \
   "$(ci_check_run 601 'Test integration' CANCELLED),$(ci_check_run 780 'Test unit' SUCCESS)" 'Test integration is CANCELLED'
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix names, verbatim
+{
+  run_checks "checks (default): another matrix job's shard sharing the first word supersedes no placeholder" deny \
+    "$(ci_check_run 601 'test integration (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test unit (shard 1/2)' SUCCESS)" 'integration .shard'
+  run_checks "checks (default): another job sharing the text before its own parenthesis supersedes no placeholder" deny \
+    "$(ci_check_run 601 'build (linux) (${{ matrix.arch }})' CANCELLED),$(ci_check_run 780 'build (windows)' SUCCESS)" 'build .linux.'
+}
+run_checks "checks (default): an expanded shard's cancellation needs a pass of that same shard" deny \
+  "$(ci_check_run 601 'test (shard 1/2)' CANCELLED),$(ci_check_run 780 'test (shard 2/2)' SUCCESS),$(ci_check_run 780 check SUCCESS)" 'shard 1/2. is CANCELLED'
+run_checks "checks (default): a neutral successor supersedes a cancellation" defer \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' NEUTRAL),$(ci_check_run 780 check SUCCESS)"
+run_checks "checks (default): a successor naming no workflow run supersedes nothing" deny \
+  "$SUPERSEDED,"'{"name":"test (shard 1/2)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-26T10:34:03Z"},'"$(ci_check_run 780 check SUCCESS)" 'job-total[ }]*[)] is CANCELLED'
 run_checks "checks (default): a pass in the cancelled check's own run supersedes nothing" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" 'job-total[ }]*[)] is CANCELLED'
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \

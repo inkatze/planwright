@@ -1,10 +1,9 @@
 # check-runs.jq — the one selection of a pull request's check runs that
 # scripts/ready-guard.sh, scripts/ready-flip.sh and scripts/mc-readiness.sh
 # judge readiness by. Each prepends this file to its own program, so a fix here
-# reaches all three.
-# The release gate (rl_ci_state in scripts/release-lib.sh) and mission
-# control's merge-ready candidate read (GitHub's combined rollup state) apply
-# none of this selection.
+# reaches all three. Some other readers of a head's checks apply none of it,
+# the release gate (rl_ci_state in scripts/release-lib.sh) among them; the
+# observation 2026-11-26-release-gate-superseded-cancels lists them.
 #
 # A cancelled check that a newer run of its workflow made obsolete is dropped
 # first (drop_superseded_cancels, below). Then a check run listed in
@@ -35,7 +34,9 @@ def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name 
 
 # A skipped matrix job is reported under its unexpanded name, which a later
 # run's expanded shard names never supersede; so a skipped macOS entry is
-# dropped when a shard of the same job (the name up to the first space) passed.
+# dropped when a shard of the same job passed. This family key (the name up to
+# the first space) is coarse and serves only that macOS rule; the cancellation
+# drop below matches names exactly or by placeholder.
 def mac_family: (.name // "") | split(" ")[0];
 
 # The workflow run a check run belongs to, from its details URL; null for a
@@ -45,33 +46,44 @@ def check_workflow_run: if .context != null then null
 
 def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED" and (.conclusion // "") == "CANCELLED";
 
-# The job a check run reports, its matrix suffix left off: `test (shard 1/2)`
-# and the unexpanded `test (shard ${{ matrix.shard }}/…)` are both `test`.
-def check_job: (.name // "") | sub(" [(].*[)]$"; "");
+def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
+  and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
+
+# Whether a check name could be one an unexpanded placeholder name stands for:
+# a matrix job cancelled before it expanded keeps `${{ … }}` in its name, so
+# `test (shard 1/2)` fits `test (shard ${{ matrix.shard }}/…)`. The fixed text
+# before the first `${{` and after the last `}}` must both match, and a
+# placeholder with no fixed text before it fits nothing.
+def fits_placeholder($placeholder):
+  ($placeholder | split("${{")[0]) as $head | ($placeholder | split("}}") | last) as $tail
+  | $head != "" and startswith($head) and endswith($tail) and length >= ($head | length) + ($tail | length);
 
 # When a newer run on the head cancels an older run of its workflow, the older
 # run's checks end CANCELLED. A cancelled matrix job is reported under its
 # unexpanded placeholder, which the newer run's shard names never replace, and
 # a cancelled job can tie the newer run's start to the second, where a tie goes
 # to the check that did not pass. So a finished CANCELLED check with a known
-# start is dropped when another workflow run of the same workflow has a check
+# time is dropped when another workflow run of the same workflow has a check
 # that succeeded (SUCCESS or NEUTRAL, a skip running nothing) and started no
-# earlier, with the same name, or for a placeholder, of the same job. Only
-# cancellations go: a failure, a check still running, and a pass are never
-# dropped, whatever ran after them, so a later failing re-run and a reused
-# run's earlier macOS passes count as before. A cancellation with no such
-# successor still counts.
+# earlier, with the same name, or for a placeholder, a name the placeholder
+# fits. Only cancellations go: a failure, a check still running, and a pass
+# are never dropped, whatever ran after them, so a later failing re-run and a
+# reused run's earlier macOS passes count as before. A cancellation with no
+# such successor still counts.
 def drop_superseded_cancels:
-  [.[] | {entry: ., run: check_workflow_run, workflow: (.workflowName // ""), name: (.name // ""),
-    job: check_job, started: check_started, cancelled: check_cancelled,
-    succeeded: (((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL") and check_passed)}] as $rows
-  | [$rows[] | select(.succeeded and .run != null and .workflow != "")] as $successes
-  | [$rows[]
-      | . as $row
-      | select(($row.cancelled and $row.run != null and $row.workflow != "" and $row.started != ""
-          and any($successes[]; .run != $row.run and .workflow == $row.workflow and .started >= $row.started
-            and (.name == $row.name or (($row.name | contains("${{")) and .job == $row.job)))) | not)
-      | .entry];
+  if any(.[]; check_cancelled) | not then . else
+    [.[] | {entry: ., run: check_workflow_run, workflow: (.workflowName // ""), name: (.name // ""),
+      started: check_started, cancelled: check_cancelled, succeeded: check_succeeded}] as $rows
+    | [$rows[] | select(.succeeded and .run != null and .workflow != "")] as $successes
+    | [$rows[]
+        | . as $row
+        | ($row.cancelled and $row.run != null and $row.started != ""
+            and any($successes[]; .run != $row.run and .workflow == $row.workflow and .started >= $row.started
+              and (.name == $row.name
+                or (($row.name | contains("${{")) and (.name | fits_placeholder($row.name)))))) as $superseded
+        | select($superseded | not)
+        | .entry]
+  end;
 
 # A check run whose "<workflow>/<name>" is in $base_state (scripts/base-state-checks.sh) describes the
 # base branch, not the pull request, so it is no flip condition. The caller
@@ -84,10 +96,10 @@ def base_state_check: .context == null and (.status // "COMPLETED") == "COMPLETE
 
 # An array of rollup entries in, the base-state checks whose latest finished run
 # did not pass out: what the operator bypasses at merge, named by each reader's
-# ready report.
+# ready report. A tie in start goes to the run that did not pass, as below.
 def bypassed_check_runs: drop_superseded_cancels | [.[] | select(base_state_check)] | to_entries
   | group_by(.value | check_context)
-  | map(max_by([(.value | check_started), .key]))
+  | map(max_by([(.value | check_started), (if .value | check_passed then 0 else 1 end), .key]))
   | sort_by(.key) | map(.value) | map(select(check_passed | not));
 
 # An array of rollup entries in, the latest run of each context out, in the
