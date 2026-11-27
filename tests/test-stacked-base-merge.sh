@@ -569,4 +569,21 @@ else
   fail "[sync] a tag named like the base: rc=$RC err='$(cat "$SANDBOX/sync.err")'"
 fi
 
+# A stacked base that is the launch's spec branch merges into the unit only by
+# git merge --ff-only, which the helper's ordinary merge is not.
+SY6="$SANDBOX/sy6"
+sync_clone "$SY6"
+write_rec "$SANDBOX/rec/sy6.record" "origin/$SPEC_BR"
+sed -i.bak "s|^worktree_root=.*|worktree_root=$SY6|" "$SANDBOX/rec/sy6.record" && rm -f "$SANDBOX/rec/sy6.record.bak"
+printf 'spec_branch=%s\n' "$SPEC_BR" >>"$SANDBOX/rec/sy6.record"
+adv_base "$SPEC_BR"
+gitq -C "$SY6" fetch origin
+before=$(git -C "$SY6" rev-parse HEAD)
+run_sync "$SY6" "$SANDBOX/rec/sy6.record" --base "$SPEC_BR"
+if [ "$RC" = 2 ] && [ "$(git -C "$SY6" rev-parse HEAD)" = "$before" ] && grep -q 'ff-only' "$SANDBOX/sync.err"; then
+  pass "[sync] --base refuses a stacked base that is the launch's spec branch, naming --ff-only"
+else
+  fail "[sync] --base of the spec branch: rc=$RC out='$OUT' err='$(cat "$SANDBOX/sync.err")'"
+fi
+
 finish

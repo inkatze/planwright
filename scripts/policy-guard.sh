@@ -5863,7 +5863,7 @@ eval_merge() {
     [ "$rc" != 0 ] || continue
     [ "$rc" != 2 ] \
       || emit_deny "this git merge names the branch's own remote branch, but $(sanitize_printable "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" 'its remote-tracking ref') is missing or a local branch or tag of that name points at another commit - refusing (fail closed). Push or fetch the branch first, and remove any local branch or tag of that name."
-    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$([ -z "$STACK_BRANCH" ] || printf %s " or git merge $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the stacked base') (this stacked PR's base, or its tip commit id)"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$({ [ -z "$STACK_BRANCH" ] || stack_is_spec; } || printf %s " or git merge $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the stacked base') (this stacked PR's base, or its tip commit id)")$(! stack_is_spec || printf %s " or git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the spec branch') (this stacked PR's base, its launch's spec branch)"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
   done
 }
 
