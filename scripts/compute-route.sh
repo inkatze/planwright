@@ -227,11 +227,12 @@ probe_run() {
   return "$_prc"
 }
 
-# cap_field <name>: the first <name>= value on the capacity line, or nothing.
+# cap_field <line> <name>: the first <name>= value on a capacity line, or nothing.
 cap_field() {
-  case $line in
-    *" $1="*)
-      _f=${line#*" $1="}
+  _l=" $1 "
+  case $_l in
+    *" $2="*)
+      _f=${_l#*" $2="}
       printf '%s' "${_f%% *}"
       ;;
   esac
@@ -244,10 +245,10 @@ if [ "$shared" = yes ]; then
   # The capacity line carries the load probe's fields, so a shared host is
   # probed once.
   probe_run capacity "$work/probe" || fall_back "$unreachable" "$@"
-  line=" $(sed -n '1p' "$work/probe") "
-  load=$(cap_field load)
-  cores=$(cap_field cores)
-  idle=$(cap_field idle_secs)
+  line=$(sed -n '1p' "$work/probe")
+  load=$(cap_field "$line" load)
+  cores=$(cap_field "$line" cores)
+  idle=$(cap_field "$line" idle_secs)
   no_load="compute host is shared and did not report a usable load and core count"
 elif probe_run load "$work/probe"; then
   line=$(sed -n '1p' "$work/probe")
