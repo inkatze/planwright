@@ -919,8 +919,9 @@ environment. A record that is a symlink, is not this user's own regular file,
 sits inside the worktree, names the field twice, or names anything outside
 `planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
 set other than a sign-off branch, below) names no branch. Only the worker
-tier reads it. Two acts open (a sign-off branch takes the separate pair
-below instead), and nothing else:
+tier reads it. Two acts open, and on an amendment or spec-rework branch the
+push of the merge they build (below); a sign-off branch takes the separate
+pair below instead, and nothing else opens:
 
 - **Bring the branch in.** On the session's own flight branch,
   `git merge --ff-only origin/<spec branch>` (also spelled
@@ -929,12 +930,8 @@ below instead), and nothing else:
   local name, a SHA, a tag, or any other branch (another spec branch, another
   worker's flight branch) keeps today's refusal, and so does a local branch or
   tag of the same name at another commit. Merging `origin/main` afterwards is
-  the ordinary base merge, and the push of the result to the spec branch is an
-  ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
-  branch>`) that the guard never refused: such a spec branch is outside the
-  protected set, and the profile's force and `+` denies still refuse a force.
-  A sign-off branch is in the protected set and takes neither act; it has its
-  own pair, below.
+  the ordinary base merge. A sign-off branch is in the protected set and takes
+  neither act; it has its own pair, below.
 - **Sync it with its base.** In a linked worktree that is the session's
   project directory with the named spec branch checked out, `git merge
   origin/main` (the PR base alone, by name and by what git resolves it to) is
@@ -952,7 +949,19 @@ below instead), and nothing else:
   worktree when it is elsewhere, then the fast-forward to the PR head, then
   the base merge.
 
-No force, reset or rebase is admitted by either act.
+No force, reset or rebase is admitted by either act. Every agent `git push`,
+and every `gh api` ref, commit, contents or rename write, naming a spec PR
+branch outside the protected floor (`planwright/<spec>/amendment-*`,
+`planwright/<spec>/spec-rework*`) is refused at every tier, the record or a
+kickoff scope notwithstanding, but one: the push of a clean merge of `main` by
+the worker the record names, below. A spec's content reaches such a branch
+only through the kickoff push helper, from below the hook, which takes
+`planwright/<spec>/spec` and `planwright/<spec>/amendment-<n>` alone.
+`scripts/tower-force-push.sh` refuses only the protected set, but pushing a
+spec branch is the kickoff's composition contract (`doctrine/human-gates.md`)
+and the tower skill keeps its force-push off spec branches, which human-gates
+counts the sign-off, amendment and spec-rework branches among, so no agent
+route publishes a spec-rework branch's content: the operator does.
 
 A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
 floor, and only its kickoff writes the spec's content there. A record naming
@@ -994,12 +1003,26 @@ on that pull request can land a forward merge of `main` and nothing else:
   older git refuses with that reason), in every file and mode. A conflict
   resolved by hand or any edit inside the merge refuses, spec files or not,
   and so do a direct spec edit, any non-merge commit, a merge of anything but
-  `main`, a delete, a failed git read, and a push from a session with no
-  record or another pull request's. For both acts the protected-set read
+  `main`, a delete, a failed git read, a push from a session with no
+  record or another pull request's, and any push while `worker_base_merge`
+  is `deny`. For both acts the protected-set read
   exempts only the floor's own `planwright/*/spec` entry: a
   `protected_branches` addition that matches the sign-off branch, a
   duplicate of that entry included, still refuses them. Every other target
   of the same push is read as usual.
+
+An amendment branch (`planwright/<spec>/amendment-<n>`) or a spec-rework
+branch (`planwright/<spec>/spec-rework`) the record names takes that same
+push, built by the sync act above and decided by the same check, with one
+difference: the branch sits outside the protected floor, so the protected set
+is read for it whole and any entry matching it refuses. As on the sign-off
+branch, `worker_base_merge: deny` refuses the push as it refuses the merge,
+and a merge of any commit `main` holds, several merges in a row, and a push
+adding nothing are admitted. Any other spelling of these branches
+(`amendment-x`, `spec-rework-2`), a push from a session with no record or one
+naming another branch, a record variable assigned on the command line, and
+every host write still refuse, so a hand resolution or a spec edit never
+leaves the worker.
 
 A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change

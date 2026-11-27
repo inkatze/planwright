@@ -135,17 +135,24 @@
 #               rewritten commit. A rebase with -x/--exec denies: its
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
-#   push       a force or bulk push denies; every other push reads the
-#               protected set and denies a target inside it. The one
-#               exception is the sign-off branch the session record names,
-#               pushed by explicit refspec as the command's only act: it reads
-#               no protected set and is decided by signoff_push_check, a
-#               fast-forward of nothing but clean merges of the base, read
-#               from the remote itself.
+#   push       a force or bulk push denies; so does every push to a spec PR
+#               branch outside the floor (planwright/<spec>/amendment-*,
+#               planwright/<spec>/spec-rework*): an amendment-<n> branch's
+#               content goes out through the kickoff push helper, anything
+#               else through the operator; every other push reads the
+#               protected set and denies a target inside it. The exception
+#               is the spec branch the session record names, a sign-off,
+#               amendment-<n> or spec-rework branch, pushed by explicit
+#               refspec as the command's only act from the worker's worktree
+#               holding it: signoff_push_check decides it, a fast-forward of
+#               nothing but clean merges of the base, read from the remote
+#               itself, with worker_base_merge allow. A sign-off branch reads
+#               no protected set for it; the other two read it whole.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
-#               commit, or rename write to a named branch reads only the
+#               commit, or rename write to a named branch denies a spec PR
+#               branch at every tier, record or not, then reads only the
 #               protected set (a rename checks both names; a contents write
 #               naming no branch denies, since it writes the default branch);
 #               a request the guard cannot read (a field from a file or stdin,
@@ -1205,6 +1212,53 @@ check_unprotected() {
   esac
 }
 
+# spec_pr_branch_hit <branch...> — 0, with SPB_HIT set to the first, when a
+# branch is a spec PR branch outside the protected floor: an amendment
+# (planwright/<spec>/amendment-*) or rework (planwright/<spec>/spec-rework*)
+# branch, `refs/heads/` stripped and case folded as the protected set is; the
+# flight namespace names no spec. The floor leaves these branches off because
+# the kickoff push helper publishes an amendment branch from below this hook.
+# eval_push decides the record-named worker's merge push before this rule
+# (signoff_push_check), so only the pushes it does not admit reach here.
+SPB_HIT=''
+spec_pr_branch_hit() {
+  local b LC # local: lc sets it, and a caller may hold its own
+  SPB_HIT=''
+  for b in "$@"; do
+    lc "$b"
+    case ${LC#refs/heads/} in
+      planwright/*/*/* | planwright/flight/*) ;;
+      planwright/?*/amendment-* | planwright/?*/spec-rework*)
+        SPB_HIT=$b
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+# spec_pr_branch_text <what> — the refusal for SPB_HIT. Only an exact
+# planwright/<spec>/amendment-<digits>, <spec> in the spec-id grammar, is
+# offered the kickoff push helper, since the helper refuses every other name.
+spec_pr_branch_text() {
+  local hit=${SPB_HIT#refs/heads/} n spec
+  n=${hit##*/amendment-}
+  spec=${hit#planwright/}
+  spec=${spec%%/*}
+  case $hit in
+    planwright/?*/amendment-?*)
+      case $n:$spec in
+        *[!0-9]*:* | *:*[!a-z0-9-]* | *:-*) ;;
+        *)
+          printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (an amendment branch), whose content only its kickoff session publishes, through $KICK_FORM run as its own command; the one other push is the worker its launch record names landing a clean merge of main, by explicit refspec from its own worktree holding the branch, as the command's only act. No other agent push or write reaches it at any tier - refusing. Work on your own unit branch."
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  printf '%s' "$1 targets $(sanitize_printable "$SPB_HIT" 'a spec PR branch'), a spec PR branch (a spec-rework branch, or an amendment branch the kickoff push helper does not take). The one agent push it takes is the worker its launch record names landing a clean merge of main on planwright/<spec>/spec-rework or planwright/<spec>/amendment-<n>, by explicit refspec from its own worktree holding the branch, as the command's only act; the operator publishes anything else - refusing. Work on your own unit branch."
+}
+
 # --------------------------------------------------------------------------
 # Repository state.
 
@@ -1900,8 +1954,10 @@ tower_wrapped_git_check() {
 
 # --------------------------------------------------------------------------
 # The kickoff sign-off push. scripts/kickoff-spec-push.sh pushes a spec's own
-# sign-off branch, which the protected set otherwise refuses to every agent
-# session. Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
+# sign-off branch, which the protected set (the spec branch) or the spec PR
+# branch rule (an amendment branch) otherwise refuses to every agent session;
+# eval_push's record-named merge push is the one other route there.
+# Only a worker whose launch scope (PLANWRIGHT_WORKER_SCOPE in the
 # hook's environment, which a command's inline assignment cannot change) names
 # that spec's kickoff may run it: kickoff-<spec>, from the spec branch or any of
 # its amendment branches (planwright/<spec>/amendment-<n>), or an amendment
@@ -3628,9 +3684,9 @@ classify_gh_api() {
   esac
 
   # GraphQL writes that name a branch: the target must be a literal branch
-  # name in the query, checked against the protected set.
+  # name in the query, checked as any host ref write (queue_host_write).
   case $all_fields in
-    *createCommitOnBranch* | *createRef*)
+    *createCommitOnBranch* | *createRef* | *createLinkedBranch*)
       # A variable or a comment in the query can carry the real target while
       # a literal one decoys the read, so either refuses.
       case $query_text in
@@ -3645,6 +3701,12 @@ classify_gh_api() {
         rest=${rest#*"${BASH_REMATCH[0]}"}
         t=${t#refs/heads/}
         case $t in refs/*) continue ;; esac
+        # An empty literal is the opening of a block string ("""name"""),
+        # whose content the pattern does not read.
+        [ -n "$t" ] || {
+          ghapi_opaque 'it creates a commit or a ref on a branch named in a form the guard does not read (an empty or block string)'
+          return 0
+        }
         targets="$targets $t"
       done
       case "$targets" in
@@ -3654,7 +3716,7 @@ classify_gh_api() {
           ;;
       esac
       # shellcheck disable=SC2086 # the target list, split on purpose (noglob is on)
-      queue_protected "$eff" "$eff_ok" "this gh api commit or ref write" $targets
+      queue_host_write "$eff" "$eff_ok" "this gh api commit or ref write" $targets
       return 0
       ;;
   esac
@@ -3733,7 +3795,7 @@ classify_gh_api() {
           deny_now "$(worker_delete_deny "this gh api request" "${orig_rest#heads/}")"
           return 0
         fi
-        queue_protected "$eff" "$eff_ok" "this gh api ref write" "${orig_rest#heads/}"
+        queue_host_write "$eff" "$eff_ok" "this gh api ref write" "${orig_rest#heads/}"
         ;;
     esac
     return 0
@@ -3768,7 +3830,7 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api branch rename" "$renamed" "$new_name"
+    queue_host_write "$eff" "$eff_ok" "this gh api branch rename" "$renamed" "$new_name"
     return 0
   fi
   if [ "${4:-}" = contents ] && [ "$seg_count" -ge 5 ]; then
@@ -3797,9 +3859,31 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
+    queue_host_write "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
   fi
   return 0
+}
+
+# queue_host_write <eff> <eff_ok> <what> <branch...> — a host ref write:
+# denied at once when it names a spec PR branch, else queued for the
+# protected-set read. A name the guard will not check, and the mission-control
+# tier, keep queue_protected's own refusal, so no unchecked name reaches a
+# reason.
+queue_host_write() {
+  local b
+  if [ "$TIER" != mission-control ]; then
+    for b in "${@:4}"; do
+      valid_branch "$b" || {
+        queue_protected "$@"
+        return 0
+      }
+    done
+    if spec_pr_branch_hit "${@:4}"; then
+      deny_now "$(spec_pr_branch_text "$3")"
+      return 0
+    fi
+  fi
+  queue_protected "$@"
 }
 
 # worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
@@ -5293,7 +5377,8 @@ kickoff_scope_names() {
 # spec_branch_checkout <dir> [<act, for a refusal>] — 0 when the session's
 # project directory is a linked worktree with a spec branch its launch names
 # checked out (the session record's spec_branch, or its kickoff scope's,
-# kickoff_scope_names) and <dir> is that same checkout; sets SBC_BRANCH. Any other state, a unit branch
+# kickoff_scope_names) and <dir> is that same checkout; sets SBC_BRANCH,
+# SBC_SIGNOFF and SBC_RECORD (below). Any other state, a unit branch
 # included, is 1 and leaves the ordinary rules to decide. A kickoff's own
 # planwright/<spec>/spec is in the protected floor, which governs pushes; its
 # kickoff's sign-off push reaches it through the kickoff push helper, which
@@ -5306,8 +5391,12 @@ kickoff_scope_names() {
 # read exempts the floor's own entry alone (signoff_added_protection): the push
 # from it is decided by signoff_push_check, and eval_merge admits it the one
 # bare base merge.
+#
+# SBC_RECORD is 1 when the launch record, not a kickoff scope, names the
+# branch, whatever its kind; signoff_push_check admits a push only then.
 SBC_BRANCH=''
 SBC_SIGNOFF=0
+SBC_RECORD=0
 
 # signoff_seg_match <pattern> <branch> — protected-branch.sh's matching, both
 # names case-folded: segment by segment, `*` within one segment, the same
@@ -5384,10 +5473,28 @@ is_signoff_branch() {
   [ "${1##*/}" = spec ]
 }
 
+# is_merge_route_branch <branch> — 0 for an amendment branch
+# (planwright/<spec>/amendment-<n>) or a spec-rework branch
+# (planwright/<spec>/spec-rework), given a name in the same shape: the spec PR
+# branches whose recorded worker pushes merges of main (signoff_push_check).
+# Every other spelling the spec PR branch rule catches stays refused.
+is_merge_route_branch() {
+  case $1 in planwright/flight/*) return 1 ;; esac
+  case ${1##*/} in
+    spec-rework) return 0 ;;
+    amendment-[0-9]*)
+      case ${1##*/amendment-} in *[!0-9]*) return 1 ;; esac
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 spec_branch_checkout() {
   local d=$1 what=${2:-this git merge} pdir=${CLAUDE_PROJECT_DIR:-} b top gd kick=0
   SBC_BRANCH=''
   SBC_SIGNOFF=0
+  SBC_RECORD=0
   [ "$TIER" = worker ] && [ -n "$pdir" ] && [ -d "$pdir" ] || return 1
   b=$(current_branch "$pdir")
   [ -n "$b" ] && ! is_unit_branch "$b" || return 1
@@ -5401,6 +5508,7 @@ spec_branch_checkout() {
   [ "$(current_branch "$d")" = "$b" ] || return 1
   checkout_of "$d" && [ "$CO_TOP" = "$top" ] && [ "$CO_GD" = "$gd" ] || return 1
   SBC_BRANCH=$b
+  [ "$kick" = 1 ] || SBC_RECORD=1
   if [ "$kick" = 0 ] && is_signoff_branch "$b"; then
     signoff_added_protection "$d" "$what" "$b"
     SBC_SIGNOFF=1
@@ -5757,20 +5865,24 @@ signoff_transport_stock() {
 }
 
 # signoff_push_check <dir> <del> <alone> <remote> <src> <branch> — 0 when a
-# push to the sign-off branch the launch record names is a forward-merge of
-# main and nothing else: the command's only act, no delete, run in the
-# worktree holding the branch (spec_branch_checkout), the branch's own
+# push to the spec branch the launch record names (a sign-off, amendment-<n>
+# or spec-rework branch: is_signoff_branch, is_merge_route_branch; the name
+# predates the latter two) is a forward-merge of main and nothing else: the
+# command's only act, no delete, run in the worktree holding the branch
+# (spec_branch_checkout), the branch's own
 # remote over a stock transport, no local state that changes git's reads
 # (signoff_local_trusted), a HEAD or local-branch source, and, against
 # the PR head and the remote's default branch as the remote itself reports
 # them, a fast-forward whose every new commit off that base lies on the
 # first-parent line and is a two-parent merge of a base commit whose tree is
-# the clean merge of its parents. SPC_WHY says why not.
+# the clean merge of its parents. SPC_WHY says why not. Its caller has
+# already refused the push unless worker_base_merge is allow (eval_push).
 SPC_WHY=''
 signoff_push_check() {
-  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
+  local d=$1 del=$2 alone=$3 rem=$4 src=$5 sb=$6 sig=0 want base hoid roid moid lroid lmoid all fp fpm c line ls lines oldest_p1='' n=0 rc=0
   local -a par
   SPC_WHY=''
+  ! is_signoff_branch "$sb" || sig=1
   [ "$del" = 0 ] || {
     SPC_WHY='this push deletes'
     return 1
@@ -5779,8 +5891,8 @@ signoff_push_check() {
     SPC_WHY='this push is not the command'"'"'s only act, so what it pushes may change after the guard reads it; run it on its own'
     return 1
   }
-  { spec_branch_checkout "$d" 'this git push' && [ "$SBC_SIGNOFF" = 1 ] && [ "$SBC_BRANCH" = "$sb" ]; } || {
-    SPC_WHY="it runs outside the worktree holding $(sanitize_printable "$sb" 'the sign-off branch') (the session's own linked worktree, with that branch checked out); push from there"
+  { spec_branch_checkout "$d" 'this git push' && [ "$SBC_RECORD" = 1 ] && [ "$SBC_SIGNOFF" = "$sig" ] && [ "$SBC_BRANCH" = "$sb" ]; } || {
+    SPC_WHY="it runs outside the worktree holding $(sanitize_printable "$sb" 'the branch') (the session's own linked worktree, with that branch checked out); push from there"
     return 1
   }
   want=$(gitq "$d" config --get "branch.$sb.remote") || want=''
@@ -5904,7 +6016,7 @@ EOF
 }
 
 eval_push() {
-  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb signoff=''
+  local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb recb=''
   del=${rest%%"$TAB"*}
   rest=${rest#*"$TAB"}
   alone=${rest%%"$TAB"*}
@@ -5942,7 +6054,9 @@ eval_push() {
   else
     if [ "$TIER" = worker ] && checkout_of "$dir"; then
       record_spec_branch "$CO_TOP"
-      ! is_signoff_branch "$SPEC_BRANCH" || signoff=$SPEC_BRANCH
+      if is_signoff_branch "$SPEC_BRANCH" || is_merge_route_branch "$SPEC_BRANCH"; then
+        recb=$SPEC_BRANCH
+      fi
     fi
     for r in $refs; do
       case $r in
@@ -5967,15 +6081,23 @@ eval_push() {
       esac
       valid_branch "$dst" \
         || emit_deny "this git push names a destination the guard will not check ($(sanitize_printable "$dst" 'unprintable')) - refusing (fail closed)."
-      if [ -n "$signoff" ] && [ "$dst" = "$signoff" ]; then
-        signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" \
+      if [ -n "$recb" ] && [ "$dst" = "$recb" ]; then
+        read_knob worker_base_merge "$dir" allow deny
+        [ "$KNOB_VAL" = allow ] \
+          || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec branch') is refused: worker_base_merge is deny, which refuses the push of a merge of main to the spec branch a launch record names as it refuses the merge. The operator syncs this branch with its base."
+        signoff_push_check "$dir" "$del" "$alone" "$remote" "$src" "$dst" && continue
+        ! is_signoff_branch "$dst" \
           || emit_deny "this git push to $(sanitize_printable "$dst" 'a spec sign-off branch') is refused: $SPC_WHY. Only that spec's kickoff writes its sign-off branch; a session launched on its pull request pushes there only a fast-forward that adds nothing but clean merges of main, as the command's only act."
-        continue
+        emit_deny "this git push to $(sanitize_printable "$dst" 'a spec PR branch'), a spec PR branch, is refused: $SPC_WHY. The worker its launch record names pushes there only a fast-forward that adds nothing but clean merges of main, by explicit refspec from its own worktree holding the branch, as the command's only act; any other change goes through its kickoff session or the operator."
       fi
       targets[${#targets[@]}]=$dst
     done
   fi
-  [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
+  [ "${#targets[@]}" != 0 ] || return 0
+  if spec_pr_branch_hit "${targets[@]}"; then
+    emit_deny "$(spec_pr_branch_text 'this git push')"
+  fi
+  check_unprotected "$dir" 'this git push' "${targets[@]}"
 }
 
 # --------------------------------------------------------------------------

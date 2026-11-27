@@ -1,8 +1,8 @@
 #!/bin/bash
 # Adversarial suite for scripts/policy-guard.sh: the spec PR branch a worker's
 # launch names (the session record's spec_branch). The worker may fast-forward
-# its own flight branch to that branch's remote-tracking ref and push HEAD to
-# that branch by explicit refspec, and nothing wider.
+# its own flight branch to that branch's remote-tracking ref, and nothing
+# wider; it never pushes the spec branch.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 # shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
@@ -38,7 +38,7 @@ mkdir -p "$SANDBOX/records"
 rec() { printf '%s\n' "$@" >"$REC"; }
 launch() { PLANWRIGHT_WORKER_SESSION_RECORD=$REC pg worker "$@" "$FL" "$FL"; }
 
-echo "# a launch naming the spec branch admits fast-forwarding to it, then the push"
+echo "# a launch naming the spec branch admits fast-forwarding to it, never the push"
 rec "unit_branch=$MYFL" "spec_branch=$SB"
 for cmd in "git merge --ff-only origin/$SB" "git merge --ff-only refs/remotes/origin/$SB" "git merge --ff-only --quiet origin/$SB"; do
   launch "$cmd"
@@ -50,7 +50,8 @@ expect defer "[worker] after the fast-forward, the PR base merges as before"
 gitq -C "$FL" merge origin/main
 for cmd in "git push origin HEAD:refs/heads/$SB" "git push origin HEAD:$SB"; do
   launch "$cmd"
-  expect defer "[worker] the explicit-refspec push to the named spec branch defers: $cmd"
+  expect deny "[worker] the explicit-refspec push to the named spec branch denies: $cmd"
+  reason_has 'a spec PR branch' "[worker] the refusal is the spec PR branch rule: $cmd"
 done
 
 echo "# nothing wider is admitted"
