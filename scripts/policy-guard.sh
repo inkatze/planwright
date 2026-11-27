@@ -1649,7 +1649,7 @@ segment_words() {
       # segment (for x do git push; done); one with a list has none here.
       for | select | foreach)
         j=$((k + 1))
-        while [ "$j" -lt "$e" ] && { [ "${W[$j]}" != do ] || [ "${WU[$j]}" != 1 ]; }; do
+        while [ "$j" -lt "$e" ] && { [ "${W[$j]}" != 'do' ] || [ "${WU[$j]}" != 1 ]; }; do
           j=$((j + 1))
         done
         if [ "$j" -lt "$e" ]; then
