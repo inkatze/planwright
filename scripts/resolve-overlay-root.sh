@@ -45,7 +45,12 @@
 #   adopter        per-operator, cross-repo, per-plugin namespace. Chain (first
 #                  derivable wins): $PLANWRIGHT_ADOPTER_OVERLAY (explicit
 #                  override) → $CLAUDE_PLUGIN_DATA/overlay (plugin mode; the
-#                  plugin-data id IS the namespace, update-stable) →
+#                  plugin-data id IS the namespace, update-stable) → the
+#                  data overlay of this copy's own marketplace, or for a copy
+#                  outside the plugin cache the installed record's current
+#                  one (<claude-dir>/plugins/data/planwright-<marketplace>/overlay,
+#                  for a session whose shell was never handed
+#                  CLAUDE_PLUGIN_DATA; used only when it exists) →
 #                  <claude-dir>/planwright/<name>/overlay (writer mode, where
 #                  <name> is the plugin manifest `name`, charset-validated).
 #   repo-tracked   <repo>/.claude (the tracked team overlay root).
@@ -250,7 +255,54 @@ case $layer in
       printf '%s\n' "$CLAUDE_PLUGIN_DATA/overlay"
       exit 0
     fi
-    # 3. Writer mode: derive the namespace from the manifest `name`.
+    # 3. A session whose shell was never handed CLAUDE_PLUGIN_DATA (a launched
+    # worker's or mission control's plain bash) derives it from the plugin: a
+    # root at <claude-dir>/plugins/cache/<marketplace>/planwright/<version>
+    # owns the data directory <claude-dir>/plugins/data/planwright-<marketplace>,
+    # used only when it already holds an overlay. A copy running from the
+    # cache takes its own marketplace's and no other, so two installs never
+    # read each other's; a copy outside the cache takes the installed record's
+    # current roots', never a cached copy the record no longer names.
+    if [ -n "$claude_dir" ]; then
+      # pd_overlay_of <root>: print the data overlay of <root>'s marketplace,
+      # failing when <root> is no cached copy or its overlay does not exist.
+      pd_overlay_of() {
+        case $1 in
+          "$claude_dir"/plugins/cache/*/planwright/*) ;;
+          *) return 1 ;;
+        esac
+        pd_rest=${1#"$claude_dir"/plugins/cache/}
+        pd_mkt=${pd_rest%%/*}
+        case $pd_mkt in "" | *[!A-Za-z0-9._-]*) return 1 ;; esac
+        [ -d "$claude_dir/plugins/data/planwright-$pd_mkt/overlay" ] || return 1
+        printf '%s\n' "$claude_dir/plugins/data/planwright-$pd_mkt/overlay"
+      }
+      pd_self=${script_dir%/scripts}
+      case $pd_self in
+        "$claude_dir"/plugins/cache/*)
+          pd_overlay_of "$pd_self" && exit 0
+          ;;
+        *)
+          pd_any=0
+          for pd_dir in "$claude_dir"/plugins/data/planwright-*/overlay; do
+            if [ -d "$pd_dir" ]; then
+              pd_any=1
+              break
+            fi
+          done
+          if [ "$pd_any" -eq 1 ] && [ -r "$script_dir/resolve-installed-roots.sh" ]; then
+            pd_roots=$(/bin/sh "$script_dir/resolve-installed-roots.sh" --current </dev/null 2>/dev/null) || pd_roots=''
+            while IFS= read -r pd_root; do
+              [ -n "$pd_root" ] || continue
+              pd_overlay_of "$pd_root" && exit 0
+            done <<EOF
+$pd_roots
+EOF
+          fi
+          ;;
+      esac
+    fi
+    # 4. Writer mode: derive the namespace from the manifest `name`.
     if [ -n "$claude_dir" ]; then
       manifest="$claude_dir/planwright/plugin.json"
       if [ -r "$manifest" ]; then

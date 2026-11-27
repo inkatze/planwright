@@ -564,6 +564,12 @@ args2="--run $r --kind command --target t --hosting isolated --backend runner --
 sr2 write $args2 --point pre-ci --step edge-a --end "not-a-time" >/dev/null 2>&1
 [ $? -eq 2 ]
 verdict "a malformed end time is refused" "bad --end accepted"
+h64=$(printf '%064d' 0 | tr 0 a)
+err=$(sr2 write --run "$r" --point pre-ci --step edge-b --kind command --target t --hosting isolated \
+  --backend runner --head "$h64" --start 2026-09-28T14:00:00Z --end 2026-09-28T14:00:01Z \
+  --outcome passed 2>&1 >/dev/null)
+[ $? -eq 2 ] && printf '%s' "$err" | grep -Fq "$h64"
+verdict "a 64-hex head that is no commit is refused naming it" "64-hex non-commit accepted: $err"
 w64="$tmp/w64"
 mkdir -p "$w64"
 git -C "$w64" init -q -b main --object-format=sha256
@@ -767,7 +773,7 @@ verdict "a retried completion after a failed one succeeds" "the failed completio
 # A missing secret screen withholds, never passes.
 lone="$tmp/lone"
 mkdir -p "$lone"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
+cp "$SR" "$repo_root/scripts/step-context.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$lone/"
 w6="$tmp/w6"
 fresh "$w6"
 r6=$(/bin/sh "$lone/step-record.sh" --worktree "$w6" new-run)
@@ -832,7 +838,7 @@ verdict "a merge commit's entry names the rejection trailer" "merge recipe missi
 # nothing behind; a completion with no warning runs no screen.
 slow="$tmp/slow"
 mkdir -p "$slow"
-cp "$SR" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$slow/"
+cp "$SR" "$repo_root/scripts/step-context.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" "$slow/"
 cat >"$slow/inception-secret-screen.sh" <<'STUB'
 #!/bin/sh
 if grep -q slowstep "$2"; then

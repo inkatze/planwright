@@ -175,7 +175,7 @@ mkdir -p "$cur/plugins"
 for copy in "$old_copy" "$new_copy"; do
   mkdir -p "$copy/scripts" "$copy/doctrine"
   for f in resolve-root.sh resolve-installed-roots.sh resolve-rule-doc.sh resolve-overlay-root.sh \
-    mc-event.sh mc-lib.sh untrusted-git-lib.sh echo-safety.sh fleet-dispatch-env.sh step-record.sh lock-lib.sh \
+    mc-event.sh mc-lib.sh untrusted-git-lib.sh echo-safety.sh fleet-dispatch-env.sh step-record.sh step-context.sh lock-lib.sh \
     mission-control-launch.sh fleet-launch-profile.sh; do
     cp "$REPO_ROOT/scripts/$f" "$copy/scripts/"
   done

@@ -374,7 +374,7 @@ rc=$?
 [ "$rc" -eq 0 ] && grep -qx 'mark=<unset>' "$tmp/log.mark" \
   && [ "$(grep -c 'pool helper failed' "$tmp/err")" -eq 1 ]
 verdict "a failing pool helper warns once and the suite runs unpooled" "helper: rc=$rc" "$tmp/err"
-cp "$repo_root/scripts/step-record.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" \
+cp "$repo_root/scripts/step-record.sh" "$repo_root/scripts/step-context.sh" "$repo_root/scripts/echo-safety.sh" "$repo_root/scripts/lock-lib.sh" \
   "$repo_root/scripts/inception-secret-screen.sh" "$stub/"
 run=$(PLANWRIGHT_SECRET_SCREEN_TOOL=none "$repo_root/scripts/step-record.sh" --worktree "$repo" new-run)
 (cd "$repo" && unset PLANWRIGHT_STEP_POOL_HOLD && PLANWRIGHT_SECRET_SCREEN_TOOL=none "$stub/full-suite-run.sh" --run "$run" -- "$suite" "$tmp/log" 0 0) >/dev/null 2>"$tmp/err"

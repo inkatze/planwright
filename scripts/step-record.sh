@@ -246,7 +246,8 @@
 #                 carries. A missing or unreadable file exits 2.
 #
 # Field grammar (write refuses a violation with exit 2, naming the field and
-# never echoing its value; no value is ever interpolated before it passes):
+# never echoing its value, bar a head of the full-id shape that names no
+# commit; no value is ever interpolated before it passes):
 #   --run          an issued run id: six digits naming an existing run dir
 #   --point        a name from doctrine/custom-steps.md's vocabulary; a point
 #                  the run already completed is refused, also with exit 2
@@ -260,13 +261,16 @@
 #                  one naming a commit object in the worktree's repository
 #                  (an abbreviated id, or one naming a tree, a blob, a tag, or
 #                  no object, is refused, as is any head when the worktree is
-#                  not the top of a git work tree); omitted
-#                  (write and status), the worktree's HEAD commit when the
-#                  verb runs, refused when it has none. Given, even empty, it
-#                  is never defaulted. A step record holds the head its step
-#                  started on, so a step that may commit passes that head;
-#                  the default fits a completion, status, and a step that
-#                  leaves HEAD where it found it.
+#                  not the top of a git work tree). Omitted, a step record
+#                  takes the head the run's begin record (step-run.sh begin)
+#                  holds for the step (refused when that names no commit),
+#                  else the worktree's HEAD commit when the step leaves it
+#                  where it found it; a skill or prompt step, not skipped,
+#                  with no begin record whose outcome is applied or whose end
+#                  head is not HEAD is refused rather than guessed at, since
+#                  the head it started on is unknown. A completion and status default
+#                  to HEAD, refused when it has none. Given, even empty, it is
+#                  never defaulted.
 #   --end-head     a full commit id, checked at write as --head is, the head
 #                  at the step's end; omitted, the
 #                  worktree's HEAD commit when the record is written, given
@@ -454,10 +458,13 @@
 # a cache that cannot be read or written, an exhausted counter, a cache lock
 # another writer held past the wait, a status with no attempt to post or a
 # post that failed, no SHA-256 tool for args-digest, a new-run or status from
-# a plugin-cache copy the installed record no longer names) · 2 a usage or
+# a plugin-cache copy the installed record no longer names, a broken install
+# missing a sourced helper) · 2 a usage or
 # field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
-# documented set on new-run, write, supersede, regenerate, or status (the other verbs,
-# bar excerpt and args-digest, only warn; resolve-steps.sh --check-env judges it) · 3 lookup found no
+# documented set on new-run, write, supersede, regenerate, or status (the
+# other verbs, bar excerpt and args-digest, only warn; resolve-steps.sh
+# --check-env judges it), or an exported branch, worktree, or kind that
+# disagrees with git on those same verbs · 3 lookup found no
 # record to stand on (or no unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.
@@ -593,6 +600,23 @@ set_head_from_worktree() {
   head=$WT_HEAD
 }
 
+# begin_head <run> <point> <step>: sets BEGIN_HEAD to the head step-run.sh's
+# begin recorded for the step, empty when there is none; returns 2 when the
+# begin record is no regular file, cannot be read, or holds a head line that
+# is empty or no full commit id.
+begin_head() {
+  BEGIN_HEAD=''
+  bh_f="$cache/$1/runner-pending-$2-$3"
+  [ -e "$bh_f" ] || [ -L "$bh_f" ] || return 0
+  [ -f "$bh_f" ] && [ ! -L "$bh_f" ] || return 2
+  # The "h" prefix tells a head line with an empty value from no head line.
+  bh_h=$(awk -F '\t' '$1 == "head" { print "h" $2; exit }' "$bh_f") || return 2
+  [ -n "$bh_h" ] || return 0
+  bh_h=${bh_h#h}
+  is_head "$bh_h" || return 2
+  BEGIN_HEAD=$bh_h
+}
+
 # git_wt <args>: git in the worktree with every inherited variable that would
 # point it at another repository, index, object store, or pathspec reading
 # cleared (a guarded caller's driver settings excepted); pathspecs are literal
@@ -647,8 +671,13 @@ check_head_commit() {
   _fix='pass the full sha `git rev-parse HEAD` prints in the worktree'
   is_head "$2" || bad "$1" "not a full commit id; $_fix"
   worktree_is_top || bad "$1" "cannot be checked: the worktree is not the top of a git work tree"
-  [ "$(git_wt cat-file -t "$2" 2>/dev/null)" = commit ] \
-    || bad "$1" "names no commit in the worktree's repository; $_fix"
+  names_commit "$2" || bad "$1" "$2 names no commit in the worktree's repository; $_fix"
+}
+
+# names_commit <id>: succeeds when <id> names a commit object in the
+# worktree's repository.
+names_commit() {
+  [ "$(git_wt cat-file -t "$1" 2>/dev/null)" = commit ]
 }
 
 # worktree_head <flag>: read_worktree_head, a failure refusing <flag>.
@@ -878,6 +907,17 @@ case $worktree in /*) ;; *) worktree="./$worktree" ;; esac
 [ -d "$worktree" ] || bad --worktree "not a directory"
 worktree=$(cd -P -- "$worktree" && pwd -P) || bad --worktree "not readable"
 cache="$worktree/.claude/steps"
+# Fields git knows are filled when unset, and an exported one that disagrees
+# with git is refused (scripts/step-context.sh).
+case $verb in
+  new-run | write | supersede | regenerate | status)
+    [ -f "$script_dir/step-context.sh" ] && [ -r "$script_dir/step-context.sh" ] \
+      || die 1 "step-context.sh is missing or unreadable (broken install)"
+    # shellcheck source=scripts/step-context.sh
+    . "$script_dir/step-context.sh"
+    step_context_derive "$worktree" step-record || exit 2
+    ;;
+esac
 
 # check_dir <dir>: refuse a symlinked or unreadable cache directory.
 check_dir() {
@@ -1197,8 +1237,11 @@ cmd_write() {
   is_point "$point" || bad --point "not a point of the vocabulary"
   # An explicit --head, even an empty one, is never defaulted: an empty value
   # is more likely a failed substitution than a request for HEAD.
-  [ "$head_given" -eq 1 ] || set_head_from_worktree
-  check_head_commit --head "$head"
+  if [ "$head_given" -eq 1 ]; then
+    check_head_commit --head "$head"
+  elif [ "$completion" -eq 1 ]; then
+    set_head_from_worktree
+  fi
   ! point_done "$run" "$point" || bad --point "already completed in this run"
 
   if [ "$completion" -eq 1 ]; then
@@ -1238,21 +1281,45 @@ cmd_write() {
   case $hosting in isolated | continue | in-session) ;; *) bad --hosting "not isolated, continue, or in-session" ;; esac
   is_backend "$backend" || bad --backend "not a backend name"
   [ -z "$session" ] || is_session "$session" || bad --session "not a session id"
+  hd_now=''
+  if [ "$head_given" -eq 0 ]; then
+    worktree_head --head
+    hd_now=$WT_HEAD
+  fi
   if [ "$end_head_given" -eq 1 ]; then
-    :
-  elif [ "$head_given" -eq 0 ]; then
-    end_head=$head
+    check_head_commit --end-head "$end_head"
+  elif [ -n "$hd_now" ]; then
+    end_head=$hd_now
   else
     worktree_head --end-head
     end_head=$WT_HEAD
   fi
-  check_head_commit --end-head "$end_head"
   is_ts "$start" || bad --start "not YYYY-MM-DDTHH:MM:SSZ"
   check_end
   case $outcome in
     passed | applied | halted | failed | skipped | limited) ;;
     *) bad --outcome "not passed, applied, halted, failed, skipped, or limited" ;;
   esac
+  # A step record resolves an omitted head once the kind and outcome are known.
+  if [ "$head_given" -eq 0 ]; then
+    begin_head "$run" "$point" "$step" \
+      || bad --head "not given, and the run's begin record for this step is no regular file holding a full commit id; pass the head the step started on"
+    if [ -n "$BEGIN_HEAD" ]; then
+      names_commit "$BEGIN_HEAD" \
+        || bad --head "not given, and the run's begin record for this step names $BEGIN_HEAD, no commit in the worktree's repository; pass the head the step started on"
+      head=$BEGIN_HEAD
+    else
+      case $kind:$outcome in
+        command:* | *:skipped) ;;
+        *)
+          if [ "$outcome" = applied ] || [ "$end_head" != "$hd_now" ]; then
+            bad --head "not given, the run has no begin record for this step to read its start from, and this $kind step changed the head (outcome $outcome, end head $end_head, HEAD $hd_now); pass the head the step started on"
+          fi
+          ;;
+      esac
+      head=$hd_now
+    fi
+  fi
   if [ "$outcome" = passed ] && [ "$head" != "$end_head" ]; then
     is_polish=0
     [ "$step" != polish ] || is_polish=1
