@@ -3049,8 +3049,12 @@ force until you tell the tower to drop it.
 
 **What one may not cover.** A merge or pull, a ready-flip, a force-push, an
 amend, a squash, a fixup, a rebase, a git or gh alias, a `gh api` call that
-can write (GraphQL, a field or input, or any method but GET), or a push to
-`main`, `master`, or a spec branch. Those stay yours on every
+can write (GraphQL, a field or input, or any method but GET), a push to
+`main`, `master`, or a spec branch, a `git send-pack` or `git subtree`, and
+any push whose every refspec does not name its destination as `<src>:<dst>`
+(`git push origin feature` reaches you; `git push origin feature:feature` can
+be answered), since git reads a bare name's destination from configuration
+and local refs the command does not show. Those stay yours on every
 occasion: the tower refuses to record a rule that reaches one, and refuses
 again at match time whatever a rule's wording claims.
 

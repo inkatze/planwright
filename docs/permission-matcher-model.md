@@ -1034,7 +1034,10 @@ grammar. With it, `git merge` of that branch's
 remote-tracking ref (or of its current tip's full id) and `git pull <remote>
 <branch>` pass under `worker_base_merge: allow`, and
 `scripts/converge-sync-main.sh --base <branch>` syncs it, fetching
-`refs/heads/<branch>` so a tag of that name is never merged. The sync script
+`refs/heads/<branch>` so a tag of that name is never merged. A stacked base
+that is the record's own `spec_branch` is the exception: it merges or pulls
+only by `--ff-only`, as the single source, as the spec-branch rule below
+admits it, and `converge-sync-main.sh --base` refuses it. The sync script
 runs in the worker's own shell and reads the record the session's
 environment names; the guard refuses any worker command that sets or clears
 that variable. `pr_base` stays the default base, so the trusted files above

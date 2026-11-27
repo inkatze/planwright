@@ -70,6 +70,11 @@
 # command that changes git configuration, the checked-out branch, or refs (or,
 # for a rewrite, that pushes, fetches, or makes a commit) is refused: every
 # segment is checked against the state as it stands before the command runs.
+# Where a loop, a background list, a pipeline or a coprocess can run a later
+# segment's change before an earlier act that reads it, that is refused too;
+# and a command other than git that writes a path through a .git directory or
+# a git configuration file (a redirect, cp, tee, sed -i, an expanded path for
+# a file-writing command) counts as a configuration and ref change.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -115,7 +120,9 @@
 #               unit branch outside the protected set and every source the PR
 #               base or the unit branch's own branch on the base remote; on
 #               a stacked PR also its base branch, named by the launch-time
-#               session record's stack_base, by ref or by its tip commit id. A
+#               session record's stack_base, by ref or by its tip commit id,
+#               unless that base is the record's spec branch, which merges or
+#               pulls only by --ff-only, as the single source. A
 #               spec branch the launch names (the session record's, or a
 #               kickoff scope's: spec_branch_checkout), checked out in the
 #               session's own linked worktree, takes a plain merge of the PR
@@ -141,7 +148,14 @@
 #               pushed by explicit refspec as the command's only act: it reads
 #               no protected set and is decided by signoff_push_check, a
 #               fast-forward of nothing but clean merges of the base, read
-#               from the remote itself.
+#               from the remote itself. git send-pack and git subtree push are
+#               pushes too, each read under its own narrow option grammar (any
+#               other option, and send-pack's force, --all, --mirror and
+#               --stdin, deny). A source named with no destination is also
+#               checked as the branch git resolves it to (a symbolic ref, or
+#               main-worktree/HEAD); a push to a remote a legacy remotes/ or
+#               branches/ file names denies; and a current branch that shares
+#               its name with a tag reads as no branch.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -151,7 +165,12 @@
 #               a request the guard cannot read (a field from a file or stdin,
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a rename with no literal new name, an unknown flag)
-#               denies before any read; anything else defers.
+#               denies before any read; anything else defers. A write to a
+#               branch's protection or to a ruleset, and the GraphQL
+#               branch-protection-rule and repository-ruleset mutations, deny
+#               at every tier with no read; a rename of a unit branch (worker)
+#               or of a spec's amendment or spec-rework branch (worker, tower)
+#               denies with no read, since it takes that branch off the remote.
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
