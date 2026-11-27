@@ -231,7 +231,8 @@ that head and settle its findings, then flip. A ready pull request can then
 merge at once. The readiness check holds to it: a draft with no run at its
 head (and nothing else owing but the `post-pr` point that waits on it) gets
 the `request-review <head>` verdict, telling the caller to request it, never
-to flip; a draft whose run is still going or red is not-ready; and a run still
+to flip (a spec-only draft excepted: its flip fires the review, as the
+kickoff flip does); a draft whose run is still going or red is not-ready; and a run still
 going at the flip means the flip came too early. The configured flip
 (`scripts/ready-flip.sh`) waits for a finished PR-Agent run on the head the
 same way. The flip's own `ready_for_review` event still fires the workflow,

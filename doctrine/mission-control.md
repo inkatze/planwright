@@ -240,7 +240,9 @@ only with the run finished, its findings answered and `post-pr` complete. A
 spec-only pull request (every changed path a Markdown file added, modified or
 deleted under the spec root, the head holding that root) is held for
 each touched bundle's kickoff sign-off instead of the cadence and the gate
-data's steps; one touching only the reserved accumulators has none to hold.
+data's steps, and as a draft is never asked for the bot review: its flip
+fires it, as the kickoff flip does. One touching only the reserved
+accumulators has none to hold.
 
 ## The register delta
 

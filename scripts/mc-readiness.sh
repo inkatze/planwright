@@ -146,7 +146,9 @@ THE WALK refuses, each failure one line:
     head. The review runs on the draft, fired by a review request once the
     other checks are green, and the flip waits for it, so a ready pull
     request can merge at once: a draft with none is told to request it
-    (request-review, below), a ready one with none is refused. The run, like
+    (request-review, below), a ready one with none is refused. A spec-only
+    draft (below) is not asked: its flip fires the review, as the kickoff
+    flip does, and once ready it needs that run like any other. The run, like
     any check, must be green, and its findings answered; one still running
     holds the draft, and one still running at the flip is a too-early flip. A
     code change on a finding is a new head and needs one more run. A skipped
@@ -174,11 +176,11 @@ THE WALK refuses, each failure one line:
   - a cadence not audited at the head, and each gap the audit named: the
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
-    for its sign-off instead of the cadence and the required steps (its bot
-    review is still required, as above). The exception is a post-pr gap (no
-    completion, one only on heads outside the pull request's history such as
-    another unit's in a reused worktree, or a step never recorded) on a
-    draft whose bot review is due: that point waits on the run a review
+    for its sign-off instead of the cadence and the required steps (and, as
+    a draft, not asked for the bot review, as above). The exception is a
+    post-pr gap (no completion, one only on heads outside the pull request's
+    history such as another unit's in a reused worktree, or a step never
+    recorded) on a draft whose bot review is due: that point waits on the run a review
     request fires, so it is pending the request, not a gap. When the due
     review and such gaps are all the walk holds, the verdict is
     request-review (below); with any other refusal the verdict stays
@@ -560,13 +562,14 @@ END {
   # for it: a draft with no run at its head is due a request, and a ready pull
   # request with none is refused. A finished run from before the flip counts;
   # one still running at the flip is a too-early flip, which describe() names.
-  # A spec-only pull request is no exception: its flip waits the same way.
+  # A spec-only draft is held for its sign-off alone: its flip fires the
+  # review, as the kickoff flip does, and once ready it needs that run.
   # No apostrophe here: this is a shell string.
+  speconly = (speconly_head == head)
   marked = needbot ? bot_marker() : 0
   nobotrun = needbot && !botseen && !marked
-  reviewdue = nobotrun && state == "draft"
-  if (nobotrun && !reviewdue) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) and wait for its run" mwhy)
-  speconly = (speconly_head == head)
+  reviewdue = nobotrun && state == "draft" && !speconly
+  if (nobotrun && state != "draft") fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) and wait for its run" mwhy)
   if (needmac && !speconly) {
     hint = "; add the ci-macos label so CI runs it on the draft"
     nm = split("macos-suite macos-smoke", mj, " ")
