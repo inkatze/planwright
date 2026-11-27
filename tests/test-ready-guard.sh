@@ -1189,7 +1189,7 @@ run_checks "checks (default): a pass in the cancelled check's own run supersedes
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
   "$(ci_check_run 780 check SUCCESS),$(ci_check_run 800 check CANCELLED 2026-11-26T11:00:00Z)" 'check is CANCELLED'
-run_checks "checks (default): a cancellation with no start time is never dropped" deny \
+run_checks "checks (default): a cancellation with no time at all is never dropped" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED 0001-01-01T00:00:00Z),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): a cancellation naming no workflow run is never dropped" deny \
   '{"name":"'"$SHARDS"'","workflowName":"ci","status":"COMPLETED","conclusion":"CANCELLED","startedAt":"2026-11-26T10:34:03Z"},'"$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
