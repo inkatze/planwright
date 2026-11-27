@@ -1349,3 +1349,63 @@ without fix evidence is refused; with both it closes; no verb removes a row.
 
 `tests/test-mc-followups.sh` (Task 83): a fixture period with operator-caught
 and system-raised problems reports both counts and names the open misses.
+
+### REQ-P1.15 — Commitments are kept in a store only the holder writes [test]
+
+`tests/test-mc-commitments.sh` (Task 150), in fixtures: `add` by the holding
+mission control with the operator's words records a row holding the id,
+when, event, required pull requests and the quoted words; `add`, `change`
+and `close` from a worker, another session, a stale holder or with no
+holder refuse with the reason; the id is allocated (`commit-<n>`), and one
+supplied, one the operator-stated dates file uses, an `add` with no quoted
+words, a date that names no calendar day, no required pull request, a pull
+request outside `owner/repo#n`, or text holding a control byte, a tab or a
+newline refuses; `ack` twice is idempotent and `ack` of a closed row passes
+as a no-op; `close` without a reason of
+`delivered`, `waived` or `moved`, or without a note, refuses; a second
+`close` refuses; no verb deletes a row; a closed row stays listed.
+
+### REQ-P1.16 — Deadline-watch reads the commitments as one list [test]
+
+`tests/test-mc-deadlines.sh` (Task 150), in fixtures: an open commitment
+appears in `list`, `due` and `rank` with its id as the unit, urgent inside
+the horizon and overdue once past (a time of day does not move the day),
+and no second entry is needed in the operator-stated dates file, under
+every mode of the deadlines fact class including `cited`; a closed
+commitment is absent; the dates file's own units read and rank as before;
+a program with no store reads and ranks exactly as before.
+
+### REQ-P1.17 — The handover carries commitments and `take` waits for each [test]
+
+`tests/test-mc-handover.sh` (Task 151), in fixtures with two open
+commitments and one closed: `write` puts an item named by the id for each
+open one and none for the closed one; `verify` and `resume` print each open
+commitment from the store and mark one the file lacks (a commitment added
+after the file was written), which still has to be acknowledged; `take` and
+`resume` refuse with no acknowledgement, with
+one of two, with an acknowledgement given by another session and with a
+blanket acknowledgement not naming ids, each naming the missing ids, and
+passes once the successor has acknowledged both by id, each recorded with
+the session and the time; an overdue open commitment gates the take the
+same way; a later successor must acknowledge again.
+
+### REQ-P1.18 — The runner reports each commitment's pull requests [test]
+
+`tests/test-mc-commitments.sh`, `tests/test-mc-watch-runner.sh`,
+`tests/test-mc-panel.sh` and `tests/test-mc-snapshot-adapters.sh` (Task
+152), with a PATH-first `gh` stub emitting canned `pr view` JSON, and
+`--now` driving two passes on one UTC day and a third on the next: the
+adapter's `pr-state` maps open, draft, merged and closed, and a checks
+rollup of success, failure, pending or none to passing, failing, pending
+or absent; one pass records the state of each required
+pull request (open, draft, merged, closed, with checks passing, failing,
+pending or absent); a state change raises an event naming the commitment
+and the states, and an unchanged state outside the horizon raises none;
+inside the horizon, or overdue, an event is raised once a day and not
+again the same day; all required pull requests merged reports `ready to
+close` and leaves the commitment open; an unreadable pull request shows
+`unknown` with the reason, raises a failure-class event, the commitment's
+other pull requests are still reported, and `take` is not blocked by it;
+an event names the id, date and states and never the event text or the
+quoted words; a not-found read shows `unknown` with that reason; the panel
+and the first turn after silence list each open commitment earliest first.

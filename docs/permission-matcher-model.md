@@ -551,14 +551,32 @@ overlays are not protected at all.
 The Write tool reaches `scripts/` and `tests/`, so where a script sits proves
 nothing about who wrote it. The command guard approves a repository script
 (a `.sh` under `scripts/` or `tests/`), a `bats` file, and a script under a
-planwright root that is a git checkout only when the checkout's HEAD commits
-it with the same bytes (`scripts/worker-command-guard.sh`, `committed_blob`),
-and so is a declared command step whose location lies in a git checkout, the
-repository or another (`declared_location_ok`); an install copy, which is no
-checkout of its own, is trusted by location. A script a worker wrote or edited and has not
-committed prompts, whichever spelling reaches it (`sh`, `bash`, a direct
-path, a symlinked folder, a `..` walk, inside `fish -c` or a loop), and so
-does `bats` on a folder. The check reads the file as it is before the command
+planwright root that is a git checkout only when a commit holds it with the
+same bytes (`scripts/worker-command-guard.sh`, `committed_blob`), and so is a
+declared command step whose location lies in a git checkout, the repository
+or another (`declared_location_ok`); an install copy, which is no checkout of
+its own, is trusted by location. Inside the worktree the session record
+names, that commit is the base: the merge base of HEAD and the record's
+`pr_base` remote-tracking ref (`trusted_rev`), since the worker can commit
+there and the guard never sees what a script runs. `pr_base` is the unit
+branch remote's default branch as the launcher recorded it, not a stacked
+PR's base, so a script only a stacked base holds prompts. Elsewhere the
+commit is the checkout's HEAD. A script a worker wrote or edited prompts,
+committed or not, whichever spelling reaches it (`sh`, `bash`, a direct path,
+a symlinked folder, a `..` walk, inside `fish -c` or a loop, behind
+`timeout`), and so does `bats` on a folder; one the base gained counts once
+the worker merges the base. A record with no `pr_base` or a repeated one, a
+`pr_base` with no remote-tracking ref or one that is a symbolic ref, or a
+base with no commit in common trusts no file in the worktree (a checkout
+outside it keeps HEAD), and a repository nested in the worktree trusts none
+either. The
+launcher writes `pr_base` only for a task or flight branch, so a kickoff,
+spec-branch or primary-checkout session prompts on every repository script,
+`bats` file and linter config in its worktree. A test suite the worker adds
+prompts on every run for the life of its PR, through the compute router too
+(`compute-route.sh --test tests/test-x.sh -- bash tests/test-x.sh`): mission
+control vets each run, and `mise run` and a declared check command stay the
+unprompted routes. The check reads the file as it is before the command
 runs, so a command that relies on it and also makes a write the own-branch
 arm admits defers as a whole (`cp f scripts/ok.sh && sh scripts/ok.sh`, and
 equally `touch build/x && bash tests/ok.sh`); staging and committing change
@@ -570,29 +588,50 @@ record, the session records.
 
 What still runs code a worker wrote without a prompt:
 
-- **A script it committed, or one HEAD holds on another branch.** The
-  own-branch arm approves a commit, after which HEAD holds the script, and the
-  static allows for `git checkout` and `git switch` let the worktree move
-  HEAD. A commit sits on a branch and, on the unit branch, in its PR, where
-  review sees it.
+- **A script it committed, in a session with no record.** Without a session
+  record the guard cannot tell the worktree or its base, so it holds a
+  repository script to HEAD, which the profile's static `git commit` allow
+  lets the worker move. A launcher whose record write fails launches the
+  worker this way. A record that is set but names no usable worktree (a
+  missing, relative or unreadable record path, a record file over the size
+  bound or not this user's own regular file, a record inside the worktree or
+  inside the scratch root it names when that root counts (named once,
+  absolute, free of control characters, this user's own canonical directory
+  apart from the worktree), an absent, repeated, non-canonical,
+  control-character or non-checkout `worktree_root`) trusts nothing instead,
+  wherever the file lies: the static allows still let the worker commit, and
+  the guard cannot tell which checkout it committed in.
+  The one exception is the guard's own planwright root, held to HEAD while
+  the session's canonical directory is outside it, since it holds the guard
+  itself; a session sitting inside it gets no exception, since it could
+  commit there. One that committed there and then left would keep it, which
+  needs the root inside its working directories (a vendored root) for the
+  move to go unprompted.
+- **A write that lands while a trusted script runs.** The guard checks a
+  script's bytes before the command runs, and a shell reads a script as it
+  goes, so a write running in the background (an own-branch write the worker
+  started earlier with `run_in_background`, or a file-tool edit) can append
+  to a base-held script while it runs.
 - **The repository's tasks, hooks and check commands.** `mise run <task>`,
   `lefthook run <hook>` and a check command the repository declares in
   `worker_check_commands` run config the path denies protect, and whatever
   that config or a check command's `<path>` names, the test files a worker
   wrote among them: the gate has to run what the worker wrote. A file a
   declaration names in its literal words (`scripts/check.sh <word>`, `bash
-  check.sh`) is held to the HEAD of the checkout it lies in, like a declared
-  step's location (a file in no checkout keeps the declaration's trust, and a
-  symlink defers). A bare first word is exempt, since the shell looks it up
-  on PATH. The check cannot tell a script from a runner argument, so a word
-  such as `make test`'s `test` prompts while a file of that name sits
-  uncommitted in the working directory. A declaration whose `<path>` is the
+  check.sh`) is held to the commit of the checkout it lies in, the PR base
+  inside the worktree, like a declared step's location (a file in no
+  checkout keeps the declaration's trust, and a symlink defers). A bare first
+  word is exempt, since the shell looks it up on PATH. The check cannot tell
+  a script from a runner argument, so a word such as `make test`'s `test`
+  prompts while a file of that name sits in the working directory and not in
+  the base. A declaration whose `<path>` is the
   script it runs (`bash <path>`) admits any file in the worktree, committed or
   not, so it is the repository's own choice to make.
-- **What a committed script reaches.** The guard checks the script it runs,
+- **What a trusted script reaches.** The guard checks the script it runs,
   not a path it is handed, a sibling it sources or calls, or a test file it
   globs, any of which a worker may have written or edited. A declared step
-  run through `scripts/step-run.sh` is held to HEAD by the runner itself (see
+  run through `scripts/step-run.sh` is held by the runner itself to the
+  commit the guard uses, without the guard's exception for its own root (see
   the next section).
 - **An install copy outside `~/.claude`.** Under `~/.claude` a file-tool write
   prompts (MB-8); elsewhere the file tools reach an install copy, which is
@@ -627,8 +666,9 @@ plain forms:
   `--no-globs` (and markdownlint's `-q`). Every folder those files sit in,
   the working directory, and every folder above them must hold no module
   config, committed or not, since a committed one may import a file the
-  worker wrote, and only options and settings files a git checkout commits
-  unchanged (the `committed_blob` check), no options file naming a module
+  worker wrote, and only options and settings files that their checkout's
+  trusted commit holds unchanged (the `committed_blob` check: the base inside
+  the recorded worktree), no options file naming a module
   key or holding a backslash, through which an escape could spell one. An
   explicit `--config` naming a committed file would not do instead: each
   folder's own config still loads beside it. A glob or folder operand defers,
@@ -636,17 +676,21 @@ plain forms:
   since either reaches folders the guard does not walk. The check reads the
   folders before the command runs, so a lint beside anything the own-branch
   arm admits (a write, or a git act such as `git add`) defers. What still
-  passes: a settings file the worker committed in an earlier call counts as
-  committed, as any committed file does (the commit sits on the branch,
-  where review sees it), and a committed settings
-  file's `extends` reads the file it names, which a parse error prints part
-  of, so a worker that commits one naming another readable file can see that
+  passes: a settings file the worker committed in a checkout outside the
+  recorded worktree, or in a session with no record, which is held to HEAD;
+  and a trusted settings file's `extends` reads the file it names, which a
+  parse error prints part of, so one naming another readable file shows that
   file's start.
 - **A declared command step** run through `scripts/step-run.sh` runs its
-  location, and a session-hosted step's line is printed, only as the git
-  checkout holding it commits it; otherwise, or when git cannot answer for
-  that checkout, the step is recorded `failed`. A location with no `.git`
-  entry above it, an installed tool, keeps the declaration's trust. The
+  location, and a session-hosted step's line is printed, only as the command
+  guard's trusted commit for that checkout holds it (`trusted_commit`: the
+  base in the worktree a worker session record names, HEAD in a checkout
+  outside it, nothing in a repository nested in it, and nothing anywhere
+  under a record naming no usable worktree, with no exception for a
+  planwright root); otherwise, or when git cannot answer for that checkout,
+  the step is recorded `failed`, so under a record naming no base a declared
+  step located in its worktree always fails. A location with no `.git` entry
+  above it, an installed tool, keeps the declaration's trust. The
   guard's own approval of a declared line typed in the session is a separate
   check.
 
@@ -662,7 +706,8 @@ screen does not know and so defers. Any other `markdownlint` name, such as the
 one does. The declaration vouches for the words it spells, not
 for the config those folders hold, so a declared lint beside a worker-written
 or uncommitted config defers, and so does a declared `--cd`, `--env` or
-`--tool` on `mise run`, and a file its literal words name is held to HEAD, as
+`--tool` on `mise run`, and a file its literal words name is held to the
+commit its checkout is held to (the base inside the recorded worktree), as
 "Code a worker runs unprompted" states. Other ways a declaration reaches the
 same config are not screened for it: a runner or wrapper with no `--` before
 the linter (`npx markdownlint-cli2`, `env` or `timeout` before it, `node`
@@ -837,8 +882,8 @@ unit is the hook fix, and the tracked file landing in the pull request diff,
 where review sees what will run for every later contributor.
 
 None of this is a sandbox, for an opted-in worker or any other. The guard no
-longer approves a repository script the worker wrote or edited and has not
-committed ("Code a worker runs unprompted"), but a lefthook job is exactly the
+longer approves a repository script the worker wrote or edited, committed or
+not ("Code a worker runs unprompted"), but a lefthook job is exactly the
 route that section leaves open: a job the worker writes runs on its next commit
 or `lefthook run`, and through it the worker can write any path the file-tool
 denies close, the opt-in record, another worktree's lefthook config and the
@@ -861,7 +906,8 @@ A spec PR that falls behind `main` needs its branch
 (`planwright/<spec>/<name>`, an amendment branch for one) brought into a
 worktree to sync or walk it, and the policy guard otherwise refuses both
 halves: a worker's flight branch merges only the PR base or its own remote
-branch, and a worktree holding the spec branch is not the session's own unit
+branch (or a stacked base its record names, below), and a worktree holding
+the spec branch is not the session's own unit
 branch. A launch given `--spec-branch planwright/<spec>/<name>` (a
 worker-profile session on the stream-json rung only; the launcher checks with
 `gh` that the branch is the head of an open pull request, and refuses
@@ -872,8 +918,9 @@ worktree, never from the command text, the checkout, config or the
 environment. A record that is a symlink, is not this user's own regular file,
 sits inside the worktree, names the field twice, or names anything outside
 `planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
-set) names no branch. Only the worker tier reads it. Two acts open, and
-nothing else:
+set other than a sign-off branch, below) names no branch. Only the worker
+tier reads it. Two acts open (a sign-off branch takes the separate pair
+below instead), and nothing else:
 
 - **Bring the branch in.** On the session's own flight branch,
   `git merge --ff-only origin/<spec branch>` (also spelled
@@ -884,8 +931,10 @@ nothing else:
   tag of the same name at another commit. Merging `origin/main` afterwards is
   the ordinary base merge, and the push of the result to the spec branch is an
   ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
-  branch>`) that the guard never refused: the spec branch is outside the
+  branch>`) that the guard never refused: such a spec branch is outside the
   protected set, and the profile's force and `+` denies still refuse a force.
+  A sign-off branch is in the protected set and takes neither act; it has its
+  own pair, below.
 - **Sync it with its base.** In a linked worktree that is the session's
   project directory with the named spec branch checked out, `git merge
   origin/main` (the PR base alone, by name and by what git resolves it to) is
@@ -905,7 +954,54 @@ nothing else:
 
 No force, reset or rebase is admitted by either act.
 
-A kickoff session needs no record for the second act: its launch scope
+A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
+floor, and only its kickoff writes the spec's content there. A record naming
+it opens a narrower pair instead of the two acts above, so a worker launched
+on that pull request can land a forward merge of `main` and nothing else:
+
+- **Build the merge.** In a linked worktree that is the session's project
+  directory with the branch checked out, `git merge origin/main` alone (bare
+  or with `--no-edit`, the PR base by that spelling and by what git resolves
+  it to), as the command's only act. Any other source or spelling, any other
+  option, the fast-forward to the PR head, a pull, or a second command on the
+  line refuses.
+- **Push it.** A push by explicit refspec (`git push origin HEAD:refs/heads/<spec
+  branch>`, the branch by name, or `HEAD`), from the same worktree the merge
+  is built in (a flight checkout or another clone refuses), as the command's
+  only act, with a `HEAD` or local-branch source, to the branch's
+  own remote. That remote must fetch and push through its one URL: a push
+  URL, an `insteadOf` or `pushInsteadOf` rewrite, an upload-pack,
+  receive-pack, ssh or proxy override, or a remote-helper URL refuses. So
+  does local state that changes what git reads of history or of a merge:
+  replace refs (every read here ignores replace objects, as the push's
+  pack does), a shallow repository, a configured merge driver, and an
+  `info/grafts` or `info/attributes` that is anything but absent or an empty
+  regular file (one with content, a link, a FIFO or other special file, or
+  under a linked `info` directory, since git reads through what a size test
+  sees as empty). The
+  guard reads the PR head and the remote's default branch from the remote
+  itself (`git ls-remote --symref`), then fetches both with a bounded fetch
+  and requires the fetched refs to match, so no local ref, `origin/HEAD`
+  included, decides what counts as `main`. It admits the push only when it
+  fast-forwards that head and every commit it adds that `main` lacks lies on
+  a first-parent line that starts on the PR head itself (a merge onto an
+  older commit of the branch refuses, even once `main` holds the head). Each
+  such commit must be a two-parent merge whose
+  second parent `main` holds and whose tree is exactly the clean merge of its
+  parents (`git merge-tree --write-tree`, reading attributes from an empty
+  tree, so neither a worktree `.gitattributes` nor `core.attributesFile`
+  stands in for a hand resolution; that needs git 2.40 or later, and an
+  older git refuses with that reason), in every file and mode. A conflict
+  resolved by hand or any edit inside the merge refuses, spec files or not,
+  and so do a direct spec edit, any non-merge commit, a merge of anything but
+  `main`, a delete, a failed git read, and a push from a session with no
+  record or another pull request's. For both acts the protected-set read
+  exempts only the floor's own `planwright/*/spec` entry: a
+  `protected_branches` addition that matches the sign-off branch, a
+  duplicate of that entry included, still refuses them. Every other target
+  of the same push is read as usual.
+
+A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
 for the hook) names its spec branches. `kickoff-<spec>` names
 `planwright/<spec>/spec`, `planwright/<spec>/spec-rework` and
@@ -914,14 +1010,38 @@ for the hook) names its spec branches. `kickoff-<spec>` names
 refused when another spec's kickoff could share that scope, as for its push.
 Checked out in the session's own linked worktree, such a branch takes the same
 base merge and fast-forward to its PR head under the same rules. `planwright/<spec>/spec` sits in the
-protected floor, which governs pushes and is reached only through the kickoff
-push helper, which reads no protected set for it, so its kickoff's local merge
+protected floor, which governs pushes; its kickoff reaches it through the
+kickoff push helper, which reads no protected set for it, so its kickoff's local merge
 there skips the protected set as that push does, `protected_branches`
 additions included; every other branch still reads the set. Whichever names the branch, the merge
 must be plain: an option outside the message, output, signing, hook and
 fast-forward ones (a squash, a strategy or strategy option, unrelated
 histories, `--no-commit`, `--autostash`), an abbreviated option or an expanded
 one refuses.
+
+## The stacked-base launch record
+
+A stacked PR's base is another feature branch, so the default-base rule would
+refuse its worker's base merge. A launch given `--base <branch>`, or
+`--base-from-pr` (one bounded `gh` read, kept only from an open PR whose head
+is in this repository), writes that branch into the session record as
+`stack_base=<remote>/<branch>` (`scripts/worker-session-record.sh`); a launch
+with neither records none. The policy
+guard reads it through the record checks it gives `spec_branch`: this user's
+own regular file of at most 4096 bytes outside the worktree, naming this unit
+branch, with one `stack_base` on the unit's remote inside the guard's branch
+grammar. With it, `git merge` of that branch's
+remote-tracking ref (or of its current tip's full id) and `git pull <remote>
+<branch>` pass under `worker_base_merge: allow`, and
+`scripts/converge-sync-main.sh --base <branch>` syncs it, fetching
+`refs/heads/<branch>` so a tag of that name is never merged. The sync script
+runs in the worker's own shell and reads the record the session's
+environment names; the guard refuses any worker command that sets or clears
+that variable. `pr_base` stays the default base, so the trusted files above
+are still held to it. The record is not revalidated: if the PR is retargeted
+to main, its old base stays mergeable until a relaunch writes a new record.
+The worker command guard approves only the default base's merge, so a
+stacked merge it sees prompts.
 
 ## Mission control's repository writes in Bash
 

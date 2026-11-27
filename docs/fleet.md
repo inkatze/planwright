@@ -1035,10 +1035,31 @@ the act, and any file write, other git act or non-step plugin script in the
 command keep it prompting. `docs/options-reference.md`
 (`worker_self_approval`) has the full conditions.
 
+Three more routine classes need no policy arm. The operator's installed
+`review-state.sh` (matched by its literal absolute path under the hook's
+`HOME`) runs its `ledger`, `lock`, `register`, `unregister` and `sessions`
+verbs, never `evidence run`, `inbox` or `loop`. A reply to, or a resolve of, a
+review thread passes when the guard's own read of the forge shows the first
+comment from a `[bot]` login and no comment from anyone but a bot or the
+authenticated account itself, on the unit's own open pull request.
+
+`mix ci`, `mix format` and `mix test`, with a short flag list and relative
+paths of the worktree, run unprompted only while the diff of the worktree
+against the merge base with `refs/remotes/<pr_base>`, the untracked and ignored
+files, and the assume-unchanged and skip-worktree flags show nothing but
+images. Anything else the PR adds or changes keeps prompting, documents
+included (a base can read one as code), so committed code cannot be run
+unprompted, and so does an ignored `_build` or `deps` directory, which can hold
+planted code. Step records keep the rule above: a `--start` or `--end` the
+caller supplies prompts.
+
 Before spawning a worker-profile session, `launch` proves the auto-approve
 hook the worker will run (`scripts/worker-command-guard.sh` under the plugin
 root the dispatch-env wrapper exports, run through that wrapper so it sees the
-worker's environment) will approve the worker's opening move — the
+worker's environment, with no session record, since the launcher's own is not
+the worker's and the worker's holds every root outside its worktree to HEAD
+as no record does)
+will approve the worker's opening move — the
 `<root>/scripts/resolve-rule-doc.sh` call `/execute-task` makes before any
 task work — once per root the worker could run scripts from: the launcher's
 own root, that plugin root, and every root `scripts/resolve-installed-roots.sh`
@@ -2460,10 +2481,10 @@ to a rung on one monotone restriction ladder —
 `normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
 deterministic `≥` comparison against the overlay-resolved per-window thresholds
 (`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
-1–100, validated; `off` disables a rung, so every soft rung `off` beside a
-`fleet_usage_weekly_defer_all` leaves one ladder stop, though the per-tier caps
-below still apply until set to `100`). The **more restrictive**
-window governs; the session window
+1–100, validated; rungs at 100, the wall, may repeat; `off` disables a rung,
+so every soft rung `off` beside a `fleet_usage_weekly_defer_all` leaves one
+ladder stop, though the per-tier caps below still apply until set to `100`).
+The **more restrictive** window governs; the session window
 is **capped at `defer-heavy`** (a session spike never proactively halts the
 fleet), while only the weekly window can reach `defer-all` (the weekly wall can
 halt work for days). `fleet-usage-gate.sh admit <model>` answers the
@@ -2877,12 +2898,15 @@ block is read first, so no declaration lifts it, and a malformed declaration
 is dropped alone. A declared check command that names git, a file writer, a
 wrapper or an interpreter (`git commit`, `rm`, `env`, `python`) still runs
 alone, but never in the same command as a worker's own push or pull request
-body edit. The launcher reads the knob at the primary checkout into the
-session record, so an edit inside the worker's own worktree changes nothing
-and a change reaches a worker only by relaunch. Running a declared command
-runs the repository's own code, the trust the guard already gives its
-`scripts/`, except that a declared markdownlint or `mise run` still passes
-the config-loader screen the undeclared command does. The full rules are in
+body edit. A command naming a planwright step script (`step-record.sh`,
+`step-run.sh`) is never approved by a declaration at all: the step-script rules
+judge it as if undeclared, so a hand-timed step record still prompts. The
+launcher reads the knob at the primary checkout into the session record, so
+an edit inside the worker's own worktree changes nothing and a change reaches
+a worker only by relaunch. Running a declared command runs the repository's
+own code, the trust the guard already gives its `scripts/`, except that a
+declared markdownlint or `mise run` still passes the config-loader screen the
+undeclared command does. The full rules are in
 [the options reference](options-reference.md).
 
 The launcher's `retire <name>` closes what it launched from its registry row.

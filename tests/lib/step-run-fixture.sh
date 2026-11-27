@@ -11,6 +11,9 @@
 # caller's repository.
 unset CDPATH GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY \
   GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+# A worker's own session record would decide which commit the runner holds the
+# fixtures' locations to; a row that needs a record names one.
+unset PLANWRIGHT_WORKER_SESSION_RECORD
 failures=0
 fail() {
   printf 'FAIL: %s\n' "$1" >&2

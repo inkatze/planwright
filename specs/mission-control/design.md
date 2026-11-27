@@ -741,6 +741,10 @@ fifth follow-on.)*
 *(Amended at sign-off lens pass 2026-10-24: deadline-watch's day-one sources
 stated, since no calendar adapter ships and `cited` forbids polling.)*
 
+*(Amended at Amendment 22, 2026-11-23: deadline-watch reads the program's
+commitment store as one more source, so a commitment's date is kept once;
+see D-115.)*
+
 ### D-28: Decision-domain walk  (N)
 
 **Decision:** Domains touched and decided here: data storage and modelling
@@ -2044,6 +2048,78 @@ worker's merge into a spec branch, so the builds stay draft until the
 human-gates batch amendment admitting exactly this merge and push, and this
 amendment, are both signed; whether spec-rework is included follows that
 batch's answer.
+
+### D-115: Dated commitments are a store the handover, the watcher and the runner all read  (N; C, D-27, D-30, D-65, D-68)
+
+**Decision:** A program keeps a commitment store in its program home: per
+commitment an id (`commit-<n>`, allocated by `add`), when (a day), the
+event (what is owed to whom), the required pull requests (`owner/repo#n`),
+the commitment's own state (open or closed), and the operator's words
+quoted, in the follow-up ledger's
+row format and under its writer rules (D-65), every verb under the store's
+lock. A new script, `scripts/mc-commitments.sh`, owns the verbs: `add` and
+`change` (only the live holder of the program's name, with the operator's
+words; text with a control byte refused), `ack` (one commitment by id,
+recording session and time; idempotent), `close` (reason `delivered`,
+`waived` or `moved`, and a note; never a delete), `list`, `state` (each
+required pull request's live state, read one pull request at a time
+through a new `pr-state` verb on the forge adapter, `unknown` with the
+reason when unreadable) and `watch` (the pass below). The adapter's
+existing `refresh` snapshot lists only open, tracked pull requests, so it
+cannot say merged or closed. Four readers use it:
+
+- **Deadline-watch (D-27)** gains the store as one more source, read under
+  every mode including `cited`, each open commitment a unit named by its id
+  with its day; the operator-stated dates file keeps working unchanged, and
+  a closed commitment drops out. The commitment's date is therefore typed
+  once, and `add` refuses an id the dates file uses so one can never shadow
+  the other.
+- **The handover (D-30)** writes each open commitment into the handover
+  file as an item named by the commitment's id; `verify` and `resume` read
+  the store, print each open commitment and mark every one the file lacks
+  (as a commitment added after the file was written is); `take` and `resume` refuse
+  until the session has acknowledged every open commitment by id, naming
+  the missing ids (REQ-P1.17). An acknowledgement is per session, so a
+  later successor acknowledges again. The store, not the file, is the
+  gate, so a late commitment is never missed.
+- **The runner** runs the `watch` pass for every open commitment: it
+  records each pull request's live state, raises an event when a pull
+  request's state changes and once a day while the commitment is inside the
+  deadline horizon or overdue (events name the id, date and states, never
+  the event text or quoted words), reports `ready to close` once every
+  required pull request has merged, and shows an unreadable pull request as
+  `unknown` with a failure-class event (D-65's channel), never blocking a
+  take.
+- **The panel and the first turn after silence** list open commitments
+  with the deadline-watch's other dates, earliest first.
+
+**Alternatives considered:**
+- Keep commitments a separate list beside the deadline watcher. Rejected
+  because: a date entered in one and forgotten in the other is the failure
+  this exists to end, and the operator chose one list ("One list").
+- Close a commitment automatically when every required pull request
+  merges. Rejected because: a merge may not mean the customer was told; the
+  operator chose a session closing it with a reason.
+- Let any session record a commitment. Rejected because: a wrong date could
+  enter without the operator having said it; the operator chose the holding
+  mission control on their word.
+- Block `take` only on urgent commitments, or accept one blanket
+  confirmation. Rejected because: a later commitment, or one waved through
+  unread, is how a dated promise is dropped; the operator chose naming each.
+- Stop the pass when the forge cannot be read, or show the last known state.
+  Rejected because: one outage would silence every commitment, and a stale
+  green can hide a problem near the date; the operator chose `unknown`
+  loudly.
+
+**Chosen because:** the operator's rulings (2026-11-23, Sources) and the
+work-machine report that a dated customer commitment kept as handover
+prose was dropped. It composes the existing parts (D-27's watcher, D-30's
+handover file and D-65's ledger and raise path) and adds no knob: the
+horizon is `mission_control_deadline_horizon`.
+
+*(Decision-domain notes: authorization is REQ-P1.15's, the holding mission
+control on the operator's word; failure handling is REQ-P1.18's; source of
+truth is the store, with the forge for pull request state.)*
 
 ## Cross-cutting concerns
 

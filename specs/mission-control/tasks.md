@@ -1478,6 +1478,58 @@ before kickoff reads as signed off, as REQ-D1.18 defines it.)*
 - **Citations:** D-45 · REQ-D1.18
 - **Estimated effort:** 1 day
 
+### Task 150 — The commitment store, and deadline-watch reading it
+
+- **Deliverables:** `scripts/mc-commitments.sh` with the `add`, `change`,
+  `ack`, `close` and `list` verbs (`state` and `watch` land in Task 152)
+  over the program-home store in the follow-up ledger's row format, every
+  verb under the store's lock (refusing any caller but the live holder for
+  `add`, `change` and `close`, an id it did not allocate, a clash with the
+  operator-stated dates file, text with a control byte, a malformed pull
+  request, a close without a reason and note, a repeated close and any
+  delete; `ack` idempotent and a no-op on a closed row); `scripts/mc-deadlines.sh` reading
+  each open commitment as a unit named by its id, a closed one dropped, the
+  operator-stated dates file unchanged; the verbs in the operator guide and
+  the `--help` text, inside the instruction budget; tests in
+  `tests/test-mc-commitments.sh` and `tests/test-mc-deadlines.sh`.
+- **Done when:** The REQ-P1.15 and REQ-P1.16 test-spec entries' fixtures
+  pass.
+- **Dependencies:** none
+- **Citations:** D-115, D-27 · REQ-P1.15, REQ-P1.16
+- **Estimated effort:** 1 day
+
+### Task 151 — The handover carries commitments and `take` waits for each acknowledgement
+
+- **Deliverables:** in `scripts/mc-handover.sh`, `write` reading the store
+  and carrying each open commitment as an item named by its id, `verify` and
+  `resume` printing each from the store and marking one the file lacks, and
+  `take` and `resume` refusing until the session has acknowledged every
+  open commitment by id, naming the missing ids, an overdue one included;
+  the `--help` text updated; tests in `tests/test-mc-handover.sh`.
+- **Done when:** The REQ-P1.17 test-spec entry's fixtures pass.
+- **Dependencies:** 150
+- **Citations:** D-115 · REQ-P1.17
+- **Estimated effort:** 1 day
+
+### Task 152 — The runner reports each commitment's pull requests
+
+- **Deliverables:** a `pr-state` verb on `scripts/mc-adapter-forge.sh`
+  reading one pull request (open, draft, merged or closed, and its checks
+  rollup mapped to passing, failing, pending or absent), the `state` and
+  `watch` verbs in `scripts/mc-commitments.sh` over it, wired as a runner
+  step in `scripts/mc-watch.sh`: the recorded state per pull request, the
+  event on a state change and once a UTC day inside the horizon or overdue
+  (the id, date and states only), `ready to close`, and `unknown` with a
+  failure-class event for an unreadable pull request; the new event kinds
+  entered in the event registry (REQ-F1.22, D-67); the commitments listed in
+  the panel and the first turn after silence; tests in
+  `tests/test-mc-commitments.sh`, `tests/test-mc-watch-runner.sh`,
+  `tests/test-mc-panel.sh` and `tests/test-mc-snapshot-adapters.sh`.
+- **Done when:** The REQ-P1.18 test-spec entry's fixtures pass.
+- **Dependencies:** 150
+- **Citations:** D-115 · REQ-P1.18
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 - **Task 23** — PR #839's automated review round is unfinished. GitHub rejected the reply to cubic's finding on the activation test twice (the fix landed in 0e4194d2), and cubic has not yet reviewed that head. Next step: post the drafted reply, then run `/bot-review --nested --reviewer cubic` again.

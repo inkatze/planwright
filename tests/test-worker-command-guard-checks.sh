@@ -266,6 +266,90 @@ for r in "mise exec -- GIT status" "RM build.txt" "make check SHELL=bash" "make 
   assert_defer "F1.11: declared $r before the own push" \
     "$r && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
 done
+
+echo "### REQ-F1.12 — a declaration naming a step script is never a check command"
+# The step-script rules, and the prompt they keep for a hand-timed record,
+# hold over any declaration: under any runner prefix or path spelling, in any
+# letter case, or through a link of the installed copy under another name.
+T=2026-11-22T10:00:00Z
+SREC=$REPO_ROOT/scripts/step-record.sh
+SRUN=$REPO_ROOT/scripts/step-run.sh
+# bin/sr and bin/sn are the installed step scripts under other names; as a
+# declaration's literal words they also fail the committed-file rule. Given
+# as a `<word>`, which that rule leaves to the declarer, `rec` and `run` reach
+# only the link reading, and `ok`, a link of a non-step installed script,
+# shows the link reading does not over-match. The worktree's own (empty)
+# scripts/step-record.sh lets the <path> rows below name an existing file.
+mkdir -p "$WT/bin"
+ln -s "$SREC" "$WT/bin/sr"
+ln -s "$SRUN" "$WT/bin/sn"
+ln -s "$SREC" "$WT/rec"
+ln -s "$SRUN" "$WT/run"
+ln -s "$REPO_ROOT/scripts/resolve-steps.sh" "$WT/ok"
+: >"$WT/scripts/step-record.sh"
+# Every STEPPED and CONTROLS row below needs its declaration here: an
+# undeclared row would defer for want of one and prove nothing.
+SARGS='write --run <word> --point <word> --step <word> --start <word> --outcome <word>'
+SDECLS="scripts/step-record.sh $SARGS; ./scripts/step-record.sh $SARGS"
+SDECLS="$SDECLS; mise exec -- scripts/step-record.sh $SARGS; mise exec -- $SREC $SARGS"
+SDECLS="$SDECLS; $SREC $SARGS; SCRIPTS/STEP-RECORD.SH $SARGS; mise exec -- Scripts/Step-Record.sh $SARGS"
+SDECLS="$SDECLS; mise exec -- ./scripts/step-record.sh $SARGS; mise exec -- step-record.sh $SARGS"
+SDECLS="$SDECLS; bin/sr $SARGS; make check SCRIPT=scripts/step-record.sh"
+SDECLS="$SDECLS; mise exec -- scripts/step-run.sh <word>...; mise exec -- $SRUN <word>..."
+SDECLS="$SDECLS; make check SCRIPT=scripts/step-run.sh; make check A=B=scripts/step-record.sh"
+SDECLS="$SDECLS; bin/sn <word>...; bin/lint <path>...; make check SCRIPT=scripts/ok.sh"
+SDECLS="$SDECLS; mix test <path>...; mise exec -- mix credo <word>; bin/lint <word>..."
+SDECLS="$SDECLS; make check SHELL=bash SCRIPT=scripts/step-record.sh"
+# No word of these write arguments is one the partner scan refuses, so only
+# the step-script reading keeps the rows below from the own push.
+SW="write --run 000001 --point pre-pr --step lint --start $T --outcome passed"
+STEPPED=(
+  "scripts/step-record.sh $SW"
+  "./scripts/step-record.sh $SW"
+  "mise exec -- scripts/step-record.sh $SW"
+  "mise exec -- $SREC $SW"
+  "$SREC $SW"
+  "SCRIPTS/STEP-RECORD.SH $SW"
+  "mise exec -- Scripts/Step-Record.sh $SW"
+  "bin/sr $SW"
+  "mise exec -- ./scripts/step-record.sh $SW"
+  "mise exec -- step-record.sh $SW"
+  "make check SCRIPT=scripts/step-record.sh"
+  "mise exec -- scripts/step-run.sh frobnicate"
+  "mise exec -- $SRUN frobnicate"
+  "make check SCRIPT=scripts/step-run.sh"
+  "make check A=B=scripts/step-record.sh"
+  "bin/sn frobnicate"
+  # Every word is read, so a step script given only as an argument defers too.
+  "bin/lint scripts/step-record.sh"
+  "bin/lint rec"
+  "bin/lint run"
+  # A word the partner scan refuses leaves a match that is approved only
+  # alone; naming a step script, it must still defer.
+  "make check SHELL=bash SCRIPT=scripts/step-record.sh"
+)
+# Each control: a declared read-only command naming no step script, which
+# still runs alone and partners the own push.
+CONTROLS=(
+  "mix test test"
+  "mise exec -- mix credo strict"
+  "make check SCRIPT=scripts/ok.sh"
+  "bin/lint scripts/ok.sh"
+  "bin/lint ok"
+)
+for col in 1 4; do
+  under "$(with_checks "stepped.$col" "$col" "$SDECLS")"
+  for c in "${CONTROLS[@]}"; do
+    assert_allow "F1.12 [$col]: declared $c, alone as before" "$c" Bash "$WT"
+    assert_allow "F1.12 [$col]: declared $c still partners the own push" \
+      "$c && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  done
+  for s in "${STEPPED[@]}"; do
+    assert_defer "F1.12 [$col]: declared $s, alone" "$s" Bash "$WT"
+    assert_defer "F1.12 [$col]: declared $s before the own push" \
+      "$s && git push origin $CORPUS_UNIT_BRANCH" Bash "$WT"
+  done
+done
 under "$REC"
 
 echo "### REQ-A1.18 — a malformed declaration drops alone"
@@ -309,7 +393,7 @@ else
 fi
 HOOK_ENV=()
 
-echo "### a script a declaration names is held to what HEAD commits"
+echo "### a script a declaration names is held to what the base commits"
 # scripts/ok.sh is committed in the corpus base; tests/run.sh is not.
 printf '#!/bin/sh\n' >"$WT/tests/run.sh"
 mkdir -p "$WT/tools"
@@ -329,7 +413,7 @@ assert_allow "a bare first word stays a PATH lookup, a file of its name aside" "
 assert_defer "a symlink a declaration names by a bare word" "bash linked.sh" Bash "$WT"
 cp "$WT/scripts/ok.sh" "$STATE/ok.orig"
 printf 'printf pwned\n' >>"$WT/scripts/ok.sh"
-assert_defer "a named script edited since HEAD" "scripts/ok.sh lint" Bash "$WT"
+assert_defer "a named script edited since the base" "scripts/ok.sh lint" Bash "$WT"
 cp "$STATE/ok.orig" "$WT/scripts/ok.sh"
 assert_allow "the named script put back" "scripts/ok.sh lint" Bash "$WT"
 # The check reads the file before the command runs, so a write beside the run

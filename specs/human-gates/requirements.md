@@ -1,7 +1,7 @@
 # Human gates — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-20
+**Last reviewed:** 2026-11-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -63,6 +63,10 @@ list above puts it.
   branch while that branch's PR is a draft, behind a `draft_rewrite` knob
   that is off by default, and the refusal that tells the operator how to
   turn it on.
+- A launched worker keeping a spec branch (sign-off, amendment or
+  spec-rework) current by merging the PR base into it and pushing only
+  clean merges, under `worker_base_merge`, with the doctrine's spec-branch
+  push row and merge row stating it.
 - Enforcement derived from the resolved policy: profiles as the floor, guards
   reading the policy, and one shared fixture list of reserved-control
   spellings every guard copy must refuse, with the `gh api` control lines
@@ -116,6 +120,9 @@ list above puts it.
   stacked PR.
 - A worker route for rewriting a branch whose PR is ready: that stays the
   REQ-F1.7 tower path.
+- The policy-guard and session-record code that admits a worker's clean
+  base-merge push onto a spec branch: mission control's, by its REQ-I1.11
+  and D-114; this bundle states the rule it enforces (REQ-E1.4).
 - The kickoff launch kind, its settings profile, its launch record, and the
   policy-guard code that admits its push: mission-control D-36 and its
   Task 19 ship and test them against REQ-G1.9.
@@ -176,6 +183,10 @@ list above puts it.
   launch record names (REQ-G1.9). A plain push of a spec branch SHALL NOT
   be a human gate; rewriting a spec branch SHALL stay one (REQ-F1.5).
   *(Cites: D-18; mission-control D-36 and REQ-I1.8 (Sources).)*
+  *(Amended at Amendment 6, 2026-11-25: the kickoff push stays the only
+  route for a spec's content; a worker's clean base-merge push onto a
+  spec branch is a separate route, REQ-E1.4, and the doctrine row names
+  both.)*
 - **REQ-A1.7** A class of pull requests SHALL be eligible for unattended
   merge only when it passes the class test: membership is decided by
   mechanical predicates over the PR's head with no model in the decision
@@ -541,6 +552,9 @@ list above puts it.
   enforced on every spelling that performs it, `git pull` included.
   *(Cites: D-7; obs:5775c447; obs:332374a2; kickoff sign-off lens pass
   (2026-09-22).)*
+  **Superseded-by: REQ-E1.4** (2026-11-25) — scoped to its spec-branch
+  exclusion: a worker whose launch record names a spec branch may merge the
+  PR base into that one branch, and push it, as REQ-E1.4 states.
 - **REQ-E1.2** A `worker_merge_conflict_policy` knob SHALL resolve through
   the overlay with the values `halt` (a conflicting merge is aborted, the
   tree left clean, and the unit parked under `## Awaiting input` naming the
@@ -558,10 +572,56 @@ list above puts it.
   conflict.
   *(Cites: D-7; obs:332374a2; kickoff §3 REQ-E (2026-09-22); kickoff sign-off
   lens pass (2026-09-22).)*
+  *(Amended at Amendment 6, 2026-11-25: on a spec branch a launch record
+  names, `resolve` follows REQ-E1.4 instead: the resolution commit stays
+  local, there is no PR-body flag or checklist item because nothing is
+  published, and the unit parks naming the conflicting paths.)*
 - **REQ-E1.3** The tower profile, which the orchestrator tier runs under,
   SHALL keep its PR-merge and base-merge deny; the local-main fast-forward
   SHALL remain the only sanctioned mutation of a local main.
   *(Cites: D-7, D-9.)*
+- **REQ-E1.4** (supersedes REQ-E1.1 in part) A worker whose launch-written
+  session record names one spec branch SHALL be able, while
+  `worker_base_merge` resolves `allow`, to bring that branch current with
+  the PR base through two acts and no other merge or push there, the local
+  fast-forward to the pull request's own head that the guard already admits
+  on an amendment or spec-rework branch being unchanged. The
+  spec branches are a spec's sign-off branch `planwright/<spec>/spec`, an
+  amendment branch `planwright/<spec>/amendment-<n>` and a spec-rework
+  branch `planwright/<spec>/spec-rework`, and the route applies to a pull
+  request whose head is that branch and whose base is the remote's default
+  branch. The two acts are merging the PR base into the branch, as the
+  command's only act, and pushing the branch by explicit refspec, as the
+  command's only act, when the push fast-forwards the pull request's head as
+  the remote reports it and every commit it adds that the base lacks is a
+  two-parent merge whose second parent is a commit of the base and whose
+  tree is exactly the clean merge of its parents, on a first-parent line
+  starting at that head. Both acts SHALL run only in the session's own
+  linked worktree holding that branch and SHALL refuse when the base or the
+  head cannot be read from the remote. A `deny` value SHALL refuse both,
+  as it refuses every base merge. The route SHALL grant no force, rewrite,
+  deletion, other branch or spec edit, and the kickoff push of
+  REQ-A1.6 stays the only route for a spec's content. A merge that
+  conflicts follows `worker_merge_conflict_policy` (REQ-E1.2) unchanged,
+  with one limit: a resolution commit is made on the local branch only, its
+  push stays refused because its tree is not the clean merge, and the unit
+  parks naming the conflicting paths. The worker never resets that commit:
+  whoever resolves the conflict (the kickoff session or the operator)
+  discards it by hand, and a resumed unit starts from the remote head, never
+  from that local line. The route also takes REQ-I1.11's further refusals:
+  local state that could make the guard read something other than what git
+  merges or the push sends, and, on the sign-off branch, a
+  `protected_branches` addition matching it; only the core floor's own
+  `planwright/*/spec` entry is exempt there, so that branch is not a
+  protected branch for this route. The kickoff session's own record-less
+  base merge on its launch scope's spec branches is a separate route this
+  requirement leaves unchanged. Merging into main, a protected branch,
+  another unit's branch or a spec branch the session's record does not name
+  stays refused as REQ-E1.1 states. The route's guard half is mission
+  control's REQ-I1.11, which this requirement admits and whose builds were
+  held draft until it signed.
+  *(Cites: D-28; mission-control REQ-I1.11 and D-114 (Sources); the
+  operator's rulings on the Amendment 6 walk (2026-11-25).)*
 
 ## REQ-F — History rewriting
 
@@ -860,6 +920,18 @@ list above puts it.
   *(Cites: D-18; mission-control D-36 and REQ-I1.8 (Sources); the
   operator's relayed-kickoff decision (Sources); kickoff amendment lens
   pass (2026-11-04).)*
+  *(Amended at Amendment 6, 2026-11-25: the worker profile's denies of a
+  plain push whose destination is a spec branch become guard-only as well,
+  for the one branch a worker's launch record names under REQ-E1.4; the
+  guard keeps refusing every other spec-branch push, and a worker with no
+  record, an unbound record or another branch's record is refused every
+  one. The kickoff profile's exception and the floor for every other tier
+  are unchanged, and the REQ-G1.13 cross-copy test drives the worker
+  profile's changed lines. The spec-branch deletion spellings stay
+  denied by the profile, through deletion-only globs, and the worker
+  profile's policy-guard hooks gain a fail-closed suffix like the tower
+  profile's, so a guard that cannot run refuses every call those hooks
+  cover.)*
 - **REQ-G1.10** (supersedes REQ-G1.1) One shared fixture list of
   reserved-control spellings — merge in every form including `git pull`,
   the draft→ready flip and its undo, every force-push and refspec form
@@ -953,6 +1025,13 @@ list above puts it.
   requests outside those acts, each expecting `prompt` from every profile.
   *(Cites: D-9, D-18, D-25, D-26; kickoff amendment lens pass
   (2026-11-05).)*
+  *(Amended at Amendment 6, 2026-11-25: the worker tier's plain push of
+  the one spec branch its launch record names under REQ-E1.4 is a third
+  tier-scoped exception: the worker profile defers it and the policy-guard
+  lines expect the REQ-E1.4 verdicts. Since a profile glob cannot tell the
+  recorded branch from another, the worker profile defers every plain
+  sign-off branch push and the policy guard denies all but the recorded
+  one; deletion spellings stay denied by both.)*
 - **REQ-G1.14** (supersedes REQ-G1.3) Acts no policy value can permit SHALL
   stay in the deny profiles as the floor, effective whatever a guard emits,
   where a profile can express them: a merge or rewrite of main, `master`, a
@@ -973,6 +1052,10 @@ list above puts it.
   a profile glob sees text and cannot read the request; the policy-guard
   suite pins them.
   *(Cites: D-9, D-27; kickoff amendment 2026-11-20.)*
+  *(Amended at Amendment 6, 2026-11-25: the merge of the PR base into the
+  one spec branch a worker's launch record names, and its plain push, are
+  not floor acts (REQ-E1.4); on the worker tier the plain-push half is
+  guard-only.)*
 
 ## REQ-H — Prose surfaces
 
@@ -1312,6 +1395,16 @@ list above puts it.
   environment-record and malformed-record cases; a line rewrapped, a
   doubled "and" dropped in
   the Deferred bullet, and obs:9bed2b4e's wording repaired.
+- 2026-11-25 — Amendment 6: a worker launched on a spec-branch pull request
+  may merge the PR base into that one branch and push only clean merges.
+  REQ-E1.4 is minted (supersedes REQ-E1.1 in part, with the
+  `Superseded-by` line on REQ-E1.1); `worker_base_merge` governs it and
+  `deny` refuses it; a conflict follows `worker_merge_conflict_policy`
+  unchanged, a resolution staying local with its push refused; notes on
+  REQ-A1.6 and REQ-G1.9 (the worker profile's spec-branch push denies
+  become guard-only on the recorded branch); the in-scope list extended;
+  D-28 and Task 23 added; the details are in `kickoff-brief.md`'s
+  amendment log.
 
 ## Sources
 
@@ -1498,3 +1591,8 @@ list above puts it.
   out to wait on this bundle's 2026-11-20 amendment. Its push verb, guard
   grammar, and tests are the starting point for Task 21; the kickoff
   brief's amendment entry records where they are kept.
+- **mission-control REQ-I1.11 and D-114** (`specs/mission-control/`): the
+  guard half of the worker's spec-branch merge and push, signed at its
+  Amendment 21 with its builds held draft until this bundle's Amendment 6
+  signs; PR #1140 (the sign-off branch) and PR #1155 (the amendment and
+  spec-rework refusals) are those builds.

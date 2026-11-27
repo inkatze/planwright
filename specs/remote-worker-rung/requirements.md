@@ -1,7 +1,7 @@
 # Remote worker rung — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-11-11
+**Last reviewed:** 2026-11-23
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -247,6 +247,28 @@ and placement all see only the local host.
   account holding no hosting-remote or model login, or the operator's
   explicit acceptance that the code can read the logins it holds.
   *(Cites: D-11, D-16.)*
+- **REQ-G1.7** The compute host for a gate run SHALL resolve per repository
+  through the configuration layers: a repository's own machine-local
+  settings may name its SSH alias, and the user-level single compute-host
+  setting is the fallback for a repository that names none. No separate
+  repository-to-host map SHALL exist, so two repositories on one machine may
+  resolve to two hosts and one value never has two sources. The resolved
+  host is the candidate for the run, and REQ-G1.5's capacity rule and
+  REQ-G1.6's credential stance still decide whether it takes the run.
+  *(Cites: D-17.)*
+- **REQ-G1.8** The configuration SHALL accept an ordered list of command
+  patterns, each pairing a raw test or type-check command with the name of
+  the project task that runs it on the compute host, and the router SHALL
+  send a command that matches the whole of a pattern, and no built-in shape,
+  through the compute verb as that task. A list entry names a task already
+  defined in the committed project, never a command to run on the host, so
+  the channel's fixed verb set and task grammar are unchanged.
+  *(Cites: D-4, D-18.)*
+- **REQ-G1.9** A command that matches no pattern, matches only a prefix of
+  one (extra arguments the task cannot carry), or whose mapped name falls
+  outside the task grammar SHALL run here unchanged, as before; no worker
+  guard SHALL be added to steer raw commands through the router.
+  *(Cites: D-18.)*
 
 ## REQ-F — Hygiene
 
@@ -260,6 +282,12 @@ and placement all see only the local host.
   *(Cites: D-11.)*
 
 ## Changelog
+
+- 2026-11-23 — Amendment 1: a repository's own machine-local settings name
+  its compute host, with the single user-level setting as fallback and no
+  new map (REQ-G1.7, D-17); a settings list maps raw test and type-check
+  commands to named project tasks the router sends through the compute
+  verb, with no worker guard (REQ-G1.8, REQ-G1.9, D-18); Task 12.
 
 - 2026-11-10 — Kickoff decisions: one account covers every host, so the
   per-account usage tracking is dropped to a shared gate plus a refusal of a
@@ -327,5 +355,11 @@ and placement all see only the local host.
 - **mission-control's scope** — its out-of-scope list names a remote
   development-environment rung and cross-machine mission control; this bundle
   takes the first and leaves the second.
+- **The Amendment 1 answers (2026-11-23)** — relayed from the operator
+  through mission control: "Keep per-project settings (Recommended)" for the
+  per-repository host, and "A list in settings (Recommended)" for routing raw
+  test and type-check commands. Origin: an adopter's request that gate runs
+  on several repositories each reach their own compute host, and that raw
+  test commands stop running on the crowded machine.
 - obs:57770415 — cross-machine mission-control relay, cited as the boundary
   of this bundle, not consumed.

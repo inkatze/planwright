@@ -324,7 +324,8 @@
 #       with exit 4, a failed resume with exit 5 (a launch opt-in record the
 #       resume cannot trust among them: launch the worker fresh) — both surfaced as
 #       attention items (the Awaiting-input halt of the affected unit; the
-#       tower and other workers continue).
+#       tower and other workers continue). A launch opt-in record the resume
+#       cannot trust refuses the recover with exit 7: launch the worker fresh.
 #   fleet-streamjson.sh relaunch <worker> [--grace <secs>]
 #       Move a LIVE worker onto the profile and config installed now: a plain
 #       `stop` (the scratch root stays), then `recover --cwd` with the
@@ -1976,7 +1977,11 @@ guard_preflight() {
     gp_cmd="$gp_root/scripts/resolve-rule-doc.sh spec-format"
     gp_payload=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"%s"},"cwd":"%s"}' \
       "$(printf '%s' "$gp_cmd" | json_escape)" "$(printf '%s' "$gp_cwd" | json_escape)")
-    gp_out=$(printf '%s\n' "$gp_payload" | "$gp_env" "$gp_guard" 2>/dev/null) || gp_out=''
+    # Proved with no session record: the launcher's own, which the worker
+    # never runs under, could leave a root that is a checkout trusting
+    # nothing, and the worker's holds every root outside its worktree to
+    # HEAD, as no record does.
+    gp_out=$(printf '%s\n' "$gp_payload" | env -u PLANWRIGHT_WORKER_SESSION_RECORD "$gp_env" "$gp_guard" 2>/dev/null) || gp_out=''
     case $gp_out in
       *'"permissionDecision":"allow"'*) printf 'ok\n' ;;
       *) printf 'failed %s\n' "$gp_root" ;;

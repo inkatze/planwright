@@ -2473,3 +2473,168 @@ words: "Approve the edit (Recommended)".
 Class: expression-only
 Anchor: `4157f1a25244899ae0f63df8852803677532c5f2` — computed as
 `scripts/spec-anchor.sh specs/mission-control`
+
+### Amendment 22 (2026-11-23, amendment: the dated-commitments store)
+
+Spec path `specs/mission-control`; walk started at `6eb703b7`; walkthrough
+date 2026-11-23. Mode: amendment on an Active bundle, operator-declared
+through the hub (decisions-202611-139) under the hub's rule lifting the
+planwright freeze for this work, and walked by relay, one plain question per
+turn. Validator at walk start: 0 errors, 0 warnings. Scope: a per-program
+store of dated commitments (when, the event owed to whom, the required pull
+requests), read by deadline-watch, carried by the handover, gating `take`,
+and reported each runner pass with each pull request's live state. Origin:
+a successor on the work machine dropped a customer deadline that sat as one
+line of handover prose. Numbering: read against origin/main and every
+mission-control branch, local and remote, and spec-pipeline's ID ledger;
+this amendment mints REQ-P1.15 to REQ-P1.18, D-115 and Tasks 150 to 152
+(REQ-I1.9 and REQ-I1.10 stay reserved there).
+
+#### Goal and glossary (Amendment 22)
+
+Restatement: a dated promise is data, not prose. One store holds it; the
+watcher, the handover and the runner all read that store, so a deadline
+cannot be dropped by a handover that forgot a sentence. Rules out: a second
+list of dates, a session other than the holder recording one, a merge
+closing one silently, a new knob. Assumes: the existing forge adapter, the
+handover file's item lines and the event registry. Terms: *commitment*
+(REQ-P1.15), *holding mission control* (the live holder of the program's
+name), *overdue* (open past its day), *ready to close* (every required pull
+request merged, still open).
+
+#### Requirements walkthrough (Amendment 22)
+
+Six questions went to the operator through the hub, each with a marked
+recommendation; their answers, verbatim:
+
+1. One list or two: "One list (Recommended)" (decisions-202611-140).
+2. What acknowledging requires: "Name each one (Recommended)"
+   (decisions-202611-141).
+3. How a commitment closes: "A session closes it with a reason
+   (Recommended)" (decisions-202611-142).
+4. Who records one: "Mission control, on your word (Recommended)"
+   (decisions-202611-143).
+5. An unreadable pull request: "Say so loudly (Recommended)"
+   (decisions-202611-144).
+6. How loud each check-in is: "On change or near the date (Recommended)"
+   (decisions-202611-145).
+
+Spec edits: `requirements.md` (REQ-P1.15 to REQ-P1.18, the changelog line,
+two Sources entries); `design.md` (D-115, a note on D-27); `tasks.md` (Tasks
+150 to 152); `test-spec.md` (four entries). Lens-pass refinements the
+operator's answers left open, decided inside their rulings: the id is
+allocated by `add`; a time of day is text and the day is the unit; the gate
+and the printing read the store, and `verify` marks a commitment the file
+lacks rather than failing on it; events never carry the event text or the
+quoted words; `resume` gates like `take`.
+
+#### Design walkthrough (Amendment 22)
+
+D-115 is minted. D-27 gains a note (deadline-watch's sources). No decision
+is superseded. D-115's rejected alternatives are the five operator
+rulings' other options.
+
+#### Verification approach (Amendment 22)
+
+All four requirements have `[test]` entries in fixtures. The forge read has
+no per-pull-request verb today (the adapter lists open, tracked pull
+requests only), so Task 152 adds `pr-state`, and its entry shims `gh` on
+PATH. No dead path: each named check runs today or is a signed task's
+deliverable.
+
+#### Task graph (Amendment 22)
+
+Tasks 151 and 152 depend on Task 150; Task 150 has no in-bundle dependency.
+Deliberate non-edge: Tasks 151 and 152 do not depend on each other (the
+gate reads the store, not the report).
+
+#### Risk register (Amendment 22)
+
+1. The gate trusts the store; a commitment never recorded is never gated.
+   Mitigation: only the holder records, on the operator's word, and the
+   panel and the first-turn list show what the store holds. Accepted.
+2. The store holds customer wording in the program home. Mitigation: events
+   and pushes carry only the id, date and states; the home is never
+   committed (data hygiene).
+3. A pull request's rename or transfer reads `unknown`. Mitigation: the
+   reason is shown and `change` fixes the reference.
+4. The runner's forge read can hit a rate limit across many commitments.
+   Mitigation: one read per required pull request per pass, a failed read
+   showing `unknown` loudly. Accepted.
+
+Decision-domain gap check: authorization (REQ-P1.15), failure handling
+(REQ-P1.18), source of truth (the store, the forge for state), concurrency
+(the store's lock), data hygiene (control bytes refused, events carry no
+customer wording), rollout (no knob, Tasks 150 to 152 in order). No other
+domain is touched.
+
+#### Lens review (Amendment 22, delta-scoped)
+
+Fanned out, one read-only agent per group of spec lenses (consistency,
+ambiguity, citations and cross-file; testability, decision-domain gaps,
+documentation and data hygiene), over the Amendment 22 delta and the
+scripts it names, then validated against the code (the adapter's query
+lists open pull requests only; the handover picture's item grammar; the
+dates file's precedence). Totals: 27 lens findings (raw, per lens; a
+finding two lenses raised counts in both rows), 23 applied and 4 merged
+into another finding's fix.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Contract correctness and internal consistency | 3 | 3 applied: the adapter read named (`pr-state`), "drop" removed, the D-115 header lists D-30, D-65 and D-68 |
+| Ambiguity and interpretation forks | 4 | 4 applied: ids allocated so no precedence fork, `cited` stated, the item id defined, `resume` gated |
+| Citation and coverage integrity | 3 | 3 applied: the panel clause in REQ-P1.18, event registration in Task 152, `state` and `watch` placed in Task 152 |
+| Cross-file consistency | 1 | 1 applied: one date across files |
+| Testability and dead verification paths | 4 | 3 applied: the adapter verb, the `gh` shim, the `--now` days; 1 merged (the runner test file) into Task 152's named files |
+| Decision-domain gaps | 7 | 5 applied: holder test, late commitment, empty pull request list, ack and lock rules, the id grammar; 2 merged: the time of day (into the whole-day rule) and a renamed pull request (into REQ-P1.18's reason) |
+| Documentation and glossary drift | 3 | 2 applied: the two terms defined; 1 merged: the date alignment |
+| Rendered-content safety and data hygiene | 2 | 2 applied: control bytes refused, events carry no customer wording |
+
+Altitude check: not applicable; the delta pins no altitude claim.
+Ship-gate check: no out-of-band fix is named. Stale-reference sweep: the
+minted ids (REQ-P1.15 to REQ-P1.18, D-115, Tasks 150 to 152) were grepped
+across the bundle; every citation names an id that exists. Notable for the
+operator: risk 1 (the gate trusts the store) and the `verify` refinement
+(it marks a missing commitment rather than failing).
+
+#### Pre-flip verification (Amendment 22)
+
+No status flip (the bundle is already signed); `Last reviewed:` 2026-11-23
+on all four spec files. Lint: `markdownlint-cli2` over the five bundle
+files, 0 errors. Recorded claims re-derived mechanically: the lens table's
+per-row counts sum to the stated total.
+
+#### Sign-off record (Amendment 22)
+
+Signed off 2026-11-23 by the operator, relayed through the hub, asked with
+no option preselected beyond the recommendation: "Sign off (Recommended)"
+(decisions-202611-146). Amendment on an Active bundle: no status flip; the
+validator re-run with 0 errors once this anchor was recorded. The delta adds
+requirements, so it is meaning-class. Accepted risks: see the register
+above, risks 1 and 4.
+
+Class: meaning
+Lens-pass: Amendment 22, delta-scoped lens review above (spec lens set, fanned out by lens group; every finding dispositioned)
+Anchor: `eee77526da5c0f56885e08d78495b619ff720b0f` — computed as
+`scripts/spec-anchor.sh specs/mission-control`
+
+### Re-anchor — Amendment 22 review wording (2026-11-24)
+
+Marked self-re-anchor for an expression-only edit, per the meta-spec's
+expression-only lane (`doctrine/spec-format.md`, *Writers*). After the
+Amendment 22 sign-off, the pull request's automated review raised five
+wording readings in the new text: "open or closed" read as attached to the
+required pull requests rather than the commitment (REQ-P1.15, D-115); `close`
+was missing from the holder-only acts in REQ-P1.15, though its test entry
+already refuses a non-holder's close; and "mark one the handover file lacks"
+read as marking a single commitment (REQ-P1.17, D-115). Each now says what
+the walk decided; no requirement, decision, task or test changes meaning.
+The operator approved the wording through the hub, in their words:
+"approve the wording fixes" (decisions-202611-151).
+
+**Cites the changelog line:** the 2026-11-24 `## Changelog` entry in
+`requirements.md`.
+
+Class: expression-only
+Anchor: `2375e3939eff4b17787c15d1cf3332b880dcc988` — computed as
+`scripts/spec-anchor.sh specs/mission-control`

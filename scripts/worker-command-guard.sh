@@ -19,9 +19,10 @@
 #     a simple command that a `Bash(…)` rule of the worker profile's deny
 #     block matches, or that is a reserved act (a push, rebase, reset, amend,
 #     hook skip, squash, or `gh` write), defers, declared check commands and
-#     steps' lines included, save two own-unit acts (see own_unit_act): a push of the
-#     recorded unit branch to origin and a body edit of its own open pull
-#     request. The guard reads the deny block itself rather than trusting
+#     steps' lines included, save the own-unit acts (see own_unit_act): a push of
+#     the recorded unit branch to origin, a body edit of its own open pull
+#     request, and a reply to or resolve of a bot-only review thread on it.
+#     The guard reads the deny block itself rather than trusting
 #     Claude Code's evaluation order, and approves nothing when it cannot.
 #   * The self-approval policy: the read-only arm (read-only
 #     shapes, trusted repo code, declared check commands and steps, the
@@ -82,11 +83,14 @@
 # expansion left in a verb, or in an operand a screen reads, defers (see
 # word_unresolved). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository and HEAD commits the file unchanged
-# (committed_blob; a `bats` directory defers), and an INSTALLED planwright root's
-# `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
-# for itself, held to that root's HEAD the same way when the root is a git
-# checkout (REQ-A1.10; see is_planwright_script — the reason this needs no
+# path canonicalizes INSIDE the repository and its trusted commit holds the
+# file unchanged (committed_blob, trusted_rev: the base in the recorded
+# worktree, where the worker commits, HEAD in a checkout outside it, and
+# nothing in the cases trusted_rev lists; a `bats` directory defers), and an
+# INSTALLED planwright root's `scripts/*.sh` is trusted after
+# canonicalizing inside a root the hook resolves for itself, held to its
+# trusted commit the same way when the root is a git checkout
+# (REQ-A1.10; see is_planwright_script — the reason this needs no
 # per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
 # analysis on the inner string within a bounded depth.
 # A segment none of these shapes approve is still approved when it matches a
@@ -763,11 +767,86 @@ canon_under() {
   esac
 }
 
+# trusted_rev <root>: set TRUSTED_REV_OUT to the commit a file under the work
+# tree <root> is held to, or return 1 when that tree trusts nothing. Outside
+# the recorded worktree it is HEAD. The recorded worktree itself is held to the
+# merge base of HEAD and the record's pr_base remote-tracking ref, since the
+# own-branch arm and the profile's static allows let the worker commit there
+# and the guard never sees what a script runs. The ref is read by show-ref
+# --verify, which takes the full name literally: git's ordinary lookup falls
+# through to a local branch named refs/remotes/<base> once the real ref is
+# deleted, and the profile statically allows both acts; a symbolic ref there is
+# refused too, since show-ref follows it. A repository nested in the worktree,
+# which the worker can give any refs, trusts nothing.
+#
+# A record that is set but names no usable worktree trusts nothing at all:
+# the static allows still let the worker commit, and the guard cannot tell
+# which checkout it committed in (a shell sitting in a repository nested in
+# the one it committed in leaves the outer one looking like a checkout
+# elsewhere). The one exception is the hook's own root, held to HEAD while the
+# session sits outside it: that root holds this guard, so a worker able to
+# rewrite it has already beaten the guard, and its scripts keep running. A
+# session sitting inside it, judged by its canonical directory so no spelling
+# of a link reads as outside, could commit there, so it gets no exception; one
+# that committed there and left would keep it, which needs the root inside its
+# working directories (a vendored root) for that move to go unprompted.
+#
+# The recorded worktree's base is resolved once per hook call; trusted_rev is
+# called outside a command substitution so that the cache survives.
+# scripts/step-run.sh's trusted_commit mirrors this function and the record
+# checks in session_record_load, without the hook-root exception; change
+# them together.
+TRUSTED_REV_ROOT=''
+TRUSTED_REV=''
+TRUSTED_REV_OUT=''
+trusted_rev() {
+  local oid rev pc
+  TRUSTED_REV_OUT=''
+  if [ -z "$REC_WT" ]; then
+    if [ -n "${PLANWRIGHT_WORKER_SESSION_RECORD:-}" ]; then
+      [ -n "${HOOK_SELF_ROOT:-}" ] && [ "$1" = "$HOOK_SELF_ROOT" ] || return 1
+      case ${HOOK_PAYLOAD_CWD:-} in
+        /*) ;;
+        *) return 1 ;;
+      esac
+      pc=$(cd "$HOOK_PAYLOAD_CWD" 2>/dev/null && pwd -P) || return 1
+      case $pc/ in
+        "$HOOK_SELF_ROOT"/*) return 1 ;;
+      esac
+    fi
+    TRUSTED_REV_OUT=HEAD
+    return 0
+  fi
+  if [ "$1" != "$REC_WT" ]; then
+    case $1/ in
+      "$REC_WT"/*) return 1 ;;
+    esac
+    TRUSTED_REV_OUT=HEAD
+    return 0
+  fi
+  if [ "$TRUSTED_REV_ROOT" != "$1" ]; then
+    [ -n "$REC_BASE" ] || return 1
+    ! git_plain -C "$1" symbolic-ref -q "refs/remotes/$REC_BASE" >/dev/null 2>&1 || return 1
+    oid=$(git_plain -C "$1" show-ref --verify --hash "refs/remotes/$REC_BASE" 2>/dev/null) || return 1
+    case $oid in
+      '' | *[!0-9a-f]*) return 1 ;;
+    esac
+    rev=$(git_plain -C "$1" merge-base HEAD "$oid" 2>/dev/null) || return 1
+    case $rev in
+      '' | *[!0-9a-f]*) return 1 ;;
+    esac
+    TRUSTED_REV_ROOT=$1
+    TRUSTED_REV=$rev
+  fi
+  TRUSTED_REV_OUT=$TRUSTED_REV
+}
+
 # committed_blob <root> <rel> <full>: 0 when <full> (the canonical path of
 # <rel> under the work tree <root>) is a regular file whose bytes are exactly
-# the blob HEAD records for <rel>, as a plain or executable file. Where a file
-# sits proves nothing about who wrote it, since a worker may Write it, so a
-# file the guard trusts by its content is trusted only as a commit holds it.
+# the blob the trusted commit (trusted_rev) records for <rel>, as a plain or
+# executable file. Where a file sits proves nothing about who wrote it, since a
+# worker may Write it, so a file the guard trusts by its content is trusted
+# only as a commit holds it.
 # Plumbing only, so no index refresh (no write, no index.lock race with a
 # concurrent commit) and no filter or textconv driver runs. A verdict is kept
 # per path for the rest of the hook call, since a loop re-checks its body.
@@ -780,7 +859,7 @@ canon_under() {
 COMMITTED_OK=''
 COMMITTED_USED=0
 committed_blob() {
-  local root=$1 rel=$2 full=$3 key line meta path want have
+  local root=$1 rel=$2 full=$3 key line meta path want have rev
   key=$'\n'"$full"$'\n'
   case $COMMITTED_OK in
     *"$key"*)
@@ -789,7 +868,9 @@ committed_blob() {
       ;;
   esac
   [ -f "$full" ] && [ ! -L "$full" ] || return 1
-  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree HEAD -- "$rel" 2>/dev/null) || return 1
+  trusted_rev "$root" || return 1
+  rev=$TRUSTED_REV_OUT
+  line=$(git_plain -C "$root" -c core.quotePath=false ls-tree --full-tree "$rev" -- "$rel" 2>/dev/null) || return 1
   case $line in
     *$'\n'*) return 1 ;;
   esac
@@ -834,7 +915,7 @@ committed_in_checkout() {
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
 # tests/ directory that canonicalizes inside the repo (REQ-A1.5, REQ-A1.10)
-# and matches what HEAD commits there (committed_blob).
+# and matches what its trusted commit holds there (committed_blob).
 is_repo_script() {
   local p=$1 cwd=$2 full rel root
   case $p in
@@ -946,9 +1027,9 @@ is_planwright_script() {
     case $rel in
       scripts/*)
         # A root that is a git checkout (a tower or mission control run from
-        # one) lies outside the worktree, where the file tools still write,
-        # so it is held to what its HEAD commits, as the repository is. A
-        # root that is no checkout of its own is an install copy.
+        # one) is one the file tools still write, so it is held to its
+        # trusted commit as the repository is (trusted_rev). A root that is
+        # no checkout of its own is an install copy.
         [ -e "$root/.git" ] || return 0
         [ "$(git_plain -C "$root" rev-parse --show-toplevel 2>/dev/null)" = "$root" ] || return 1
         committed_blob "$root" "$rel" "$full"
@@ -984,7 +1065,7 @@ is_trusted_script() {
 # A call is read as the script path, at most one two-word `--worktree <dir>`,
 # then the verb; every word must be the literal the script will see.
 
-# step_script_kind <path>: 0 when the trusted script <path> is a step script,
+# step_script_kind <path>: 0 when <path> is a step script,
 # its kind left in STEP_KIND (`record` or `run`): by name under any casing a
 # case-insensitive filesystem runs, or as a link of a trusted root's copy.
 step_script_kind() {
@@ -1127,10 +1208,10 @@ step_excerpt_ok() {
 }
 
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# and is a file HEAD commits there unchanged (used for `bats <file>`, which need
-# not sit under scripts/ or tests/, and which stays REPO-scoped — an install
-# ships no test files to run). A directory operand fails, since bats would run
-# whatever files it holds.
+# and is a file its trusted commit holds unchanged (used for `bats <file>`,
+# which need not sit under scripts/ or tests/, and which stays REPO-scoped —
+# an install ships no test files to run). A directory operand fails, since
+# bats would run whatever files it holds.
 is_contained_file() {
   local root full
   root=$(repo_root_of "$2") || return 1
@@ -1273,10 +1354,16 @@ guard_mkdir() {
 # outside its grammar is dropped, disabling whatever reads it: the
 # policy reads as the empty list, and without the worktree root and unit
 # branch neither the own-branch arm nor a `cd` approves anything, and without
-# the scratch root the scratch arm approves nothing. The scratch root must be
-# this user's own canonical directory, apart from the worktree in both
-# directions. A record that is unreadable, not this user's own regular file,
-# or inside the worktree or the scratch root it describes is no record.
+# the scratch root the scratch arm approves nothing; without the PR base no
+# file in the worktree is trusted by its content, and without the worktree
+# root no file anywhere is, the hook's own root aside while the session sits
+# outside it (trusted_rev). The
+# scratch root must be this user's own canonical directory, apart from the
+# worktree in both directions. A record that is unreadable, not this user's
+# own regular file, or inside the worktree or the scratch root it describes
+# loads no field, which is not the same as no record: trusted_rev sees the
+# variable set. scripts/step-run.sh's trusted_commit repeats these checks;
+# change them together.
 #
 # The audit-log home must be this user's own writable canonical directory,
 # apart from the worktree and the scratch root in both directions, and the
@@ -1304,7 +1391,7 @@ readonly MAX_CHECKS_LEN=2048
 # grammar (is_unit_branch) narrowed to flight names carrying the id every
 # launcher mints; a protected branch never matches it.
 rec_unit_branch_ok() {
-  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$'
+  local re_task='^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$'
   local re_flight='^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$'
   case $1 in
     planwright/flight/task-*) return 1 ;;
@@ -1631,8 +1718,8 @@ floor_act_words() {
 }
 
 # --------------------------------------------------------------------------
-# The own-unit acts: three a session may run on its own unit that no other
-# arm approves (the push and the edit being floor acts), approved whatever
+# The own-unit acts: those a session may run on its own unit that no other
+# arm approves (the push, the edit and the thread write being floor acts), approved whatever
 # the record's policy, but only under a record carrying the unit branch, the
 # worktree root and a usable audit log, with the session's directory in that
 # worktree's own repository, for the session's own command at the top level
@@ -1648,8 +1735,12 @@ floor_act_words() {
 #       request whose head is the unit branch, as one bounded `gh pr view`
 #       read from the session's directory says, and <file> a regular file
 #       canonically inside the recorded scratch root;
-#   git push origin <unit> | git push origin <unit>:<unit>   nothing else.
-# Every word but the body file is a bare literal as written. Anything else
+#   git push origin <unit> | git push origin <unit>:<unit>;
+#   gh api reply to, or resolve of, a review thread of that same pull
+#   request in which only a bot and the authenticated account have spoken
+#   (own_thread_ok); nothing else.
+# Every word but the body file, a reply's body text and a resolve's query is a
+# bare literal as written (the query must equal one fixed text). Anything else
 # is left to the floor, which reserves it as before.
 
 # own_unit_candidate: the unsubstituted words (`sw`) open one of the
@@ -1657,7 +1748,8 @@ floor_act_words() {
 # verify_known_simple's exact check.
 own_unit_candidate() {
   [ "${sw[0]-}" = git ] && [ "${sw[1]-}" = push ] && return 0
-  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = pr ] && [ "${sw[2]-}" = edit ]
+  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = pr ] && [ "${sw[2]-}" = edit ] && return 0
+  [ "${sw[0]-}" = gh ] && [ "${sw[1]-}" = api ]
 }
 
 # own_unit_words_bare <from> <to>: words <from>..<to>-1 are bare literals,
@@ -1712,7 +1804,13 @@ own_unit_act() {
       done
       ;;
     git) own_push_ok && own_unit_same_repo "$here" ;;
-    gh) own_unit_same_repo "$here" && own_pr_edit_ok "$here" ;;
+    gh)
+      own_unit_same_repo "$here" || return 1
+      case ${cw[1]} in
+        api) own_thread_ok "$here" ;;
+        *) own_pr_edit_ok "$here" ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
 }
@@ -1821,6 +1919,342 @@ own_pr_edit_ok() {
     'type == "object" and .headRefName == $b and .isCrossRepository == false and .state == "OPEN"' >/dev/null 2>&1
 }
 
+# own_gh_read <dir> <gh args>...: one bounded `gh` read from <dir>, its answer
+# on stdout; a hung forge or a failed call fails the read.
+own_gh_read() {
+  local d=$1
+  shift
+  [ -n "$HOOK_SELF_ROOT" ] && [ -r "$HOOK_SELF_ROOT/scripts/bounded-run.sh" ] || return 1
+  (cd -- "$d" && /bin/sh "$HOOK_SELF_ROOT/scripts/bounded-run.sh" 15 \
+    env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 GH_PAGER=cat \
+    gh "$@" 2>/dev/null </dev/null)
+}
+
+# The two GraphQL texts a thread resolve is held to, verbatim: the resolve
+# itself and the read of the thread it names.
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
+THREAD_RESOLVE_Q='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
+THREAD_READ_Q='query($id:ID!){node(id:$id){...on PullRequestReviewThread{comments(first:100){totalCount nodes{databaseId pullRequest{number repository{nameWithOwner}}}}}}}'
+
+# own_thread_ok <canonical cwd>: the current `gh api` call is exactly one of
+# two writes to a review thread in which only a bot, and the operator's own
+# earlier replies, have spoken:
+#   gh api -X POST repos/<o>/<r>/pulls/<n>/comments/<id>/replies -f body=<text>
+#   gh api graphql -f query=<the resolveReviewThread mutation> -f id=PRRT_<id>
+# No other flag, field, header, host or input is read. The thread is read from
+# the forge before the approval (thread_bot_only).
+own_thread_ok() {
+  local i w method='' ep='' nf=0 expect=0 thread repo_slug pr_num
+  local -a fk=() fv=()
+  # An assignment earlier in the command (GH_HOST, GH_TOKEN, PATH) could point
+  # the call at another host or program than the one the reads below check.
+  [ "$VAR_C" -eq 0 ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ "${cw[i]}" = "${sw[i]}" ] && [ -z "${csub[i]-}" ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  i=2
+  while [ "$i" -lt "$cwn" ]; do
+    w=${cw[i]}
+    case $w in
+      -X | --method)
+        [ -z "$method" ] && [ $((i + 1)) -lt "$cwn" ] || return 1
+        method=${cw[i + 1]}
+        i=$((i + 2))
+        continue
+        ;;
+      --method=*)
+        [ -z "$method" ] || return 1
+        method=${w#--method=}
+        ;;
+      -f | --raw-field)
+        [ $((i + 1)) -lt "$cwn" ] && [ "$nf" -lt 2 ] || return 1
+        case ${cw[i + 1]} in
+          ?*=*) ;;
+          *) return 1 ;;
+        esac
+        fk[nf]=${cw[i + 1]%%=*}
+        fv[nf]=${cw[i + 1]#*=}
+        nf=$((nf + 1))
+        i=$((i + 2))
+        continue
+        ;;
+      -*) return 1 ;;
+      *)
+        [ -z "$ep" ] || return 1
+        ep=$w
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  [ -n "$ep" ] || return 1
+  if [[ $ep =~ ^repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pulls/([1-9][0-9]{0,8})/comments/([1-9][0-9]{0,14})/replies$ ]]; then
+    [ "$method" = POST ] && [ "$nf" -eq 1 ] && [ "${fk[0]}" = body ] || return 1
+    [ -n "${fv[0]}" ] && [ "${#fv[0]}" -le 65536 ] || return 1
+    # A name made of dots only is a path step, never an owner or repository.
+    [[ ${BASH_REMATCH[1]} != *[!.]* ]] && return 1
+    [[ ${BASH_REMATCH[2]} != *[!.]* ]] && return 1
+    thread_bot_only "$1" "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}" 0
+    return
+  fi
+  [ "$ep" = graphql ] && { [ -z "$method" ] || [ "$method" = POST ]; } && [ "$nf" -eq 2 ] || return 1
+  local q='' id=''
+  for ((i = 0; i < 2; i++)); do
+    case ${fk[i]} in
+      query) q=${fv[i]} ;;
+      id) id=${fv[i]} ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$q" = "$THREAD_RESOLVE_Q" ] && [[ $id =~ ^PRRT_[A-Za-z0-9_-]{1,100}$ ]] || return 1
+  thread=$(own_gh_read "$1" api graphql -f "query=$THREAD_READ_Q" -f "id=$id") || return 1
+  [ "${#thread}" -le 65536 ] || return 1
+  thread=$(printf '%s' "$thread" | jq -r '
+    .data.node.comments as $c
+    | select($c != null and $c.totalCount == ($c.nodes | length) and ($c.nodes | length) >= 1)
+    | $c.nodes[0] as $f
+    | select($c.nodes | all(.pullRequest.number == $f.pullRequest.number
+        and .pullRequest.repository.nameWithOwner == $f.pullRequest.repository.nameWithOwner))
+    | "\($f.pullRequest.repository.nameWithOwner) \($f.pullRequest.number) \($f.databaseId)"' 2>/dev/null) || return 1
+  IFS=' ' read -r repo_slug pr_num expect <<<"$thread"
+  [[ $repo_slug =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [[ $pr_num =~ ^[1-9][0-9]{0,8}$ ]] \
+    && [[ $expect =~ ^[1-9][0-9]{0,14}$ ]] || return 1
+  case $repo_slug in
+    ./* | ../* | */. | */..) return 1 ;;
+  esac
+  thread_bot_only "$1" "$repo_slug" "$pr_num" "$expect" "$expect"
+}
+
+# thread_bot_only <dir> <owner/repo> <pr> <comment id> <root id|0>: the review
+# thread holding the comment has a first comment from a login ending in `[bot]`
+# (an account of type Bot), and every other comment in it is a bot's too or the
+# authenticated account's own earlier reply; a thread any other person has
+# spoken in is a message to that person. When <root id> is not 0 it must be the
+# thread's first comment. The pull request's comments are read whole
+# (paginated), and the thread is rebuilt from their reply links.
+thread_bot_only() {
+  local viewer comments unit_url
+  viewer=$(own_gh_read "$1" api user | jq -r '.login // empty' 2>/dev/null) || return 1
+  [[ $viewer =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]] || return 1
+  comments=$(own_gh_read "$1" api --paginate "repos/$2/pulls/$3/comments") || return 1
+  [ "${#comments}" -le 4194304 ] || return 1
+  printf '%s' "$comments" | jq -s -e --arg v "$viewer" --argjson id "$4" --argjson expect "$5" '
+    (add // []) as $all
+    | ($all | map(select(.id == $id)) | .[0]) as $t
+    | select($t != null)
+    | ($t.in_reply_to_id // $t.id) as $root
+    | ($all | map(select(.id == $root)) | .[0]) as $r
+    | select($r != null)
+    | ($all | map(select(.id == $root or .in_reply_to_id == $root))) as $th
+    | ($expect == 0 or $root == $expect)
+      and ($r.user.type == "Bot") and ($r.user.login | test("^.+\\[bot\\]$"))
+      and ($th | all(((.user.type == "Bot") and (.user.login | test("^.+\\[bot\\]$")))
+          or (.user.type == "User" and .user.login == $v)))' >/dev/null 2>&1 || return 1
+  # The thread must lie on the unit's own open, same-repository pull request.
+  unit_url=$(own_gh_read "$1" pr view --json url,headRefName,isCrossRepository,state \
+    | jq -r --arg b "$REC_UNIT" 'select(.headRefName == $b and .isCrossRepository == false and .state == "OPEN") | .url' 2>/dev/null) || return 1
+  [ -n "$REC_UNIT" ] && [ "$unit_url" = "https://github.com/$2/pull/$3" ]
+}
+
+# --------------------------------------------------------------------------
+# The installed review-state.sh: the review skills' one writer of the ledger,
+# the writer locks and the session registry, kept in the operator's
+# dotfiles-installed scripts directory. Matched by its literal absolute path
+# under the hook's own HOME, never by a tilde, a bare name or a copy inside
+# the worktree, so a script a worker wrote cannot stand in for it. Only the
+# verbs that keep that state are approved; `evidence run` executes its
+# argument list, and the inbox and loop verbs are not these calls.
+review_state_call_ok() {
+  local h=${HOME:-} i
+  case $h in
+    /?*) ;;
+    *) return 1 ;;
+  esac
+  case $h in
+    */./* | */../* | *//* | */) return 1 ;;
+  esac
+  [ "${cw[0]}" = "$h/.claude/scripts/review-state.sh" ] && [ "${sw[0]}" = "${cw[0]}" ] || return 1
+  # A tracked assignment (REVIEW_STATE_ROOT, HOME) could move the state it keeps.
+  [ "$VAR_C" -eq 0 ] || return 1
+  if [ -n "$REC_WT" ]; then
+    case $h/:${cw[0]} in
+      "$REC_WT"/*) return 1 ;;
+      *:"$REC_WT"/*) return 1 ;;
+    esac
+  fi
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] && [ "${cw[i]}" != -- ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  case ${cw[1]-} in
+    ledger)
+      case ${cw[2]-} in
+        record | lookup | show) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    lock)
+      case ${cw[2]-} in
+        acquire | release | handover | status) ;;
+        *) return 1 ;;
+      esac
+      ;;
+    register | unregister | sessions) ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# mix ci, format and test. A mix run compiles and executes the project's code,
+# so it is approved only while nothing it would execute differs from the
+# trusted PR base: the diff of the worktree against the merge base with
+# `refs/remotes/<pr_base>` (read with show-ref --verify, never a name a local
+# branch could shadow) must name only inert paths (mix_path_inert), the
+# untracked and ignored files likewise, and no tracked file may be hidden from
+# the diff by an assume-unchanged or skip-worktree flag. Code the PR adds or
+# changes therefore keeps prompting, which is what stops a worker committing
+# a test and running it unprompted. Words are held to a short flag list, and
+# the paths to relative ones inside the worktree.
+
+# mix_path_inert <path>: the path names a file mix does not execute: an image
+# by its extension. A text document is not inert, since a base can read
+# one at compile time or doctest it by spellings no pattern lists, and the build
+# and dependency directories are not either: ignored, they can hold code a
+# worker planted, which mix loads.
+mix_path_inert() {
+  lower "$1"
+  case $LOWER in
+    '' | *[[:cntrl:]]*) return 1 ;;
+    *.png | *.jpg | *.jpeg | *.gif | *.ico) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# mix_paths_inert: every NUL-separated path on stdin is mix_path_inert.
+mix_paths_inert() {
+  local p
+  while IFS= read -r -d '' p; do
+    mix_path_inert "$p" || return 1
+  done
+}
+
+# mix_tags_plain: every NUL-separated `ls-files -v` record on stdin carries the
+# plain tag H, read without grep, whose NUL handling differs across hosts.
+mix_tags_plain() {
+  local p
+  while IFS= read -r -d '' p; do
+    [ "${p:0:2}" = 'H ' ] || return 1
+  done
+}
+
+# mix_tree_clean: nothing a mix run in the recorded worktree would execute
+# differs from the trusted PR base.
+mix_tree_clean() {
+  local base=$REC_BASE sha mb st
+  # The work tree is named on the command line and the submodule setting is
+  # pinned, so neither core.worktree nor diff.ignoreSubmodules in the
+  # repository's config can show the diff a different tree or hide a change.
+  local -a gitc=(git_plain -c core.fsmonitor=false -c diff.ignoreSubmodules=none --no-optional-locks --work-tree="$REC_WT" -C "$REC_WT")
+  [[ $base =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+$ ]] || return 1
+  case $base in
+    *..* | */ | *//* | */. | */./* | *.lock) return 1 ;;
+  esac
+  sha=$("${gitc[@]}" show-ref --verify -s "refs/remotes/$base" 2>/dev/null) || return 1
+  [[ $sha =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+  mb=$("${gitc[@]}" merge-base "$sha" HEAD 2>/dev/null) || return 1
+  [[ $mb =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || return 1
+  # A tracked file flagged assume-unchanged or skip-worktree (a tag other
+  # than H) is one the diff below cannot see change.
+  "${gitc[@]}" ls-files -v -z 2>/dev/null | mix_tags_plain
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
+  "${gitc[@]}" diff --name-only -z --no-renames --no-ext-diff --no-textconv --ignore-submodules=none "$mb" -- 2>/dev/null | mix_paths_inert
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
+  "${gitc[@]}" ls-files -o --exclude-standard -z 2>/dev/null | mix_paths_inert
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ] || return 1
+  "${gitc[@]}" ls-files -o -i --exclude-standard --directory -z 2>/dev/null | mix_paths_inert
+  st=("${PIPESTATUS[@]}")
+  [ "${st[0]}" = 0 ] && [ "${st[1]}" = 0 ]
+}
+
+# mix_operand_ok <word>: a relative path of the worktree (a test file may end
+# in `:<line>`), with no dot-dot, glob or option look, whose parent directory
+# canonicalizes inside the recorded worktree and which is no link.
+mix_operand_ok() {
+  local p=$1 d
+  [[ $p =~ ^[A-Za-z0-9_@+-][A-Za-z0-9_./@+-]*(:[0-9]+)*$ ]] || return 1
+  p=${p%%:*}
+  # An image the diff check lets through is not a file to hand mix to run.
+  ! mix_path_inert "$p" || return 1
+  case /$p/ in
+    */../* | */./* | *//*) return 1 ;;
+  esac
+  [ ! -L "$p" ] || return 1
+  d=${p%/*}
+  [ "$d" != "$p" ] || d=.
+  d=$(cd -- "$d" 2>/dev/null && pwd -P) || return 1
+  case $d/ in
+    "$REC_WT"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# mix_run_ok: the current simple command is `mix ci`, `mix format` or `mix
+# test` with only the flags below, run from a mix project directory of the
+# recorded worktree whose executable files match the PR base.
+mix_run_ok() {
+  local i w task expect=0 here
+  [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
+  [ "${sw[0]}" = mix ] && [ "${swq[0]}" -lt 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
+  [ -n "$REC_WT" ] && [ -n "$REC_BASE" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
+  # The tree is read as it is now, so an earlier segment of this command that
+  # writes or runs repository code could change what mix then executes.
+  [ "$ARM_ACT" = 0 ] && [ "$OB_WROTE" = 0 ] && [ "$OB_LINKY" = 0 ] && [ "$OB_TOUCH" = 0 ] && [ "$RUN_SEEN" = 0 ] || return 1
+  # A tracked assignment (MIX_EXS, ERL_AFLAGS) could point mix at other code.
+  [ "$VAR_C" -eq 0 ] || return 1
+  for ((i = 0; i < cwn; i++)); do
+    [ -z "${csub[i]-}" ] && [ "${cw[i]}" = "${sw[i]}" ] || return 1
+    word_unresolved "${cw[i]}" "${cdyn[i]}" "${cglob[i]}" "${cx[i]}" && return 1
+  done
+  here=$(cd "$HOOK_CWD" 2>/dev/null && pwd -P) || return 1
+  case $here/ in
+    "$REC_WT"/*) ;;
+    *) return 1 ;;
+  esac
+  own_unit_same_repo "$here" || return 1
+  [ -f "$here/mix.exs" ] && [ ! -L "$here/mix.exs" ] || return 1
+  task=${cw[1]}
+  for ((i = 2; i < cwn; i++)); do
+    w=${cw[i]}
+    if [ "$expect" = 1 ]; then
+      [[ $w =~ ^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,63}$ ]] || return 1
+      expect=0
+      continue
+    fi
+    case $task:$w in
+      test:--trace | test:--failed | test:--stale | test:--cover | test:--warnings-as-errors | test:--no-start | test:--no-compile | test:--no-deps-check | test:--raise | test:--color | test:--no-color) ;;
+      test:--seed | test:--max-failures | test:--only | test:--exclude | test:--include | test:--timeout | test:--slowest | test:--max-cases | test:--partitions) expect=1 ;;
+      test:--seed=* | test:--max-failures=* | test:--only=* | test:--exclude=* | test:--include=* | test:--timeout=* | test:--slowest=* | test:--max-cases=* | test:--partitions=*)
+        [[ ${w#*=} =~ ^[A-Za-z0-9_.:][A-Za-z0-9_.:-]{0,63}$ ]] || return 1
+        ;;
+      format:--check-formatted | format:--dry-run | format:--no-deps-check) ;;
+      test:-* | format:-* | ci:*) return 1 ;;
+      test:* | format:*) (cd -- "$here" && mix_operand_ok "$w") || return 1 ;;
+      *) return 1 ;;
+    esac
+  done
+  [ "$expect" = 0 ] || return 1
+  case $task in
+    ci | format | test) ;;
+    *) return 1 ;;
+  esac
+  mix_tree_clean
+}
+
 # --------------------------------------------------------------------------
 # The own-branch arm: live only when the
 # record's policy names it and the record carries the unit branch and the
@@ -1849,6 +2283,8 @@ OB_ON=0
 SC_ON=0
 OB_WROTE=0
 OB_LINKY=0
+# 1 once an earlier segment of the command ran repository code that may write.
+RUN_SEEN=0
 OB_EXCL_STATE=0
 OB_EXCL_DIRS=''
 
@@ -2476,7 +2912,7 @@ ob_git() {
   local sub=$1 i=$(($2 + 1)) a ends=0 n=0 rec=0 expect='' worktree=1 staged=0 c rest remote='' src='' ot=$OB_TOUCH
   ob_git_ready || return 1
   # Staging, committing and fetching write only git's own store, never a
-  # worktree file, so they leave a script HEAD already holds as it was
+  # worktree file, so they leave a script its trusted commit holds as it was
   # (OB_TOUCH); a commit's -F read is a read.
   case $sub in
     add | commit | fetch) OB_TOUCH=$ot ;;
@@ -4094,8 +4530,8 @@ mdlint_configs_ok() {
 
 guard_bashsh() {
   # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
-  # code HEAD commits unchanged or an installed planwright root's scripts/
-  # (is_trusted_script); any option (notably -c /
+  # code its trusted commit holds unchanged or an installed planwright root's
+  # scripts/ (is_trusted_script); any option (notably -c /
   # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
@@ -4128,8 +4564,8 @@ guard_fish() {
 
 guard_bats() {
   # `bats [safe-flags] <file...>`: each file operand must resolve inside the
-  # repo (REQ-A1.10) to a file HEAD commits unchanged (a directory defers), and
-  # ONLY no-value display/selection flags are allowed.
+  # repo (REQ-A1.10) to a file its trusted commit holds unchanged (a directory
+  # defers), and ONLY no-value display/selection flags are allowed.
   # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
   # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
   # carry a path bats would execute or write OUTSIDE the containment check, so
@@ -6503,10 +6939,13 @@ classify_verb() {
 # declarations come from the session record, read by the launcher at the
 # primary checkout, never from a file the worker can write; the floor is read
 # before them (verify_simple). Running one runs repository code: a script its
-# literal words name is held to HEAD as the repository's scripts/ are
-# (check_literals_committed), and whatever a `<path>` names runs as declared.
+# literal words name is held to its trusted commit as the repository's
+# scripts/ are (check_literals_committed), and whatever a `<path>` names runs
+# as declared.
 # That trust stops at a config loader: a declared markdownlint or mise run
-# still passes the screen the undeclared command does (check_loader_ok).
+# still passes the screen the undeclared command does (check_loader_ok). Nor
+# does it reach a step script, whose hand-timed records stay at the prompt
+# (names_step_script).
 
 readonly MAX_CHECK_WORDS=32
 readonly MAX_CHECK_ARG=512
@@ -6719,13 +7158,32 @@ check_command_ok() {
   return 1
 }
 
+# names_step_script: 0 when a word of the current simple command (`sw` /
+# `swn`), whole or after its last `=`, is a step script as step_script_kind
+# reads one. Every word is read, not just the first: a runner prefix, a path
+# spelling verify_known_simple never reads as a step-script call, or a `VAR=`
+# word would otherwise carry a hand-timed record past its prompt on a
+# declaration alone.
+names_step_script() {
+  local i w
+  for ((i = 0; i < swn; i++)); do
+    w=${sw[i]}
+    step_script_kind "$w" && return 0
+    case $w in
+      *=*) step_script_kind "${w##*=}" && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 # check_literals_committed <declaration> <canonical-cwd>: every literal word
 # of the declaration that names an existing file, from the working directory
-# or by its absolute path, is held to what HEAD commits, as a declared step's
-# location is (declared_location_ok): the declaration names the file, not its
-# content, and the worker can Write it. A bare first word is looked up on PATH,
-# never in the working directory, and a `<path>` placeholder is the declarer's
-# choice of what the runner is given; both stay as declared.
+# or by its absolute path, is held to what its trusted commit holds, as a
+# declared step's location is (declared_location_ok): the declaration names
+# the file, not its content, and the worker can Write it. A bare first word is
+# looked up on PATH, never in the working directory, and a `<path>`
+# placeholder is the declarer's choice of what the runner is given; both stay
+# as declared.
 check_literals_committed() {
   local -a dw=()
   local w full j=0
@@ -6864,10 +7322,10 @@ check_loader_screen() {
 # after any leading context assignments in the runner's form. The declaration
 # carries the trust (its overlay layer is human-owned, and the repo-tracked
 # and machine-local layers inherit the trust already given to the repo's
-# scripts/, which holds a location inside the repository to what HEAD commits
-# there: declared_location_ok), so the match is exact: a segment sharing only the first word, a
-# bare target, or an extra arg defers. The declarations are resolved at most
-# once per hook call, by one resolver run over every wired point, only when a
+# scripts/, which holds a location inside the repository to what its trusted
+# commit holds there: declared_location_ok), so the match is exact: a segment
+# sharing only the first word, a bare target, or an extra arg defers. The
+# declarations are resolved at most once per hook call, by one resolver run over every wired point, only when a
 # segment reaches this fallback with a declared line's shape and the file name
 # of its location word (the first after any context assignments) is the last
 # path component of a target some layer's steps catalog declares, and under
@@ -7198,11 +7656,11 @@ declared_line_ok() {
 
 # declared_location_ok <abs-path>: a declared step's location in a git checkout
 # (the session's repository, or another such as the primary) is held to what
-# that checkout's HEAD commits, as a script run by its path is: the declaration
-# names the file, not its content, and the worker can Write the file. A
-# location spelled inside the session's repository counts as in it even when a
-# symlinked folder resolves it elsewhere, and so defers. A location in no
-# checkout keeps the declaration's trust.
+# that checkout's trusted commit holds (trusted_rev), as a script run by its
+# path is: the declaration names the file, not its content, and the worker
+# can Write the file. A location spelled inside the session's repository
+# counts as in it even when a symlinked folder resolves it elsewhere, and so
+# defers. A location in no checkout keeps the declaration's trust.
 declared_location_ok() {
   local root d full
   d=$(cd -- "$(dirname -- "$1")" 2>/dev/null && pwd -P) || return 1
@@ -7259,15 +7717,23 @@ verify_simple() {
   # a chain partner before an own-unit act. A check command check_may_partner
   # refuses, unless a step declares the same line, is approved alone but keeps
   # every own-unit act in its command from being approved.
+  local partner=1
   if check_command_ok; then
-    check_may_partner || declared_line_ok || {
-      ARM_ACT=1
-      return 0
-    }
+    check_may_partner || declared_line_ok || partner=0
   else
     declared_line_ok || return 1
   fi
+  # A matched line naming a step script in a spelling verify_known_simple
+  # does not read as a call defers, as undeclared, on either path below. It
+  # is read only after a match, so a command no declaration names never pays
+  # for the root lookup.
+  ! names_step_script || return 1
+  [ "$partner" = 1 ] || {
+    ARM_ACT=1
+    return 0
+  }
   OU_PARTNER=1
+  RUN_SEEN=1
 }
 
 # An approved wait or time limit is at most two hours, which covers the
@@ -8098,6 +8564,9 @@ verify_known_simple() {
   # path-prefixed verb defers (REQ-A1.9, REQ-A1.10).
   case $verb in
     */*)
+      if review_state_call_ok; then
+        return 0
+      fi
       is_trusted_script "$verb" "$HOOK_CWD" || return 1
       if step_script_kind "$verb"; then
         STEP_CALL=1
@@ -8110,9 +8579,16 @@ verify_known_simple() {
   if [ "$cwn" -eq 2 ] && [ "${cw[1]}" = --version ] && version_tool "$verb"; then
     return 0
   fi
+  if [ "$verb" = mix ]; then
+    mix_run_ok
+    return
+  fi
   classify_verb "$verb" || return 1
   case $verb in
-    mise | lefthook | bats) OU_PARTNER=1 ;;
+    mise | lefthook | bats)
+      OU_PARTNER=1
+      RUN_SEEN=1
+      ;;
     bash | sh) ou_script_kind "${cw[1]}" ;;
   esac
   return 0
@@ -8125,6 +8601,7 @@ verify_known_simple() {
 ou_script_kind() {
   if is_repo_script "$1" "$HOOK_CWD"; then
     OU_PARTNER=1
+    RUN_SEEN=1
     return 0
   fi
   case $1 in
