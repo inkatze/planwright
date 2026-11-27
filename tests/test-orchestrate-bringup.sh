@@ -66,6 +66,12 @@ ok "skill has a Bring-up section"
 check "the classifier is called and none counts as a main tree (REQ-B1.1)" "$bringup" \
   'scripts/tower-placement\.sh' '`none`[^.]*main tree'
 
+check "a failed classifier read counts as refuse (REQ-B1.2)" "$bringup" \
+  'failed read as `refuse`'
+
+check "a linked worktree passes under every value (REQ-B1.2)" "$bringup" \
+  'linked worktree passes under every value'
+
 check "the response follows tower_placement (REQ-B1.2)" "$bringup" \
   '`warn`[^.]*once' '`refuse` holds' '`allow` says nothing'
 
@@ -76,7 +82,7 @@ check "an unattended run notifies and parks in Awaiting input (REQ-B1.2)" "$brin
   'unattended[^.]*(notif|park)[^.]*Awaiting input'
 
 check "the bring-up runs once per invocation, not per --watch step (REQ-B1.2, REQ-B1.5)" "$bringup" \
-  'once per invocation' '--watch[^.]*(not|never)' 'on request'
+  'once per invocation' '--watch[^.]*(not|never)' 'on request' 'not polled'
 
 check "the isolation probe warns once, names the supported launch, never blocks (REQ-B1.3)" "$bringup" \
   'isolation probe' 'warns? once' 'never blocks?'
@@ -85,10 +91,14 @@ check "the activation handshake re-marks the session (REQ-C1.8, REQ-C1.9)" "$bri
   'scripts/tower-session\.sh activate' 'handshake' 'repeated on request'
 
 check "enforcement counts active only on the ACTIVE refusal (REQ-B1.4)" "$bringup" \
-  'ACTIVE' 'only[^.]*refus'
+  'only a refusal reading `tower-session: ACTIVE:`'
 
 check "plugin enforcement meets the floor and the fallback holds the outward acts (REQ-B1.4)" "$bringup" \
-  'plugin enforcement' 'missing or broken' 'holds? (its )?outward acts'
+  'plugin enforcement' 'missing or broken[^.]*holds its outward acts'
+
+stops=$(section "Stop conditions")
+check "the stop conditions enumerate the bring-up hold (REQ-B1.2, REQ-B1.4)" "$stops" \
+  'Bring-up `refuse` or posture hold'
 
 check "every layer read is named, the plugin hooks file included (REQ-B1.4)" "$bringup" \
   'names? every (settings )?layer' 'hooks/hooks\.json'

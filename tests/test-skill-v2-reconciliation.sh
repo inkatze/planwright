@@ -372,11 +372,11 @@ else
   fail "orchestrate: exit-3 hold not described as 'report the hold and end the step cleanly' (REQ-A1.3, D-10: not a halt)"
 fi
 
-# REQ-A1.3: the stop-conditions table carries the exit-3 row.
+# REQ-A1.3: the stop-conditions enumeration carries the exit-3 entry.
 if printf '%s' "$oc" | grep -qE 'Selection transient-evidence hold'; then
-  ok "orchestrate: stop-conditions table carries the selection exit-3 row (REQ-A1.3)"
+  ok "orchestrate: stop-conditions enumeration carries the selection exit-3 entry (REQ-A1.3)"
 else
-  fail "orchestrate: stop-conditions table has no selection exit-3 row ('Selection transient-evidence hold' missing, REQ-A1.3)"
+  fail "orchestrate: stop-conditions enumeration has no selection exit-3 entry ('Selection transient-evidence hold' missing, REQ-A1.3)"
 fi
 
 # REQ-A1.4: the ready-task candidacy prose is version-keyed, stating v1 and
