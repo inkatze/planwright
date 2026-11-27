@@ -71,7 +71,8 @@
 # directory (wget, curl -O, an unpack with no -C or -d); writers the screen
 # does not parse (find -fprint, patch, sponge and the like); a runner it does
 # not list; an option spelled through an expansion the command does not
-# assign a literal; and, where the editor is read only as text (a shell's
+# assign a literal; env's own options spelled inside its -S string (env
+# -S'-u X' perl -pi f); and, where the editor is read only as text (a shell's
 # command string, eval, a substitution, find -exec), a wrapper option's value
 # before it (bash -c "sudo -u root perl -pi f"). The runner and here-string
 # reading is a text reading that fails closed: it refuses an editor's name
@@ -7157,8 +7158,8 @@ XEOF_DOC
 # mc_env_glued_s <option word> — 0 when env's option word carries its -S
 # string: a short cluster reaching S before any other letter that takes a
 # value, with the string glued on, or --split-string= in any prefix.
-# mc_env_sep_s — 0 when it is -S (so reached) or --split-string with the
-# string in the next word. Keep the value letters, uCSaPLU, in step with
+# mc_env_sep_s <option word> — 0 when its short cluster ends at that S, or it
+# is --split-string, with the string in the next word. Keep the value letters, uCSaPLU, in step with
 # RE_MC_ENV_SPLIT and mc_wrap_opt_value's env row.
 mc_env_glued_s() {
   local c=${1#-} pre
@@ -7245,8 +7246,10 @@ mc_wrap_opt_value() {
 # leaves when it drops a leading command or exec. MC_XARGS=1 when xargs is
 # among the wrappers. With `exact`, each wrapper option is read as getopt
 # reads it (a cluster's value letter, a long option's value in the next
-# word), and an env -S cluster with its string glued on ends the reading at
-# that word, its index also in MC_ENV_SI (-1 for none); without it, as the
+# word), and env's -S string ends the reading at the word holding it, its
+# index also in MC_ENV_SI (-1 for none): the option word itself when the string
+# is glued on (-Scp, --split-string=cp), MC_ENV_SEP 0, or the next word after
+# -S or --split-string, MC_ENV_SEP 1. Without it, options are read as the
 # posture screen always has, whose refusals rest on that reading.
 mc_unwrap() {
   local i=0 n=${#SW[@]} wrap exact=${1:-}

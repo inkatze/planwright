@@ -947,10 +947,11 @@ reads from a pipe, a file or a substitution. Homebrew's g-prefixed names
 
 That text reading has known gaps and known over-refusals, named with the
 rest of the accepted residual in the guard's header comment. It misses
-writers and runners it does not list, a wrapper option's value before an
-editor it reads only as text (`bash -c "sudo -u root perl -pi f"`, or the same
-command after `find -exec`), a here-string a shell reads from a later line,
-and some spellings of a compound command's closer before a here-string. It
+writers and runners it does not list, env's own options spelled inside its
+`-S` string, a wrapper option's value before an editor it reads only as text
+(`bash -c "sudo -u root perl -pi f"`, or the same command after `find
+-exec`), a here-string a shell reads from a later line, and some spellings of
+a compound command's closer before a here-string. It
 refuses an editor's name opening a here-string that a script beside a shell
 or runner only reads as data, an editor's name at any word after a runner
 whose command sits among its words, awk text that includes the inplace
