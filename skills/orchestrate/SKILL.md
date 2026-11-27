@@ -110,11 +110,12 @@ Each read is bounded, inline, repeated on request, not polled.
 
 1. **Placement.** `scripts/tower-placement.sh` prints `main`, `linked`, or
    `none` beside the resolved `tower_placement`; `none` counts as a main tree,
-   a failed read as `refuse`, a linked worktree passes under every value. In a
-   main tree, `warn` says so once and continues; `refuse` holds every outward act (dispatch, relay, and
-   the bookkeeping push and PR) until the orchestrator moves or the operator
-   acknowledges, status and read-only reconcile continuing; `allow` says
-   nothing. An unattended `refuse` notifies and parks in Awaiting input.
+   a failed read as `refuse`, and a linked worktree passes under every value.
+   In a main tree, `warn` says so once and continues; `refuse` holds every
+   outward act (dispatch, relay, and the bookkeeping push and PR) until the
+   orchestrator moves or the operator acknowledges, status and read-only
+   reconcile continuing; `allow` says nothing. An unattended `refuse` notifies
+   and parks in Awaiting input.
 2. **Isolation probe.** One harmless read of the primary checkout (`git -C
    <primary checkout> rev-parse --git-dir`): a refusal means worktree
    isolation: warn once, naming the supported launch, never blocking.
@@ -445,9 +446,10 @@ dispatched arm); attended, present it and wait.
 
 Each is defined at its point of use; this is the enumeration, not a second
 definition: a Bring-up `refuse` or posture hold; pre-flight steps 4 to 6
-(spec status, validator, kickoff brief); a freshness-gate halt; a taskless or
-unreadable `tasks.md` (selection exit 2); cohesion ambiguity (ask); a relayed
-worker halt (recorded, never re-dispatched); `gh` unreachable (record Awaiting input, continue local,
+(spec status, validator on a dispatch path, kickoff brief); a freshness-gate
+halt; a taskless or unreadable `tasks.md` (selection exit 2); cohesion
+ambiguity (ask); a relayed worker halt (recorded, never re-dispatched); `gh`
+unreachable (record Awaiting input, continue local,
 REQ-K1.6, K1.7). Selection transient-evidence hold (exit 3) is reported and
 lock contention (`acquire` exit 1) is a clean no-op; neither is a halt.
 
