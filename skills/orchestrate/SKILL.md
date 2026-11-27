@@ -303,8 +303,9 @@ after a worker.
   in place of the dispatch record's steps 3–4, places the unit and launches:
   the opening turn rides the launch, no message or keystroke. Release the
   lock whatever its exit; on exit 0 run its `confirm` with the `launch`
-  lines' values (on `failed-at-startup`, clear the marker). Pass it `--backend tmux` only when this
-  run's `--backend tmux` or a yes to the tmux-context ask chose tmux. Its
+  lines' values (on `failed-at-startup`, clear the marker). Pass it
+  `--backend tmux` only when this run's `--backend tmux` or a yes to the
+  tmux-context ask chose tmux. Its
   exit 17 (nothing placed) parks the unit with the reason it prints, never
   retried with `--backend tmux`. Observe workers with **capture-pane**;
   message one `ListAgents` lists via `SendMessage`, else relay only through

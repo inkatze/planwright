@@ -98,7 +98,7 @@ check "plugin enforcement meets the floor and the fallback holds the outward act
 
 stops=$(section "Stop conditions")
 check "the stop conditions enumerate the bring-up hold (REQ-B1.2, REQ-B1.4)" "$stops" \
-  'Bring-up hold on outward acts'
+  'Bring-up hold on outward acts \| Bring-up steps 1 and 3'
 
 check "the stop conditions keep the validator halt to a dispatch path" "$stops" \
   'erroring validator \| Pre-flight step 5 \(dispatch path\)'
