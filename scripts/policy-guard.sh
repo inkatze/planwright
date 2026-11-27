@@ -4293,6 +4293,19 @@ git_state_after() {
   esac
 }
 
+# record_plain <what> <text> — 1, with the refusal queued, when text a queued
+# act's tab-separated record carries holds a tab or newline: a directory named
+# <a real clone><tab>... would be read as that clone, the rest shifting the
+# record's fields.
+record_plain() {
+  case $2 in
+    *"$TAB"* | *"$NL"*)
+      deny_now "$1 carries a tab or newline in its directory or arguments, which would split the record the guard checks it from - refusing (fail closed). Run it from a directory with a plain name, naming its arguments as plain words."
+      return 1
+      ;;
+  esac
+}
+
 # classify_git_act <sub> <sub-index> <dir> <dir_ok>
 classify_git_act() {
   local sub=$1 k=$2 dir=$3 dir_ok=$4 a
@@ -4306,6 +4319,7 @@ classify_git_act() {
       --help | -h) return 0 ;;
     esac
   done
+  record_plain "this git $sub" "$dir" || return 0
   case $sub in
     merge) classify_git_merge "$((k + 1))" "$dir" "$dir_ok" ;;
     pull) classify_git_pull "$((k + 1))" "$dir" "$dir_ok" ;;
@@ -4880,6 +4894,7 @@ classify_git_merge() {
   if [ "${#SEG_S[@]}" = 1 ] && [ "${#GP_POS[@]}" = 1 ] && [ -z "$GP_SHORT" ] && [ "$GP_LONG" = "$GP_LITLONG" ]; then
     case $GP_LONG in ' ' | ' no-edit ') bare=1 ;; esac
   fi
+  record_plain 'this git merge' "$dir ${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB$plain$TAB$bare$TAB${GP_POS[*]-}"
 }
 
@@ -4940,6 +4955,7 @@ classify_git_pull() {
     esac
     k=$((k + 1))
   done
+  record_plain 'this git pull' "$dir ${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB$ff$TAB${GP_POS[*]-}"
 }
 
@@ -4984,6 +5000,7 @@ classify_git_rebase() {
       ur=-1
     fi
   done
+  record_plain 'this git rebase' "$dir $onto ${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB$onto$TAB${GP_POS[*]-}"
 }
 
@@ -5088,6 +5105,7 @@ classify_git_commit() {
       }
   done
   [ "$amend" = 0 ] || targets="HEAD $targets"
+  record_plain 'this git commit' "$dir $targets" || return 0
   PENDING[${#PENDING[@]}]="commit$TAB$dir$TAB$targets"
 }
 
@@ -5260,6 +5278,7 @@ queue_plumbing_push() {
   done
   act_gate "$what" push || return 0
   need_dir "$dir_ok" "$what" || return 0
+  record_plain "$what" "$dir $url $*" || return 0
   PENDING[${#PENDING[@]}]="push$TAB$dir${TAB}0${TAB}0$TAB$url$TAB$*"
 }
 

@@ -104,5 +104,36 @@ for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git pu
   expect defer "[worker] $cmd (a read, a write outside git's state, or no act) defers"
 done
 
+# --- D: a tab or newline in the directory -----------------------------------
+
+echo "# a tab or newline in an act's directory"
+# The record is tab-separated; a directory named <real clone><TAB>... would
+# be read as that real clone, with the rest shifting the record's fields.
+TABD="$UNIT${TAB}x"
+clone_on "$TABD" "$B" 0
+NLD="$UNIT
+x"
+clone_on "$NLD" "$B" 0
+for d in "$TABD" "$NLD"; do
+  for cmd in 'git commit --amend --no-edit' 'git rebase -i HEAD~1' 'git merge origin/main' \
+    'git merge --ff-only origin/main' 'git pull' 'git pull origin main' 'git push origin HEAD' \
+    "git send-pack $ORIGIN HEAD:refs/heads/feature-y"; do
+    for proj in "$d" "$UNIT"; do
+      pg worker "$cmd" "$d" "$proj"
+      expect deny "[worker] $cmd in a directory carrying a tab or newline denies (project $([ "$proj" = "$UNIT" ] && printf 'the clone it names' || printf 'that directory'))"
+      reason_has 'tab or newline' "[worker] $cmd denies as a split record"
+    done
+  done
+done
+for cmd in "git rebase 'HEAD~1${TAB}1'" "git merge 'origin/main${TAB}x'" \
+  "git pull origin 'main${TAB}x'" "git commit --fixup='HEAD${TAB}x'" "git rebase 'HEAD~1
+x'"; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a tab or newline in an argument the record carries) denies"
+  reason_has 'tab or newline' "[worker] $cmd denies as a split record"
+done
+pg worker "git commit --amend --no-edit -m 'a${TAB}b'"
+expect defer "[worker] a tab in a commit message, which no record carries, still defers"
+
 no_gh_calls
 finish
