@@ -140,7 +140,7 @@ proto_ready() {
   fi
   proto_take ready-guard.sh REASON_PREFIX emit_deny emit_deny_constant \
     valid_pr_number valid_owner valid_repo valid_owner_repo valid_ref_name \
-    valid_oid valid_count lower gh_timeout gh_pr_view evaluate_predicate \
+    valid_oid valid_count fold_lower gh_timeout gh_pr_view evaluate_predicate \
     read_view_fields check_view_rc json_field parse_owner_repo_from_url || return 2
   if [ ! -f "$proto_scripts/echo-safety.sh" ] || [ ! -r "$proto_scripts/echo-safety.sh" ]; then
     printf '%s\n' "proto: echo-safety.sh is missing or unreadable under $proto_scripts" >&2

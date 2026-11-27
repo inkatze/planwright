@@ -246,13 +246,11 @@ valid_dir_path() {
 # case-insensitive owner/repo cross-check GitHub's own case-insensitivity
 # requires. By expansion, not tr: a tr that failed would fold both sides to
 # empty, and they would compare equal.
-FOLD_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
-FOLD_LOW=abcdefghijklmnopqrstuvwxyz
 fold_lower() {
-  local i=0
+  local i=0 up=ABCDEFGHIJKLMNOPQRSTUVWXYZ low=abcdefghijklmnopqrstuvwxyz
   FOLD=$1
   while [ "$i" -lt 26 ]; do
-    FOLD=${FOLD//${FOLD_UP:$i:1}/${FOLD_LOW:$i:1}}
+    FOLD=${FOLD//${up:$i:1}/${low:$i:1}}
     i=$((i + 1))
   done
 }
