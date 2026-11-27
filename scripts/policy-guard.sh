@@ -6461,7 +6461,7 @@ legacy_remote_check() {
 # failure to resolve one denies.
 SYM_DSTS=''
 symref_dsts() {
-  local d=$1 r t rc
+  local d=$1 r t rc n
   SYM_DSTS=''
   shift
   for r in "$@"; do
@@ -6478,7 +6478,15 @@ symref_dsts() {
     # too, and git refuses to push one with no destination anyway.
     [ -n "$t" ] \
       || emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, which git does not read as a single ref, so the guard cannot tell where it pushes - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
+    # A source resolving to the branch it names already went through
+    # eval_push's own destination check, the sign-off push's included.
+    case $r in
+      refs/heads/*) n=${r#refs/heads/} ;;
+      heads/*) n=${r#heads/} ;;
+      *) n=$r ;;
+    esac
     case $t in
+      "refs/heads/$n") ;;
       refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;
     esac
   done
