@@ -153,9 +153,10 @@
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a dot or empty segment, a trailing slash or a percent
 #               escape in the path, a GraphQL branch write whose query holds a
-#               string that does not close or whose target key carries anything
-#               but a plain string or names a node id, a rename with no literal
-#               new name, an unknown flag)
+#               string that does not close, a block string with an escaped
+#               delimiter, more target keys than a branch write needs, or a
+#               target key carrying anything but a plain string or naming a
+#               node id, a rename with no literal new name, an unknown flag)
 #               denies before any read; anything else defers. A
 #               repositories/<id>/ path reads as repos/<owner>/<repo>/.
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
@@ -1881,7 +1882,7 @@ RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$
 # it a name. A quoted name is what it spells, and a longer name sharing the
 # prefix (HOMEBREW_*) is not it.
 names_cfgenv() {
-  local w wl cl nm lhs sub vopts='' vbefore='' k=1 n=${#SW[@]} skipv=0 pos=0 decl=0 aopt=0
+  local w wl cl pre iscl nm lhs sub vopts='' vbefore='' k=1 n=${#SW[@]} skipv=0 pos=0 decl=0 aopt=0
   case $1 in
     for | select)
       n=1
@@ -1896,7 +1897,7 @@ names_cfgenv() {
       ;;
     mapfile | readarray)
       vopts=dnOsuCc
-      vbefore=dnOsuCc
+      vbefore=$vopts
       ;;
   esac
   while [ "$k" -lt "$n" ]; do
@@ -1928,36 +1929,46 @@ names_cfgenv() {
         pos=$((pos + 1))
         [ "$pos" = 2 ] || continue
         ;;
-      declare | typeset | readonly)
+      readonly)
         case $w in -*[aA]*) aopt=1 ;; esac
         ;;
     esac
-    # A literal read or mapfile value option (one of vopts) takes the next
-    # word when it ends a cluster with no other value option, nor read's -a
-    # (which takes the array's name), before it, and the rest of the word
-    # when it does not, which is then a value, not a name. A non-literal
-    # option word is read below as a word the guard cannot read.
-    if [ -n "$vopts" ] && [ "$wl" = 1 ]; then
+    # A read or mapfile value option (one of vopts) takes the next word when
+    # it ends a cluster with no other value option, nor read's -a (which
+    # takes the array's name), before it, and the rest of the word when it
+    # does not, which is then a value, not a name. A word the shell expands
+    # is a cluster only when plain letters stand before its first value
+    # letter, so an expansion can be the value (-p"$PS") but never build an
+    # option (-{,}p); otherwise it counts below, as any non-literal word does.
+    if [ -n "$vopts" ]; then
       case $w in
         -[!-]*)
           cl=${w#-}
-          case $cl in
-            *["$vopts"])
-              case ${cl%?} in *["$vbefore"]*) ;; *) skipv=1 ;; esac
-              ;;
-          esac
-          case ${cl%%["$vopts"]*} in
-            "$cl" | *a*) ;;
-            *) continue ;;
-          esac
+          pre=${cl%%["$vopts"]*}
+          iscl=1
+          if [ "$wl" != 1 ]; then
+            case $pre in "$cl" | *[!A-Za-z]*) iscl=0 ;; esac
+          fi
+          if [ "$iscl" = 1 ]; then
+            case $cl in
+              *["$vopts"])
+                case ${cl%?} in *["$vbefore"]*) ;; *) skipv=1 ;; esac
+                ;;
+            esac
+            case $pre in
+              "$cl" | *a*) ;;
+              *) continue ;;
+            esac
+          fi
           ;;
       esac
     fi
     # The name ends at its first [ or =. A subscript runs from that [ to the
-    # first ], which a plain-number subscript ends at, and the shell
-    # evaluates it as arithmetic unless it is a plain number. The cuts are
-    # prefix and suffix removals and offsets, linear on a long word, where
-    # ${w#*\[} or ${w#*=} would not be.
+    # first ]: a plain number holds no ], so a cut there that leaves one is
+    # that number, and any other subscript counts, since the shell evaluates
+    # it as arithmetic. Cuts here and below are suffix removals and offsets,
+    # linear on a long word, where a prefix removal such as ${w#*\[} or
+    # ${w#*=} would not be.
     nm=${w%%[=[]*}
     if [ "${w:${#nm}:1}" = '[' ]; then
       sub=${w:$((${#nm} + 1))}
@@ -1966,12 +1977,13 @@ names_cfgenv() {
     fi
     case "$decl:$w" in
       1:*=*)
-        # A quoted compound value ('([HOME=1]=x)') is evaluated by declare,
+        # A quoted compound value ('([HOME=1]=x)', starting with ( and
+        # ending with ) on an unsubscripted name) is evaluated by declare,
         # typeset and local (the name may already be an array) and by
         # readonly given -a or -A; export never evaluates it.
         lhs=${w%%=*}
-        case ${w:$((${#lhs} + 1)):1}:$1:$aopt in
-          '(':declare:* | '(':typeset:* | '(':local:* | '(':readonly:1) return 0 ;;
+        case ${w:${#nm}:1}${w:$((${#lhs} + 1)):1}${w#"${w%?}"}:$1:$aopt in
+          '=()':declare:* | '=()':typeset:* | '=()':local:* | '=()':readonly:1) return 0 ;;
         esac
         case $nm in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
         ;;
@@ -4524,8 +4536,9 @@ git_state_after() {
       # record. A move, copy, delete, force, upstream or description option,
       # in any abbreviation git takes, writes whatever stands beside it, and
       # an upstream set in one word leaves no positional. A value option's
-      # value, abbreviated or not (--sor -committerdate), is neither a name
-      # nor a cluster; after -- or --end-of-options every word is a name.
+      # value, spelled in full or abbreviated to two letters or more (--sor
+      # -committerdate), is neither a name nor a cluster; after -- or
+      # --end-of-options every word is a name.
       # List mode is kept in four groups: --list and its siblings (-l, -a,
       # -r), which --no-list clears; the --contains and --merged filters,
       # which git keeps in list mode whatever follows; --points-at, which

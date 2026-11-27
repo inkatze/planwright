@@ -446,13 +446,17 @@ for cmd in 'git config --c get remote.origin.push x && git push origin planwrigh
   "local -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
   'getopts -- -- HOME; git push' "declare -a 'a=(x [HOME=1]=y)'; git push origin planwright/demo/task-1" \
   "readonly -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
-  'read -raXDG_CONFIG_HOME <<< x; git push' 'read -{,}p HOME <<< x; git push' 'read -ap -aHOME <<< x; git push'; do
+  'read -raXDG_CONFIG_HOME <<< x; git push' 'read -{,}p HOME <<< x; git push' 'read -ap -aHOME <<< x; git push' \
+  "typeset -a 'a=([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  "readonly -A a='([\$((HOME=1))]=x)'; git push origin planwright/demo/task-1" \
+  "readonly -pa a='([HOME=1]=x)'; git push origin planwright/demo/task-1" 'read -r$o x; git push'; do
   pg worker "$cmd"
   expect deny "[worker] $cmd"
   reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
 done
 # What a read or mapfile option takes (attached or as the next word), a
-# declaration's or let's value, and a listing's filter are not names.
+# value export never evaluates (and readonly without -a, a declaration
+# without a whole compound value, let), and a listing's filter are not names.
 for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
   "read -p'Continue? [y/N] ' ans; git push origin planwright/demo/task-1" \
   "read -rp'[y/N] ' ans; git push origin planwright/demo/task-1" "read -d'[' x; git push origin planwright/demo/task-1" \
@@ -461,6 +465,10 @@ for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
   "export PS1='(venv) '; git push origin planwright/demo/task-1" 'export MSG="(wip) fix"; git push origin planwright/demo/task-1' \
   "readonly MSG='(draft) note'; git push origin planwright/demo/task-1" \
   "declare 'arr[0]=[x]'; git push origin planwright/demo/task-1" "local 'm[1]=a]b'; git push origin planwright/demo/task-1" \
+  "declare 'arr[0]=(x)'; git push origin planwright/demo/task-1" "local 'm[1]=(wip)'; git push origin planwright/demo/task-1" \
+  "declare MSG='(wip) fix'; git push origin planwright/demo/task-1" "local msg='(draft) wip'; git push origin planwright/demo/task-1" \
+  'read -p"$PS" x; git push origin planwright/demo/task-1' 'read -t"$T" x; git push origin planwright/demo/task-1' \
+  'read -ru"$fd" x; git push origin planwright/demo/task-1' 'mapfile -u"$fd" a; git push origin planwright/demo/task-1' \
   "read -sp 'Password [hidden]: ' pw; git push origin planwright/demo/task-1" \
   "export PS1='[x@y] '; git push origin planwright/demo/task-1" "export FOO='a[b]'; git push origin planwright/demo/task-1" \
   "local x='[a]'; git push origin planwright/demo/task-1" 'local n=${#arr[@]}; git push origin planwright/demo/task-1' \
