@@ -1043,6 +1043,42 @@ to main, its old base stays mergeable until a relaunch writes a new record.
 The worker command guard approves only the default base's merge, so a
 stacked merge it sees prompts.
 
+## Mission control's repository writes in Bash
+
+The `mission-control` tier of `scripts/policy-guard.sh` refuses a Bash write
+into any git work tree or bare repository with the same refusal its file
+surface gives an Edit or Write there ("mission control edits no repository"):
+a redirect's target, the files `tee`, `truncate` and `dd of=` write, the
+destination of `cp` and `mv`, and every file an in-place editor rewrites
+(`sed -i`, `perl -i`, `ruby -i`, `awk` with the inplace extension, `ed`, `ex`
+and `vi`), each read as written and followed on disk. An in-place editor run
+behind another command, in a here-document or here-string a shell reads, or in
+text the guard cannot parse is refused fail closed, from a text reading of the
+command rather than a parse. Other writers the settings screen reads
+(`install`, `rsync`, `ln`, and the output options of `sort`, `curl`, `wget`,
+`tar` and `unzip`) pass that screen alone, so these writes into a repository
+go unscreened and are accepted residual: an unpack into one (`tar -x ... -C
+<repository>`, `unzip -d <repository>`), an `mv` whose source sits in one, a
+copy's source, `rsync --remove-source-files` and `tar --remove-files`. The
+guard's header comment names the rest of that residual, among it `rm`,
+`touch` and `mkdir`, a program an interpreter runs, and a script a shell
+reads from a pipe, a file or a substitution. Homebrew's g-prefixed names
+(`gsed`, `gcp`, `gtee` and the rest) are read as the same verbs.
+
+That text reading has known gaps and known over-refusals, named with the
+rest of the accepted residual in the guard's header comment. It misses
+writers and runners it does not list, env's own options spelled inside its
+`-S` string, a wrapper option's value before an editor it reads only as text
+(`bash -c "sudo -u root perl -pi f"`, the same command after `find -exec`,
+or a wrapper env's `-S` string names), a here-string a shell reads from a
+later line, and some spellings of a compound command's closer before a
+here-string. It refuses an editor's name opening a here-string that a script
+beside a shell or runner only reads as data, an editor's name at any word
+after a runner whose command sits among its words, awk text that includes the
+inplace extension anywhere after an awk, and an in-place editor behind a
+wrapper option whose value the posture reading takes for the command,
+wherever its files are.
+
 ## Changing any of this
 
 1. Change the deny list and the fixture table in the same commit. The test's

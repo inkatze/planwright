@@ -56,6 +56,9 @@ ln -s "$FIXHOME/.mcp.json" "$KB/lk-mcp"
 mkdir -p "$KB/sub" "$SCRATCH/x"
 # A plain file whose name is a link in kb, for a copy into kb.
 : >"$SCRATCH/x/lk-file"
+# A plain directory holding a link to a work tree, for a write through it.
+mkdir -p "$SCRATCH/rl"
+ln -s "$UNIT" "$SCRATCH/rl/unit"
 TAB=$(printf '\t')
 NL=$'\n'
 
@@ -147,6 +150,93 @@ pg mission-control "cd $KB && echo x >> lk-plain" "$UNIT"
 expect defer "[mission-control] a relative write through a link to a plain file is permitted"
 pg_payload mission-control bash "$(jq -n '{tool_name:"Bash", tool_input:{command:"echo x >> real.md"}, cwd:7}')"
 expect deny "[mission-control] a relative write under a cwd the guard cannot read is refused"
+
+echo "# an in-place editor or write the screen reads only as text, into a repository"
+pg mission-control "bash <<'EOF'${NL}perl -pi -e s/a/b/ $SCRATCH/kb/real.md${NL}EOF"
+expect deny "[mission-control] an in-place editor in a here-document a shell reads is refused"
+reason_has 'edits no repository' "[mission-control] the here-document in-place refusal names the repository rule"
+pg mission-control "bash <<'EOF'${NL}echo ed vi ex${NL}EOF"
+expect defer "[mission-control] editor names a here-document only prints are no editor run"
+pg mission-control "bash -c \"ssh h true${NL}grep -n ed notes.md\"" "$SCRATCH"
+expect defer "[mission-control] a runner's reach ends at its line: an editor name on the next line is an argument"
+for c in "# it's a note${NL}echo x > $UNIT/f.md" "echo a # don't${NL}echo y > $UNIT/f.md" \
+  "cat <<EOF${NL}don't${NL}EOF${NL}echo x > $UNIT/f.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] an apostrophe in a comment or here-document hides no later redirect into a repository: ${c%%"$NL"*}"
+done
+pg mission-control "echo \$(date) \"Checked over ssh.${NL}View the log afterwards.\" > $SCRATCH/kb/o.md" "$SCRATCH"
+expect defer "[mission-control] a quoted prose line starting with an editor's name is no editor run"
+for c in "cp $KB/real.md $UNIT/README.md -S .bak" "mv $KB/real.md $UNIT/README.md --suffix .bak" \
+  "cp $KB/real.md $UNIT/README.md -bS .bak" "cp -S.tmp $KB/real.md $UNIT/README.md" \
+  "cp -bS.attic $KB/real.md $UNIT/README.md" "cp -St $KB/real.md $UNIT/README.md" \
+  "cp -- $KB/real.md -S $UNIT/README.md" "mv -- $KB/real.md --suffix $UNIT/README.md" \
+  "cp --suffix=.bak $KB/real.md $UNIT/README.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  l=${c//"$KB"\//}
+  expect deny "[mission-control] a backup suffix is no destination: ${l//"$UNIT"\//<repo>/}"
+done
+for c in "cp -S .bak $KB/real.md $KB/s2.md" "cp -S.tmp $KB/real.md $KB/s3.md" "cp -bS.attic $KB/real.md $KB/s4.md" \
+  "cp --suffix=.bak $KB/real.md $KB/s5.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect defer "[mission-control] a backup suffix is a value, read as no repository write: ${c%% "$KB"*}"
+done
+ln -s "$UNIT" "$SCRATCH/of=u"
+for c in "echo x > of=u/README.md" "cp $KB/real.md of=u/README.md" "echo x | tee of=u/README.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] only dd's operand names its file past of=: ${c//"$KB"\//}"
+done
+pg mission-control "dd if=$KB/real.md of=$KB/dd.md" "$UNIT"
+expect defer "[mission-control] dd's of= file outside a repository is no repository write, run from one"
+c=''
+for i in $(seq 1 65); do c="${c}env -Sx; "; done
+pg mission-control "bash -c \"${c}git log -Stee\"" "$SCRATCH"
+expect deny "[mission-control] past the bound on env -S strings in text, the screen refuses"
+pg mission-control "bash -c \"${c}perl -Mstrict -e1 -Si $UNIT/README.md\"" "$SCRATCH"
+expect deny "[mission-control] past the bound, an editor whose switches hold an S still refuses"
+reason_has 'hands a write verb' "[mission-control] the bound's refusal is its own, not the editor's"
+pg mission-control "echo $UNIT/README.md | env -S'FOO=1${NL}xargs' tee $KB/o.md" "$SCRATCH"
+expect deny "[mission-control] a line break in env's -S string parts its words too"
+pg mission-control "echo $UNIT/README.md | env -S'FOO=1"$'\r'"xargs' tee $KB/o.md" "$SCRATCH"
+expect deny "[mission-control] a carriage return in env's -S string parts its words too"
+pg mission-control "echo x | tee of=$SCRATCH/cl/agents/x.md" "$UNIT"
+expect deny "[mission-control] an of= word read as written inside a repository still refuses past the prefix"
+reason_has 'settings or configuration file' "[mission-control] the of= settings write keeps the settings reason"
+ln -s "$FIXHOME/.claude" "$SCRATCH/of=pc"
+for c in "echo x > of=pc/agents/x.md" "dd if=$KB/real.md of=of=pc/agents/x.md"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a path named of= is followed to a settings directory: ${c//"$KB"\//}"
+done
+pg mission-control "sed -i -- s/a/b/ $UNIT/README.md" "$SCRATCH"
+expect deny "[mission-control] sed -i -- still refuses its in-place file inside a repository"
+pg mission-control "bash run.sh <<< a${NL}cat <<< vi" "$SCRATCH"
+expect defer "[mission-control] a here-string is read as a command only on a shell's or runner's own line"
+pg mission-control "{ echo a${NL}bash${NL}} <<< 'vi $UNIT/README.md'" "$SCRATCH"
+expect deny "[mission-control] a group's closing here-string reaches the shell the group holds"
+reason_has 'edits no repository' "[mission-control] the group here-string refusal names the repository rule"
+for c in "( bash${NL}) <<< 'vi $UNIT/README.md'" "while true; do${NL}bash${NL}done <<< 'vi $UNIT/README.md'" \
+  "if true; then bash${NL}fi <<< 'vi $UNIT/README.md'" "{ bash${NL}echo; } <<< 'vi $UNIT/README.md'" \
+  "{ bash${NL}} 2>&1 <<< 'vi $UNIT/README.md'" "while true; do bash${NL}x; done <<< 'vi $UNIT/README.md'"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect deny "[mission-control] a compound's closing here-string reaches the shell it holds: ${c%%"$NL"*}"
+done
+for c in "bash -c true${NL}echo done <<< 'vi $UNIT/README.md'" "bash -c true${NL}grep esac <<< 'vi $UNIT/README.md'"; do
+  pg mission-control "$c" "$SCRATCH"
+  expect defer "[mission-control] a closer word that is only an argument hands its here-string to nothing: ${c#*"$NL"}"
+done
+pg mission-control "{ echo a${NL}} <<< vi" "$SCRATCH"
+expect defer "[mission-control] a compound's closing here-string with no shell or runner in the command is data"
+pg mission-control "bash -c \"perl -e 1 notes.md${NL}grep -i x notes.md\"" "$SCRATCH"
+expect defer "[mission-control] perl's switch span ends at its line: a later line's -i is another command's"
+pg mission-control "bash -c \"awk 1 notes.md${NL}echo -i inplace\"" "$SCRATCH"
+expect defer "[mission-control] awk's include span ends at its line: a later line's inplace is another command's"
+pg mission-control "cd${NL}x=1 && echo hi > README.md"
+expect deny "[mission-control] a bare cd ending its line keeps the starting directory a write base"
+pg mission-control "cd $KB && cat > notes.md <<'EOF'${NL}text${NL}EOF"
+expect defer "[mission-control] a store heredoc after the one cd, from a repository cwd, is permitted"
+# shellcheck disable=SC2016 # the command text is literal
+TMPDIR=$UNIT pg mission-control 'S=$(mktemp -d); echo x > "$S/x"'
+expect deny "[mission-control] a write under a fresh mktemp -d directory is refused when TMPDIR lies in a repository"
+reason_has 'edits no repository' "[mission-control] the mktemp-in-repository refusal names the repository rule"
 for c in 'echo x >&2' 'echo x >&-' '(echo x >&2)' 'echo x >&2-' 'echo x 2>&1'; do
   pg mission-control "$c" "$FIXHOME/.claude/agents"
   expect defer "[mission-control] a descriptor duplication opens no file, even from a posture directory: $c"
