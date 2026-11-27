@@ -308,6 +308,21 @@ for okp in 'git push origin feature/thing:feature/thing' 'git push origin "featu
 done
 echo "ok: an ordinary branch push still matches"
 
+# git's push plumbing and git subtree push update remote branches without the
+# push word the screens key on, so a rule covering any git command answers
+# none of them.
+git_rule=$(captured --kind standing --text 'let the workers run git' --covers-command 'git ' --now 1012) \
+  || fail "capture of the git rule failed"
+for res in 'git send-pack origin HEAD:refs/heads/feature' 'git send-pack --force origin x:x' \
+  'git subtree push -P d origin feature:feature' 'git -C . send-pack origin HEAD:x'; do
+  rc=0
+  run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res', a push by plumbing or subtree, was not refused (exit $rc, '$(cat "$tmp/o")')"
+done
+run match --decision "$git_rule" --command 'git status' >"$tmp/o" || fail "a plain git status did not match the git rule ('$(cat "$tmp/o")')"
+echo "ok: git send-pack and git subtree push reach the operator under a rule covering git"
+
 # A tr that fails, prints nothing, or prints less would fold the command to
 # something with no reserved word in it; the screens refuse instead, at match
 # and at capture.

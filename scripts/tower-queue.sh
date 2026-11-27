@@ -2386,7 +2386,9 @@ push_word_present() {
 }
 
 # command_words_reserved <lowercased command> — 0 when a word of the command,
-# its quotes removed, IS a pull. The `git pull` substring in reserved_control
+# its quotes removed, IS a pull, or git send-pack or git subtree, which update
+# remote branches with no push word for the push screens to parse. The
+# `git pull` substring in reserved_control
 # misses `git -C dir pull` and a doubled space, both of which git runs as a
 # pull; a command naming the word for any other reason reaches the operator.
 command_words_reserved() {
@@ -2396,6 +2398,7 @@ command_words_reserved() {
       unquote "$_pw"
       case "$UQ" in
         pull | git-pull | */git-pull) exit 0 ;;
+        send-pack | git-send-pack | */git-send-pack | subtree | git-subtree | */git-subtree) exit 0 ;;
       esac
     done
     exit 1
