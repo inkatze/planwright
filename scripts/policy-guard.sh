@@ -70,6 +70,14 @@
 # command that changes git configuration, the checked-out branch, or refs (or,
 # for a rewrite, that pushes, fetches, or makes a commit) is refused: every
 # segment is checked against the state as it stands before the command runs.
+# Where a loop, a background list, a pipeline or a coprocess can run a later
+# segment's change before an earlier act that reads it, that is refused too,
+# a directory change (cd, pushd, popd) or a set of a variable git reads
+# counting there as well; and a write that may reach a path through a .git
+# directory or a git configuration file counts as a configuration and ref
+# change: an output redirect naming one or expanded (git's own segment
+# included), a command other than git or a read-only one naming one, or an
+# expanded word of a file-writing command, a wrapper, or cd.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -115,7 +123,9 @@
 #               unit branch outside the protected set and every source the PR
 #               base or the unit branch's own branch on the base remote; on
 #               a stacked PR also its base branch, named by the launch-time
-#               session record's stack_base, by ref or by its tip commit id. A
+#               session record's stack_base, by ref or by its tip commit id,
+#               unless that base is the record's spec branch, which merges or
+#               pulls only by --ff-only, as the single source. A
 #               spec branch the launch names (the session record's, or a
 #               kickoff scope's: spec_branch_checkout), checked out in the
 #               session's own linked worktree, takes a plain merge of the PR
@@ -141,7 +151,14 @@
 #               pushed by explicit refspec as the command's only act: it reads
 #               no protected set and is decided by signoff_push_check, a
 #               fast-forward of nothing but clean merges of the base, read
-#               from the remote itself.
+#               from the remote itself. git send-pack and git subtree push are
+#               pushes too, each read under its own narrow option grammar (any
+#               other option, and send-pack's force, --all, --mirror and
+#               --stdin, deny). A source named with no destination is also
+#               checked as the branch git resolves it to (a symbolic ref, or
+#               main-worktree/HEAD); a push to a remote a legacy remotes/ or
+#               branches/ file names denies; and a current branch that shares
+#               its name with a tag reads as no branch.
 #   gh api      classified by the act it performs, its names matched in any
 #               field: the flip, undo, PR merge, base merge, and forced ref
 #               update deny at every tier with no read; a ref, contents,
@@ -151,7 +168,12 @@
 #               a request the guard cannot read (a field from a file or stdin,
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a rename with no literal new name, an unknown flag)
-#               denies before any read; anything else defers.
+#               denies before any read; anything else defers. A write to a
+#               branch's protection or to a ruleset, and the GraphQL
+#               branch-protection-rule and repository-ruleset mutations, deny
+#               at every tier with no read; a rename of a unit branch (worker)
+#               or of a spec's amendment or spec-rework branch (worker, tower)
+#               denies with no read, since it takes that branch off the remote.
 #   force-push helper  running scripts/tower-force-push.sh. worker: deny,
 #               with no read. tower: defer, so it reaches the permission
 #               prompt (the tower's command guard never approves it).
@@ -305,7 +327,7 @@ RE_GH_API='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?api([^[:alnum:
 RE_GH_PR='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?pr[^[:alnum:]_-]+(ready|merge)([^[:alnum:]_-]|$)'
 # git, its global options (each with at most one value), then the subcommand.
 RE_GIT_HEAD='(^|[^[:alnum:]_.-])git([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+'
-RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
+RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push|send-pack|subtree)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
@@ -627,7 +649,7 @@ unparsed_evidence() {
 }
 
 deny_unanalyzable() {
-  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, the kickoff push, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
+  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, the kickoff push, or a git merge, pull, rebase, push, send-pack, subtree, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
 }
 
 # --------------------------------------------------------------------------
@@ -646,8 +668,9 @@ deny_unanalyzable() {
 # escape anywhere in the word), WA[] flags for a word whose first `=` comes
 # before any quote or escape, WR[] flags for a word after a redirect in its
 # segment, SEG_S[]/SEG_E[] word ranges, SEG_TERM[] terminators, SEG_DOC[]
-# here-document bodies, SEG_RD[] flags for a segment with a redirect, and
-# SEG_RT[] the raw text of the targets those redirects skip.
+# here-document bodies, SEG_RD[] flags for a segment with a redirect,
+# SEG_RT[] the raw text of the targets those redirects skip, and SEG_WT[] the
+# raw text of the targets of the ones that write (>, >>, >|, >&, <>).
 
 HEREDOC_SUBST=0
 tokenize() {
@@ -666,7 +689,8 @@ tokenize() {
   SEG_DOC=()
   SEG_RD=()
   SEG_RT=()
-  local seg_start=0 redir_text='' rstart
+  SEG_WT=()
+  local seg_start=0 redir_text='' redir_wtext='' rout=0 rstart
 
   flush_word() {
     if [ "$have" = 1 ]; then
@@ -703,8 +727,10 @@ tokenize() {
       SEG_DOC[${#SEG_DOC[@]}]=$fold_doc
       SEG_RD[${#SEG_RD[@]}]=$redir
       SEG_RT[${#SEG_RT[@]}]=$redir_text
+      SEG_WT[${#SEG_WT[@]}]=$redir_wtext
     fi
     redir_text=''
+    redir_wtext=''
     redir=0
     fold_doc=''
     seg_start=${#W[@]}
@@ -912,6 +938,8 @@ tokenize() {
           pending_seg[${#pending_seg[@]}]=${#SEG_S[@]}
           continue
         fi
+        rout=0
+        [ "$c" != '>' ] && [ "$nc" != '>' ] || rout=1
         i=$((i + 1))
         case ${s:i:1} in
           '>' | '|' | '&' | '<') i=$((i + 1)) ;;
@@ -947,6 +975,7 @@ tokenize() {
           i=$((i + 1))
         done
         redir_text="$redir_text ${s:rstart:i-rstart}"
+        [ "$rout" = 0 ] || redir_wtext="$redir_wtext ${s:rstart:i-rstart}"
         ;;
       ';' | '&' | '|')
         nc=${s:i+1:1}
@@ -1208,9 +1237,20 @@ check_unprotected() {
 # --------------------------------------------------------------------------
 # Repository state.
 
-# current_branch <dir> — the checked-out branch name, or empty.
+NO_CURRENT_BRANCH='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
+
+# current_branch <dir> — the checked-out branch name, or empty. git shortens
+# refs/heads/<b> to heads/<b> when another ref (a tag <b>) shares the name, so
+# the short form would match no protected entry; a branch whose short and full
+# names disagree reads as none, which every caller refuses or reads as no
+# branch (NO_CURRENT_BRANCH says why, in a push's refusal).
 current_branch() {
-  gitq "$1" symbolic-ref --quiet --short HEAD || printf ''
+  local full short
+  full=$(gitq "$1" symbolic-ref --quiet HEAD) || full=''
+  short=$(gitq "$1" symbolic-ref --quiet --short HEAD) || short=''
+  case $full in
+    refs/heads/?*) [ "${full#refs/heads/}" != "$short" ] || printf '%s' "$short" ;;
+  esac
 }
 
 # checkout_of <dir> — sets CO_TOP, CO_GD and CO_COMMON to the top, the git
@@ -1357,6 +1397,34 @@ stack_base_load() { # <dir>
   valid_branch "$sb" || return 0
   [ "$sb" != "$BASE_BRANCH" ] || return 0
   STACK_BRANCH=$sb
+}
+
+# stack_is_spec — 0 when the stacked base is the launch's own spec branch
+# (record_spec_branch run first), which merges only as the spec-branch rule
+# admits it: by --ff-only, as the single source.
+stack_is_spec() {
+  [ -n "$STACK_BRANCH" ] && [ -n "$SPEC_BRANCH" ] && [ "$STACK_BRANCH" = "$SPEC_BRANCH" ]
+}
+
+# stack_hint <merge|pull> — set SH to the stacked-base form a refusal offers:
+# none without a stacked base, --ff-only where it is the launch's spec branch.
+stack_hint() {
+  local how tip=''
+  SH=''
+  [ -n "$STACK_BRANCH" ] || return 0
+  record_spec_branch "$UNIT_TOP"
+  case $1 in
+    merge)
+      how="$BASE_REMOTE/$STACK_BRANCH"
+      tip=', or its tip commit id'
+      ;;
+    *) how="$BASE_REMOTE $STACK_BRANCH" ;;
+  esac
+  if stack_is_spec; then
+    SH=" or git $1 --ff-only $(sanitize_printable "$how" 'the spec branch') (this stacked PR's base, its launch's spec branch)"
+  else
+    SH=" or git $1 $(sanitize_printable "$how" 'the stacked base') (this stacked PR's base$tip)"
+  fi
 }
 
 # is_stack_ref <dir> <name> — 0 when the merge source is the stacked base: its
@@ -1615,7 +1683,7 @@ PENDING=()
 # segment_words <seg> — set SW[] / SWL[] to the segment's words after the
 # simple-command prefix (assignments, `command`, `exec`, reserved words).
 segment_words() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]} w
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} w j
   SW=()
   SWL=()
   SW_WRAPPED=0
@@ -1627,6 +1695,23 @@ segment_words() {
     case $w in
       '!' | if | then | else | elif | do | while | until | nocorrect | noglob | builtin | coproc)
         k=$((k + 1))
+        continue
+        ;;
+      # A for or select with no in list runs its body after a do in this same
+      # segment (for x do git push; done); one with a list has none here.
+      for | select | foreach)
+        j=$((k + 1))
+        while [ "$j" -lt "$e" ] && { [ "${W[$j]}" != 'do' ] || [ "${WU[$j]}" != 1 ]; }; do
+          j=$((j + 1))
+        done
+        if [ "$j" -lt "$e" ]; then
+          k=$((j + 1))
+          continue
+        fi
+        ;;
+      # zsh's short repeat runs the rest of the segment: repeat 2 git push.
+      repeat)
+        k=$((k + 2))
         continue
         ;;
       time)
@@ -1829,7 +1914,224 @@ ST_PUSH=0
 ST_HEAD=0
 GIT_ENV_SET=0
 
-RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
+# The state flags above order acts by the command's text, but a loop body, a
+# background list, a pipeline or a coprocess can run a change written after an
+# act before it. seg_mark, run as each segment starts (and with -1 once all
+# are classified), records for the segment before it the first act of each
+# kind it queued and the last change of each class act_gate reads: config,
+# refs, the environment or the directory for every act (RO_CHANGES counts the
+# changes no flag shows, as seg_effects lists them); a push,
+# fetch or commit-making command for a rewrite (an amend or a rebase); a fetch
+# writing a local ref for a merge or a pull. reorder_check refuses a change
+# after the first act that reads it in a command carrying any of those
+# constructs, and in a loop a change in the act's own segment too, since the
+# next pass runs the act after it.
+RO_SI=-1 RO_FLAGS_CFG='' RO_FLAGS_HIST='' RO_FLAGS_FETCHSPEC='' RO_PEND=0 RO_CHANGES=0
+RO_ACT=-1 RO_REWRITE=-1 RO_MERGE=-1 RO_CHG_CFG=-1 RO_CHG_HIST=-1 RO_CHG_FETCHSPEC=-1
+# The compound depth (CS_DEPTH) each first act stood at, 1 where the depth
+# cannot be read (CS_NOCD: a zsh repeat, a reserved word after a redirect): a
+# change in an act's own segment repeats before it only inside a compound.
+RO_ACT_D=0 RO_REWRITE_D=0 RO_MERGE_D=0
+seg_mark() {
+  local fc="$ST_CFG$ST_REF$ST_FILT$GIT_ENV_SET:$RO_CHANGES" fh="$ST_PUSH$ST_FETCH$ST_HEAD" fs=$ST_FETCHSPEC i kind d=$CS_DEPTH
+  [ "$CS_NOCD" = 0 ] || [ "$d" -gt 0 ] || d=1
+  if [ "$RO_SI" -ge 0 ]; then
+    i=$RO_PEND
+    while [ "$i" -lt "${#PENDING[@]}" ]; do
+      kind=${PENDING[$i]%%"$TAB"*}
+      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI RO_ACT_D=$d
+      case $kind in commit | rebase) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI RO_REWRITE_D=$d ;; esac
+      case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI RO_MERGE_D=$d ;; esac
+      i=$((i + 1))
+    done
+    [ "$fc" = "$RO_FLAGS_CFG" ] || RO_CHG_CFG=$RO_SI
+    [ "$fh" = "$RO_FLAGS_HIST" ] || RO_CHG_HIST=$RO_SI
+    [ "$fs" = "$RO_FLAGS_FETCHSPEC" ] || RO_CHG_FETCHSPEC=$RO_SI
+  fi
+  RO_SI=$1 RO_FLAGS_CFG=$fc RO_FLAGS_HIST=$fh RO_FLAGS_FETCHSPEC=$fs RO_PEND=${#PENDING[@]}
+}
+
+# seg_effects <seg> — the changes a segment makes that its classification
+# does not flag: a directory change, or an assignment, export or unset of a
+# variable git, its configuration or its command lookup reads, which a loop's
+# next pass runs before its acts; and a write that may reach git's own state
+# (an output redirect on any segment, or a command other than git or a
+# read-only one). Run once the segment is classified, so its own act reads
+# the state before them and the next segment's seg_mark counts them as its.
+seg_effects() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} w
+  seg_command_name "$1"
+  case $SCN in
+    cd | pushd | popd) RO_CHANGES=$((RO_CHANGES + 1)) ;;
+    '' | export | unset | declare | typeset | readonly | local)
+      # A variable git, its configuration or the command lookup reads.
+      while [ "$k" -lt "$e" ]; do
+        w=${W[$k]%%=*}
+        w=${w%+}
+        case $w in
+          GIT_* | HOME | XDG_CONFIG_HOME | PATH | BASH_ENV | ENV)
+            RO_CHANGES=$((RO_CHANGES + 1))
+            break
+            ;;
+        esac
+        k=$((k + 1))
+      done
+      ;;
+  esac
+  if writes_git_state "$1"; then
+    ST_CFG=1
+    ST_REF=1
+  fi
+}
+
+reorder_check() {
+  local t k=0 n=${#W[@]} loop=0 conc=0
+  [ "$RO_SI" -lt 0 ] || seg_effects "$RO_SI"
+  seg_mark -1
+  for t in ${SEG_TERM[@]+"${SEG_TERM[@]}"}; do
+    case $t in '&' | '|' | '|&') conc=1 ;; esac
+  done
+  while [ "$k" -lt "$n" ]; do
+    case ${W[$k]} in
+      for | while | until | select | repeat | 'do') loop=1 ;;
+      coproc | function) conc=1 ;;
+    esac
+    k=$((k + 1))
+  done
+  [ "$loop$conc" != 00 ] || return 0
+  reorder_after "$RO_ACT" "$RO_CHG_CFG" "$loop$RO_ACT_D" || reorder_after "$RO_REWRITE" "$RO_CHG_HIST" "$loop$RO_REWRITE_D" \
+    || reorder_after "$RO_MERGE" "$RO_CHG_FETCHSPEC" "$loop$RO_MERGE_D" || return 0
+  deny_now "this command changes git configuration, a ref, HEAD, the environment or the directory after a reserved act that reads it (in a later segment, or in a loop in the act's own segment), inside a loop, a background list, a pipeline or a coprocess, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
+}
+
+# reorder_after <first act> <last change> <loop flag><act depth> — 0 when the
+# change can run before the act: written after it, or in the act's own
+# segment where the command has a loop and the act stands inside a compound.
+reorder_after() {
+  [ "$1" -ge 0 ] || return 1
+  [ "$2" -le "$1" ] || return 0
+  [ "$2" = "$1" ] || return 1
+  case $3 in 1[1-9]*) return 0 ;; esac
+  return 1
+}
+
+# seg_command_name <seg> — set SCN to the segment's command name, past
+# reserved words, precommand words and assignments; empty when there is none.
+seg_command_name() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} j
+  SCN=''
+  while [ "$k" -lt "$e" ]; do
+    case ${W[$k]} in
+      '!' | if | then | else | elif | do | while | until | time | command | builtin | exec | noglob | nocorrect | coproc) ;;
+      # As segment_words reads them: a for or select with no in list runs
+      # its body after a do here, and zsh's short repeat runs what follows.
+      for | select | foreach)
+        j=$((k + 1))
+        while [ "$j" -lt "$e" ] && { [ "${W[$j]}" != 'do' ] || [ "${WU[$j]}" != 1 ]; }; do
+          j=$((j + 1))
+        done
+        if [ "$j" -lt "$e" ]; then
+          k=$j
+        else
+          SCN=${W[$k]}
+          return 0
+        fi
+        ;;
+      repeat) k=$((k + 1)) ;;
+      *)
+        [ "${WA[$k]}" = 1 ] || {
+          SCN=${W[$k]##*/}
+          return 0
+        }
+        ;;
+    esac
+    k=$((k + 1))
+  done
+}
+
+# git_state_path <text> — 0 when the text names git's own state: a path
+# through a directory named .git, or a global or system git configuration
+# file, as the whole word, after an option's = (of=git/config), or after any
+# split of an attached short-flag run (-ogitconfig, -qO.git/config,
+# -4so.git/config). Read with quotes and backslashes dropped and in lower
+# case, as a shell and a case-insensitive filesystem read it. A .git
+# component or a .gitconfig name is also found anywhere in the word, every
+# character that cannot be part of a path name read as a separator (sed's
+# '1w .git/config'), so an exclude list naming .git counts too.
+git_state_path() {
+  local t=${1//[\"\'\\]/} c i=1
+  fold_ascii "$t"
+  git_state_name "$FA" || git_state_name "${FA#*=}" || git_state_name "${FA##*=}" && return 0
+  case $FA in
+    -[a-z0-9#]*)
+      while [ "$i" -lt "${#FA}" ]; do
+        case ${FA:$i:1} in [a-z0-9#]) ;; *) break ;; esac
+        i=$((i + 1))
+        git_state_name "${FA:$i}" && return 0
+      done
+      ;;
+  esac
+  c=/${FA//[!a-z0-9._~\/-]//}
+  case $c in
+    */.git | */.git/* | */.gitconfig*) return 0 ;;
+  esac
+  return 1
+}
+
+# git_state_name <folded path> — 0 when the path is, or runs through, git's
+# own state as git_state_path reads a whole word.
+git_state_name() {
+  case $1 in
+    .git | .git/* | */.git | */.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | \
+      git/config | git/config/* | */git/config | */git/config/* | .config/git | .config/git/* | \
+      */.config/git | */.config/git/*) return 0 ;;
+  esac
+  return 1
+}
+
+# fold_ascii <text> — set FA to the text with A-Z folded, by expansion, so a
+# tr that failed cannot fold a name to one that matches nothing.
+FA_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FA_LOW=abcdefghijklmnopqrstuvwxyz
+fold_ascii() {
+  local i=0
+  FA=$1
+  case $FA in *[A-Z]*) ;; *) return 0 ;; esac
+  while [ "$i" -lt 26 ]; do
+    FA=${FA//${FA_UP:$i:1}/${FA_LOW:$i:1}}
+    i=$((i + 1))
+  done
+}
+
+# writes_git_state <seg> — 0 when the segment may write git's own state: an
+# output redirect target, on any segment (git's included), that names it or
+# that the shell expands, since an expansion can name it; or a word naming it
+# of any command but git and the read-only ones listed; or, for a command
+# that writes files or runs another that may (a wrapper, a shell, cd, an
+# option or an upper-case name where the command name stands), a word the
+# shell expands. git reads that state for every later act, and the guard
+# reads it before the command runs. Reads SCN, which seg_effects sets.
+GIT_STATE_READERS=' cat ls head tail grep egrep fgrep test [ [[ stat file wc diff cmp less more realpath readlink basename dirname du md5sum sha1sum sha256sum shasum od hexdump strings jq '
+GIT_STATE_WRITERS=' cp mv install ln tee sed gsed perl dd truncate rsync rm unlink touch chmod ed ex awk gawk mawk nawk ruby node sh bash zsh dash ksh mksh fish tar unzip patch cpio xxd ditto sort split shuf env nice nohup timeout sudo doas stdbuf xargs eval find make busybox setsid flock ionice chrt taskset unbuffer cd pushd '
+writes_git_state() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} t writer=0
+  for t in ${SEG_WT[$1]:-}; do
+    ! git_state_path "$t" || return 0
+    case $t in *[\$\`*?[\{~]*) return 0 ;; esac
+  done
+  [ -n "$SCN" ] && [ "$SCN" != git ] || return 1
+  case $GIT_STATE_READERS in *" $SCN "*) return 1 ;; esac
+  case $GIT_STATE_WRITERS in *" $SCN "*) writer=1 ;; esac
+  case $SCN in -* | python* | *[A-Z]*) writer=1 ;; esac
+  while [ "$k" -lt "$e" ]; do
+    ! git_state_path "${W[$k]}" || return 0
+    [ "$writer" = 0 ] || [ "${WL[$k]}" = 1 ] || return 0
+    k=$((k + 1))
+  done
+  return 1
+}
+
+RESERVED_WORD_RE='^(merge|pull|rebase|push|send-pack|subtree|commit|ready|api|--am.*|--sq.*|--fix.*)$'
 # A command word that is one variable naming a directory, then a literal
 # path: `"$ROOT/scripts/x.sh"`. Any other expanded command word could be git.
 # shellcheck disable=SC2016 # a regex; `$` is literal
@@ -2718,6 +3020,8 @@ classify_segments() {
   CS_LOST=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
+    [ "$si" = 0 ] || seg_effects "$((si - 1))"
+    seg_mark "$si"
     segment_text "$si"
     cur_text=$SEG_TEXT
     compound_shape "$si"
@@ -3584,6 +3888,11 @@ classify_gh_api() {
       deny_now 'this gh api request updates or deletes a ref through GraphQL, whose target and force flag the guard cannot read - refusing (fail closed). Push with git instead.'
       return 0
       ;;
+    *createBranchProtectionRule* | *updateBranchProtectionRule* | *deleteBranchProtectionRule* | \
+      *createRepositoryRuleset* | *updateRepositoryRuleset* | *deleteRepositoryRuleset*)
+      deny_now "$GHAPI_PROTECTION_DENY"
+      return 0
+      ;;
   esac
 
   # The method: the last one given, else POST when a field is present (gh's
@@ -3621,7 +3930,7 @@ classify_gh_api() {
 
   ep=$(norm_endpoint "$endpoint")
   case $ep in
-    *%* | *..* | *//*)
+    *%* | *..* | *//* | /* | . | ./* | */. | */./*)
       ghapi_opaque 'its path carries a percent escape, a dot segment, or an empty segment'
       return 0
       ;;
@@ -3668,6 +3977,26 @@ classify_gh_api() {
   set -- $lp
   IFS=$IFS_save
   seg_count=$#
+  # Branch protection and rulesets guard main, so no write to them passes,
+  # whatever branch it names: a protection segment anywhere after a
+  # branches/<name> route (a branch name may hold slashes), or a rulesets route.
+  local prot=0 after_branch=0 s
+  local -a segs
+  segs=("$@")
+  case "${segs[0]:-}:${segs[2]:-}:${segs[3]:-}" in
+    repos:*:rulesets | repositories:rulesets:* | orgs:rulesets:* | enterprises:rulesets:*) prot=1 ;;
+    repos:*:branches) after_branch=5 ;;
+    repositories:branches:*) after_branch=4 ;;
+  esac
+  if [ "$after_branch" -gt 0 ]; then
+    for s in "${segs[@]:$after_branch}"; do
+      [ "$s" != protection ] || prot=1
+    done
+  fi
+  if [ "$prot" = 1 ]; then
+    deny_now "$GHAPI_PROTECTION_DENY"
+    return 0
+  fi
   [ "${1:-}" = repos ] || return 0
   case "$seg_count:${4:-}:${6:-}" in
     6:pulls:merge)
@@ -3748,6 +4077,13 @@ classify_gh_api() {
         return 0
         ;;
     esac
+    # It also takes that branch off the remote, as deleting it would. Mission
+    # control writes no branch at all (queue_protected).
+    if { [ "$TIER" = worker ] && is_unit_branch "$renamed"; } \
+      || { [ "$TIER" != mission-control ] && spec_family_branch "$renamed"; }; then
+      deny_now "this gh api branch rename takes $(sanitize_printable "$renamed" 'a unit or spec branch') off the remote, as deleting it would; a worker renames no unit branch, and no session renames a spec's amendment or spec-rework branch - refusing. Add new commits instead."
+      return 0
+    fi
     local fv new_name='' i2=0
     while [ "$i2" -lt "${#fields[@]}" ]; do
       fv=${fields[$i2]}
@@ -3797,15 +4133,42 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    queue_protected "$eff" "$eff_ok" "this gh api contents write" "${br#refs/heads/}"
+    # GitHub resolves the contents API's ref as git does, heads/<b> reaching
+    # <b>, so both spellings are checked.
+    br=${br#refs/heads/}
+    queue_protected "$eff" "$eff_ok" "this gh api contents write" "$br" "${br#heads/}"
   fi
   return 0
 }
+
+GHAPI_PROTECTION_DENY='this gh api request changes branch protection or a ruleset, which is what keeps main and the spec branches protected on the host; no agent session changes them at any tier - refusing. Ask the operator.'
 
 # worker_delete_deny <what> <branch> — the reason for a worker's deletion of a
 # unit branch on the remote.
 worker_delete_deny() {
   printf '%s' "$1 deletes $(sanitize_printable "$2" 'a unit branch') on the remote; a worker never deletes a unit branch, its own included, since deleting and pushing it again would publish a rewrite with no lease - refusing. Add new commits, or publish a rewrite of your own draft branch through scripts/worker-branch-sync.sh push."
+}
+
+# spec_family_branch <branch> — 0 when the branch, in any case, is a spec's
+# amendment branch (planwright/<spec>/amendment-<digits>) or its spec-rework
+# branch, which the protected set does not hold.
+spec_family_branch() {
+  local b rest spec leaf
+  fold_ascii "$1"
+  b=$FA
+  case $b in planwright/?*/?*) ;; *) return 1 ;; esac
+  rest=${b#planwright/}
+  spec=${rest%%/*}
+  leaf=${rest#*/}
+  case $spec in flight | -* | *[!a-z0-9-]*) return 1 ;; esac
+  case $leaf in
+    spec-rework) return 0 ;;
+    amendment-?*)
+      case ${leaf#amendment-} in *[!0-9]*) return 1 ;; esac
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 # queue_protected <eff> <eff_ok> <what> <branch...>
@@ -3998,7 +4361,7 @@ classify_git() {
   # A case-insensitive filesystem runs `git REBASE` as git-rebase.
   lc "$sub"
   case $LC in
-    merge | pull | rebase | commit | push)
+    merge | pull | rebase | commit | push | send-pack | subtree)
       [ "$sub" = "$LC" ] \
         || {
           deny_now "this git subcommand is a reserved one spelled in another case ($(sanitize_printable "$sub" 'unprintable')) - refusing. Spell it in lower case."
@@ -4065,6 +4428,11 @@ classify_git() {
       if [ "$dir_ok" = 0 ] || { [ "$TIER" = tower ] && [ "$foreign" = 1 ]; }; then
         deny_now "this git $(sanitize_printable "$sub" 'subcommand') may be an alias of a repository or directory the guard cannot follow (one named by a global option such as --git-dir, a cd it cannot follow, or a -C target it cannot read), so the guard cannot read what it expands to - refusing (fail closed). Run the git subcommand directly, from inside the repository's worktree."
         return 0
+      fi
+      if [ "$sub" = subtree ]; then
+        G_FOREIGN=$foreign
+        G_CFLAG=$cflag
+        classify_git_subtree "$((k + 1))" "$dir" "$dir_ok"
       fi
       git_alias_check "$sub" "$dir"
       return 0
@@ -4157,7 +4525,7 @@ git_state_after() {
     branch | tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase) ST_HEAD=1 ;;
-    push) ST_PUSH=1 ;;
+    push | send-pack) ST_PUSH=1 ;;
     fetch)
       ST_FETCH=1
       for a in "${SW[@]:$2}"; do
@@ -4167,11 +4535,25 @@ git_state_after() {
   esac
 }
 
+# record_plain <what> <text> — 1 (the refusal queued) when <text>, a field of
+# a queued act's tab-separated record, holds a tab or newline: a directory
+# named <a real clone><tab>... would be read as that clone, the rest shifting
+# the record's fields. classify_git_act checks every act's directory; each
+# record checks the arguments it carries.
+record_plain() {
+  case $2 in
+    *"$TAB"* | *"$NL"*)
+      deny_now "$1 carries a tab or newline in its directory or arguments, which would split the record the guard checks it from - refusing (fail closed). Run it from a directory with a plain name, naming its arguments as plain words."
+      return 1
+      ;;
+  esac
+}
+
 # classify_git_act <sub> <sub-index> <dir> <dir_ok>
 classify_git_act() {
   local sub=$1 k=$2 dir=$3 dir_ok=$4 a
   case $sub in
-    merge | pull | rebase | commit | push) ;;
+    merge | pull | rebase | commit | push | send-pack) ;;
     *) return 0 ;;
   esac
   for a in "${SW[@]:$((k + 1))}"; do
@@ -4180,12 +4562,14 @@ classify_git_act() {
       --help | -h) return 0 ;;
     esac
   done
+  record_plain "this git $sub" "$dir" || return 0
   case $sub in
     merge) classify_git_merge "$((k + 1))" "$dir" "$dir_ok" ;;
     pull) classify_git_pull "$((k + 1))" "$dir" "$dir_ok" ;;
     rebase) classify_git_rebase "$((k + 1))" "$dir" "$dir_ok" ;;
     commit) classify_git_commit "$((k + 1))" "$dir" "$dir_ok" ;;
     push) classify_git_push "$((k + 1))" "$dir" "$dir_ok" ;;
+    send-pack) classify_git_send_pack "$((k + 1))" "$dir" "$dir_ok" ;;
   esac
 }
 
@@ -4225,7 +4609,7 @@ git_alias_check() {
             case " $GIT_BUILTINS " in
               *" $first "*)
                 case $(lower "$first") in
-                  merge | pull | rebase | commit | push)
+                  merge | pull | rebase | commit | push | send-pack)
                     deny_now "the git alias $(sanitize_printable "$sub" 'used here') expands to git $(sanitize_printable "$first" 'a reserved subcommand'), which the guard reads only by its own name - refusing. Run git $(sanitize_printable "$first" 'that subcommand') directly."
                     ;;
                   reset | branch | worktree | update-ref | filter-branch | checkout | switch | symbolic-ref | \
@@ -4753,6 +5137,7 @@ classify_git_merge() {
   if [ "${#SEG_S[@]}" = 1 ] && [ "${#GP_POS[@]}" = 1 ] && [ -z "$GP_SHORT" ] && [ "$GP_LONG" = "$GP_LITLONG" ]; then
     case $GP_LONG in ' ' | ' no-edit ') bare=1 ;; esac
   fi
+  record_plain 'this git merge' "${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB$plain$TAB$bare$TAB${GP_POS[*]-}"
 }
 
@@ -4813,6 +5198,7 @@ classify_git_pull() {
     esac
     k=$((k + 1))
   done
+  record_plain 'this git pull' "${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB$ff$TAB${GP_POS[*]-}"
 }
 
@@ -4857,6 +5243,7 @@ classify_git_rebase() {
       ur=-1
     fi
   done
+  record_plain 'this git rebase' "${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB$onto$TAB${GP_POS[*]-}"
 }
 
@@ -4961,6 +5348,7 @@ classify_git_commit() {
       }
   done
   [ "$amend" = 0 ] || targets="HEAD $targets"
+  record_plain 'this git commit' "$targets" || return 0
   PENDING[${#PENDING[@]}]="commit$TAB$dir$TAB$targets"
 }
 
@@ -5093,6 +5481,139 @@ classify_git_push() {
   local alone=0
   [ "${#SEG_S[@]}" != 1 ] || alone=1
   PENDING[${#PENDING[@]}]="push$TAB$dir$TAB$del$TAB$alone$TAB${pos[0]:-}$TAB${refs[*]-}"
+}
+
+# queue_plumbing_push <what> <dir> <dir_ok> <destination> <refspec...> — queue
+# a push made by git send-pack or git subtree push: every refspec read as git
+# push reads one, the worker's unit-branch deletion refused, and never the
+# command's only act, so no sign-off branch exemption applies.
+queue_plumbing_push() {
+  local what=$1 dir=$2 dir_ok=$3 url=$4 r t
+  shift 4
+  [ "$#" -gt 0 ] || {
+    deny_now "$what names no ref, so it updates every branch both sides share, main included - refusing. Push your own branch by name with git push."
+    return 0
+  }
+  for r in "$@"; do
+    case $r in
+      +*)
+        deny_now "$what carries a +refspec, which forces - refusing. Push new commits instead."
+        return 0
+        ;;
+      *'*'* | :)
+        deny_now "$what carries a wildcard or matching refspec, which can reach main - refusing. Push your own branch by name."
+        return 0
+        ;;
+    esac
+    if [ "$TIER" = worker ]; then
+      case $r in
+        :?*)
+          t=${r#:}
+          t=${t#refs/heads/}
+          t=${t#heads/}
+          if is_unit_branch "$t"; then
+            deny_now "$(worker_delete_deny "$what" "$t")"
+            return 0
+          fi
+          ;;
+      esac
+    fi
+  done
+  act_gate "$what" push || return 0
+  need_dir "$dir_ok" "$what" || return 0
+  record_plain "$what" "$dir $url $*" || return 0
+  PENDING[${#PENDING[@]}]="push$TAB$dir${TAB}0${TAB}0$TAB$url$TAB$*"
+}
+
+# classify_git_send_pack <first-arg-index> <dir> <dir_ok> — git send-pack is
+# git push's plumbing: it updates the destination's refs as git push would.
+# Only options that change neither what nor where it pushes are read; the
+# force, --all, --mirror and --stdin forms, and any other option, refuse.
+classify_git_send_pack() {
+  local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w endopts=0
+  local -a pos=()
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    [ "${SWL[$k]}" = 1 ] || {
+      deny_now 'this git send-pack carries an expansion the guard cannot read, so it cannot check what it pushes - refusing (fail closed). Push with git push, naming the branch literally.'
+      return 0
+    }
+    if [ "$endopts" = 1 ]; then
+      pos[${#pos[@]}]=$w
+    else
+      case $w in
+        --) endopts=1 ;;
+        --dry-run | --verbose | -v | --quiet | -q | --thin | --no-thin | --atomic | --no-atomic | --signed | --no-signed | --signed=*) ;;
+        --force* | -f | --all | --mirror | --stdin)
+          deny_now "this git send-pack carries $(sanitize_printable "$w" 'an option') (a force, every branch, or refs read from stdin), which can reach main or rewrite it - refusing. Push your own branch by name with git push."
+          return 0
+          ;;
+        -*)
+          deny_now "this git send-pack carries an option the guard does not read ($(sanitize_printable "$w" 'unprintable')) - refusing (fail closed). Push with git push."
+          return 0
+          ;;
+        *) pos[${#pos[@]}]=$w ;;
+      esac
+    fi
+    k=$((k + 1))
+  done
+  [ "${#pos[@]}" -gt 0 ] || return 0
+  queue_plumbing_push 'this git send-pack' "$dir" "$dir_ok" "${pos[@]}"
+}
+
+# classify_git_subtree <first-arg-index> <dir> <dir_ok> — git subtree push
+# <repository> <refspec> pushes the split history to refs/heads/<the refspec's
+# destination>, with the refspec's + dropped. A command carrying the word push
+# is read under git-subtree's own option grammar; anything it does not
+# recognize refuses, since an option taking a value can move which word is
+# the subcommand.
+classify_git_subtree() {
+  local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w endopts=0 any=0 i
+  local -a pos=()
+  i=$k
+  while [ "$i" -lt "$n" ]; do
+    [ "${SWL[$i]}" = 1 ] || {
+      deny_now 'this git subtree carries an expansion the guard cannot read, which could spell push or its destination - refusing (fail closed). Write it literally.'
+      return 0
+    }
+    [ "${SW[$i]}" != push ] || any=1
+    i=$((i + 1))
+  done
+  [ "$any" = 1 ] || return 0
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    if [ "$endopts" = 1 ]; then
+      pos[${#pos[@]}]=$w
+    else
+      case $w in
+        --) endopts=1 ;;
+        -P | --prefix | --annotate | -b | --branch | --onto | -m | --message) k=$((k + 1)) ;;
+        -P?* | --prefix=* | --annotate=* | -b?* | --branch=* | --onto=* | -m?* | --message=*) ;;
+        -q | --quiet | -d | --debug | --ignore-joins | --no-ignore-joins | --rejoin | --no-rejoin | \
+          --squash | --no-squash | -S | -S?* | --gpg-sign | --gpg-sign=* | --no-gpg-sign) ;;
+        -*)
+          deny_now "this git subtree carries an option the guard does not read ($(sanitize_printable "$w" 'unprintable')), which could take the next word as its value and move which word is the subcommand - refusing (fail closed). Spell its options in full."
+          return 0
+          ;;
+        *) pos[${#pos[@]}]=$w ;;
+      esac
+    fi
+    k=$((k + 1))
+  done
+  [ "${pos[0]:-}" = push ] || return 0
+  # --rejoin also commits a merge onto HEAD.
+  ST_PUSH=1 ST_HEAD=1
+  [ "${#pos[@]}" = 3 ] || {
+    deny_now 'this git subtree push does not name exactly one repository and one refspec, which the guard reads as git-subtree does - refusing (fail closed). Name both: git subtree push -P <prefix> <repository> <branch>.'
+    return 0
+  }
+  case ${pos[2]} in
+    +*)
+      deny_now 'this git subtree push carries a +refspec - refusing. Name the branch without +.'
+      return 0
+      ;;
+  esac
+  queue_plumbing_push 'this git subtree push' "$dir" "$dir_ok" "${pos[1]}" "HEAD:${pos[2]#*:}"
 }
 
 # --------------------------------------------------------------------------
@@ -5463,7 +5984,7 @@ eval_merge() {
   record_spec_branch "$UNIT_TOP"
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
-    is_stack_ref "$dir" "$s" && continue
+    is_stack_ref "$dir" "$s" && ! stack_is_spec && continue
     if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
       ! is_spec_branch_ref "$dir" "$s" || continue
     fi
@@ -5476,7 +5997,8 @@ eval_merge() {
     [ "$rc" != 0 ] || continue
     [ "$rc" != 2 ] \
       || emit_deny "this git merge names the branch's own remote branch, but $(sanitize_printable "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" 'its remote-tracking ref') is missing or a local branch or tag of that name points at another commit - refusing (fail closed). Push or fetch the branch first, and remove any local branch or tag of that name."
-    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$([ -z "$STACK_BRANCH" ] || printf %s " or git merge $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the stacked base') (this stacked PR's base, or its tip commit id)"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+    stack_hint merge
+    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$SH, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
   done
 }
 
@@ -5563,8 +6085,15 @@ eval_pull() {
   fi
   case $ref in *:*) emit_deny 'this git pull carries a src:dst refspec, which also writes a local ref - refusing. Pull the PR base alone.' ;; esac
   ref=${ref#refs/heads/}
-  is_base_or_own_branch "$remote" "$ref" \
-    || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main')$([ -z "$STACK_BRANCH" ] || printf %s " or git pull $(sanitize_printable "$BASE_REMOTE $STACK_BRANCH" 'the stacked base')"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+  if [ "$ff" != 1 ] && [ "$remote" = "$BASE_REMOTE" ] && [ -n "$STACK_BRANCH" ] && [ "$ref" = "$STACK_BRANCH" ]; then
+    record_spec_branch "$UNIT_TOP"
+    ! stack_is_spec \
+      || emit_deny "this session's stacked base is its launch's spec branch ($(sanitize_printable "$SPEC_BRANCH" 'a spec branch')), and pulling it into $(sanitize_printable "$CUR_BRANCH" 'this branch') is admitted only with --ff-only, as merging it is - refusing. Use git pull --ff-only $(sanitize_printable "$BASE_REMOTE $SPEC_BRANCH" 'origin <spec branch>'), or merge the PR base: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+  fi
+  if ! is_base_or_own_branch "$remote" "$ref"; then
+    stack_hint pull
+    emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main')$SH, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+  fi
 }
 
 # rewrite_allowed <dir> <what> — unpushed_rewrite, then the unit branch. Under
@@ -5903,6 +6432,66 @@ EOF
   return 0
 }
 
+# legacy_remote_check <dir> <remote> — deny a push to a remote a legacy
+# remotes/<name> or branches/<name> file names: git still reads a push mapping
+# from either (a Push: line, or <url>#<branch>, which pushes HEAD to <branch>),
+# even beside a configured remote of that name, and the guard reads only git
+# config. git reads them only for a name with no slash.
+legacy_remote_check() {
+  local out gd common f
+  case $2 in '' | . | .. | */*) return 0 ;; esac
+  out=$(gitq "$1" rev-parse --path-format=absolute --git-dir --git-common-dir) || out=''
+  case $out in
+    /*"$NL"/*) ;;
+    *) emit_deny 'the git directory this push runs in could not be read, so the guard cannot tell whether a legacy remotes/ or branches/ file maps its destination - refusing (fail closed). Run it from inside your worktree.' ;;
+  esac
+  gd=${out%%"$NL"*}
+  common=${out#*"$NL"}
+  for f in "$gd/remotes/$2" "$gd/branches/$2" "$common/remotes/$2" "$common/branches/$2"; do
+    [ ! -e "$f" ] && [ ! -L "$f" ] \
+      || emit_deny "this git push goes to $(sanitize_printable "$2" 'a remote'), which a legacy remotes/ or branches/ file in the repository's git directory names; git reads a push mapping from that file (another destination, main included) that the guard does not read - refusing (fail closed). Migrate it with git remote rename, or push to a configured remote."
+  done
+}
+
+# symref_dsts <dir> <refspec...> — set SYM_DSTS to the branch each source
+# named with no :<dst> resolves to: git pushes it to the ref its symbolic refs
+# resolve to, so `git push origin x` updates main where x is a symbolic ref to
+# main, a top-level one, or main-worktree/HEAD with main checked out in the
+# primary checkout. A source git cannot resolve fails the push too; any other
+# failure to resolve one denies.
+SYM_DSTS=''
+symref_dsts() {
+  local d=$1 r t rc n
+  SYM_DSTS=''
+  shift
+  for r in "$@"; do
+    case $r in *:* | HEAD | @) continue ;; esac
+    rc=0
+    t=$(gitq "$d" rev-parse --symbolic-full-name --verify --quiet --end-of-options "$r") || rc=$?
+    case $rc in
+      0) ;;
+      1) continue ;;
+      *) emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, and git could not resolve it to see where it pushes (git exit $rc) - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>." ;;
+    esac
+    # A name git reads as more than one ref resolves to nothing here, while
+    # push may still take its one branch; an object id resolves to nothing
+    # too, and git refuses to push one with no destination anyway.
+    [ -n "$t" ] \
+      || emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, which git does not read as a single ref, so the guard cannot tell where it pushes - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
+    # A source resolving to the branch it names already went through
+    # eval_push's own destination check, the sign-off push's included.
+    case $r in
+      refs/heads/*) n=${r#refs/heads/} ;;
+      heads/*) n=${r#heads/} ;;
+      *) n=$r ;;
+    esac
+    case $t in
+      "refs/heads/$n") ;;
+      refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;
+    esac
+  done
+}
+
 eval_push() {
   local dir=${1%%"$TAB"*} rest=${1#*"$TAB"} del alone remote refs r src dst targets=() cb signoff=''
   del=${rest%%"$TAB"*}
@@ -5915,7 +6504,7 @@ eval_push() {
   cb=$(current_branch "$dir")
   if [ -z "$refs" ]; then
     [ "$del" = 0 ] || emit_deny 'this git push deletes without naming a ref - refusing (fail closed).'
-    [ -n "$cb" ] || emit_deny 'this git push names no branch and HEAD is detached, so the guard cannot tell what it pushes - refusing (fail closed). Name the branch.'
+    [ -n "$cb" ] || emit_deny "this git push names no branch and HEAD $NO_CURRENT_BRANCH, so the guard cannot tell what it pushes - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
     local pd rp
     pd=$(gitq "$dir" config --get push.default) || pd=''
     [ "$(lower "$pd")" != matching ] \
@@ -5929,6 +6518,7 @@ eval_push() {
         rp=$(gitq "$dir" config --get-all "remote.$remote.push") || rp=''
         [ -z "$rp" ] \
           || emit_deny 'this git push names no branch and the remote carries a configured push refspec, which the guard does not read - refusing (fail closed). Name the branch.'
+        legacy_remote_check "$dir" "$remote"
         case $(lower "$(gitq "$dir" config --get "remote.$remote.mirror" || printf '')") in
           true | yes | on | 1)
             emit_deny 'this git push names no branch and the remote is configured as a mirror, so it pushes every ref, main included - refusing. Name the branch.'
@@ -5958,7 +6548,7 @@ eval_push() {
       [ -n "$dst" ] || emit_deny 'this git push carries a refspec with an empty destination, which the guard does not read - refusing (fail closed).'
       case $dst in
         HEAD | @)
-          [ -n "$cb" ] || emit_deny 'this git push pushes HEAD while it is detached - refusing (fail closed). Name the branch.'
+          [ -n "$cb" ] || emit_deny "this git push pushes HEAD, and HEAD $NO_CURRENT_BRANCH - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
           dst=$cb
           ;;
         refs/heads/*) dst=${dst#refs/heads/} ;;
@@ -5973,6 +6563,12 @@ eval_push() {
         continue
       fi
       targets[${#targets[@]}]=$dst
+    done
+    legacy_remote_check "$dir" "$remote"
+    # shellcheck disable=SC2086 # the refspec list, split on purpose
+    symref_dsts "$dir" $refs
+    for r in $SYM_DSTS; do
+      targets[${#targets[@]}]=$r
     done
   fi
   [ "${#targets[@]}" = 0 ] || check_unprotected "$dir" 'this git push' "${targets[@]}"
@@ -8342,6 +8938,7 @@ handle_bash() {
       && deny_unanalyzable 'this command evaluates text carrying a substitution in an arithmetic context'
   fi
   classify_segments
+  reorder_check
   [ -z "$DENY_NOW" ] || emit_deny "$DENY_NOW"
   [ "${#PENDING[@]}" = 0 ] && return 0
   need_timeout

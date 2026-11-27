@@ -113,9 +113,22 @@ fi
 origin=$(git config --get remote.origin.url 2>/dev/null) || origin=''
 origin=${origin%/}
 origin=${origin%.git}
-own=$(printf '%s' "$origin" | sed -E 's#^.*[:/]([^:/]+/[^:/]+)$#\1#' | tr '[:upper:]' '[:lower:]')
-lower=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
-[ -n "$origin" ] && [ "$own" = "$lower" ] \
+# Folded by expansion, not tr: a tr that failed would fold both names to empty,
+# and they would compare equal.
+fold_lower() {
+  local up=ABCDEFGHIJKLMNOPQRSTUVWXYZ low=abcdefghijklmnopqrstuvwxyz i=0
+  FOLD=$1
+  while [ "$i" -lt 26 ]; do
+    FOLD=${FOLD//${up:$i:1}/${low:$i:1}}
+    i=$((i + 1))
+  done
+}
+own=''
+[[ $origin =~ [/:]([^/:]+/[^/:]+)$ ]] && own=${BASH_REMATCH[1]}
+fold_lower "$own"
+own=$FOLD
+fold_lower "$REPO"
+[ -n "$own" ] && [ "$own" = "$FOLD" ] \
   || usage "--repo must be the repository this checkout's origin names"
 UNIT=()
 for id in "${IDS[@]+"${IDS[@]}"}"; do

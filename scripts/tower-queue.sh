@@ -541,8 +541,9 @@
 # that reaches a reserved human control is REFUSED here, and refused again at
 # match time whatever a rule claims: a merge or pull, a ready-flip, a
 # force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh
-# api call that can write, and a push to
-# main, master, or a spec branch stay the operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
+# api call that can write, a git send-pack or git subtree (a command coverage
+# naming one), and a push to main, master, or a spec branch stay the
+# operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
 # the punctuation around it, so `+main`, `refs/heads/main` and a force flag
 # bundled into a short-option run are the same refusal as `origin main`. A
 # request or an approval is the operator asking for something and settles
@@ -2335,13 +2336,38 @@ push_reaches_protected() {
   )
 }
 
-# unquote <word> — UQ set to the word with every quote removed; forks only
-# when there is one to remove.
+# unquote <text> — UQ set to the text with every quote removed, by expansion:
+# a tr that failed would remove the whole text, and the screens would read
+# nothing to refuse.
+Q_QUOTES="\"'"
 unquote() {
-  UQ=$1
-  case "$UQ" in
-    *[\"\']*) UQ=$(printf '%s' "$UQ" | tr -d '\042\047') ;;
+  UQ=''
+  _uq=$1
+  while :; do
+    case "$_uq" in
+      *["$Q_QUOTES"]*)
+        UQ=$UQ${_uq%%["$Q_QUOTES"]*}
+        _uq=${_uq#*["$Q_QUOTES"]}
+        ;;
+      *)
+        UQ=$UQ$_uq
+        return 0
+        ;;
+    esac
+  done
+}
+
+# fold_lc <text> — FL set to the text in lower case; 1 when tr fails or prints
+# other than one byte for each it was given, so a screen fails closed rather
+# than reading an empty or cut-short fold as nothing reserved. The sentinel
+# keeps trailing newlines, so the lengths compare.
+fold_lc() {
+  FL=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || return 1
+  case "$FL" in
+    *x) FL=${FL%x} ;;
+    *) return 1 ;;
   esac
+  [ "${#FL}" = "${#1}" ]
 }
 
 # push_word_present <lowercased command> — 0 when a word of the command IS a
@@ -2361,9 +2387,11 @@ push_word_present() {
 }
 
 # command_words_reserved <lowercased command> — 0 when a word of the command,
-# its quotes removed, IS a pull. The `git pull` substring in reserved_control
-# misses `git -C dir pull` and a doubled space, both of which git runs as a
-# pull; a command naming the word for any other reason reaches the operator.
+# its quotes removed, IS a pull, or git send-pack or git subtree, which update
+# remote branches with no push word for the push screens to parse. The `git
+# pull` substring in reserved_control misses `git -C dir pull` and a doubled
+# space, both of which git runs as a pull; a command naming the word for any
+# other reason reaches the operator.
 command_words_reserved() {
   (
     set -f
@@ -2371,6 +2399,7 @@ command_words_reserved() {
       unquote "$_pw"
       case "$UQ" in
         pull | git-pull | */git-pull) exit 0 ;;
+        send-pack | git-send-pack | */git-send-pack | subtree | git-subtree | */git-subtree) exit 0 ;;
       esac
     done
     exit 1
@@ -2399,9 +2428,10 @@ Q_PUSH_SAFE_OPTIONS="-u --set-upstream -v --verbose -q --quiet -n --dry-run --po
 # the first word is `git` and the second `push` (so no `-c`, no `-C`, no
 # wrapper), the remote is a plain name (never a URL: the protected names mean
 # nothing in another repository), every refspec carries a non-empty
-# destination that is a branch name (`src:dst` with both halves, or a bare
-# name that is not `HEAD` or `@`, with `refs/heads/` or `heads/` stripped and
-# any other `refs/` kind refused), and no destination is protected
+# destination that is a branch name (`src:dst` with both halves, with
+# `refs/heads/` or `heads/` stripped and any other `refs/` kind refused; a bare
+# name reaches the operator, since git reads its destination from
+# configuration and local refs this parse cannot see), and no destination is protected
 # (is_protected_branch, which includes a spec branch). Quotes are removed
 # first, as in push_reaches_protected, and for the same reason.
 push_parses_safe() {
@@ -2449,6 +2479,10 @@ push_parses_safe() {
             *:*) exit 1 ;;
           esac
           ;;
+        # A bare name's destination is configuration's: remote.<r>.push,
+        # push.default=upstream's branch.<b>.merge, or the branch a local
+        # symbolic ref of that name resolves to.
+        *) exit 1 ;;
       esac
       _pd=${_pd#refs/heads/}
       _pd=${_pd#heads/}
@@ -2477,7 +2511,9 @@ reserved_control() {
   # Quotes go first, as in push_reaches_protected: the shell runs `me""rge`
   # and `--am'end'` as the bare words, which a substring test on the quoted
   # text never sees.
-  _rl=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '\042\047')
+  fold_lc "$1" || return 0
+  unquote "$FL"
+  _rl=$UQ
   case "$_rl" in
     *merge* | *merging* | *rebas* | *amend* | *squash* | *fixup* | *force-push* | *force-with-lease*) return 0 ;;
     *'git pull'* | *git-pull*) return 0 ;;
@@ -2558,11 +2594,13 @@ gh_write_word() {
 # reserved_command <command> — 0 when a rule may not answer the command: it
 # reaches a reserved control, or it is a push that does not positively parse
 # as safe. This is what the match runs; `capture` runs reserved_control, plus
-# the pull word screen on a command coverage, but never the push parse, since
-# a rule's coverage is a prefix and a prefix is not a command.
+# the pull, send-pack and subtree word screen on a command coverage, but never
+# the push parse, since a rule's coverage is a prefix and a prefix is not a
+# command.
 reserved_command() {
   reserved_control "$1" && return 0
-  _rq=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  fold_lc "$1" || return 0
+  _rq=$FL
   command_words_reserved "$_rq" && return 0
   push_word_present "$_rq" || return 1
   push_parses_safe "$_rq" && return 1
@@ -6464,9 +6502,8 @@ cmd_capture() {
             # (REQ-E1.9, REQ-H1.1). It fires again at match time, so a rule
             # recorded before this check existed is still refused where it
             # would act.
-            if reserved_control "$2" \
-              || command_words_reserved "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"; then
-              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
+            if reserved_control "$2" || ! fold_lc "$2" || command_words_reserved "$FL"; then
+              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, a git send-pack or git subtree, or a push to main, master, or a spec branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):
             # this one is persisted and, with a ledger helper installed, ships

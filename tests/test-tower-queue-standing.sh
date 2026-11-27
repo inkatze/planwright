@@ -283,26 +283,82 @@ for res in 'git push' 'git push origin' 'git push origin :' 'git push origin :fe
   'git push git@github.com:x/y.git feature' 'git push https://example/x.git feature' \
   'git push origin feature:refs/tags/v1' 'git push origin feature:refs/for/main' \
   'sudo git push origin feature' 'command git push origin feature' \
-  'git push origin feature --' 'git push origin ""'; do
+  'git push origin feature --' 'git push origin ""' \
+  'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
+  'git push origin feature -v' 'git push origin refs/heads/feature' 'git push origin heads/feature' \
+  'git push upstream fix-1' 'git push origin planwright/human-gates/task-5' \
+  'git push origin feature:feature x'; do
   rc=0
   run match --decision "$push_rule" --command "$res" >"$tmp/o" || rc=$?
   [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
     || fail "'$res', a push with no positively parsed safe destination, was not refused (exit $rc, '$(cat "$tmp/o")')"
   grep -q 'positively named' "$errf" || fail "the refusal of '$res' did not say why"
 done
-echo "ok: a push whose destination cannot be positively named reaches the operator"
+echo "ok: a push whose destination cannot be positively named reaches the operator, a bare branch name included (remote.<r>.push, push.default=upstream or a local symbolic ref can send it elsewhere)"
 
 # The rule the operator actually wanted still works, in every admitted shape.
-for okp in 'git push origin feature/thing' 'git push origin "feature/thing"' 'git push -u origin feature' \
-  'git push origin feature -v' 'git push origin main:feature' 'git push origin refs/heads/feature' \
-  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1' \
-  'git push origin planwright/human-gates/task-5' 'git push origin planwright/human-gates/spec-notes' \
-  'git push origin planwright/a/b/spec'; do
+for okp in 'git push origin feature/thing:feature/thing' 'git push origin "feature/thing:feature/thing"' \
+  'git push -u origin feature:feature' 'git push origin feature:feature -v' 'git push origin main:feature' \
+  'git push origin head:feature' 'git push origin feature:refs/heads/feature' 'git push upstream fix-1:fix-1' \
+  'git push origin HEAD:planwright/human-gates/task-5' 'git push origin x:planwright/human-gates/spec-notes' \
+  'git push origin x:planwright/a/b/spec'; do
   run match --decision "$push_rule" --command "$okp" >"$tmp/o" \
     || fail "an ordinary branch push ('$okp') did not match (exit $?, '$(cat "$tmp/o")')"
   [ "$(cat "$tmp/o")" = match ] || fail "an ordinary branch push ('$okp') printed '$(cat "$tmp/o")'"
 done
 echo "ok: an ordinary branch push still matches"
+
+# git's push plumbing and git subtree push update remote branches without the
+# push word the screens key on, so a rule covering any git command answers
+# none of them.
+git_rule=$(captured --kind standing --text 'let the workers run git' --covers-command 'git ' --now 1012) \
+  || fail "capture of the git rule failed"
+for res in 'git send-pack origin HEAD:refs/heads/feature' 'git send-pack --force origin x:x' \
+  'git subtree push -P d origin feature:feature' 'git -C . send-pack origin HEAD:x'; do
+  rc=0
+  run match --decision "$git_rule" --command "$res" >"$tmp/o" || rc=$?
+  [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+    || fail "'$res', a push by plumbing or subtree, was not refused (exit $rc, '$(cat "$tmp/o")')"
+done
+run match --decision "$git_rule" --command 'git status' >"$tmp/o" || fail "a plain git status did not match the git rule ('$(cat "$tmp/o")')"
+rc=0
+run capture --kind standing --text 'let the workers send packs' --covers-command 'git send-pack ' --now 1013 >"$tmp/o" || rc=$?
+if [ "$rc" = 0 ] || ! grep -q 'send-pack' "$errf"; then
+  fail "a coverage naming git send-pack was captured (exit $rc)"
+fi
+rc=0
+run capture --kind standing --text 'let the workers split subtrees' --covers-command 'git subtree ' --now 1014 >"$tmp/o" || rc=$?
+if [ "$rc" = 0 ] || ! grep -q 'subtree' "$errf"; then
+  fail "a coverage naming git subtree was captured (exit $rc)"
+fi
+echo "ok: git send-pack and git subtree push reach the operator under a rule covering git"
+
+# A tr that fails, prints nothing, or prints less would fold the command to
+# something with no reserved word in it; the screens refuse instead, at match
+# and at capture.
+real_tr=$(command -v tr)
+for kind in fails empty truncates; do
+  mkdir -p "$tmp/tr-$kind"
+  # shellcheck disable=SC2016 # the stubs' own text, expanded when they run
+  case $kind in
+    fails) printf '#!/bin/sh\nexit 1\n' >"$tmp/tr-$kind/tr" ;;
+    empty) printf '#!/bin/sh\ncat >/dev/null\n' >"$tmp/tr-$kind/tr" ;;
+    truncates) printf '#!/bin/sh\n%s "$@" | head -c 2\n' "$real_tr" >"$tmp/tr-$kind/tr" ;;
+  esac
+  chmod +x "$tmp/tr-$kind/tr"
+  for cmd in 'git push origin feature:feature' 'git MERGE feature'; do
+    rc=0
+    PATH="$tmp/tr-$kind:$PATH" run match --decision "$push_rule" --command "$cmd" >"$tmp/o" || rc=$?
+    [ "$rc" = 1 ] && [ "$(cat "$tmp/o")" = reserved ] \
+      || fail "a tr that $kind: '$cmd' was not refused as reserved (exit $rc, '$(cat "$tmp/o")')"
+  done
+  rc=0
+  PATH="$tmp/tr-$kind:$PATH" run capture --kind standing --text 'a rule over a fold that failed' \
+    --covers-command 'git REBASE' --now 1011 >"$tmp/o" || rc=$?
+  [ "$rc" != 0 ] || fail "a tr that $kind: a coverage reaching a reserved control was captured"
+  grep -q 'reserved human control' "$errf" || fail "a tr that $kind: the capture refusal did not name the reserved control"
+done
+echo "ok: a tr that fails, prints nothing, or prints less refuses the command rather than screening an empty fold"
 
 # The negative screen is what a rule's COVERAGE is held to: a prefix is not a
 # command, so `git push ` is a rule the operator may write, and the positive

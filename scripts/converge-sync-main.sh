@@ -76,7 +76,7 @@
 #                                                (default: the current directory)
 #        --base <branch> syncs a stacked PR's base branch instead of main: only the
 #        branch this session's launch record (stack_base, scripts/worker-session-record.sh)
-#        names, else exit 2
+#        names, and never the record's spec_branch, else exit 2
 #        converge-sync-main.sh [--base <branch>] --commit-resolution <spec>/<id>
 #          [--commit-resolution <spec>/<id> ...] [<repo-dir>]
 #        (the same --base the conflicted sync was given)
@@ -104,7 +104,8 @@
 #   0  synced (already current, fast-forwarded, merged, skipped for want of a
 #      need, or denied by policy), or the resolution committed
 #   2  usage — bad arguments, a target that is not a git work tree, a --base
-#      the session's launch record does not name for this branch, or a
+#      the session's launch record does not name for this branch (or names as
+#      its spec_branch, which merges only by --ff-only), or a
 #      missing `git`/`tr` or sibling script (reason `environment`)
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
 #      in progress; no fetch is attempted
@@ -348,11 +349,12 @@ fi
 # the worker can change). The record must be this user's own regular file of at
 # most 4096 bytes (the bound every record reader shares, MAX_RECORD_SIZE in
 # scripts/worker-session-record.sh), name this unit branch, and carry exactly
-# one stack_base equal to origin/<branch>.
+# one stack_base equal to origin/<branch> and at most one spec_branch, which
+# must not be <branch>.
 base_br=main
 if [ -n "$base_arg" ]; then
   rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-}
-  rec_unit='' rec_base='' rec_dup='' rec_seen=" "
+  rec_unit='' rec_base='' rec_spec='' rec_dup='' rec_seen=" "
   rec_top=$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || true)
   case $base_arg in
     -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *. | HEAD | @) rec= ;;
@@ -396,11 +398,21 @@ if [ -n "$base_arg" ]; then
           rec_seen="$rec_seen""b "
           rec_base=${rline#*=}
           ;;
+        spec_branch=*)
+          case $rec_seen in *" s "*) rec_dup=1 ;; esac
+          rec_seen="$rec_seen""s "
+          rec_spec=${rline#*=}
+          ;;
       esac
     done <"$rec"
   fi
+  base_shown=$(printf '%s' "$base_arg" | tr '\n' ' ' | scrub)
   [ -z "$rec_dup" ] && [ "$rec_unit" = "$branch" ] && [ "$rec_base" = "origin/$base_arg" ] \
-    || die 2 usage "--base $(printf '%s' "$base_arg" | tr '\n' ' ' | scrub) is not the stacked base this session's launch record names for $branch_shown; only that branch (and main, with no --base) can be synced"
+    || die 2 usage "--base $base_shown is not the stacked base this session's launch record names for $branch_shown; only that branch (and main, with no --base) can be synced"
+  # The spec branch merges into a unit only by fast-forward, as the policy
+  # guard admits it, which this sync's ordinary merge is not.
+  [ "$rec_spec" != "$base_arg" ] \
+    || die 2 usage "--base $base_shown is this session's spec branch, which reaches $branch_shown only by git merge --ff-only origin/$base_shown; this sync's merge is not one"
   base_br=$base_arg
 fi
 base_ref=origin/$base_br

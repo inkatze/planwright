@@ -198,6 +198,29 @@ expect defer "[worker] both fields, in the spec branch's worktree: the PR base m
 PLANWRIGHT_WORKER_SESSION_RECORD=$REC_BOTH pg worker "git merge origin/$STACK_BR" "$SPECWT" "$SPECWT"
 expect deny "[worker] both fields, in the spec branch's worktree: the unit's stacked base is refused"
 
+echo "# guard: a stacked base that is the launch's spec branch keeps the spec branch's --ff-only rule"
+REC_SAME="$SANDBOX/rec/same.record"
+write_rec "$REC_SAME" "origin/$SPEC_BR"
+printf 'spec_branch=%s\n' "$SPEC_BR" >>"$REC_SAME"
+for cmd in "git merge origin/$SPEC_BR" "git merge --no-edit refs/remotes/origin/$SPEC_BR" \
+  "git merge --no-ff origin/$SPEC_BR" "git merge $(tip "$SPEC_BR")" "git merge --ff-only origin/$SPEC_BR origin/main" \
+  "git pull origin $SPEC_BR" "git pull --no-ff origin $SPEC_BR"; do
+  sg worker "$cmd" "$REC_SAME"
+  expect deny "[worker] stack base = spec branch: $cmd is refused, as the spec-branch rule refuses it"
+  case $cmd in
+    *pull* | *"origin/$SPEC_BR") reason_has 'ff-only' "[worker] stack base = spec branch: $cmd names --ff-only" ;;
+  esac
+done
+for cmd in "git merge origin/$OTHER_BR" "git pull origin $OTHER_BR"; do
+  sg worker "$cmd" "$REC_SAME"
+  expect deny "[worker] stack base = spec branch: another source, $cmd, is refused"
+  reason_has 'ff-only' "[worker] stack base = spec branch: the refusal of $cmd offers the spec branch only by --ff-only"
+done
+for cmd in "git merge --ff-only origin/$SPEC_BR" "git pull --ff-only origin $SPEC_BR" 'git merge origin/main'; do
+  sg worker "$cmd" "$REC_SAME"
+  expect defer "[worker] stack base = spec branch: $cmd defers"
+done
+
 echo "# record writer: stack_base"
 FLEET="$SANDBOX/fleet"
 mkdir -p "$FLEET"
@@ -552,6 +575,23 @@ if [ "$RC" = 0 ] && git -C "$SY5" merge-base --is-ancestor "$want" HEAD \
   pass "[sync] --base fetches the base branch, never a tag of the same name"
 else
   fail "[sync] a tag named like the base: rc=$RC err='$(cat "$SANDBOX/sync.err")'"
+fi
+
+# A stacked base that is the launch's spec branch merges into the unit only by
+# git merge --ff-only, which the helper's ordinary merge is not.
+SY6="$SANDBOX/sy6"
+sync_clone "$SY6"
+write_rec "$SANDBOX/rec/sy6.record" "origin/$SPEC_BR"
+sed -i.bak "s|^worktree_root=.*|worktree_root=$SY6|" "$SANDBOX/rec/sy6.record" && rm -f "$SANDBOX/rec/sy6.record.bak"
+printf 'spec_branch=%s\n' "$SPEC_BR" >>"$SANDBOX/rec/sy6.record"
+adv_base "$SPEC_BR"
+gitq -C "$SY6" fetch origin
+before=$(git -C "$SY6" rev-parse HEAD)
+run_sync "$SY6" "$SANDBOX/rec/sy6.record" --base "$SPEC_BR"
+if [ "$RC" = 2 ] && [ "$(git -C "$SY6" rev-parse HEAD)" = "$before" ] && grep -q 'ff-only' "$SANDBOX/sync.err"; then
+  pass "[sync] --base refuses a stacked base that is the launch's spec branch, naming --ff-only"
+else
+  fail "[sync] --base of the spec branch: rc=$RC out='$OUT' err='$(cat "$SANDBOX/sync.err")'"
 fi
 
 finish

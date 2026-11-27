@@ -448,6 +448,21 @@ STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42 --repo acme/not-widgets')"
 assert_deny "a PR that resolves to a different repo than the call named denies"
 
+# A tr that fails would fold both names to empty, and they would compare equal.
+real_tr=$(command -v tr)
+rm -f "$BIN/tr"
+printf '#!/bin/sh\nexit 1\n' >"$BIN/tr"
+chmod +x "$BIN/tr"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42 --repo acme/not-widgets')"
+assert_deny "with a tr that fails, a PR that resolves to a different repo still denies"
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42 --repo ACME/Widgets')"
+assert_defer "with a tr that fails, the repo cross-check still folds case"
+ln -sf "$real_tr" "$BIN/tr"
+
 # The form mission control's policy guard admits for a flip in another listed
 # repository is the one this guard also admits; the spellings that guard
 # refuses are refused here too.

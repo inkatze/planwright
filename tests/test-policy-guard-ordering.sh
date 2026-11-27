@@ -1,0 +1,244 @@
+#!/bin/bash
+# Adversarial suite for scripts/policy-guard.sh: git state a command changes
+# where the guard reads it too late or not at all. A loop body, a background
+# list, a pipeline or a coprocess runs a change written after a reserved act
+# before that act; a non-git command (a redirect, cp, tee, sed -i, an echo into
+# .git/HEAD) writes git's configuration or HEAD; and a tab or newline in the
+# directory splits a queued act's record.
+#
+# The end-to-end fixtures run each bypass for real against a throwaway origin
+# in the sandbox and check that its main moved, so a case that would not reach
+# main fails as a broken fixture rather than passing for nothing.
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor).
+# shellcheck disable=SC2016 # the unexpanded $ forms are the inputs under test
+unset CDPATH
+# shellcheck source=tests/lib/policy-guard-harness.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/policy-guard-harness.sh"
+
+set_knobs 'protected_branches:' 'unpushed_rewrite: allow' 'worker_base_merge: allow'
+TAB=$(printf '\t')
+B=planwright/demo/task-1
+E2E_N=0
+
+# e2e <label> <prepare> <command> — run <command> with bash in a fresh clone
+# of a fresh origin (on $B, one unpushed commit, after <prepare>), and fail
+# the fixture unless the origin's main moved.
+e2e() {
+  local label=$1 prep=$2 cmd=$3 o c before after
+  E2E_N=$((E2E_N + 1))
+  o="$SANDBOX/e2e-$E2E_N.git"
+  c="$SANDBOX/e2e-$E2E_N"
+  gitq clone --bare "$ORIGIN" "$o"
+  gitq clone "$o" "$c"
+  gitq -C "$c" switch "$B"
+  gitq -C "$c" commit --allow-empty -m unpushed
+  before=$(git -C "$o" rev-parse main)
+  (cd "$c" && HOME="$SANDBOX/e2e-home-$E2E_N" && export HOME && mkdir -p "$HOME" && unset GIT_CONFIG_GLOBAL \
+    && /bin/bash -c "$prep" && /bin/bash -c "$cmd; wait") >/dev/null 2>&1
+  after=$(git -C "$o" rev-parse main)
+  [ "$before" != "$after" ] || fail "fixture: $label does not move main when run, so its case would be vacuous"
+}
+
+# --- a change written after the act can run before it -----------------------
+
+echo "# ordering: loops, background lists, pipelines and coprocesses"
+CFGPUSH="git config remote.origin.push refs/heads/$B:refs/heads/main"
+e2e 'a push in a for loop beside a later push-refspec change' : \
+  "for i in 1 2; do git push origin $B; $CFGPUSH; done"
+e2e 'a backgrounded push beside a later branch rename' : \
+  "sleep 1 && git push origin HEAD & git branch -M main"
+for tier in worker tower; do
+  for cmd in "for i in 1 2; do git push origin $B; $CFGPUSH; done" \
+    "while true; do git push origin $B; $CFGPUSH; done" \
+    "until false; do git push origin $B; $CFGPUSH; done" \
+    "select x in a b; do git push origin $B; $CFGPUSH; done" \
+    'sleep 1 && git push origin HEAD & git branch -M main' \
+    'git push origin HEAD & git switch main' \
+    "git push origin $B | $CFGPUSH" "git push origin $B |& $CFGPUSH" \
+    "coproc git push origin $B; $CFGPUSH" \
+    "for i in 1 2; do git push origin HEAD; git switch main; done" \
+    "for i in 1 2; do git push origin $B; export GIT_DIR=/tmp/x; done" \
+    "for i in 1 2; do git commit --amend --no-edit; git push origin $B; done"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd denies"
+  done
+done
+pg worker "for i in 1 2; do git push origin $B; $CFGPUSH; done"
+reason_has 'order' "the ordering deny says why"
+for cmd in "for i in 1 2; do git push origin HEAD; cd /tmp; done" \
+  "while true; do git commit --amend --no-edit; pushd /tmp; done" \
+  "for i in 1 2; do git commit --amend --no-edit; git fetch origin; done" \
+  "until false; do git merge origin/main; git fetch origin main:refs/heads/x; done"; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a directory change, or a fetch after a rewrite or merge, in a loop) denies"
+  reason_has 'order' "[worker] $cmd denies for its ordering"
+done
+for cmd in "git push origin $B 2>&1 | tail -3" "for i in 1 2; do git push origin $B; done" \
+  "git push origin $B & wait" "git status | cat; git push origin $B" \
+  "git merge origin/main && git push origin $B:$B 2>&1 | tail -3" \
+  "git merge --ff-only origin/main && git push origin $B:$B | cat" \
+  "git push origin $B:$B && git push origin HEAD:$B | cat" "git push origin $B; git config user.name x" \
+  "git pull --ff-only origin main && git push origin $B:$B 2>&1 | tail -3" \
+  "git push origin $B:$B >\"\$TMPDIR/push.log\" 2>&1" "read -r a b <<<\"\$line\"; git push origin $B:$B" \
+  "while read -r l; do echo \"\$l\"; done < \"\$f\"; git push origin $B:$B" \
+  "git push origin $B:$B | tee push.log" "cd \"$UNIT\" && git push origin $B 2>&1 | tail -3" \
+  "for i in 1 2; do git pull --ff-only origin main; git fetch origin; done" \
+  "for i in 1 2; do git push origin $B; x=1; done" "git push origin $B:$B 2>&1 | tail -3; rc=\$?" \
+  "for x in a; do echo x; done; git rebase -i HEAD~1" "for x in a; do echo x; done; git commit --amend --no-edit" \
+  "until git push origin $B:$B; do
+sleep 5
+done" "for i in 1 2; do if git push origin $B:$B; then
+break
+fi; done"; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (no state change after the act that the act reads) defers"
+done
+for cmd in "while true; do git rebase -i HEAD~1; done" "repeat 2 git rebase -i HEAD~1" \
+  "repeat 2 do git rebase -i HEAD~1; done" \
+  "export HOME=/a; for i in 1 2; do git push origin $B; export HOME=/b; done" \
+  "for i in 1 2; do git push origin HEAD; popd; done" "for i in 1 2; do git push origin $B; HOME=/b; done" \
+  "for i in 1 2; do git push origin $B; unset GIT_DIR; done" \
+  "for i in 1 2; do git push origin $B; repeat 1 cd /tmp; done" \
+  "for i in 1 2; do git push origin $B; export PATH=/x:/usr/bin; done" \
+  "git push origin $B:$B | tee \"/tmp/push-\$\$.log\""; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a change a loop's next pass runs before the act) denies"
+  reason_has 'order' "[worker] $cmd denies for its ordering"
+done
+
+# --- non-git writes to git configuration or HEAD -----------------------------
+
+echo "# writes to git state by other commands"
+PUSHCFG='[remote "origin"]\n\tpush = refs/heads/planwright/demo/task-1:refs/heads/main\n'
+e2e 'an append to .git/config before a push' : \
+  "printf '$PUSHCFG' >>.git/config && git push origin $B"
+e2e 'a copy over .git/config before a push' "cp .git/config cfg && printf '$PUSHCFG' >>cfg" \
+  "cp cfg .git/config && git push origin $B"
+e2e 'a copy to ~/.gitconfig before a push' "printf '$PUSHCFG' >gcfg" \
+  "cp gcfg ~/.gitconfig && git push origin $B"
+e2e 'an echo into .git/HEAD before a push' 'git branch -f main HEAD' \
+  "echo 'ref: refs/heads/main' > .git/HEAD && git push origin HEAD"
+for tier in worker tower; do
+  for cmd in "printf '$PUSHCFG' >> .git/config && git push origin $B" \
+    "printf '$PUSHCFG' | tee -a .git/config && git push origin $B" \
+    "cp cfg .git/config && git push origin $B" "cp gcfg ~/.gitconfig && git push origin $B" \
+    "cp gcfg \$HOME/.gitconfig; git push origin $B" "cp gcfg ~/.config/git/config; git push origin $B" \
+    "sed -i s/a/b/ .git/config; git push origin $B" "mv cfg ./.git/config; git push origin $B" \
+    "echo 'ref: refs/heads/main' > .git/HEAD && git push origin HEAD" \
+    "cd .git && printf x >> config && cd .. && git push origin $B" \
+    "printf x > \"$UNIT/.git/config\"; git push origin $B" \
+    "git push origin $B & printf '$PUSHCFG' >> .git/config"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd denies"
+  done
+done
+for cmd in "printf x >> \".git\"/config && git push origin $B" "printf x >> .gi''t/config && git push origin $B" \
+  "printf x >> .gi\\t/config && git push origin $B" "printf x >> .GIT/config && git push origin $B" \
+  "cp cfg .GIT/config; git push origin $B" "cp gcfg ~/.GITCONFIG; git push origin $B" \
+  "xxd -r -p cfg.hex .git/config && git push origin $B" "cp cfg .gi?/config; git push origin $B" \
+  "cp cfg .[g]it/config; git push origin $B" "d=.git/config; cp cfg \"\$d\"; git push origin $B" \
+  "printf x > \"\$f\"; git push origin $B" "cp gcfg /etc/gitconfig; git push origin $B" \
+  "cp gcfg ~/.gitconfig.local; git push origin $B" \
+  "printf 'gitdir: /tmp/x/.git\\n' > .git 2>/dev/null; git push origin HEAD" \
+  "printf x >> .gitconfig; git push origin $B" "printf x > gitconfig; git push origin $B" \
+  "env cp cfg \"\$d\"; git push origin $B" "nice cp cfg \"\$d\"; git push origin $B" \
+  "time -p cp cfg \"\$d\"; git push origin $B" "CP cfg \"\$d\"; git push origin $B" \
+  "cp hook \"\$G/hooks/pre-push\"; git push origin $B" "cp cfg \"\${G}/config\"; git push origin $B" \
+  "printf 'ref: refs/heads/main\\n' > .g?t/H?AD && git push origin HEAD" "cp cfg .gi?/; git push origin $B" \
+  "cp cfg \"\$G/\"; git push origin $B" "tee .gi{t,x}/config < c; git push origin $B" \
+  "dd if=evil of=.git/HEAD; git push origin HEAD" "sort -o.git/HEAD x; git push origin HEAD" \
+  "wget --output-document=.git/config URL; git push origin $B" "printf x 1<>.git/config; git push origin $B" \
+  "coproc cp cfg \"\$d\"; git push origin $B" "set -- 1; for x do cp cfg \"\$d\"; done; git push origin $B" \
+  "sed -n '1w .git/config' /tmp/p && git push origin $B" "wget -qO.git/config http://x/c && git push origin $B" \
+  "awk 'BEGIN{print \"x\" >> \".git/config\"}'; git push origin $B" "tar -xC.git -f /tmp/p.tar; git push origin $B" \
+  "curl -4so.git/config https://x/cfg && git push origin $B" "sort -ogitconfig x; git push origin $B" \
+  "sort -qogit/config x; git push origin $B" "sort --output=gitconfig x; git push origin $B" \
+  "dd if=x of=git/config; git push origin $B" "cp a --target-directory=.config/git; git push origin $B"; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a quoted, folded, globbed or expanded git state path) denies"
+done
+# An expanded word of a file writer counts whatever it names, since what it
+# expands to is read only when the command runs: these over-refuse, accepted.
+for cmd in "rm -f *.tmp && git push origin $B" "sed -n \"\${n}p\" log; git commit --amend --no-edit" \
+  "rm -f \"\$TMPDIR/x\"; git push origin $B"; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a file writer's expanded word before the act) denies"
+done
+for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git push origin $B" \
+  "printf x >> .git/config" "grep x .git/config && git push origin $B" \
+  "printf x >> .gitignore && git push origin $B" "printf x > .github/ci.yml && git push origin $B" \
+  "printf x >> docs/gitconfig.md && git push origin $B" "echo \$HOME; git push origin $B" \
+  "git push origin $B; cp cfg .git/config" "touch ../mirror.git/x && git push origin $B" \
+  "echo \"git@github.com:o/r.git\" && git push origin $B" \
+  "cp a notes.txt && git push origin $B" "sed -i s/a/b/ README.md; git push origin $B" \
+  "rm -f build/x && git commit --amend --no-edit" "wc -l < .git/config; git push origin $B" \
+  "sed -i 's|git config|git config --global|' README.md; git push origin $B"; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (a read, a write outside git's state, no act, or a change after the act in plain sequence) defers"
+done
+
+# --- a tab or newline in the directory --------------------------------------
+
+echo "# a tab or newline in an act's directory"
+# The record is tab-separated; a directory named <real clone><TAB>... would
+# be read as that real clone, with the rest shifting the record's fields.
+TABD="$UNIT${TAB}x"
+clone_on "$TABD" "$B" 0
+NLD="$UNIT
+x"
+clone_on "$NLD" "$B" 0
+for d in "$TABD" "$NLD"; do
+  for cmd in 'git commit --amend --no-edit' 'git rebase -i HEAD~1' 'git merge origin/main' \
+    'git merge --ff-only origin/main' 'git pull' 'git pull origin main' 'git push origin HEAD' \
+    "git send-pack $ORIGIN HEAD:refs/heads/feature-y"; do
+    for proj in "$d" "$UNIT"; do
+      pg worker "$cmd" "$d" "$proj"
+      expect deny "[worker] $cmd in a directory carrying a tab or newline denies (project $([ "$proj" = "$UNIT" ] && printf 'the clone it names' || printf 'that directory'))"
+      reason_has 'tab or newline' "[worker] $cmd denies as a split record"
+    done
+  done
+done
+for cmd in "git rebase 'HEAD~1${TAB}1'" "git merge 'origin/main${TAB}x'" \
+  "git pull origin 'main${TAB}x'" "git commit --fixup='HEAD${TAB}x'" "git rebase 'HEAD~1
+x'"; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a tab or newline in an argument the record carries) denies"
+  reason_has 'tab or newline' "[worker] $cmd denies as a split record"
+done
+pg worker "git commit --amend --no-edit -m 'a${TAB}b'"
+expect defer "[worker] a tab in a commit message, which no record carries, still defers"
+
+# --- a loop body that shares its loop's segment ------------------------------
+
+echo "# loop bodies with no list or no separator"
+# `for x do ...` (no in list) and zsh's `repeat <n> <command>` carry their
+# body in the loop's own segment, so it must be read as a command there.
+e2e 'a for with no in list, over set positional parameters' : \
+  'set -- 1; for x do git push origin HEAD:refs/heads/main; done'
+for tier in worker tower; do
+  for cmd in 'for x do git push origin main; done' 'set -- 1; for x do git push origin HEAD:refs/heads/main; done' \
+    'for x do git push --force origin feature; done' 'for x do gh pr merge 5; done' \
+    'select x do git push origin main; done' 'for x do for y do git push origin main; done; done' \
+    'time for x do git push origin main; done' '! for x do git push origin main; done' \
+    'repeat 2 git push origin main' 'repeat 2 do git push origin main; done' \
+    'for x in a b; do for y do git push origin main; done; done'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd denies"
+  done
+done
+for cmd in "( git send-pack $ORIGIN HEAD:refs/heads/main )" "{ git send-pack $ORIGIN HEAD:main; }" \
+  'echo $(git send-pack x HEAD:refs/heads/main)' '( git subtree push -P d origin main )' \
+  '"$TOOLS/git" send-pack x HEAD:refs/heads/main' 'printf x | xargs git send-pack x'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a plumbing or subtree push the guard cannot parse) denies"
+  case $cmd in '('*) reason_has 'send-pack, subtree' "[worker] $cmd names send-pack and subtree among the acts" ;; esac
+done
+for cmd in 'for x do git status; done' 'for x in a b; do echo hi; done' 'for x do echo do; done' \
+  "for x do git push origin $B:$B; done" 'repeat 2 echo hi'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (no reserved act, or an unprotected push) defers"
+done
+
+no_gh_calls
+finish

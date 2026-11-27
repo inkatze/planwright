@@ -68,7 +68,8 @@ which the orchestrator tier runs under, keeps its flip, PR-merge, and
 base-merge denies under every value: those are the tower tier's refusals.
 Separately, at every tier and with no knob read, the policy guard denies the
 `gh api` spelling of the flip, its undo, a PR merge, a base merge, or a forced
-ref update (REQ-G1.7). Pushed history stays append-only outside
+ref update (REQ-G1.7), and any `gh api` change to branch protection or a
+ruleset. Pushed history stays append-only outside
 the force-push, draft-branch rewrite, and secret-purge rows of the list. A doc stating this floor
 cites this section; it does not restate an unconditional never.
 

@@ -3049,10 +3049,18 @@ force until you tell the tower to drop it.
 
 **What one may not cover.** A merge or pull, a ready-flip, a force-push, an
 amend, a squash, a fixup, a rebase, a git or gh alias, a `gh api` call that
-can write (GraphQL, a field or input, or any method but GET), or a push to
-`main`, `master`, or a spec branch. Those stay yours on every
-occasion: the tower refuses to record a rule that reaches one, and refuses
-again at match time whatever a rule's wording claims.
+can write (GraphQL, a field or input, or any method but GET), a push to
+`main`, `master`, or a spec branch, and a `git send-pack` or `git subtree`.
+Those stay yours on every occasion: the tower refuses to record a rule that
+reaches one (a `git send-pack` or `git subtree` where a command prefix names
+it), and refuses again at match time whatever a rule's wording claims. A
+push answers to a rule only when it names a remote and every one of its
+refspecs names its destination as `<src>:<dst>`: `git push origin
+feature:feature` can be answered, while `git push origin feature`, a bare
+`git push`, and any push with one bare-name refspec reach you, since git
+reads such a destination from configuration and local refs the command does
+not show. That is judged at match time, so a rule covering every `git push`
+is recorded.
 
 A permission prompt outside every rule you wrote reaches you. The tower never
 answers one on its own judgment, and mentioning a prompt in passing is not
