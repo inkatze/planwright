@@ -107,10 +107,11 @@ walk_with "macos skipped" '-' "require${tab}macos
 check${tab}macos-suite${tab}SKIPPED
 check${tab}macos-smoke${tab}SKIPPED"
 expect_rc "macOS required and its jobs skipped (a draft run): not ready" 4
-expect_out "the skip is named with the label that starts it" "fail${tab}macos${tab}macos-suite was skipped at 111111111111; add the ci-macos label (or mark the pull request ready) so CI runs it"
+expect_out "the skip is named with the label that starts it" "fail${tab}macos${tab}macos-suite was skipped at 111111111111; add the ci-macos label so CI runs it on the draft"
 walk_with "macos never ran" '-' "require${tab}macos"
 expect_rc "macOS required and no macOS job at the head: not ready" 4
-expect_out "never ran is named" "fail${tab}macos${tab}macos-suite never ran at 111111111111; add the ci-macos label (or mark the pull request ready) so CI runs it"
+expect_out "never ran is named" "fail${tab}macos${tab}macos-suite never ran at 111111111111; add the ci-macos label so CI runs it on the draft"
+case $OUT in *"mark the pull request ready"*) fail "the macOS hint offers the flip before the review" ;; *) ok "the macOS hint never offers the flip, which waits for the review" ;; esac
 walk_with "macos smoke missing" '-' "require${tab}macos
 check${tab}macos-suite${tab}SUCCESS"
 expect_out "one macOS job missing is named on its own" "fail${tab}macos${tab}macos-smoke never ran at 111111111111"

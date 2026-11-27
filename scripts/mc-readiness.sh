@@ -566,7 +566,7 @@ END {
   if (unreviewed && !due) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) and wait for its run" mwhy)
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
-    hint = "; add the ci-macos label (or mark the pull request ready) so CI runs it"
+    hint = "; add the ci-macos label so CI runs it on the draft"
     nm = split("macos-suite macos-smoke", mj, " ")
     for (i = 1; i <= nm; i++) {
       j = mj[i]
