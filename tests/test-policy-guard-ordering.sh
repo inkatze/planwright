@@ -135,5 +135,29 @@ done
 pg worker "git commit --amend --no-edit -m 'a${TAB}b'"
 expect defer "[worker] a tab in a commit message, which no record carries, still defers"
 
+# --- F1: a loop body that shares its loop's segment --------------------------
+
+echo "# loop bodies with no list or no separator"
+# `for x do ...` (no in list) and zsh's `repeat <n> <command>` carry their
+# body in the loop's own segment, so it must be read as a command there.
+e2e 'a for with no in list, over set positional parameters' : \
+  'set -- 1; for x do git push origin HEAD:refs/heads/main; done'
+for tier in worker tower; do
+  for cmd in 'for x do git push origin main; done' 'set -- 1; for x do git push origin HEAD:refs/heads/main; done' \
+    'for x do git push --force origin feature; done' 'for x do gh pr merge 5; done' \
+    'select x do git push origin main; done' 'for x do for y do git push origin main; done; done' \
+    'time for x do git push origin main; done' '! for x do git push origin main; done' \
+    'repeat 2 git push origin main' 'repeat 2 do git push origin main; done' \
+    'for x in a b; do for y do git push origin main; done; done'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd denies"
+  done
+done
+for cmd in 'for x do git status; done' 'for x in a b; do echo hi; done' 'for x do echo do; done' \
+  "for x do git push origin $B:$B; done" 'repeat 2 echo hi'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (no reserved act, or an unprotected push) defers"
+done
+
 no_gh_calls
 finish

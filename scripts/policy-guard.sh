@@ -1631,7 +1631,7 @@ PENDING=()
 # segment_words <seg> — set SW[] / SWL[] to the segment's words after the
 # simple-command prefix (assignments, `command`, `exec`, reserved words).
 segment_words() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]} w
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} w j
   SW=()
   SWL=()
   SW_WRAPPED=0
@@ -1643,6 +1643,23 @@ segment_words() {
     case $w in
       '!' | if | then | else | elif | do | while | until | nocorrect | noglob | builtin | coproc)
         k=$((k + 1))
+        continue
+        ;;
+      # A for or select with no in list runs its body after a do in this same
+      # segment (for x do git push; done); one with a list has none here.
+      for | select | foreach)
+        j=$((k + 1))
+        while [ "$j" -lt "$e" ] && { [ "${W[$j]}" != do ] || [ "${WU[$j]}" != 1 ]; }; do
+          j=$((j + 1))
+        done
+        if [ "$j" -lt "$e" ]; then
+          k=$((j + 1))
+          continue
+        fi
+        ;;
+      # zsh's short repeat runs the rest of the segment: repeat 2 git push.
+      repeat)
+        k=$((k + 2))
         continue
         ;;
       time)
