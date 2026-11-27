@@ -263,6 +263,7 @@ expect_rc "a repository with no PR-Agent workflow needs no run" 0
 walk_with "old evidence" - "require${tab}pr-agent"
 expect_rc "evidence with no draft state reads as ready: a required run missing is refused" 4
 expect_out "named" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
+case $OUT in *request-review*) fail "evidence with no draft state was told to request a review: $OUT" ;; *) ok "evidence with no draft state is refused, never told to request a review" ;; esac
 walk_with "old evidence, run present" - "$(rowsof require,pr-agent check,PR-Agent,SUCCESS)"
 expect_rc "and a successful run passes it" 0
 walk_with "ready, check refusal leads" - "$(rowsof state,ready require,pr-agent check,PR-Agent,FAILURE 'thread,t8,open')"

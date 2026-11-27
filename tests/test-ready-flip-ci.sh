@@ -167,7 +167,28 @@ echo 3 >"$GHS/ci_green_from"
 echo pr-agent-green >"$GHS/ci_then"
 run_helper flip --spec specs/demo --task 1
 check "the flip waits until PR-Agent's run finishes, then flips" [ "$CODE" = 0 ]
-check "it polled through the running review" [ "$(rollups)" -ge 3 ]
+check "it polled through the running review, flipping on the read that saw it finish" [ "$(rollups)" = 3 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-failed >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a failed PR-Agent run on the draft refuses the flip (exit 4)" [ "$CODE" = 4 ]
+check "at once, with no wait for a run that already finished" [ "$(rollups)" = 1 ]
+fixture
+set_policy unit-owner
+mkdir -p "$F/wt/.github/workflows"
+printf 'jobs:\n  review:\n    steps:\n      - env:\n          PR_AGENT_IMAGE: pragent/pr-agent@sha256:0\n' >"$F/wt/.github/workflows/pr-agent.yml"
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "only the pinned head's workflows decide: an uncommitted one owes no review" [ "$CODE" = 0 ]
+rm -rf "$F/wt/.github"
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "the flip's park names the review it waits for" grep -q 'no PR-Agent run has finished' <<<"$OUT"
 fixture
 set_policy unit-owner
 runs_pr_agent

@@ -2191,8 +2191,8 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
 assert_contains "pr-agent: the undelivered action is named" "review_requested" "$out"
 
-# The bot review runs once per pull request, on the ready flip, and again only
-# when asked for: a push-driven trigger burns the review budget on every commit.
+# The bot review runs once per head, on the draft when a review is requested:
+# a push-driven trigger burns the review budget on every commit.
 for pa_every in opened synchronize reopened labeled edited; do
   pa_case "pa-every-$pa_every" "[$PA_ALL, $pa_every]" "[\"ready_for_review\", \"review_requested\", \"$pa_every\"]"
   out="$("$GUARD" "$d" 2>&1)"
@@ -2255,8 +2255,8 @@ assert_exit "pr-agent: a workflow naming the image only in a comment is not chec
 out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
 assert_exit "pr-agent: the repo's own workflows agree" 0 $?
 
-# The repo's own PR-Agent workflow: one run on the ready flip, one more only on
-# a review request, and the safety conditions that gate the job stay.
+# The repo's own PR-Agent workflow: a run on the draft's review request, the
+# flip only for a head with none, and the safety conditions that gate the job.
 PA_REAL="$REPO_ROOT/.github/workflows/pr-agent.yml"
 pa_types="$(sed -n 's/^[[:space:]]*types:[[:space:]]*\[\([^]]*\)\].*/\1/p' "$PA_REAL" | head -n 1 | tr -d ' ')"
 [ "$pa_types" = "ready_for_review,review_requested" ]
@@ -2272,9 +2272,7 @@ assert_exit "pr-agent: the job keeps the name the readiness check and the stall 
 grep -Eq '^[^#]*pull_request\.draft' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow runs on a draft, where the review request fires it" 1 $?
 grep -q '/bin/bash scripts/pr-agent-reviewed.sh' "$PA_REAL"
-assert_exit "pr-agent: the repo's workflow skips a head it already reviewed" 0 $?
-grep -q "steps.prior.outputs.reviewed != 'true'" "$PA_REAL"
-assert_exit "pr-agent: the review and its run marker wait on that check" 0 $?
+assert_exit "pr-agent: the repo's workflow skips a head it already reviewed (tests/test-pr-agent-review.sh pins the step gates)" 0 $?
 # shellcheck disable=SC2016 # the workflow's literal text
 grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?

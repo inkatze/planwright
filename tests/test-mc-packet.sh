@@ -164,29 +164,31 @@ done
 
 # The request verdict (a draft whose only gap is the bot review a review
 # request fires) is a walk result a packet carries, whole.
-printf 'request-review\t%s\npending\tbot-review\tno PR-Agent run at %s\npending\tpost-pr\tno completion record\n' "$head" "$head" >"$tmp/flipreview"
-printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tincomplete\t-\n' "$head" "$head" >"$tmp/flipgap"
-mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
-  --evidence "$tmp/flipgap" --moment ready-flip --level guided
+printf 'request-review\t%s\npending\tbot-review\tno PR-Agent run at %s\npending\tpost-pr\tno completion record\n' "$head" "$head" >"$tmp/requestreview"
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tincomplete\t-\n' "$head" "$head" >"$tmp/requestgap"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/requestreview" \
+  --evidence "$tmp/requestgap" --moment ready-flip --level guided
 expect_rc "a request-review readiness result assembles" 0
 expect_out "and the packet carries its first line" "request-review${tab}$head"
 expect_out "and its pending row" "pending${tab}post-pr${tab}no completion record"
 expect_out "the cadence line holds the post-pr gap as pending the review" "Cadence: covered pre-pr; pending the bot review: post-pr (no completion record)"
+expect_no_out "and gives no close-the-gap advice for it" "Recommend:"
 printf 'flip-for-review\t%s\npending\tpost-pr\tno completion record\n' "$head" >"$tmp/oldflip"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/oldflip"
 expect_rc "the retired flip-first verdict is refused, so no packet offers a flip before the review" 1
-expect_no_out "and gives no close-the-gap advice for it" "Recommend:"
+expect_err "the refusal names the verdicts it takes" "does not open with ready, not-ready or request-review"
+expect_no_out "and no packet goes out" "request-review"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
-  --evidence "$tmp/flipgap" --moment ready-flip --level standard
+  --evidence "$tmp/requestgap" --moment ready-flip --level standard
 expect_out "a not-ready walk still names the post-pr gap as a gap" "Cadence: covered pre-pr; gap post-pr (no completion record)"
 # A post-pr completion only off the pull request's history (another unit's,
 # in a reused worktree) reads as the walk words it, pending or a gap alike.
-printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tforeign\t2222222222222222222222222222222222222222\n' "$head" "$head" >"$tmp/flipforeign"
-mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/flipreview" \
-  --evidence "$tmp/flipforeign" --moment ready-flip --level guided
+printf '# format: 1\nhead\t%s\ncadence\taudited\t%s\ncadence\tcovered\tpre-pr\ncadence\tgap\tpost-pr\tforeign\t2222222222222222222222222222222222222222\n' "$head" "$head" >"$tmp/requestforeign"
+mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/requestreview" \
+  --evidence "$tmp/requestforeign" --moment ready-flip --level guided
 expect_out "a request-review walk holds a foreign post-pr as pending the review" "Cadence: covered pre-pr; pending the bot review: post-pr (completed only outside the history of this pull request, newest at 222222222222)"
 mc_run mc-packet.sh assemble --program alpha --unit web#7 --readiness "$tmp/notready" \
-  --evidence "$tmp/flipforeign" --moment ready-flip --level standard
+  --evidence "$tmp/requestforeign" --moment ready-flip --level standard
 expect_out "a not-ready walk names it as a gap" "Cadence: covered pre-pr; gap post-pr (completed only outside the history of this pull request, newest at 222222222222)"
 
 # Without a moment the packet is unchanged: the walk is the first line.

@@ -95,10 +95,52 @@ GHS_FAIL=1 run "[$(marker 'github-actions[bot]' "$H" success)]" --pr 42 --head "
 want "a failed read reviews the head rather than skip it" false
 case $OUT in *'::warning'*) ok "the failed read is named" ;; *) fail "the failed read is silent: $OUT" ;; esac
 
+run "[$(marker 'github-actions[bot]' 111111111111 success)]" --pr 42 --head "$H"
+want "a marker naming a prefix of the head is not the head" false
+run "[$(marker 'github-actions[bot]' '' success)]" --pr 42 --head "$H"
+want "a marker naming no commit is not the head" false
+run "[{\"user\":{\"login\":\"github-actions[bot]\"},\"body\":\"see below\\n<!-- pr-agent-run: id=1.1 head=$H status=success -->\"}]" --pr 42 --head "$H"
+want "a marker that is not the comment's first line is no marker" false
+run "[{\"user\":{\"login\":\"github-actions[bot]\"},\"body\":null}, $(marker 'github-actions[bot]' "$H" success)]" --pr 42 --head "$H"
+want "a comment with no body is passed over" true
+# Pages arrive as separate arrays, which gh --paginate --jq answers one by one.
+printf '%s\n%s\n' "[$(marker 'github-actions[bot]' "$OTHER" success)]" "[$(marker 'github-actions[bot]' "$H" success)]" >"$tmp/pages.json"
+OUT=$(env PATH="$tmp/bin:$PATH" GHS_COMMENTS="$tmp/pages.json" GHS_LOG="$tmp/log" GITHUB_REPOSITORY=acme/widgets \
+  GITHUB_OUTPUT="$tmp/out2" /bin/bash "$SCRIPT" --pr 42 --head "$H" 2>&1)
+if [ "$(cat "$tmp/out2")" = "reviewed=true" ]; then ok "the newest marker on the last page decides"; else fail "a paged answer reads '$(cat "$tmp/out2")': $OUT"; fi
+printf '[%s]\n' "$(marker 'github-actions[bot]' "$H" success)" >"$tmp/comments.json"
+OUT=$(env -u GITHUB_OUTPUT PATH="$tmp/bin:$PATH" GHS_COMMENTS="$tmp/comments.json" GHS_LOG="$tmp/log" \
+  GITHUB_REPOSITORY=acme/widgets /bin/bash "$SCRIPT" --pr 42 --head "$H" 2>&1)
+case $OUT in *"reviewed=true"*) ok "with no GITHUB_OUTPUT the answer goes to stdout" ;; *) fail "no stdout answer: $OUT" ;; esac
+
+# The marker line the workflow writes is the one this check reads.
+WORKFLOW="$here/../.github/workflows/pr-agent.yml"
+# shellcheck disable=SC2016 # the workflow's literal text
+line=$(sed -n 's/^ *marker="\(<!-- pr-agent-run: id=\$GITHUB_RUN_ID\.\$GITHUB_RUN_ATTEMPT head=\$HEAD_SHA status=\$STATUS -->\)"$/\1/p' "$WORKFLOW")
+# shellcheck disable=SC2016 # the workflow's variable names, matched literally
+if [ -n "$line" ]; then
+  written=${line//'$GITHUB_RUN_ID'/77}
+  written=${written//'$GITHUB_RUN_ATTEMPT'/1}
+  written=${written//'$HEAD_SHA'/$H}
+  written=${written//'$STATUS'/success}
+  run "[{\"user\":{\"login\":\"github-actions[bot]\"},\"body\":\"$written\\nPR-Agent run 77 reviewed it.\"}]" --pr 42 --head "$H"
+  want "the marker the workflow writes reads as reviewed" true
+else
+  fail "the workflow's run marker line was not found in the shape this check reads"
+fi
+
 run "[]" --pr 42 --head abc
 if [ "$CODE" = 2 ]; then ok "a head that is no full commit is a usage error"; else fail "a short head exits $CODE"; fi
 run "[]" --pr x --head "$H"
 if [ "$CODE" = 2 ]; then ok "a pull request that is no number is a usage error"; else fail "a bad --pr exits $CODE"; fi
+run "[]" --pr 42
+if [ "$CODE" = 2 ]; then ok "a missing --head is a usage error"; else fail "a missing --head exits $CODE"; fi
+run "[]" --pr 42 --head "$H" --extra
+if [ "$CODE" = 2 ]; then ok "an unknown argument is a usage error"; else fail "an unknown argument exits $CODE"; fi
+OUT=$(env PATH="$tmp/bin:$PATH" GHS_COMMENTS="$tmp/comments.json" GHS_LOG="$tmp/log" GITHUB_REPOSITORY='a b/c' \
+  /bin/bash "$SCRIPT" --pr 42 --head "$H" 2>&1)
+CODE=$?
+if [ "$CODE" = 2 ]; then ok "a malformed GITHUB_REPOSITORY is a usage error"; else fail "a malformed GITHUB_REPOSITORY exits $CODE"; fi
 
 if [ "$failures" -ne 0 ]; then
   echo "test-pr-agent-reviewed: $failures failure(s)" >&2

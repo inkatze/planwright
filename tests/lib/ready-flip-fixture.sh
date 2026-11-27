@@ -77,6 +77,7 @@ case "$1 $2" in
           window-lock-only) roll='[{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pr-agent-green) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"COMPLETED","conclusion":"SUCCESS"}]' ;;
           pr-agent-skipped) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"COMPLETED","conclusion":"SKIPPED"}]' ;;
+          pr-agent-failed) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           pr-agent-pending) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"IN_PROGRESS","conclusion":""}]' ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac

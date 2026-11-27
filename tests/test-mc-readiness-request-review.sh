@@ -357,6 +357,11 @@ expect_rc "a pull request opened ready has no flip to date the re-run against" 0
 walk_rows "draft, re-run marker" $DRAFT "$MARK" "$ATT"
 expect_eq "a draft's marker naming its head is its bot review" "ready${tab}$H"
 # shellcheck disable=SC2086
+walk_rows "draft, good marker beside a red PR-Agent check" $DRAFT "$MARK" "$ATT" "check,PR-Agent,FAILURE"
+expect_rc "a good marker never clears a red check on the draft" 4
+expect_out "the red check is named" "fail${tab}check${tab}PR-Agent is FAILURE"
+lacks "and no request token" "request-review"
+# shellcheck disable=SC2086
 walk_rows "draft, refused marker" $DRAFT "botmark,alice,4475.3,$H,success,2026-11-18T01:00:00Z" "$ATT"
 expect_rc "a draft whose only marker is refused still needs the review" 4
 expect_out "it is told to request it, naming the refused marker" "$BOT_DUE; run marker 4475.3 was posted by alice, not the PR-Agent workflow"

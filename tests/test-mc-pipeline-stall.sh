@@ -256,11 +256,18 @@ printf 'state\tdraft\ncheck\tbuild\tFAILURE\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\n' >"$tmp/evidence.15"
 : >"$tmp/walk.15"
 : >"$tmp/request.15"
+# A review alone is no CI; once it passed beside the CI, the draft awaits a flip.
+printf 'state\tdraft\ncheck\tPR-Agent\tSUCCESS\n' >"$tmp/evidence.16"
+: >"$tmp/walk.16"
+printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tSUCCESS\n' >"$tmp/evidence.17"
+: >"$tmp/walk.17"
 {
   row 12 true MERGEABLE FAILURE
   row 13 true MERGEABLE PENDING
   row 14 true MERGEABLE FAILURE
   row 15 true MERGEABLE SUCCESS
+  row 16 true MERGEABLE SUCCESS
+  row 17 true MERGEABLE SUCCESS
 } | put $((T + 60 * HOUR))
 run $((T + 60 * HOUR))
 {
@@ -268,13 +275,16 @@ run $((T + 60 * HOUR))
   row 13 true MERGEABLE PENDING
   row 14 true MERGEABLE FAILURE
   row 15 true MERGEABLE SUCCESS
+  row 16 true MERGEABLE SUCCESS
+  row 17 true MERGEABLE SUCCESS
 } | put $((T + 62 * HOUR))
 run $((T + 62 * HOUR))
 ev=$(mc_run_events | tail -n 1)
 case $ev in *"red check PR-Agent (1): acme/web#12"*) ok "a draft's failed PR-Agent run is a red check" ;; *) fail "a draft's failed PR-Agent run is not named red: $ev" ;; esac
 case $ev in *"checks pending (1): acme/web#13"*) ok "a draft's running PR-Agent run is a pending check" ;; *) fail "a draft's running PR-Agent run is not pending: $ev" ;; esac
 case $ev in *"awaiting a review request (1): acme/web#15"*) ok "a draft whose review is due awaits a review request" ;; *) fail "the request verdict is not named: $ev" ;; esac
-case $ev in *"awaiting a flip"*) fail "a draft read as awaiting a flip before its review: $ev" ;; *) ok "no draft awaits a flip before its review" ;; esac
+case $ev in *"awaiting a flip (1): acme/web#17"*) ok "only the draft whose review passed awaits a flip" ;; *) fail "awaiting a flip is not just the reviewed draft: $ev" ;; esac
+case $ev in *"no CI on its head (1): acme/web#16"*) ok "a draft with only a PR-Agent run has no CI" ;; *) fail "a review-only draft is not named as having no CI: $ev" ;; esac
 case $ev in *"flip-gate refusal readiness"*) fail "the request verdict read as a refusal: $ev" ;; *) ok "the request-review verdict is no refusal reason" ;; esac
 case $ev in *"red check build (1): acme/web#14"*) ok "and a red ordinary check beside it still leads" ;; *) fail "an ordinary red check is not named first: $ev" ;; esac
 
