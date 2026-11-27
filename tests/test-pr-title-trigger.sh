@@ -99,7 +99,9 @@ block_body() {
 # with every `{n}` replaced by `${{ <arg n> }}`: an expression choosing between
 # `ci-release-<sha>` and `ci-<ref>` then still collides with a plain
 # `ci-${{ github.ref }}` in another workflow. A flow-mapping `concurrency:` is
-# not read, and fails C3 by name below.
+# not read, and fails C3 by name below. The expansion is an approximation of
+# GitHub's: placeholders are filled one at a time and `{{`/`}}` escapes are not
+# honoured, which no workflow here uses.
 concurrency_groups() {
   # The awk program's q carries the two YAML quote characters, so its
   # single-quoted text never has to contain one.

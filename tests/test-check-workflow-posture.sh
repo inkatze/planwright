@@ -1826,7 +1826,7 @@ rel_predicate() {
 }
 RELEASE_PRED="$(rel_predicate)"
 # shellcheck disable=SC2016 # literal GitHub expressions
-GROUP_TAIL=" && format('ci-release-{0}', github.sha) || format('ci-{0}', github.ref) }}"
+REL_GROUP_TAIL=" && format('ci-release-{0}', github.sha) || format('ci-{0}', github.ref) }}"
 REL_NOT_CHOICE="group is not a ci-release-<sha> / ci-<ref> choice"
 REL_NOT_NEGATED="cancel-in-progress is not the negated predicate"
 REL_SPLIT="the group and the cancel flag carry different predicates"
@@ -1846,7 +1846,7 @@ rel_check() {
   group="$(rel_value "$1" group)"
   cancel="$(rel_value "$1" cancel-in-progress)"
   case "$group" in
-    "\${{ "*"$GROUP_TAIL") ;;
+    "\${{ "*"$REL_GROUP_TAIL") ;;
     *)
       echo "$REL_NOT_CHOICE: $group"
       return 1
@@ -1860,7 +1860,7 @@ rel_check() {
       ;;
   esac
   group_pred="${group#"\${{ "}"
-  group_pred="${group_pred%"$GROUP_TAIL"}"
+  group_pred="${group_pred%"$REL_GROUP_TAIL"}"
   cancel_pred="${cancel#"\${{ !("}"
   cancel_pred="${cancel_pred%") }}"}"
   [ "$group_pred" = "$cancel_pred" ] || {
@@ -1909,20 +1909,20 @@ rel_assert_kind() {
   [ "$kind" = "$1" ] || kind_rc=1
   assert_exit "release concurrency: $5 (got: $kind)" 0 "$kind_rc"
 }
-CI_GROUP="$(rel_value "$CI_YML" group)"
+REL_CI_GROUP="$(rel_value "$CI_YML" group)"
 for subj in "chore: release 0.85.0 (#1190)" "chore: release 1.0.0" "chore: release 9.9.9" \
   "Chore: release 1.0.0"; do
-  rel_assert_kind release "$CI_GROUP" push "$subj" "a push titled '$subj' runs in the release group"
+  rel_assert_kind release "$REL_CI_GROUP" push "$subj" "a push titled '$subj' runs in the release group"
 done
 for subj in "chore: release-window tweak" "chore: release notes" "chore: releases 1" \
   "chore:  release 1.0.0" "feat: x"; do
-  rel_assert_kind ordinary "$CI_GROUP" push "$subj" "a push titled '$subj' stays in the ordinary group"
+  rel_assert_kind ordinary "$REL_CI_GROUP" push "$subj" "a push titled '$subj' stays in the ordinary group"
 done
-rel_assert_kind ordinary "$CI_GROUP" pull_request "chore: release 1.0.0" \
+rel_assert_kind ordinary "$REL_CI_GROUP" pull_request "chore: release 1.0.0" \
   "a pull_request run with a release title stays ordinary"
 # The cases above must be able to fail: with no push gate a pull_request run
 # would land in the release group.
-rel_assert_kind release "\${{ (${RELEASE_PRED#"github.event_name == 'push' && ("}$GROUP_TAIL" \
+rel_assert_kind release "\${{ (${RELEASE_PRED#"github.event_name == 'push' && ("}$REL_GROUP_TAIL" \
   pull_request "chore: release 1.0.0" "without the push gate a pull_request run is judged release"
 
 # rel_case <name> <group> <cancel> [<indicator>] [<job lines>] — a concurrency
@@ -1943,7 +1943,7 @@ rel_mutation() {
   assert_exit "release concurrency: mutation '$1' fails the check" 1 "$rc"
   assert_contains "release concurrency: mutation '$1' is refused because $4" "$4" "$out"
 }
-rel_case good "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}"
+rel_case good "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}"
 out="$(rel_check "$TMP/rel-good.yml")"
 assert_exit "release concurrency: a block carrying the intended predicate passes${out:+: $out}" 0 $?
 
@@ -1960,15 +1960,15 @@ pred_other="$(rel_predicate 'chore(main): release ')"
   rel_mutation release-on-ref \
     "\${{ $RELEASE_PRED && format('ci-release-{0}', github.ref) || format('ci-{0}', github.ref) }}" \
     "\${{ !($RELEASE_PRED) }}" "$REL_NOT_CHOICE"
-  rel_mutation keep-newline "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" \
+  rel_mutation keep-newline "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" \
     "$REL_NOT_CHOICE" '>'
-  rel_mutation cancel-false "\${{ $RELEASE_PRED$GROUP_TAIL" 'false' "$REL_NOT_NEGATED"
-  rel_mutation group-drops-7 "\${{ $pred_no7$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_SPLIT"
-  rel_mutation cancel-drops-7 "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_SPLIT"
-  rel_mutation both-drop-7 "\${{ $pred_no7$GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_NOT_TEN"
-  rel_mutation literal-spacing "\${{ $pred_spaced$GROUP_TAIL" "\${{ !($pred_spaced) }}" "$REL_NOT_TEN"
-  rel_mutation other-title-prefix "\${{ $pred_other$GROUP_TAIL" "\${{ !($pred_other) }}" "$REL_NOT_TEN"
-  rel_mutation job-level "\${{ $RELEASE_PRED$GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_JOB_LEVEL" '' \
+  rel_mutation cancel-false "\${{ $RELEASE_PRED$REL_GROUP_TAIL" 'false' "$REL_NOT_NEGATED"
+  rel_mutation group-drops-7 "\${{ $pred_no7$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_SPLIT"
+  rel_mutation cancel-drops-7 "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_SPLIT"
+  rel_mutation both-drop-7 "\${{ $pred_no7$REL_GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_NOT_TEN"
+  rel_mutation literal-spacing "\${{ $pred_spaced$REL_GROUP_TAIL" "\${{ !($pred_spaced) }}" "$REL_NOT_TEN"
+  rel_mutation other-title-prefix "\${{ $pred_other$REL_GROUP_TAIL" "\${{ !($pred_other) }}" "$REL_NOT_TEN"
+  rel_mutation job-level "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_JOB_LEVEL" '' \
     "$(printf '%s\n' '  x:' '    concurrency:' '      group: x-${{ github.ref }}' '      cancel-in-progress: true')"
 }
 

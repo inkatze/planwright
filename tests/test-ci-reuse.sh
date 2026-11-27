@@ -532,16 +532,16 @@ check_outcome() {
 }
 CHECK_IF="$(check_job_if)"
 # shellcheck disable=SC2016 # literal GitHub expressions
-OLD_IF='${{ always() }}'
+ALWAYS_IF='${{ always() }}'
 superseded="true cancelled cancelled cancelled cancelled cancelled cancelled"
 # shellcheck disable=SC2086 # the case's results, one word each
 {
   assert_eq "superseded: under always() the check job runs and fails beside the live run" \
-    failure "$(check_outcome "$OLD_IF" $superseded)"
+    failure "$(check_outcome "$ALWAYS_IF" $superseded)"
   assert_eq "superseded: ci.yml's check job ends cancelled, not red" \
     cancelled "$(check_outcome "$CHECK_IF" $superseded)"
 }
-for job_if in "$OLD_IF" "$CHECK_IF"; do
+for job_if in "$ALWAYS_IF" "$CHECK_IF"; do
   assert_eq "live run under $job_if: a failed test job fails the check" \
     failure "$(check_outcome "$job_if" false success success failure success success success)"
   assert_eq "live run under $job_if: a timed-out test job fails the check" \
