@@ -444,7 +444,9 @@ for cmd in 'git config --c get remote.origin.push x && git push origin planwrigh
   "declare 'a[1==(HOME=0)]=1'; git push origin planwright/demo/task-1" \
   "declare -a 'a=([HOME=1]=x)'; git push origin planwright/demo/task-1" \
   "local -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
-  'getopts -- -- HOME; git push'; do
+  'getopts -- -- HOME; git push' "declare -a 'a=(x [HOME=1]=y)'; git push origin planwright/demo/task-1" \
+  "readonly -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  'read -raXDG_CONFIG_HOME <<< x; git push' 'read -{,}p HOME <<< x; git push' 'read -ap -aHOME <<< x; git push'; do
   pg worker "$cmd"
   expect deny "[worker] $cmd"
   reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
@@ -456,6 +458,9 @@ for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
   "read -rp'[y/N] ' ans; git push origin planwright/demo/task-1" "read -d'[' x; git push origin planwright/demo/task-1" \
   "mapfile -d'[' a < f; git push origin planwright/demo/task-1" \
   "export FOO='a[b]=c'; git push origin planwright/demo/task-1" 'declare FOO=$PWD=x; git push origin planwright/demo/task-1' \
+  "export PS1='(venv) '; git push origin planwright/demo/task-1" 'export MSG="(wip) fix"; git push origin planwright/demo/task-1' \
+  "readonly MSG='(draft) note'; git push origin planwright/demo/task-1" \
+  "declare 'arr[0]=[x]'; git push origin planwright/demo/task-1" "local 'm[1]=a]b'; git push origin planwright/demo/task-1" \
   "read -sp 'Password [hidden]: ' pw; git push origin planwright/demo/task-1" \
   "export PS1='[x@y] '; git push origin planwright/demo/task-1" "export FOO='a[b]'; git push origin planwright/demo/task-1" \
   "local x='[a]'; git push origin planwright/demo/task-1" 'local n=${#arr[@]}; git push origin planwright/demo/task-1' \
