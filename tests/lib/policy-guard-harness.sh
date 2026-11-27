@@ -1,16 +1,6 @@
 # shellcheck shell=bash
 # policy-guard-harness.sh — the shared fixture harness for the policy-guard
-# suites (sourced, never executed): tests/test-policy-guard.sh (the pull-request
-# and base-merge acts), tests/test-policy-guard-rewrites.sh (rewrites, pushes,
-# the protected set), tests/test-policy-guard-kickoff.sh and its -run, -shapes
-# and -gitconfig companions (the kickoff sign-off push),
-# tests/test-policy-guard-hidden.sh (spellings that hide
-# an act, and routine commands that must stay deferred),
-# tests/test-policy-guard-gh-api.sh (the gh api acts),
-# tests/test-policy-guard-push-residuals.sh (pushes whose destination git reads
-# from elsewhere, plumbing pushes, and gh api writes that reach a branch
-# another way) and tests/test-policy-guard-ordering.sh (git state a command
-# changes where the guard reads it too late or not at all), among others.
+# suites, tests/test-policy-guard*.sh (sourced, never executed).
 #
 # The guard runs from a sandbox copy of scripts/ whose resolve-policy-knob.sh
 # is a stub that logs the knob it was asked for and then runs the real
