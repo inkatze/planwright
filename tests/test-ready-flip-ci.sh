@@ -195,6 +195,8 @@ run_helper flip --spec specs/demo --task 1
 rm -f "$STUBBIN/git"
 check "an unreadable tree keeps the review wait, so the flip parks (exit 4)" [ "$CODE" = 4 ]
 check "and no flip is made" [ "$(calls 'pr ready')" = 0 ]
+check "the park is the check rollup's, where the review wait lives" grep -q 'pending ready-flip: ci-rollup' <<<"$(bullet)"
+check "after polling the whole bound for the review" [ "$(rollups)" = 3 ]
 fixture
 set_policy unit-owner
 runs_pr_agent
