@@ -306,7 +306,7 @@ jobs:
           elif [ "$run" = true ]; then
             msg="macOS jobs: $runner runner, $shards shards ($reason)"
           else
-            msg="macOS jobs: skipped on a draft; label it ci-macos or mark it ready"
+            msg="macOS jobs: skipped on a draft; label it ci-macos to run them"
           fi
           echo "$msg"
           echo "$msg" >>"$GITHUB_STEP_SUMMARY"
