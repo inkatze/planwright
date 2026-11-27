@@ -194,6 +194,8 @@ expect deny "[mission-control] past the bound on env -S strings in text, the scr
 pg mission-control "bash -c \"${c}perl -Mstrict -e1 -Si $UNIT/README.md\"" "$SCRATCH"
 expect deny "[mission-control] past the bound, an editor whose switches hold an S still refuses"
 reason_has 'hands a write verb' "[mission-control] the bound's refusal is its own, not the editor's"
+pg mission-control "echo $UNIT/README.md | env -S'FOO=1${NL}xargs' tee $KB/o.md" "$SCRATCH"
+expect deny "[mission-control] a line break in env's -S string parts its words too"
 pg mission-control "echo x | tee of=$SCRATCH/cl/agents/x.md" "$UNIT"
 expect deny "[mission-control] an of= word read as written inside a repository still refuses past the prefix"
 reason_has 'settings or configuration file' "[mission-control] the of= settings write keeps the settings reason"

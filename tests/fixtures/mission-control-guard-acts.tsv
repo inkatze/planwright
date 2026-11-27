@@ -405,9 +405,17 @@ defer	read	bash	-	-	env -SFOO=1 sort @SCRATCH@/kb/real.md
 defer	read	bash	-	-	env -S'-i' tee @SCRATCH@/kb/o.md
 deny	repo-write	bash	-	edits no repository	echo $(env --split-string=perl -pi -e1 README.md)
 deny	repo-write	bash	-	edits no repository	echo $(env --split-string=perl -MJSON::PP -pi -e1 @UNIT@/README.md)
-deny	repo-write	bash	-	settings or configuration file	echo $(sed 's/env --stage=x//' -i @UNIT@/README.md)
+deny	repo-write	bash	-	settings or configuration file	echo $(sed 's/env --split-string=x//' -i @UNIT@/README.md)
 deny	repo-write	bash	-	settings or configuration file	echo $(sed 's/env -Sx//' -i @UNIT@/README.md)
-deny	repo-write	bash	-	edits no repository	bash -c "perl -e 'print qq(env --sx=1)' -pi @UNIT@/README.md"
+deny	repo-write	bash	-	edits no repository	bash -c "perl -e 'print qq(env --split-string=x)' -pi @UNIT@/README.md"
+defer	read	bash	-	-	echo $(echo env --stage=perl -pi -e1 @UNIT@/README.md)
+defer	read	bash	-	-	echo $(grep -i 'env -Sx' @SCRATCH@/kb/real.md | sed 1q)
+defer	read	bash	-	-	echo $(ls -o @SCRATCH@/kb | env -S'cut -c1-9' | sort)
+deny	repo-write	bash	-	edits no repository	env -S'FOO=1\_perl' -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	settings or configuration file	echo $(env --sp -i -Stee @UNIT@/README.md)
+deny	repo-write	bash	-	edits no repository	env -SFOO=1 nice --adjustment 5 perl -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	env -S-i -Sperl -pi -e1 @UNIT@/README.md
+deny	repo-write	bash	-	edits no repository	bash -c "env --split-string=-i -Sperl -pi -e1 @UNIT@/README.md"
 deny	repo-write	bash	-	hands a write verb	bash <<< 'env -Stee @UNIT@/README.md'
 deny	repo-write	bash	-	edits no repository	env -u HOME -Sperl -pi -e1 @UNIT@/README.md
 deny	repo-write	bash	-	edits no repository	env -P /usr/bin perl -pi -e1 @UNIT@/README.md
