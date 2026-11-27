@@ -1928,15 +1928,18 @@ GIT_ENV_SET=0
 # next pass runs the act after it.
 RO_SI=-1 RO_FLAGS_CFG='' RO_FLAGS_HIST='' RO_FLAGS_FETCHSPEC='' RO_PEND=0 RO_CHANGES=0
 RO_ACT=-1 RO_REWRITE=-1 RO_MERGE=-1 RO_CHG_CFG=-1 RO_CHG_HIST=-1 RO_CHG_FETCHSPEC=-1
+# The compound depth (CS_DEPTH) each first act stood at: a change in an act's
+# own segment repeats before it only when the act sits inside a loop.
+RO_ACT_D=0 RO_REWRITE_D=0 RO_MERGE_D=0
 seg_mark() {
   local fc="$ST_CFG$ST_REF$ST_FILT$GIT_ENV_SET:$RO_CHANGES" fh="$ST_PUSH$ST_FETCH$ST_HEAD" fs=$ST_FETCHSPEC i kind
   if [ "$RO_SI" -ge 0 ]; then
     i=$RO_PEND
     while [ "$i" -lt "${#PENDING[@]}" ]; do
       kind=${PENDING[$i]%%"$TAB"*}
-      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI
-      case $kind in commit | rebase) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI ;; esac
-      case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI ;; esac
+      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI RO_ACT_D=$CS_DEPTH
+      case $kind in commit | rebase) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI RO_REWRITE_D=$CS_DEPTH ;; esac
+      case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI RO_MERGE_D=$CS_DEPTH ;; esac
       i=$((i + 1))
     done
     [ "$fc" = "$RO_FLAGS_CFG" ] || RO_CHG_CFG=$RO_SI
@@ -1994,17 +1997,20 @@ reorder_check() {
     k=$((k + 1))
   done
   [ "$loop$conc" != 00 ] || return 0
-  reorder_after "$RO_ACT" "$RO_CHG_CFG" "$loop" || reorder_after "$RO_REWRITE" "$RO_CHG_HIST" "$loop" \
-    || reorder_after "$RO_MERGE" "$RO_CHG_FETCHSPEC" "$loop" || return 0
+  reorder_after "$RO_ACT" "$RO_CHG_CFG" "$loop$RO_ACT_D" || reorder_after "$RO_REWRITE" "$RO_CHG_HIST" "$loop$RO_REWRITE_D" \
+    || reorder_after "$RO_MERGE" "$RO_CHG_FETCHSPEC" "$loop$RO_MERGE_D" || return 0
   deny_now "this command changes git configuration, a ref, HEAD, the environment or the directory after a reserved act that reads it (in a later segment, or in a loop in the act's own segment), inside a loop, a background list, a pipeline or a coprocess, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
 }
 
-# reorder_after <first act> <last change> <in a loop> — 0 when the change can
-# run before the act: written after it, or in a loop in the act's own segment.
+# reorder_after <first act> <last change> <loop flag><act depth> — 0 when the
+# change can run before the act: written after it, or in the act's own
+# segment where the command has a loop and the act stands inside a compound.
 reorder_after() {
   [ "$1" -ge 0 ] || return 1
   [ "$2" -le "$1" ] || return 0
-  [ "$3" = 1 ] && [ "$2" = "$1" ]
+  [ "$2" = "$1" ] || return 1
+  case $3 in 1[1-9]*) return 0 ;; esac
+  return 1
 }
 
 # seg_command_name <seg> — set SCN to the segment's command name, past
@@ -2104,7 +2110,7 @@ fold_ascii() {
 # shell expands. git reads that state for every later act, and the guard
 # reads it before the command runs. Reads SCN, which seg_effects sets.
 GIT_STATE_READERS=' cat ls head tail grep egrep fgrep test [ [[ stat file wc diff cmp less more realpath readlink basename dirname du md5sum sha1sum sha256sum shasum od hexdump strings jq '
-GIT_STATE_WRITERS=' cp mv install ln tee sed gsed perl dd truncate rsync rm unlink touch chmod ed ex awk gawk mawk nawk ruby node sh bash zsh dash ksh mksh fish tar unzip patch cpio xxd ditto sort split shuf curl wget env nice nohup timeout sudo doas stdbuf xargs eval find make busybox setsid flock ionice chrt taskset unbuffer cd pushd '
+GIT_STATE_WRITERS=' cp mv install ln tee sed gsed perl dd truncate rsync rm unlink touch chmod ed ex awk gawk mawk nawk ruby node sh bash zsh dash ksh mksh fish tar unzip patch cpio xxd ditto sort split shuf env nice nohup timeout sudo doas stdbuf xargs eval find make busybox setsid flock ionice chrt taskset unbuffer cd pushd '
 writes_git_state() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]} t writer=0
   for t in ${SEG_WT[$1]:-}; do

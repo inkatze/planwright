@@ -85,6 +85,7 @@ for cmd in "git push origin $B 2>&1 | tail -3" "for i in 1 2; do git push origin
   "git push origin $B:$B | tee push.log" "cd \"$UNIT\" && git push origin $B 2>&1 | tail -3" \
   "for i in 1 2; do git pull --ff-only origin main; git fetch origin; done" \
   "for i in 1 2; do git push origin $B; x=1; done" "git push origin $B:$B 2>&1 | tail -3; rc=\$?" \
+  "for x in a; do echo x; done; git rebase -i HEAD~1" "for x in a; do echo x; done; git commit --amend --no-edit" \
   "until git push origin $B:$B; do
 sleep 5
 done" "for i in 1 2; do if git push origin $B:$B; then
