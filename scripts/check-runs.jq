@@ -8,8 +8,9 @@
 #
 # A matrix job cancelled under its unexpanded name is dropped first once
 # another run of its workflow passed, starting no earlier, a shard it fits
-# (drop_superseded_cancels, below, has the exact rule). Then a check run listed in
-# $base_state as <workflow>/<name> is left out of the flip conditions, and
+# (drop_superseded_cancels, below, has the exact rule). Then a check run
+# listed in $base_state as <workflow>/<name> is left out of the flip
+# conditions, and
 # only the latest run of each check context counts: a re-run supersedes the
 # runs before it, and a run not yet completed is the newest (gh reports an
 # unset time as 0001-01-01). Two runs of one context started in the same
