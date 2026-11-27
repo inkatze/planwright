@@ -185,6 +185,18 @@ check "only the pinned head's workflows decide: an uncommitted one owes no revie
 rm -rf "$F/wt/.github"
 fixture
 set_policy unit-owner
+echo green >"$GHS/ci"
+# A git whose grep cannot read the tree (exit 128): the wait must stay.
+real_git=$(command -v git)
+# shellcheck disable=SC2016 # the shim's own positional parameters
+printf '#!/bin/sh\n[ "$1" != grep ] || exit 128\nexec %s "$@"\n' "$real_git" >"$STUBBIN/git"
+chmod +x "$STUBBIN/git"
+run_helper flip --spec specs/demo --task 1
+rm -f "$STUBBIN/git"
+check "an unreadable tree keeps the review wait, so the flip parks (exit 4)" [ "$CODE" = 4 ]
+check "and no flip is made" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
 runs_pr_agent
 echo green >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1

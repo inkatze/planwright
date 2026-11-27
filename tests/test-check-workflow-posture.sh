@@ -2271,8 +2271,9 @@ grep -qx '    name: PR-Agent' "$PA_REAL"
 assert_exit "pr-agent: the job keeps the name the readiness check and the stall reasons match" 0 $?
 grep -Eq '^[^#]*pull_request\.draft' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow runs on a draft, where the review request fires it" 1 $?
+# tests/test-pr-agent-review.sh pins the step gates that act on its answer.
 grep -q '/bin/bash scripts/pr-agent-reviewed.sh' "$PA_REAL"
-assert_exit "pr-agent: the repo's workflow skips a head it already reviewed (tests/test-pr-agent-review.sh pins the step gates)" 0 $?
+assert_exit "pr-agent: the repo's workflow runs the once-per-head check" 0 $?
 # shellcheck disable=SC2016 # the workflow's literal text
 grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?
