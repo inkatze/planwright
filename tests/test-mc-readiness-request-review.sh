@@ -143,7 +143,7 @@ walk_rows "draft, PR-Agent run pending" $DRAFT "$POST_PR_GAP" "check,PR-Agent,PE
 expect_rc "a draft whose PR-Agent run is still going is not flip-ready" 4
 case $(first_line) in "not-ready${tab}$H") ok "a running draft review opens not-ready" ;; *) fail "a running draft review opens '$(first_line)'" ;; esac
 expect_out "the running run is named" "fail${tab}check${tab}PR-Agent is PENDING"
-lacks "and no request token: one was made" "request-review"
+lacks "and no request token: one was made" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "draft, PR-Agent run in progress, nothing else owing" $DRAFT "check,PR-Agent,IN_PROGRESS"
 expect_rc "a draft review in progress holds the flip with nothing else owing" 4
@@ -160,7 +160,7 @@ expect_out "named" "fail${tab}check${tab}PR-Agent is FAILURE"
 walk_rows "draft, run finished, post-pr incomplete" $DRAFT "$POST_PR_GAP" "$GREEN_RUN"
 expect_rc "a finished draft review leaves post-pr to complete" 4
 expect_out "the post-pr gap is a gap now" "fail${tab}cadence${tab}post-pr: no completion record"
-lacks "and no request token" "request-review"
+lacks "and no request token" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "draft, run finished, finding open" $DRAFT "$GREEN_RUN" "finding,github-actions[bot],t9,unanswered"
 expect_rc "an unanswered finding of the draft's run holds the flip" 4
@@ -181,7 +181,7 @@ other_gap() { # other_gap <label> <want> <row>...
   expect_rc "$label: not-ready, not a request" 4
   case $(first_line) in "not-ready${tab}$H") ok "$label: opens not-ready" ;; *) fail "$label: opens '$(first_line)'" ;; esac
   expect_out "$label: named" "$want"
-  lacks "$label: no request token" "request-review"
+  lacks "$label: no request token" "request-review${tab}"
 }
 other_gap "red check" "fail${tab}check${tab}lint is FAILURE" "check,lint,FAILURE"
 other_gap "unfinished check" "fail${tab}check${tab}ci is IN_PROGRESS" "check,ci,IN_PROGRESS"
@@ -200,11 +200,11 @@ other_gap "failed post-pr step" "fail${tab}cadence${tab}post-pr: bot-review reco
 walk_rows "draft, no PR-Agent in the repository" "state,draft" "$POST_PR_GAP"
 expect_rc "without PR-Agent there is no review to wait for" 4
 expect_out "the post-pr gap is named" "fail${tab}cadence${tab}post-pr: no completion record"
-lacks "and no request token" "request-review"
+lacks "and no request token" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "draft, stale post-pr" $DRAFT "cadence,gap,post-pr,stale,2222222222222222222222222222222222222222"
 expect_out "a post-pr completion at another head stays a gap" "fail${tab}cadence${tab}post-pr: completed only at 222222222222"
-lacks "and no request token either" "request-review"
+lacks "and no request token either" "request-review${tab}"
 # A post-pr completion outside the pull request's own history (another unit's,
 # left in a reused worktree) is no completion at this head.
 FOREIGN_GAP="cadence,gap,post-pr,foreign,2222222222222222222222222222222222222222"
@@ -218,7 +218,7 @@ pending${tab}post-pr${tab}$FOREIGN_DETAIL$POST_PR_WAITS"
 # shellcheck disable=SC2086
 walk_rows "draft, foreign post-pr, no PR-Agent" "state,draft" "$FOREIGN_GAP"
 expect_out "without PR-Agent it stays a gap" "fail${tab}cadence${tab}post-pr: $FOREIGN_DETAIL"
-lacks "with no request token" "request-review"
+lacks "with no request token" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "draft, foreign post-pr beside another gap" $DRAFT "$FOREIGN_GAP" "check,lint,FAILURE"
 case $(first_line) in "not-ready${tab}$H") ok "a foreign post-pr beside a red check stays not-ready" ;; *) fail "foreign post-pr beside a red check opens '$(first_line)'" ;; esac
@@ -232,12 +232,12 @@ READY="state,ready flip,$FLIP_T require,pr-agent"
 walk_rows "ready, post-pr incomplete" $READY "$POST_PR_GAP" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:40:10Z"
 expect_rc "a ready pull request with the post-pr gap is not merge-ready" 4
 expect_out "named" "fail${tab}cadence${tab}post-pr: no completion record"
-lacks "and no request token: it is already flipped" "request-review"
+lacks "and no request token: it is already flipped" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "ready, foreign post-pr" $READY "$FOREIGN_GAP" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:40:10Z"
 expect_rc "a ready pull request whose only post-pr completion is another unit's is not merge-ready" 4
 expect_out "named as a gap" "fail${tab}cadence${tab}post-pr: $FOREIGN_DETAIL"
-lacks "and no request token" "request-review"
+lacks "and no request token" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "ready, flipped while the review ran" $READY "check,PR-Agent,IN_PROGRESS" "born,PR-Agent,2026-11-18T00:40:10Z"
 expect_rc "a flip made while the draft's review still ran is not merge-ready" 4
@@ -360,7 +360,7 @@ expect_eq "a draft's marker naming its head is its bot review" "ready${tab}$H"
 walk_rows "draft, good marker beside a red PR-Agent check" $DRAFT "$MARK" "$ATT" "check,PR-Agent,FAILURE"
 expect_rc "a good marker never clears a red check on the draft" 4
 expect_out "the red check is named" "fail${tab}check${tab}PR-Agent is FAILURE"
-lacks "and no request token" "request-review"
+lacks "and no request token" "request-review${tab}"
 # shellcheck disable=SC2086
 walk_rows "draft, refused marker" $DRAFT "botmark,alice,4475.3,$H,success,2026-11-18T01:00:00Z" "$ATT"
 expect_rc "a draft whose only marker is refused still needs the review" 4

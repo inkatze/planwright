@@ -167,7 +167,7 @@ echo 3 >"$GHS/ci_green_from"
 echo pr-agent-green >"$GHS/ci_then"
 run_helper flip --spec specs/demo --task 1
 check "the flip waits until PR-Agent's run finishes, then flips" [ "$CODE" = 0 ]
-check "it polled through the running review, flipping on the read that saw it finish" [ "$(rollups)" = 3 ]
+check "it polled through the running review, flipping on the read that saw it finish (plus the guard's own read)" [ "$(rollups)" = 4 ]
 fixture
 set_policy unit-owner
 runs_pr_agent
@@ -188,7 +188,7 @@ set_policy unit-owner
 runs_pr_agent
 echo green >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
-check "the flip's park names the review it waits for" grep -q 'no PR-Agent run has finished' <<<"$OUT"
+check "the flip parks on the check rollup, where the review wait lives" grep -q 'pending ready-flip: ci-rollup' <<<"$(bullet)"
 fixture
 set_policy unit-owner
 runs_pr_agent
