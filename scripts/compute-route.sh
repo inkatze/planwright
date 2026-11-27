@@ -182,7 +182,7 @@ registry() {
   "$script_dir/host-registry.sh" get "$host" "$1" 2>"$work/registry.err"
 }
 reg_fail() {
-  _why=$(sed -n '1p' "$work/registry.err")
+  _why=$(sed -n '/^host-registry: /h;${g;p;}' "$work/registry.err")
   _rc=$1
   shift
   fall_back "the host registry cannot be read for this host (${_why:-host-registry.sh exit $_rc})" "$@"
