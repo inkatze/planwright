@@ -72,5 +72,37 @@ for cmd in "git push origin $B 2>&1 | tail -3" "for i in 1 2; do git push origin
   expect defer "[worker] $cmd (no state change after the act) defers"
 done
 
+# --- B: non-git writes to git configuration or HEAD --------------------------
+
+echo "# writes to git state by other commands"
+PUSHCFG='[remote "origin"]\n\tpush = refs/heads/planwright/demo/task-1:refs/heads/main\n'
+e2e 'an append to .git/config before a push' : \
+  "printf '$PUSHCFG' >>.git/config && git push origin $B"
+e2e 'a copy over .git/config before a push' "cp .git/config cfg && printf '$PUSHCFG' >>cfg" \
+  "cp cfg .git/config && git push origin $B"
+e2e 'a copy to ~/.gitconfig before a push' "printf '$PUSHCFG' >gcfg" \
+  "cp gcfg ~/.gitconfig && git push origin $B"
+e2e 'an echo into .git/HEAD before a push' 'git branch -f main HEAD' \
+  "echo 'ref: refs/heads/main' > .git/HEAD && git push origin HEAD"
+for tier in worker tower; do
+  for cmd in "printf '$PUSHCFG' >> .git/config && git push origin $B" \
+    "printf '$PUSHCFG' | tee -a .git/config && git push origin $B" \
+    "cp cfg .git/config && git push origin $B" "cp gcfg ~/.gitconfig && git push origin $B" \
+    "cp gcfg \$HOME/.gitconfig; git push origin $B" "cp gcfg ~/.config/git/config; git push origin $B" \
+    "sed -i s/a/b/ .git/config; git push origin $B" "mv cfg ./.git/config; git push origin $B" \
+    "echo 'ref: refs/heads/main' > .git/HEAD && git push origin HEAD" \
+    "cd .git && printf x >> config && cd .. && git push origin $B" \
+    "printf x > \"$UNIT/.git/config\"; git push origin $B" \
+    "git push origin $B & printf '$PUSHCFG' >> .git/config"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd denies"
+  done
+done
+for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git push origin $B" \
+  "printf x >> .git/config"; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (a read, a write outside git's state, or no act) defers"
+done
+
 no_gh_calls
 finish

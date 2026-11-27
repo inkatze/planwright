@@ -1852,6 +1852,10 @@ seg_mark() {
     [ "$f" = "$RO_FLAGS" ] || RO_LAST_CHG=$RO_SI
   fi
   RO_SI=$1 RO_FLAGS=$f RO_PEND=${#PENDING[@]}
+  if [ "$1" -ge 0 ] && writes_git_state "$1"; then
+    ST_CFG=1
+    ST_REF=1
+  fi
 }
 
 reorder_check() {
@@ -1869,6 +1873,45 @@ reorder_check() {
   done
   [ -z "$why" ] \
     || deny_now "this command changes git configuration, a ref, HEAD or the environment in a segment written after a reserved act, inside $why, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
+}
+
+# writes_git_state <seg> — 0 when a segment that is not git names git's own
+# state, a path through a .git directory or a git configuration file, as a
+# redirect target or as a word of a command that may write it (any but the
+# read-only ones listed): git reads that state for every later act, and the
+# guard reads it before the command runs.
+GIT_STATE_READERS=' cat ls head tail grep egrep fgrep rg test [ [[ stat file wc diff cmp less more realpath readlink basename dirname du md5sum sha1sum sha256sum shasum od hexdump xxd strings jq '
+git_state_path() {
+  case $1 in
+    *.git | *.git/* | *gitconfig* | *git/config* | *.config/git*) return 0 ;;
+  esac
+  return 1
+}
+writes_git_state() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} name=''
+  ! git_state_path "${SEG_RT[$1]:-}" || return 0
+  while [ "$k" -lt "$e" ]; do
+    case ${W[$k]} in
+      '!' | if | then | else | elif | do | while | until | time | command | builtin | exec | noglob | nocorrect) ;;
+      *)
+        if [ "${WA[$k]}" = 1 ]; then
+          :
+        else
+          name=${W[$k]##*/}
+          break
+        fi
+        ;;
+    esac
+    k=$((k + 1))
+  done
+  [ -n "$name" ] && [ "$name" != git ] || return 1
+  case $GIT_STATE_READERS in *" $name "*) return 1 ;; esac
+  k=${SEG_S[$1]}
+  while [ "$k" -lt "$e" ]; do
+    ! git_state_path "${W[$k]}" || return 0
+    k=$((k + 1))
+  done
+  return 1
 }
 
 RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
