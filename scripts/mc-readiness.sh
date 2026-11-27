@@ -62,8 +62,10 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       names (it describes the base), nor a
                                       matrix job cancelled under its
                                       unexpanded name once another run of
-                                      its workflow on the head passed a
-                                      shard of it (within
+                                      its workflow on the head, starting
+                                      no earlier, succeeded (SUCCESS or
+                                      NEUTRAL; a skip does not count) at
+                                      a shard of it (within
                                       scripts/check-runs.jq's bounds);
                                       SUCCESS, NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
