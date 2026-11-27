@@ -110,6 +110,26 @@ for cmd in 'git push origin z' 'git push origin x:feature-x'; do
   pg worker "$cmd" "$SYM"
   expect defer "[worker] $cmd (a symref to an unprotected branch, or a named destination) defers"
 done
+# A symbolic ref outside refs/ resolves as well: a top-level one, and
+# main-worktree/HEAD, which names the branch the primary checkout holds.
+gitq -C "$SYM" symbolic-ref FOO refs/heads/main
+fixture 'a push of a top-level symref to main' "$SYM" origin FOO
+PRIM="$SANDBOX/primary-on-main"
+clone_on "$PRIM" main 1
+LINKED="$SANDBOX/primary-linked"
+gitq -C "$PRIM" worktree add -b planwright/demo/task-9 "$LINKED" HEAD
+fixture 'a push of main-worktree/HEAD from a linked worktree' "$LINKED" origin main-worktree/HEAD
+for tier in worker tower; do
+  pg "$tier" 'git push origin FOO' "$SYM"
+  expect deny "[$tier] a push of a top-level symref pointing at main denies"
+  pg "$tier" 'git push origin main-worktree/HEAD' "$LINKED" "$LINKED"
+  expect deny "[$tier] a push of main-worktree/HEAD, the primary checkout's main, denies"
+done
+BADREFS="$SANDBOX/bad-refs"
+clone_on "$BADREFS" planwright/demo/task-1 1
+printf 'not a packed ref line\n' >>"$BADREFS/.git/packed-refs"
+pg worker 'git push origin planwright/demo/task-1' "$BADREFS"
+expect deny "[worker] a push whose local refs cannot be listed, to resolve its symbolic refs, denies"
 
 # --- git send-pack and git subtree push (finding 5) -------------------------
 

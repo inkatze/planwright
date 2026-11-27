@@ -6305,35 +6305,29 @@ legacy_remote_check() {
   done
 }
 
-# symref_dsts <dir> <refspec...> — set SYM_DSTS to the branch each local
-# symbolic ref resolves to, among the refs a refspec with no :<dst> can name:
-# git pushes such a source to the ref its symbolic ref resolves to, so
-# `git push origin x`, x pointing at main, updates main. A target outside
-# refs/heads/ is left out, since git refuses that push.
+# symref_dsts <dir> <refspec...> — set SYM_DSTS to the branch each source
+# named with no :<dst> resolves to: git pushes it to the ref its symbolic refs
+# resolve to, so `git push origin x` updates main where x is a symbolic ref to
+# main, a top-level one, or main-worktree/HEAD with main checked out in the
+# primary checkout. A source git cannot resolve fails the push too; any other
+# failure to resolve one denies.
 SYM_DSTS=''
 symref_dsts() {
-  local d=$1 r list name t
+  local d=$1 r t rc
   SYM_DSTS=''
   shift
   for r in "$@"; do
-    case $r in *:* | HEAD | @) ;; *) break ;; esac
-    shift
-  done
-  [ "$#" -gt 0 ] || return 0
-  list=$(gitq "$d" for-each-ref --format='%(if)%(symref)%(then)%(refname)%(end)') || list=''
-  [ -n "$list" ] || return 0
-  for r in "$@"; do
     case $r in *:* | HEAD | @) continue ;; esac
-    for name in $list; do
-      case $name in
-        "$r" | "refs/$r" | "refs/tags/$r" | "refs/heads/$r" | "refs/remotes/$r" | "refs/remotes/$r/HEAD") ;;
-        *) continue ;;
-      esac
-      t=$(gitq "$d" symbolic-ref --quiet "$name") || t=''
-      case $t in
-        refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;
-      esac
-    done
+    rc=0
+    t=$(gitq "$d" rev-parse --symbolic-full-name --verify --quiet --end-of-options "$r") || rc=$?
+    case $rc in
+      0) ;;
+      1) continue ;;
+      *) emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, and git could not resolve it to see where it pushes (git exit $rc) - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>." ;;
+    esac
+    case $t in
+      refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;
+    esac
   done
 }
 
