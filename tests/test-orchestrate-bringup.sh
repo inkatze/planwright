@@ -100,6 +100,9 @@ stops=$(section "Stop conditions")
 check "the stop conditions enumerate the bring-up hold (REQ-B1.2, REQ-B1.4)" "$stops" \
   'Bring-up `refuse` or posture hold'
 
+check "the stop conditions keep the validator halt to a dispatch path" "$stops" \
+  'validator on a dispatch path'
+
 check "every layer read is named, the plugin hooks file included (REQ-B1.4)" "$bringup" \
   'names? every (settings )?layer' 'hooks/hooks\.json'
 
