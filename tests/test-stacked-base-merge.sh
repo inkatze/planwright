@@ -198,6 +198,21 @@ expect defer "[worker] both fields, in the spec branch's worktree: the PR base m
 PLANWRIGHT_WORKER_SESSION_RECORD=$REC_BOTH pg worker "git merge origin/$STACK_BR" "$SPECWT" "$SPECWT"
 expect deny "[worker] both fields, in the spec branch's worktree: the unit's stacked base is refused"
 
+echo "# guard: a stacked base that is the launch's spec branch keeps the spec branch's --ff-only rule"
+REC_SAME="$SANDBOX/rec/same.record"
+write_rec "$REC_SAME" "origin/$SPEC_BR"
+printf 'spec_branch=%s\n' "$SPEC_BR" >>"$REC_SAME"
+for cmd in "git merge origin/$SPEC_BR" "git merge --no-edit refs/remotes/origin/$SPEC_BR" \
+  "git merge --no-ff origin/$SPEC_BR" "git merge $(tip "$SPEC_BR")" "git merge --ff-only origin/$SPEC_BR origin/main" \
+  "git pull origin $SPEC_BR" "git pull --no-ff origin $SPEC_BR"; do
+  sg worker "$cmd" "$REC_SAME"
+  expect deny "[worker] stack base = spec branch: $cmd is refused, as the spec-branch rule refuses it"
+done
+for cmd in "git merge --ff-only origin/$SPEC_BR" "git pull --ff-only origin $SPEC_BR" 'git merge origin/main'; do
+  sg worker "$cmd" "$REC_SAME"
+  expect defer "[worker] stack base = spec branch: $cmd defers"
+done
+
 echo "# record writer: stack_base"
 FLEET="$SANDBOX/fleet"
 mkdir -p "$FLEET"

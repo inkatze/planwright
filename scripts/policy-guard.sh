@@ -1368,6 +1368,13 @@ stack_base_load() { # <dir>
   STACK_BRANCH=$sb
 }
 
+# stack_is_spec — 0 when the stacked base is the launch's own spec branch
+# (record_spec_branch run first), which merges only as the spec-branch rule
+# admits it: by --ff-only, as the single source.
+stack_is_spec() {
+  [ -n "$STACK_BRANCH" ] && [ -n "$SPEC_BRANCH" ] && [ "$STACK_BRANCH" = "$SPEC_BRANCH" ]
+}
+
 # is_stack_ref <dir> <name> — 0 when the merge source is the stacked base: its
 # remote-tracking ref by name and by what git resolves the name to, or a full
 # object id equal to that ref's current tip. An abbreviation or an old tip is
@@ -5741,7 +5748,7 @@ eval_merge() {
   record_spec_branch "$UNIT_TOP"
   for s in $srcs; do
     is_base_ref "$dir" "$s" && continue
-    is_stack_ref "$dir" "$s" && continue
+    is_stack_ref "$dir" "$s" && ! stack_is_spec && continue
     if [ "$ff" = 1 ] && [ "$srcs" = "$s" ]; then
       ! is_spec_branch_ref "$dir" "$s" || continue
     fi
@@ -5841,6 +5848,11 @@ eval_pull() {
   fi
   case $ref in *:*) emit_deny 'this git pull carries a src:dst refspec, which also writes a local ref - refusing. Pull the PR base alone.' ;; esac
   ref=${ref#refs/heads/}
+  if [ "$ff" != 1 ] && [ "$remote" = "$BASE_REMOTE" ] && [ -n "$STACK_BRANCH" ] && [ "$ref" = "$STACK_BRANCH" ]; then
+    record_spec_branch "$UNIT_TOP"
+    ! stack_is_spec \
+      || emit_deny "this session's stacked base is its launch's spec branch ($(sanitize_printable "$SPEC_BRANCH" 'a spec branch')), and pulling it into $(sanitize_printable "$CUR_BRANCH" 'this branch') is admitted only with --ff-only, as merging it is - refusing. Use git pull --ff-only $(sanitize_printable "$BASE_REMOTE $SPEC_BRANCH" 'origin <spec branch>'), or merge the PR base: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
+  fi
   is_base_or_own_branch "$remote" "$ref" \
     || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main')$([ -z "$STACK_BRANCH" ] || printf %s " or git pull $(sanitize_printable "$BASE_REMOTE $STACK_BRANCH" 'the stacked base')"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
 }
