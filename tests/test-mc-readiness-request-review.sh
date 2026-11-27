@@ -91,6 +91,7 @@ lacks() { # lacks <label> <needle>
 first_line() { printf '%s\n' "$OUT" | head -n 1; }
 
 DRAFT="state,draft require,pr-agent"
+READY_SPEC="state,ready flip,$FLIP_T require,pr-agent"
 POST_PR_GAP="cadence,gap,post-pr,incomplete,-"
 
 BOT_DUE="pending${tab}bot-review${tab}no PR-Agent run at 111111111111; request a review (scripts/request-reviewer.sh) on the draft, then wait for the run it fires"
@@ -123,9 +124,12 @@ expect_out "a bypass row follows the request verdict, as it does a ready one" "m
 bypass${tab}window-lock${tab}FAILURE"
 # shellcheck disable=SC2086
 walk_rows "draft, spec-only" $DRAFT "$POST_PR_GAP" "scope,spec-only,$H"
-expect_rc "a spec-only draft still needs its bot review" 4
-expect_eq "and is told to request it, its cadence never held" "request-review${tab}$H
-$BOT_DUE"
+expect_rc "a spec-only draft is held for its sign-off alone, its review left to the flip (r-18)" 0
+expect_eq "and reads ready, its cadence never held" "ready${tab}$H"
+# shellcheck disable=SC2086
+walk_rows "ready, spec-only, no run yet" $READY_SPEC "scope,spec-only,$H"
+expect_rc "once flipped, a spec-only pull request still needs the run its flip fired" 4
+expect_out "named" "fail${tab}bot-review${tab}no PR-Agent run at 111111111111"
 # shellcheck disable=SC2086
 walk_rows "draft, nothing owing" $DRAFT
 expect_rc "a draft with no gap but no bot review is not flip-ready" 4
