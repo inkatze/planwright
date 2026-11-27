@@ -6386,12 +6386,14 @@ mc_inplace_unparsed() {
 
 # mc_env_split <text> — in MC_ES, the text with each env -S or --split-string=
 # string glued on parted off as a statement of its own (RE_MC_ENV_SPLIT); a
-# string opening with an option or an assignment is read as env's again, so a
-# later -S in it is found. Callers read the text as given too, apart: a match
-# in quoted data must not cut a write that follows it out of a scan. Run it
-# outside nocasematch: a lowercase s is no -S, and a word env does not open is
-# no string of its (git log -Scp). Each match is consumed, so the text is
-# scanned once per match; past the bound the screen refuses (fail closed).
+# string opening with an option is read as env's again, so a later -S in it is
+# found. Callers whose patterns span words read the text as given too, apart:
+# a match in quoted data must not cut a write that follows it out of a scan.
+# The runner-word scans read the split text alone, as the split only adds
+# word boundaries. Run it outside nocasematch: a lowercase s is no -S, and a
+# word env does not open is no string of its (git log -Scp). Each match is
+# consumed, so the text is scanned once per match; past the bound the screen
+# refuses (fail closed).
 mc_env_split() {
   local t=$1 out='' m pre n=0
   case $t in *[Ee][Nn][Vv]*[S=]*) ;; *)
@@ -6406,7 +6408,7 @@ mc_env_split() {
     pre=${t%%"$m"*}
     out+=$pre${m%?}' ; '
     t=${t:$((${#pre} + ${#m} - 1))}
-    case $t in -* | [A-Za-z_]*=*) t="env $t" ;; esac
+    case $t in -*) t="env $t" ;; esac
   done
   MC_ES=$out$t
 }
@@ -7281,8 +7283,10 @@ mc_wrap_opt_value() {
 # word), and env's -S string ends the reading at the word holding it, its
 # index also in MC_ENV_SI (-1 for none): the option word itself when the string
 # is glued on (-Scp, --split-string=cp), MC_ENV_SEP 0, or the next word after
-# -S or --split-string, MC_ENV_SEP 1. Without it, options are read as the
-# posture screen always has, whose refusals rest on that reading.
+# -S or --split-string, MC_ENV_SEP 1. A string of options and assignments
+# alone (mc_env_string_runs) names no command: it is stepped over and the
+# reading goes on. Without it, options are read as the posture screen always
+# has, whose refusals rest on that reading.
 mc_unwrap() {
   local i=0 n=${#SW[@]} wrap exact=${1:-}
   MC_XARGS=0
