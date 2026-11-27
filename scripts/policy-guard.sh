@@ -1913,10 +1913,10 @@ GIT_ENV_SET=0
 # The state flags above order acts by the command's text, but a loop body, a
 # background list, a pipeline or a coprocess can run a change written after an
 # act before it. seg_mark, run as each segment starts (and with -1 once all
-# are classified), records for the segment before it the first git act of
-# each kind it queued and the last change of each class act_gate reads:
-# config, refs, the environment or the directory for every act (RO_CHANGES
-# counts the changes no flag shows: a cd, an export, an assignment); a push,
+# are classified), records for the segment before it the first act of each
+# kind it queued and the last change of each class act_gate reads: config,
+# refs, the environment or the directory for every act (RO_CHANGES counts the
+# changes no flag shows: a cd, or a variable git or its lookup reads); a push,
 # fetch or commit-making command for a rewrite (an amend or a rebase); a fetch
 # writing a local ref for a merge or a pull. reorder_check refuses a change
 # after the first act that reads it in a command carrying any of those
@@ -1930,9 +1930,7 @@ seg_mark() {
     i=$RO_PEND
     while [ "$i" -lt "${#PENDING[@]}" ]; do
       kind=${PENDING[$i]%%"$TAB"*}
-      case $kind in
-        merge | pull | rebase | commit | push) [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI ;;
-      esac
+      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI
       case $kind in commit | rebase) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI ;; esac
       case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI ;; esac
       i=$((i + 1))
@@ -1945,14 +1943,30 @@ seg_mark() {
 }
 
 # seg_effects <seg> — the changes a segment makes that its classification
-# does not flag: a directory change or a variable set, which a loop's next
-# pass runs before its acts, and a write to git's own state by a command that
-# is not git. Run once the segment is classified, so its own act reads the
+# does not flag: a directory change or a set of a variable git reads, which a
+# loop's next pass runs before its acts, and a write to git's own state other
+# than by git itself (an output redirect, git's own included, or another
+# command). Run once the segment is classified, so its own act reads the
 # state before them and the next segment's seg_mark counts them as its.
 seg_effects() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} w
   seg_command_name "$1"
   case $SCN in
-    '' | cd | pushd | popd | export | unset | declare | typeset | readonly | local) RO_CHANGES=$((RO_CHANGES + 1)) ;;
+    cd | pushd | popd) RO_CHANGES=$((RO_CHANGES + 1)) ;;
+    '' | export | unset | declare | typeset | readonly | local)
+      # A variable git, its configuration or the command lookup reads.
+      while [ "$k" -lt "$e" ]; do
+        w=${W[$k]%%=*}
+        w=${w%+}
+        case $w in
+          GIT_* | HOME | XDG_CONFIG_HOME | PATH | BASH_ENV | ENV)
+            RO_CHANGES=$((RO_CHANGES + 1))
+            break
+            ;;
+        esac
+        k=$((k + 1))
+      done
+      ;;
   esac
   if writes_git_state "$1"; then
     ST_CFG=1
@@ -1977,7 +1991,7 @@ reorder_check() {
   [ "$loop$conc" != 00 ] || return 0
   reorder_after "$RO_ACT" "$RO_CHG_CFG" "$loop" || reorder_after "$RO_REWRITE" "$RO_CHG_HIST" "$loop" \
     || reorder_after "$RO_MERGE" "$RO_CHG_FETCHSPEC" "$loop" || return 0
-  deny_now "this command changes git configuration, a ref, HEAD, the environment or the directory in a segment written after a reserved act that reads it, inside a loop, a background list, a pipeline or a coprocess, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
+  deny_now "this command changes git configuration, a ref, HEAD, the environment or the directory after a reserved act that reads it (in a later segment, or in a loop in the act's own segment), inside a loop, a background list, a pipeline or a coprocess, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
 }
 
 # reorder_after <first act> <last change> <in a loop> — 0 when the change can
@@ -1991,11 +2005,26 @@ reorder_after() {
 # seg_command_name <seg> — set SCN to the segment's command name, past
 # reserved words, precommand words and assignments; empty when there is none.
 seg_command_name() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]}
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} j
   SCN=''
   while [ "$k" -lt "$e" ]; do
     case ${W[$k]} in
-      '!' | if | then | else | elif | do | while | until | time | command | builtin | exec | noglob | nocorrect) ;;
+      '!' | if | then | else | elif | do | while | until | time | command | builtin | exec | noglob | nocorrect | coproc) ;;
+      # As segment_words reads them: a for or select with no in list runs
+      # its body after a do here, and zsh's short repeat runs what follows.
+      for | select | foreach)
+        j=$((k + 1))
+        while [ "$j" -lt "$e" ] && { [ "${W[$j]}" != 'do' ] || [ "${WU[$j]}" != 1 ]; }; do
+          j=$((j + 1))
+        done
+        if [ "$j" -lt "$e" ]; then
+          k=$j
+        else
+          SCN=${W[$k]}
+          return 0
+        fi
+        ;;
+      repeat) k=$((k + 1)) ;;
       *)
         [ "${WA[$k]}" = 1 ] || {
           SCN=${W[$k]##*/}
@@ -2009,34 +2038,19 @@ seg_command_name() {
 
 # git_state_path <text> — 0 when the text names git's own state: a path
 # through a directory named .git, or a global or system git configuration
-# file. It is read with quotes and backslashes dropped and in lower case, as a
-# shell and a case-insensitive filesystem read it.
+# file, whole or after an option's = or attached short flag (of=.git/HEAD,
+# -o.git/config). It is read with quotes and backslashes dropped and in lower
+# case, as a shell and a case-insensitive filesystem read it.
 git_state_path() {
-  local t=${1//[\"\'\\]/}
+  local t=${1//[\"\'\\]/} c
   fold_ascii "$t"
-  case $FA in
-    .git | .git/* | */.git | */.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | \
-      git/config | git/config/* | */git/config | */git/config/* | .config/git | .config/git/* | \
-      */.config/git | */.config/git/*) return 0 ;;
-  esac
-  return 1
-}
-
-# expanded_git_state <word> — 0 when a word the shell expands or globs could
-# name git's own state: its literal tail, after the last expansion or glob
-# character (and a variable's name), is empty or ends as a git state file
-# does. A tail that cannot, such as .log or /push.out, leaves it out.
-expanded_git_state() {
-  local w=${1//[\"\'\\]/} tail pre
-  case $w in *[\$\`*?[]*) ;; *) return 1 ;; esac
-  tail=${w##*[\$\`*?\]\}]}
-  pre=${w%"$tail"}
-  case ${pre:${#pre}-1} in \$) tail=${tail#"${tail%%[!A-Za-z0-9_]*}"} ;; esac
-  fold_ascii "$tail"
-  case $FA in
-    '' | */config | config | */head | head | .git | */.git | */.git/* | .git/* | *gitconfig* | */packed-refs | \
-      packed-refs | */hooks/* | hooks/* | */refs/* | refs/* | *_head) return 0 ;;
-  esac
+  for c in "$FA" "${FA#*=}" "${FA#-?}"; do
+    case $c in
+      .git | .git/* | */.git | */.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | \
+        git/config | git/config/* | */git/config | */git/config/* | .config/git | .config/git/* | \
+        */.config/git | */.config/git/*) return 0 ;;
+    esac
+  done
   return 1
 }
 
@@ -2055,20 +2069,20 @@ fold_ascii() {
 }
 
 # writes_git_state <seg> — 0 when the segment may write git's own state: an
-# output redirect target naming it, or that the shell expands to a name that
-# could; or a word naming it of any command but git and the read-only ones
-# listed; or, for a command that writes files or runs another that may (a
-# wrapper, a shell, a loop word, an option or an upper-case name where the
-# command name stands), an expanded word that could. git reads that state for
-# every later act, and the guard reads it before the command runs. Reads SCN,
-# which seg_effects sets.
+# output redirect target, on any segment (git's included), that names it or
+# that the shell expands, since an expansion can name it; or a word naming it
+# of any command but git and the read-only ones listed; or, for a command
+# that writes files or runs another that may (a wrapper, a shell, cd, an
+# option or an upper-case name where the command name stands), a word the
+# shell expands. git reads that state for every later act, and the guard
+# reads it before the command runs. Reads SCN, which seg_effects sets.
 GIT_STATE_READERS=' cat ls head tail grep egrep fgrep test [ [[ stat file wc diff cmp less more realpath readlink basename dirname du md5sum sha1sum sha256sum shasum od hexdump strings jq '
-GIT_STATE_WRITERS=' cp mv install ln tee sed gsed perl dd truncate rsync rm unlink touch chmod ed ex awk gawk mawk nawk ruby node sh bash zsh dash ksh mksh fish tar unzip patch cpio xxd ditto sort split shuf curl wget env nice nohup timeout sudo doas stdbuf xargs eval find make busybox setsid flock ionice chrt taskset unbuffer for select foreach repeat coproc '
+GIT_STATE_WRITERS=' cp mv install ln tee sed gsed perl dd truncate rsync rm unlink touch chmod ed ex awk gawk mawk nawk ruby node sh bash zsh dash ksh mksh fish tar unzip patch cpio xxd ditto sort split shuf curl wget env nice nohup timeout sudo doas stdbuf xargs eval find make busybox setsid flock ionice chrt taskset unbuffer cd pushd '
 writes_git_state() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]} t writer=0
   for t in ${SEG_WT[$1]:-}; do
     ! git_state_path "$t" || return 0
-    ! expanded_git_state "$t" || return 0
+    case $t in *[\$\`*?[{~]*) return 0 ;; esac
   done
   [ -n "$SCN" ] && [ "$SCN" != git ] || return 1
   case $GIT_STATE_READERS in *" $SCN "*) return 1 ;; esac
@@ -2076,9 +2090,7 @@ writes_git_state() {
   case $SCN in -* | python* | *[A-Z]*) writer=1 ;; esac
   while [ "$k" -lt "$e" ]; do
     ! git_state_path "${W[$k]}" || return 0
-    if [ "$writer" = 1 ] && [ "${WL[$k]}" != 1 ]; then
-      ! expanded_git_state "${W[$k]}" || return 0
-    fi
+    [ "$writer" = 0 ] || [ "${WL[$k]}" = 1 ] || return 0
     k=$((k + 1))
   done
   return 1
