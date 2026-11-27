@@ -208,6 +208,13 @@ has "a tie in start names the window-lock run that did not pass for bypass" "byp
 superseded_pr "$(ci_check_run 781 window-lock SUCCESS '' release-window), $(ci_check_run 780 window-lock FAILURE '' release-window), $live_run"
 collect_superseded "collect over the same tie listed the other way round" collected-locktie2
 has "and listing order does not change which one is named" "bypass${tab}window-lock${tab}FAILURE"
+# A rollup at the cap is refused as truncated, so no check is selected from it.
+capped=""
+for i in $(seq 1 100); do capped="$capped${capped:+, }$(ci_check_run 780 "c$i" SUCCESS)"; done
+superseded_pr "$capped"
+collect_superseded "collect over a head whose rollup reaches the cap" collected-capped
+has "a rollup at the cap is marked truncated" "truncated${tab}checks"
+hasnt "and no check is selected from it" "check${tab}c1${tab}"
 mv "$tmp/pr.json.keep" "$tmp/pr.json"
 # The payload the ready-flip guard is asked about names the pull request and the
 # repository as two separate arguments of one format.
