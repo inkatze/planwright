@@ -3751,7 +3751,8 @@ classify_gh_api() {
       deny_now 'this gh api request updates or deletes a ref through GraphQL, whose target and force flag the guard cannot read - refusing (fail closed). Push with git instead.'
       return 0
       ;;
-    *BranchProtectionRule* | *RepositoryRuleset*)
+    *createBranchProtectionRule* | *updateBranchProtectionRule* | *deleteBranchProtectionRule* | \
+      *createRepositoryRuleset* | *updateRepositoryRuleset* | *deleteRepositoryRuleset*)
       deny_now "$GHAPI_PROTECTION_DENY"
       return 0
       ;;
@@ -3840,14 +3841,26 @@ classify_gh_api() {
   IFS=$IFS_save
   seg_count=$#
   # Branch protection and rulesets guard main, so no write to them passes,
-  # whatever branch or route it names.
-  case "/$lp/" in
-    /repos/*/*/branches/*/protection/* | /repositories/*/branches/*/protection/* | \
-      /repos/*/*/rulesets/* | /repositories/*/rulesets/* | /orgs/*/rulesets/*)
-      deny_now "$GHAPI_PROTECTION_DENY"
-      return 0
-      ;;
+  # whatever branch it names: a protection segment anywhere after a
+  # branches/<name> route (a branch name may hold slashes), or a rulesets route.
+  local prot=0 si2=0
+  local -a segs
+  segs=("$@")
+  case "${1:-}:${3:-}:${4:-}" in
+    repos:*:rulesets | repositories:rulesets:* | orgs:rulesets:*) prot=1 ;;
+    repos:*:branches) si2=5 ;;
+    repositories:branches:*) si2=4 ;;
   esac
+  if [ "$si2" -gt 0 ]; then
+    while [ "$si2" -lt "$seg_count" ]; do
+      [ "${segs[$si2]}" != protection ] || prot=1
+      si2=$((si2 + 1))
+    done
+  fi
+  if [ "$prot" = 1 ]; then
+    deny_now "$GHAPI_PROTECTION_DENY"
+    return 0
+  fi
   [ "${1:-}" = repos ] || return 0
   case "$seg_count:${4:-}:${6:-}" in
     6:pulls:merge)

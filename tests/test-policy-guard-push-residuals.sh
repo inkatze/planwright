@@ -217,16 +217,21 @@ for tier in worker tower; do
     'gh api -X DELETE orgs/acme/rulesets/7' \
     "gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \"X\"}) { clientMutationId } }'" \
     "gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: \"X\", requiresApprovingReviews: false}) { clientMutationId } }'" \
-    "gh api graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \"X\"}) { clientMutationId } }'"; do
+    "gh api graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \"X\"}) { clientMutationId } }'" \
+    "gh api graphql -f query='mutation { createBranchProtectionRule(input: {repositoryId: \"R\", pattern: \"x\"}) { clientMutationId } }'" \
+    'gh api -X DELETE repositories/123/branches/main/protection' 'gh api -X DELETE repositories/123/rulesets/4'; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd denies"
     reason_has 'protection or a ruleset' "[$tier] $cmd denies as a protection change"
   done
 done
 for cmd in 'gh api repos/acme/widgets/branches/main/protection' 'gh api repos/acme/widgets/rulesets' \
-  'gh api -X GET repos/acme/widgets/rulesets/42'; do
+  'gh api -X GET repos/acme/widgets/rulesets/42' 'gh api -X GET repos/acme/widgets/branches/main/protection/required_status_checks' \
+  'gh api -X PUT repos/acme/widgets/contents/.github/rulesets/main.json -f message=m -f content=eA== -f branch=feature' \
+  'gh api -X PUT repos/acme/widgets/contents/docs/protection/x.md -f message=m -f content=eA== -f branch=feature' \
+  "gh api graphql -f query='query { repository(owner: \"a\", name: \"b\") { branchProtectionRules(first: 1) { nodes { ... on BranchProtectionRule { pattern } } } } }'"; do
   pg worker "$cmd"
-  expect defer "[worker] $cmd (a read) defers"
+  expect defer "[worker] $cmd (a read, or a write whose path only names protection or rulesets) defers"
 done
 
 no_gh_calls
