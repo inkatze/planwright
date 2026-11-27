@@ -962,7 +962,8 @@ on_branch() {
 }
 s64=a$(printf '%063d' 0)
 SPEC_YES=(planwright/demo/spec planwright/demo/spec-rework planwright/demo/amendment-2
-  planwright/demo/amendment-12 "planwright/$s64/spec" planwright/d-1/spec)
+  planwright/demo/amendment-12 planwright/demo/amendment-01 "planwright/$s64/spec" planwright/d-1/spec
+  planwright/1demo/spec planwright/a/spec planwright/demo-/spec)
 SPEC_NO=(planwright/demo/notes planwright/demo/amendment- planwright/demo/amendment-2a
   planwright/demo/spec-2 planwright/demo/sub/spec planwright/flight/spec
   planwright/-demo/spec "planwright/a$s64/spec" planwright/de_mo/spec planwright/de.mo/spec
@@ -1001,13 +1002,17 @@ ksn() (
   rest=${1#planwright/}
   PLANWRIGHT_WORKER_SCOPE=kickoff-${rest%%/*} kickoff_scope_names "$1" "$SPW" >/dev/null 2>&1
 )
-drift=''
-for b in "${SPEC_YES[@]}"; do ksn "$b" || drift="$drift $b"; done
-for b in "${SPEC_NO[@]}"; do ! ksn "$b" || drift="$drift $b"; done
-if [ -s "$T/ksn.sh" ] && [ -z "$drift" ]; then
-  pass "spec PR branch: the writer's shapes are exactly kickoff_scope_names's"
+if ! declare -F kickoff_scope_names >/dev/null; then
+  fail "spec PR branch: kickoff_scope_names could not be extracted from scripts/policy-guard.sh"
 else
-  fail "spec PR branch: kickoff_scope_names disagrees with the writer on:${drift:- (function not found)}"
+  drift=''
+  for b in "${SPEC_YES[@]}"; do ksn "$b" || drift="$drift $b"; done
+  for b in "${SPEC_NO[@]}"; do ! ksn "$b" || drift="$drift $b"; done
+  if [ -z "$drift" ]; then
+    pass "spec PR branch: the writer's shapes are exactly kickoff_scope_names's"
+  else
+    fail "spec PR branch: kickoff_scope_names disagrees with the writer on:$drift"
+  fi
 fi
 git -C "$SPW" checkout -q --detach main
 write "$SPW"
