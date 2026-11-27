@@ -248,7 +248,7 @@ if [ "$shared" = yes ]; then
   load=$(cap_field load)
   cores=$(cap_field cores)
   idle=$(cap_field idle_secs)
-  no_load="compute host is shared and did not report its load"
+  no_load="compute host is shared and did not report a usable load and core count"
 elif probe_run load "$work/probe"; then
   line=$(sed -n '1p' "$work/probe")
   load=${line%% *}

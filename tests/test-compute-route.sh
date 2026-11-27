@@ -214,7 +214,7 @@ has "and is announced as unreachable" "compute host unreachable" "$ERR"
 for raw in '' 'load=unavailable cores=16 idle_secs=700' 'load=0.5 idle_secs=700'; do
   FAKE_CAP_RAW=$raw run --check -- "$tmp/lcmd" a
   assert_eq "a capacity line with no usable load ('$raw') runs locally" "local ran a" "$OUT"
-  has "and says the host did not report its load ('$raw')" "did not report its load" "$ERR"
+  has "and says the host did not report a usable load ('$raw')" "did not report a usable load and core count" "$ERR"
 done
 for idle_part in '' 'idle_secs=' 'idle_secs=abc' 'idle_secs=-5' 'idle_secs=1.5' 'idle_secs=1234567890123' 'xidle_secs=700'; do
   FAKE_CAP_RAW="load=0.5 cores=16 $idle_part" run --check -- "$tmp/lcmd" a
