@@ -661,6 +661,15 @@ else
   fail "a holder's failed protected-set read did not refuse the reword (exit $rc: $(cat "$tmp/err"))"
 fi
 g push -q origin --delete holder-x
+# A holder git accepts but the protected-set reader refuses as a name.
+g push -q origin "$HELD:refs/heads/holder#x"
+rc=$(rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 1 ] && grep -q 'whose name the protected-set reader refuses' "$tmp/err"; then
+  ok "reword refuses a holder whose name the protected-set reader refuses"
+else
+  fail "a holder with a refused name did not refuse the reword with its reason (exit $rc: $(cat "$tmp/err"))"
+fi
+g push -q origin --delete "holder#x"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

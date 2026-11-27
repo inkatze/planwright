@@ -32,7 +32,8 @@
 # (default remote `origin`) first. confirm and push refuse a <c> whose tip
 # contains the remote tip (nothing would be dropped: a plain push suffices).
 # reword refreshes every remote branch and refuses a commit a protected one or
-# a spec branch contains, since rewording it would fork that history.
+# a spec branch contains, since rewording it would fork that history, or one
+# a branch holds whose protection cannot be read.
 #
 # The confirmation is one JSON object that scripts/check-confirmation.sh
 # accepts (this script checks it before printing): `question` and `options`
@@ -51,8 +52,9 @@
 #
 # Exit: 0 done (a push the remote took though it reported a failure
 # included, with a note); 1 refused (a dispatched worker, protected or a spec
-# branch, moved since the confirmation or deleted or moved while pushing,
-# nothing dropped, not on the branch); 2 usage; 3 a git or remote failure.
+# branch, protection that cannot be read, moved since the confirmation or
+# deleted or moved while pushing, nothing dropped, not on the branch); 2
+# usage; 3 a git or remote failure.
 #
 # Untrusted text (subjects, names) reaches the terminal only through
 # sanitize_printable or as jq-encoded JSON. Portable bash 3.2.
@@ -463,7 +465,7 @@ reword() {
     case $rc in
       0) ;;
       1) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history" ;;
-      2) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), whose name the protected-set reader refuses, so whether it is protected is unknown; refusing (fail closed)" ;;
+      2) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), whose name the protected-set reader refuses (or which it could not run), so whether it is protected is unknown; refusing (fail closed)" ;;
       *) refuse "the protected set could not be read (protected-branch.sh exit $rc); refusing (fail closed)" ;;
     esac
   done
