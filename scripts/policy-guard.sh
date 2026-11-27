@@ -3912,18 +3912,21 @@ classify_gh_api() {
   # Branch protection and rulesets guard main, so no write to them passes,
   # whatever branch it names: a protection segment anywhere after a
   # branches/<name> route (a branch name may hold slashes), or a rulesets route.
-  local prot=0 si2=0
+  # A . segment is dropped first, as a server normalizing the path would.
+  local prot=0 after_branch=0 s
   local -a segs
-  segs=("$@")
-  case "${1:-}:${3:-}:${4:-}" in
+  segs=()
+  for s in "$@"; do
+    [ "$s" = . ] || segs[${#segs[@]}]=$s
+  done
+  case "${segs[0]:-}:${segs[2]:-}:${segs[3]:-}" in
     repos:*:rulesets | repositories:rulesets:* | orgs:rulesets:*) prot=1 ;;
-    repos:*:branches) si2=5 ;;
-    repositories:branches:*) si2=4 ;;
+    repos:*:branches) after_branch=5 ;;
+    repositories:branches:*) after_branch=4 ;;
   esac
-  if [ "$si2" -gt 0 ]; then
-    while [ "$si2" -lt "$seg_count" ]; do
-      [ "${segs[$si2]}" != protection ] || prot=1
-      si2=$((si2 + 1))
+  if [ "$after_branch" -gt 0 ]; then
+    for s in "${segs[@]:$after_branch}"; do
+      [ "$s" != protection ] || prot=1
     done
   fi
   if [ "$prot" = 1 ]; then
