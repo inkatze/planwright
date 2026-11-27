@@ -51,7 +51,7 @@ case $verb in
       printf '%s\n' "$FAKE_CAP_RAW"
       exit 0
     fi
-    echo "load=0.5 cores=16 mem_free_mb=8000 idle_secs=${FAKE_IDLE:-unavailable}"
+    echo "load=${FAKE_LOAD:-0.5} cores=${FAKE_CORES:-16} mem_free_mb=8000 idle_secs=${FAKE_IDLE:-unavailable}"
     ;;
   compute)
     if [ -n "${FAKE_NOSTART:-}" ]; then
@@ -177,39 +177,70 @@ FAKE_IDLE=299 run --check -- "$tmp/lcmd" a
 assert_eq "a shared host used within its registry time runs locally" "local ran a" "$OUT"
 has "the owner's use is announced" "compute-route: warning: compute host is shared and its owner is using it" "$ERR"
 assert_eq "one warning line" 1 "$(printf '%s\n' "$ERR" | grep -c 'warning')"
+host_line 'shared=yes idle=08'
+FAKE_IDLE=480 run --check -- "$tmp/lcmd" a
+assert_eq "a zero-padded registry idle 08 reads as 8 minutes, never an octal error" "remote ran" "$OUT"
+host_line 'shared=yes idle=010'
+FAKE_IDLE=599 run --check -- "$tmp/lcmd" a
+assert_eq "a zero-padded registry idle 010 is 10 minutes, never octal 8" "local ran a" "$OUT"
+host_line 'shared=yes idle=0'
+FAKE_IDLE=0 run --check -- "$tmp/lcmd" a
+assert_eq "a registry idle of 0 never holds a shared host" "remote ran" "$OUT"
 host_line 'shared=yes'
-FAKE_IDLE=500 run --check -- "$tmp/lcmd" a
+default_idle=$("$here/../scripts/host-registry.sh" get mac idle)
+FAKE_IDLE=$((default_idle * 60 - 1)) run --check -- "$tmp/lcmd" a
 assert_eq "a shared host with no idle field takes the registry default" "local ran a" "$OUT"
-FAKE_IDLE=700 run --check -- "$tmp/lcmd" a
-assert_eq "and admits input older than it" "remote ran" "$OUT"
+FAKE_IDLE=$((default_idle * 60)) run --check -- "$tmp/lcmd" a
+assert_eq "and admits input that old" "remote ran" "$OUT"
 run --check -- "$tmp/lcmd" a
 assert_eq "a shared host whose idle time is unavailable runs locally" "local ran a" "$OUT"
 has "and says the owner's absence cannot be read" "idle time is unavailable" "$ERR"
+FAKE_LOAD=8 FAKE_CORES=8 FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
+has "a busy shared host is passed over as busy" "compute host is busy (load 8 on 8 cores" "$ERR"
+case $LOG in *"load --host"*) fail "a shared host is probed once, by capacity" ;; *) ok "a shared host is probed once, by capacity" ;; esac
 host_line 'shared=yes hold=yes'
 FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
 assert_eq "a shared host on hold runs locally" "local ran a" "$OUT"
 has "and names the hold" "compute host is on hold" "$ERR"
+assert_eq "and the held host is never probed" "" "$LOG"
 host_line 'shared=no hold=yes'
 run --check -- "$tmp/lcmd" a
 assert_eq "the hold switch holds an unshared host too" "local ran a" "$OUT"
-host_line 'shared=yes'
-FAKE_LOAD=8 FAKE_CORES=8 run --check -- "$tmp/lcmd" a
-has "a busy shared host is passed over as busy" "compute host is busy (load 8 on 8 cores" "$ERR"
-case $LOG in *capacity*) fail "and is never asked its idle time" ;; *) ok "and is never asked its idle time" ;; esac
+assert_eq "and never probes it" "" "$LOG"
+host_line 'shared=yes idle=5'
 FAKE_CAP_DOWN=1 run --check -- "$tmp/lcmd" a
-assert_eq "a failed idle probe on a shared host runs locally" "local ran a" "$OUT"
-has "a failed idle probe is announced as unreachable" "compute host unreachable" "$ERR"
-for raw in '' 'load=0.5 cores=16' 'idle_secs=abc' 'idle_secs=-5' 'idle_secs=1.5'; do
-  FAKE_CAP_RAW=$raw run --check -- "$tmp/lcmd" a
-  assert_eq "a malformed capacity line ('$raw') on a shared host runs locally" "local ran a" "$OUT"
+assert_eq "a failed capacity probe on a shared host runs locally" "local ran a" "$OUT"
+has "and is announced as unreachable" "compute host unreachable" "$ERR"
+FAKE_CAP_RAW='' run --check -- "$tmp/lcmd" a
+assert_eq "an empty capacity line runs locally" "local ran a" "$OUT"
+has "and is announced as unreachable" "compute host unreachable" "$ERR"
+for idle_part in '' 'idle_secs=' 'idle_secs=abc' 'idle_secs=-5' 'idle_secs=1.5' 'idle_secs=1234567890123' 'xidle_secs=700'; do
+  FAKE_CAP_RAW="load=0.5 cores=16 $idle_part" run --check -- "$tmp/lcmd" a
+  assert_eq "a shared host reporting '$idle_part' runs locally" "local ran a" "$OUT"
+  has "and says it did not report its idle time ('$idle_part')" "did not report its input idle time" "$ERR"
 done
+FAKE_CAP_RAW='load=0.5 cores=16 idle_secs=999999999999' run --check -- "$tmp/lcmd" a
+assert_eq "a twelve-digit idle reading is read" "remote ran" "$OUT"
+FAKE_CAP_RAW='load=0.5 cores=16 idle_secs=700 idle_secs=5' run --check -- "$tmp/lcmd" a
+assert_eq "the first idle_secs field is the reading" "remote ran" "$OUT"
 printf 'host other account=fleet ceiling=2 shared=yes\n' >"$reg"
 FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
 assert_eq "a host missing from the registry is not shared" "remote ran" "$OUT"
+printf 'fleet_compute_host: _box\nremote_hosts_file: %s\n' "$reg" >"$local_cfg"
+FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
+assert_eq "an alias the registry's grammar cannot list is not shared" "remote ran" "$OUT"
+printf 'fleet_compute_host: mac\nremote_hosts_file: %s\n' "$reg" >"$local_cfg"
 printf 'host mac account=fleet\n' >"$reg"
 run --check -- "$tmp/lcmd" a
 assert_eq "a registry the helper refuses runs locally" "local ran a" "$OUT"
-has "and names the registry" "host registry" "$ERR"
+has "and gives the helper's reason" "host mac: ceiling: required" "$ERR"
+assert_eq "and never probes the host" "" "$LOG"
+host_line 'shared=yes hold=yes'
+chmod 000 "$reg"
+FAKE_IDLE=99999 run --check -- "$tmp/lcmd" a
+chmod 600 "$reg"
+assert_eq "a configured registry that cannot be read runs locally" "local ran a" "$OUT"
+has "and says the registry cannot be read" "host registry cannot be read" "$ERR"
 printf 'fleet_compute_host: mac\n' >"$local_cfg"
 FAKE_IDLE=5 run --check -- "$tmp/lcmd" a
 assert_eq "with no registry configured no host is shared" "remote ran" "$OUT"
