@@ -10,12 +10,12 @@
 # another run of its workflow passed, starting no earlier, a shard it fits
 # (drop_superseded_cancels, below, has the exact rule). Then a check run
 # listed in $base_state as <workflow>/<name> is left out of the flip
-# conditions, and
-# only the latest run of each check context counts: a re-run supersedes the
-# runs before it, and a run not yet completed is the newest (gh reports an
-# unset time as 0001-01-01). Two runs of one context started in the same
-# second (gh reports whole seconds) are told apart by outcome, the one that did
-# not pass winning, so a tie never lets a failure hide behind a success.
+# conditions, and only the latest run of each check context counts: a re-run
+# supersedes the runs before it, and a run not yet completed is the newest (gh
+# reports an unset time as 0001-01-01). Two runs of one context started in the
+# same second (gh reports whole seconds) are told apart by outcome, the one
+# that did not pass winning, so a tie never lets a failure hide behind a
+# success.
 
 def check_context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
 
