@@ -198,8 +198,9 @@
 #   5  broken install: a malformed core list, entry, or catalog, a point key
 #      absent from every layer, a missing or duplicated pipeline-entry line,
 #      an unusable sibling script
-#   6  a refused context value (--preamble / --prefix / --line only), an
-#      exported one that disagrees with git included; or, with
+#   6  a refused context value (--preamble / --prefix / --line only; for
+#      --preamble with no worktree exported, an exported one that disagrees
+#      with git included); or, with
 #      --check-env, a PLANWRIGHT_STEP_* name outside the documented set
 #   130 / 143  interrupted or terminated by a signal (the shell's own
 #      convention), the scratch directory removed and any sibling read
