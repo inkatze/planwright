@@ -5412,7 +5412,8 @@ classify_git_push() {
       continue
     fi
     case $w in
-      --) endopts=1 ;;
+      # git reads every word after --end-of-options as a refspec, as after --.
+      -- | --end-of-options) endopts=1 ;;
       --no-*) ;;
       --*)
         name=${w#--}

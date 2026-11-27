@@ -513,7 +513,9 @@ for tier in worker tower; do
     "git push origin $Z40:refs/heads/planwright/demo/spec-rework" \
     'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/amendment-3' \
     'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/spec-rework' \
-    'gh api -X DELETE repositories/1/git/refs/heads/planwright/demo/spec-rework'; do
+    'gh api -X DELETE repositories/1/git/refs/heads/planwright/demo/spec-rework' \
+    'git push origin --end-of-options -o :planwright/demo/amendment-1' \
+    'git push origin --end-of-options --exec :planwright/demo/spec-rework'; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd"
     reason_has 'spec branch' "[$tier] the delete deny names the spec branch: $cmd"
@@ -534,6 +536,15 @@ for cmd in 'git push origin :planwright/demo/task-1' 'gh api -X DELETE repos/acm
 done
 pg worker 'git push origin 0abc123:planwright/demo/task-1'
 expect defer "[worker] a source that only starts with a zero is no delete"
+# After --end-of-options every word is a refspec, as after --: a word spelled
+# like a value option there is not one, so the refspec after it is read.
+pg worker 'git push origin --end-of-options -vo :planwright/demo/task-2'
+expect deny "[worker] a refspec after --end-of-options and an option-shaped word is read"
+reason_has 'never deletes a unit branch' "[worker] the --end-of-options delete names the unit-branch rule"
+set_knobs 'protected_branches: release/*'
+pg worker 'git push origin --end-of-options -o HEAD:release/1'
+expect deny "[worker] a protected destination after --end-of-options is read"
+set_knobs 'protected_branches:'
 
 # --- a cd that may not run --------------------------------------------------
 
