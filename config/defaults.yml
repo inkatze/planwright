@@ -997,8 +997,9 @@ messaging_heal_cadence_seconds: 300
 #                               through when GitHub reports it MERGEABLE and
 #                               the latest run of every check on its head
 #                               passed, neutral and skipped counting, with at
-#                               least one success; base-state checks and
-#                               superseded cancellations left out, see
+#                               least one success; base-state checks and a
+#                               matrix job's superseded placeholder
+#                               cancellation left out, see
 #                               docs/options-reference.md), refuse (refused
 #                               however few commits behind), or conflict-only
 #                               (let through when MERGEABLE, whatever its
@@ -1015,8 +1016,8 @@ messaging_heal_cadence_seconds: 300
 #                               Read by scripts/base-state-checks.sh
 #                               from the core and adopter layers only; a
 #                               malformed or unread value excludes nothing,
-#                               so every check counts but a superseded
-#                               cancellation.
+#                               so every check counts but a matrix job's
+#                               superseded placeholder cancellation.
 # protected_branches            branch names or globs added to the protected
 #                               floor (main, master, planwright/*/spec), space
 #                               separated on one line; every layer's list

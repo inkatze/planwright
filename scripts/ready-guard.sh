@@ -68,9 +68,9 @@
 # `behind_by`. DEFER only when `mergeable == MERGEABLE` AND either
 # `behind_by == 0` or the behind-base policy lets it through: under the shipped
 # `checks`, when the latest run of every check on the head passed (over
-# scripts/check-runs.jq's selection: base-state checks and superseded
-# cancellations left out); under `conflict-only`, always; under `refuse`,
-# never (see behind_base_policy).
+# scripts/check-runs.jq's selection: base-state checks and a matrix job's
+# superseded placeholder cancellation left out); under `conflict-only`,
+# always; under `refuse`, never (see behind_base_policy).
 # Currency is deliberately NOT keyed on `mergeStateStatus`, which reports
 # `BEHIND` only under the base's "require up to date" branch protection — on an
 # unprotected base (planwright's own `main`) a stale PR reads `CLEAN`, which is
@@ -1072,8 +1072,8 @@ readonly CHECKS_JQ='
 # behind is no condition by itself, so a MERGEABLE PR behind its base passes
 # when the latest run of every check on its head passed. For a pull_request
 # workflow that run built GitHub's merge ref, the head merged into the base.
-# Checks listed in ready_base_state_checks, and cancellations another run
-# superseded, are left out (scripts/check-runs.jq). Any doubt denies: a failed
+# Checks listed in ready_base_state_checks, and a matrix job's placeholder
+# cancellation another run superseded, are left out (scripts/check-runs.jq). Any doubt denies: a failed
 # or timed-out read, an answer about another head, no check at all, or a check
 # failing or still pending.
 behind_checks() {
