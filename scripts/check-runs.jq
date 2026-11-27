@@ -7,15 +7,15 @@
 # the combined rollup state or the raw rollup (obs:f3adc102).
 #
 # A matrix job cancelled under its unexpanded name is dropped first once
-# another run of its workflow passed, starting no earlier, a shard it fits
-# (drop_superseded_cancels, below, has the exact rule). Then a check run
-# listed in $base_state as <workflow>/<name> is left out of the flip
-# conditions, and only the latest run of each check context counts: a re-run
-# supersedes the runs before it, and a run not yet completed is the newest (gh
-# reports an unset time as 0001-01-01). Two runs of one context started in the
-# same second (gh reports whole seconds) are told apart by outcome, the one
-# that did not pass winning, so a tie never lets a failure hide behind a
-# success.
+# another run of its workflow, starting no earlier, succeeded (SUCCESS or
+# NEUTRAL) at a shard that fits it (drop_superseded_cancels, below, has the
+# exact rule). Then a check run listed in $base_state as <workflow>/<name> is
+# left out of the flip conditions, and only the latest run of each check
+# context counts: a re-run supersedes the runs before it, and a run not yet
+# completed is the newest (gh reports an unset time as 0001-01-01). Two runs
+# of one context started in the same second (gh reports whole seconds) are
+# told apart by outcome, the one that did not pass winning, so a tie never
+# lets a failure hide behind a success.
 
 def check_context: if .context != null then ["status", .context] else ["run", .workflowName // "", .name // "-"] end;
 
@@ -51,16 +51,18 @@ def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED
 
 def cancelled_placeholder: check_cancelled and ((.name // "" | tostring) | contains("${{"));
 
-# Unlike check_passed, a skip is no success here: it ran nothing.
+# Unlike check_passed, a skip is no success here (it ran nothing), and a
+# status context never is one.
 def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
   and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
 
-# The longest name, the most expressions, and the most cancelled placeholders
-# a match considers. Check names come from the workflow a pull request
-# carries, and ready-guard.sh runs this selection inside a hook with no time
-# bound on jq, so past any bound a name is never matched and its cancellation
-# keeps counting. At these bounds a 99-entry rollup built to fail every match
-# late costs well under a second.
+# The longest name (of a placeholder and of a successor alike), the most
+# expressions, and the most cancelled placeholders a match considers. Check
+# names come from the workflow a pull request carries, and ready-guard.sh runs
+# this selection inside a hook with no time bound on jq, so past any bound a
+# name is never matched and a placeholder's cancellation keeps counting. A
+# successor's length is judged once, before any pairing. At these bounds a
+# 99-entry rollup built to fail every match late costs well under a second.
 def placeholder_name_max: 128;
 def placeholder_expressions_max: 4;
 def placeholders_considered_max: 16;
@@ -86,7 +88,7 @@ def placeholder_parts:
 # can fit; the later run's own entries for the job still count.
 def fits_parts($parts):
   . as $name | ($parts | length) as $k
-  | $k >= 2 and $parts[0] != "" and $parts[$k - 1] != "" and ($name | length) <= placeholder_name_max
+  | $k >= 2 and $parts[0] != "" and $parts[$k - 1] != ""
     and ($name | startswith($parts[0])) and ($name | endswith($parts[$k - 1]))
     and (reduce $parts[1:$k - 1][] as $part ({at: (($parts[0] | length) + 1)};
         if .at == null then .
@@ -103,9 +105,10 @@ def fits_parts($parts):
 # start after the run it cancelled has finished cancelling. A matrix job
 # cancelled before it expanded is reported under its unexpanded placeholder,
 # though, which the newer run's shard names never replace. So a finished
-# CANCELLED placeholder with a known time is dropped when another workflow run
-# of the same workflow has a check that succeeded (SUCCESS or NEUTRAL, a skip
-# running nothing), started no earlier, under a name its parts fit. Nothing
+# CANCELLED placeholder with a known time and a run id (from its details URL)
+# is dropped when another workflow run of the same workflow, also known by its
+# run id, has a check that succeeded (SUCCESS or NEUTRAL, a skip running
+# nothing), started no earlier, under a name its parts fit. Nothing
 # else is dropped: a failure, a check still running and a pass never are, and
 # a same-name cancellation keeps the latest-run rule, a tie going to it, so a
 # timed-out job reported cancelled cannot hide behind a same-second pass. A
@@ -113,13 +116,13 @@ def fits_parts($parts):
 def drop_superseded_cancels:
   if any(.[]; cancelled_placeholder) | not then . else
     (reduce (.[] | cancelled_placeholder) as $p
-      ({n: 0, ok: []}; .ok += [$p and .n < placeholders_considered_max] | .n += (if $p then 1 else 0 end))
-      | .ok) as $placeholder_ok
+      ({n: 0, considered: []}; .considered += [$p and .n < placeholders_considered_max] | .n += (if $p then 1 else 0 end))
+      | .considered) as $considered
     | [to_entries[] | .key as $i | .value
       | {entry: ., run_id: check_run_id, workflow: (.workflowName // ""), name: (.name // "" | tostring),
-         started: check_started, succeeded: check_succeeded,
-         parts: (if $placeholder_ok[$i] then (.name // "" | tostring | placeholder_parts) else null end)}] as $rows
-    | [$rows[] | select(.succeeded and .run_id != null and .workflow != "")] as $successes
+         started: check_started, succeeded: check_succeeded}
+      | .parts = (if $considered[$i] then (.name | placeholder_parts) else null end)] as $rows
+    | [$rows[] | select(.succeeded and .run_id != null and .workflow != "" and (.name | length) <= placeholder_name_max)] as $successes
     | [$rows[]
         | . as $row
         | ($row.parts != null and $row.run_id != null and $row.started != ""
