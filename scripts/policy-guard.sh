@@ -5742,7 +5742,7 @@ RE_MC_SPLIT_S='-[A-Za-z]*S'
 # the string runs as a command (mc_env_split). The bracket before that S is
 # any letter or digit but env's value letters, uCSaPLU; keep them in step with
 # mc_env_glued_s and mc_wrap_opt_value's env row.
-RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^uCSaPLU[:space:]-]*([uCaPLU][^[:space:]]*)?|--[^[:space:]]*))*)[[:space:]]+(-[ABD-KMNOQRTV-Zb-tv-z0-9]*S|--s[a-z-]*=)[^[:space:]]'
+RE_MC_ENV_SPLIT='(^|[^[:alnum:]_.-])[Ee][Nn][Vv](([[:space:]]+(-[^uCSaPLU[:space:]-]*[uCaPLU][[:space:]]+[^[:space:];&|]+|--(u|c|a)[a-z0-9-]*[[:space:]]+[^[:space:];&|]+|-[^uCSaPLU[:space:]-]*([uCaPLU][^[:space:]]*)?|--[^s[:space:]][^[:space:]]*|--s[^=[:space:]]*))*)[[:space:]]+(-[ABD-KMNOQRTV-Zb-tv-z0-9]*S|--s(p(l(i(t(-(s(t(r(i(ng?)?)?)?)?)?)?)?)?)?)?=)[^[:space:]]'
 # A write verb in unparsed text; sed counts only with an in-place flag.
 RE_MC_WRITE_VERB='(^|[^[:alnum:]_.-])((g?(cp|mv|install|ln|tee|dd|rsync|truncate)([^[:alnum:]_-]|$))|(g?sed[^;&|]*[[:space:]]-([A-Za-z]*i|-in-place)))'
 # A construct that can rebind a variable the screen is trusting.
@@ -6384,10 +6384,12 @@ mc_inplace_unparsed() {
 }
 
 # mc_env_split <text> — in MC_ES, the text with each env -S string glued to
-# its cluster parted off as a statement of its own (RE_MC_ENV_SPLIT). Run it
-# outside nocasematch: a lowercase s is no -S, and a word env does not open is
-# no string of its (git log -Scp). Each match is consumed, so the text is
-# scanned once per match; past the bound the screen refuses (fail closed).
+# its cluster parted off as a statement of its own (RE_MC_ENV_SPLIT), after
+# the text as given on a line of its own: a match in quoted data must not cut
+# a write that follows it out of the scans. Run it outside nocasematch: a
+# lowercase s is no -S, and a word env does not open is no string of its
+# (git log -Scp). Each match is consumed, so the text is scanned once per
+# match; past the bound the screen refuses (fail closed).
 mc_env_split() {
   local t=$1 out='' m pre n=0
   case $t in *[Ee][Nn][Vv]*[S=]*) ;; *)
@@ -6403,7 +6405,11 @@ mc_env_split() {
     out+=$pre${m%?}' ; '
     t=${t:$((${#pre} + ${#m} - 1))}
   done
-  MC_ES=$out$t
+  if [ -n "$out" ]; then
+    MC_ES=$1$NL$out$t
+  else
+    MC_ES=$t
+  fi
 }
 
 # mc_inplace_text <text> [word] — 0 when the text, its quotes and escapes
@@ -7172,6 +7178,27 @@ mc_env_glued_s() {
   esac
   pre=${c%%[uCSaPLU]*}
   [ "${c:${#pre}:1}" = S ] && [ -n "${c:$((${#pre} + 1))}" ]
+}
+# mc_env_string_runs <word> <sep: 0|1> — 0 when env's -S string in the word
+# (the whole word with sep 1, else past its S or =) names a command: a word
+# that is neither an option nor an assignment.
+mc_env_string_runs() {
+  local s=$1 w ws=()
+  if [ "$2" = 0 ]; then
+    case $s in --*=*) s=${s#*=} ;; *) s=${s#*S} ;; esac
+  fi
+  s=${s//\\_/ }
+  s=${s//[\"\'\\]/}
+  read -r -a ws <<<"$s"
+  for w in ${ws[@]+"${ws[@]}"}; do
+    case $w in
+      -* | [A-Za-z_]*=*)
+        [[ $w =~ ^-|^[A-Za-z_][A-Za-z0-9_]*= ]] || return 0
+        ;;
+      *) return 0 ;;
+    esac
+  done
+  return 1
 }
 mc_env_sep_s() {
   local c=${1#-} pre
@@ -8201,6 +8228,11 @@ XEOF_RUN
     mc_unwrap exact
     vx=$MC_VI
     envsi=$MC_ENV_SI envsep=$MC_ENV_SEP
+    # A -S string of assignments and options alone names no command: env
+    # reads it as its own arguments, and the next word runs.
+    if [ "$envsi" -ge 0 ] && ! mc_env_string_runs "${SW[$envsi]}" "$envsep"; then
+      envsi=-1
+    fi
     mc_unwrap
     vi=$MC_VI
     # A runner (a wrapper, xargs, a shell, find and the like) hands text to
