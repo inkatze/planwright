@@ -214,12 +214,28 @@ for tier in worker tower; do
     "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"chore: set id: 5",body:"name: y"')" \
     "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"say ${BS}\"branchName: main${BS}\"\"")" \
     "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"x"},clientMutationId:"c"')" \
-  "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"feature\"}){linkedBranch{id}}}'"; do
+    "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"feature\"}){linkedBranch{id}}}'" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"a${BS}${BS}\",body:\"x id: 5\"")" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"""a " id: 5 """')"; do
     pg "$tier" "$cmd"
     expect defer "[$tier] a branch write naming an unprotected branch literally still defers: $cmd"
     reads protected_branches "[$tier] reads only protected_branches: $cmd"
   done
 done
+# The target-key cap: 64 keys are read, a 65th refuses before any read.
+keys=''
+i=0
+while [ "$i" -lt 63 ]; do
+  keys="$keys,branchName:\"feature\""
+  i=$((i + 1))
+done
+pg worker "$(ccob1 "repositoryNameWithOwner:\"acme/widgets\",branchName:\"feature\"$keys" 'headline:"x"')"
+expect defer "[worker] 64 target keys are read"
+reads protected_branches "[worker] 64 target keys read only protected_branches"
+pg worker "$(ccob1 "repositoryNameWithOwner:\"acme/widgets\",branchName:\"feature\"$keys,branchName:\"feature\"" 'headline:"x"')"
+expect deny "[worker] a 65th target key refuses"
+reason_has 'more target keys' "[worker] the key-cap deny says why"
+reads none "[worker] the key-cap deny reads nothing"
 # Each spelling denies through the rule that reads it, not through another.
 for spec in "plain, non-empty string|$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName:\"ma${BS}u0069n\"")" \
   "plain, non-empty string|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:""')" \
@@ -232,7 +248,9 @@ for spec in "plain, non-empty string|$(ccob "repositoryNameWithOwner:\"acme/widg
   "'planwright/demo/spec' is protected|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"planwright/demo/spec\"}){linkedBranch{id}}}'" \
   "escaped delimiter|gh api graphql -f query='mutation{createCommitOnBranch(input:{message:{headline:\"\"\"a${BS}\"\"\" \"\"\"},branch:{repositoryNameWithOwner:\"acme/widgets\",branchName,:\"main\"},expectedHeadOid:\"abc\",clientMutationId:\"\"\" branchName:\"feature\" ${BS}\"\"\" \"\"\"}){commit{oid}}}'" \
   "plain, non-empty string|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:" "' 'headline:"x"')" \
-  "does not name literally|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",clientMutationId:\"\"\"name:\"\" \"\"\"}){linkedBranch{id}}}'"; do
+  "does not name literally|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",clientMutationId:\"\"\"name:\"\" \"\"\"}){linkedBranch{id}}}'" \
+  "node id|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"a${BS}${BS}\",id:\"REF_x\"")" \
+  "does not close|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"""abc')"; do
   pg worker "${spec#*|}"
   expect deny "[worker] ${spec#*|}"
   reason_has "${spec%%|*}" "[worker] the deny names its own rule (${spec%%|*}): ${spec#*|}"
@@ -318,8 +336,8 @@ for kind in working truncates empty identity; do
   chmod +x "$SANDBOX/tr-$kind/tr"
   LONG=$(printf '%17000s' '' | "$REAL_TR" ' ' X)
   PG_PATH="$SANDBOX/tr-$kind:$PATH" pg worker "echo $LONG; bash scripts/KICKOFF-SPEC-PUSH.SH demo"
-  expect deny "[worker] a long command naming the kickoff push in capitals, with a tr that $kind"
-  reason_has 'too long' "[worker] the long command's deny is the length rule's, with a tr that $kind"
+  expect deny "[worker] a long command naming the kickoff push in capitals, tr stub: $kind"
+  reason_has 'too long' "[worker] the long command's deny is the length rule's, tr stub: $kind"
 done
 
 echo "# gh api: no tier profile defers on every gh api line"

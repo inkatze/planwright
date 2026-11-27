@@ -146,7 +146,8 @@
 #               update deny at every tier with no read; a ref, contents,
 #               commit, or rename write to a named branch reads only the
 #               protected set (a rename checks both names; a contents write
-#               naming no branch denies, since it writes the default branch);
+#               naming no branch denies, since it writes the default branch;
+#               a ref DELETE refuses as the push row's delete does);
 #               a request the guard cannot read (a field from a file or stdin,
 #               an --input body, a non-literal endpoint, method, or query on a
 #               write, a dot or empty segment, a trailing slash or a percent
@@ -1043,8 +1044,8 @@ tokenize() {
 # text folds by expansion. Long text, where the substitutions grow with the
 # square of its matches, takes tr's output only when it ends in the sentinel
 # at the input's length with no upper-case letter left, and folds by
-# expansion otherwise. Under nocasematch a
-# substitution also rewrites the lower-case letter, to itself.
+# expansion otherwise. Under nocasematch a substitution also rewrites the
+# lower-case letter, to itself.
 FOLD_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
 FOLD_LOW=abcdefghijklmnopqrstuvwxyz
 fold_lower() {
@@ -1858,17 +1859,37 @@ RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.
 # shellcheck disable=SC2016 # a regex; `$` is literal
 RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$'
 
-# names_cfgenv — 0 when a word of the segment in SW[] after its command names
-# HOME or XDG_CONFIG_HOME as a variable it sets or drops: the bare name (read,
-# unset, a loop variable), an assignment to it, or a nameref's target. A
-# longer name sharing the prefix (HOMEBREW_*) is not it.
+# names_cfgenv <builtin> — 0 when the segment in SW[] may set or drop HOME or
+# XDG_CONFIG_HOME: a word naming one bare, subscripted (HOME[0] makes it an
+# array, which is not exported), assigned, or attached to an option
+# (printf -vHOME, read -aHOME); a name the guard cannot read; or any nameref,
+# which a later assignment can bind to either. A for or select loop sets only
+# its variable, and printf only its -v target. A longer name sharing the
+# prefix (HOMEBREW_*) is not it.
 names_cfgenv() {
-  local w
-  for w in "${SW[@]:1}"; do
+  local w k=1 n=${#SW[@]}
+  case $1 in
+    for | select) n=2 ;;
+  esac
+  while [ "$k" -lt "$n" ]; do
+    w=${SW[$k]}
+    if [ "$1" = printf ]; then
+      case $w in
+        -v) w=${SW[$((k + 1))]:-} ;;
+        -v?*) w=${w#-v} ;;
+        *) w='' ;;
+      esac
+    fi
     case $w in
-      HOME | HOME=* | HOME+=* | XDG_CONFIG_HOME | XDG_CONFIG_HOME=* | XDG_CONFIG_HOME+=*) return 0 ;;
-      *=HOME | *=XDG_CONFIG_HOME) return 0 ;;
+      HOME | HOME=* | HOME+=* | 'HOME['* | XDG_CONFIG_HOME | XDG_CONFIG_HOME=* | XDG_CONFIG_HOME+=* | 'XDG_CONFIG_HOME['*) return 0 ;;
+      -*[av]HOME | -*[av]'HOME['* | -*[av]XDG_CONFIG_HOME | -*[av]'XDG_CONFIG_HOME['*) return 0 ;;
+      -*n*)
+        case $1 in declare | typeset | local) return 0 ;; esac
+        ;;
     esac
+    # A name assembled by an expansion could be either.
+    case ${w%%=*} in *'$'* | *'`'*) return 0 ;; esac
+    k=$((k + 1))
   done
   return 1
 }
@@ -2929,11 +2950,10 @@ classify_segments() {
           case " ${SW[*]} " in
             *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;
           esac
-          case "$base_verb: ${SW[*]} " in
-            printf:*" -v"*) ! names_cfgenv || CFGENV_SET=1 ;;
-            printf:*) ;;
-            *) ! names_cfgenv || CFGENV_SET=1 ;;
-          esac
+          if names_cfgenv "$base_verb"; then
+            CFGENV_SET=1
+            ST_FILT=1
+          fi
           # A value the shell later runs (a startup or prompt hook, an
           # arithmetic subscript) is screened as a command; printf sets one
           # only with -v.
@@ -2947,10 +2967,14 @@ classify_segments() {
           esac
           ;;
       esac
-      # Builtins that assign or drop a variable named among their words.
+      # Builtins that assign or drop a variable named among their words; the
+      # kickoff filter screen reads ST_FILT for the same move.
       case $base_verb in
         read | mapfile | readarray | getopts | unset | for | select)
-          ! names_cfgenv || CFGENV_SET=1
+          if names_cfgenv "$base_verb"; then
+            CFGENV_SET=1
+            ST_FILT=1
+          fi
           ;;
       esac
       case $base_verb in
@@ -3444,9 +3468,10 @@ norm_endpoint() {
 # swap what is string and what is query for the rest of it.
 gql_mask() {
   local -a p=() out=()
-  local n i=1 j t
-  # One split on the quote, so the walk stays linear; the here-string's
-  # newline keeps a trailing empty piece from being dropped.
+  local n i=1 j tl b
+  # One split on the quote, and only lengths kept for a string's body, so the
+  # walk stays linear; the here-string's newline keeps a trailing empty piece
+  # from being dropped.
   IFS='"' read -r -d '' -a p <<<"$1" || :
   n=${#p[@]}
   p[n-1]=${p[n-1]%$'\n'}
@@ -3455,34 +3480,36 @@ gql_mask() {
     if [ "$((i + 2))" -lt "$n" ] && [ -z "${p[$i]}" ] && [ -z "${p[$((i + 1))]}" ]; then
       # A block string: its body runs to the next three quotes in a row.
       j=$((i + 2))
-      t=''
+      tl=0
       while :; do
         [ "$((j + 3))" -lt "$n" ] || return 1
         if [ -z "${p[$((j + 1))]}" ] && [ -z "${p[$((j + 2))]}" ]; then
           case ${p[$j]} in *\\) return 1 ;; esac
-          t=$t${p[$j]}
+          tl=$((tl + ${#p[$j]}))
           break
         fi
-        t=$t${p[$j]}'"'
+        tl=$((tl + ${#p[$j]} + 1))
         j=$((j + 1))
       done
-      out[${#out[@]}]='"""'${t//?/ }'"""'
+      printf -v b '%*s' "$tl" ''
+      out[${#out[@]}]='"""'$b'"""'
       i=$((j + 3))
     else
       # A plain string closes at the first quote after an even run of
       # backslashes; dropping each pair of them leaves the run's parity.
       j=$i
-      t=''
+      tl=0
       while :; do
         [ "$((j + 1))" -lt "$n" ] || return 1
-        t=$t${p[$j]}
+        tl=$((tl + ${#p[$j]}))
         case ${p[$j]//\\\\/} in
-          *\\) t=$t'"' ;;
+          *\\) tl=$((tl + 1)) ;;
           *) break ;;
         esac
         j=$((j + 1))
       done
-      out[${#out[@]}]='"'${t//?/ }'"'
+      printf -v b '%*s' "$tl" ''
+      out[${#out[@]}]='"'$b'"'
       i=$((j + 1))
     fi
     [ "$i" -ge "$n" ] || out[${#out[@]}]=${p[$i]}
@@ -3905,7 +3932,7 @@ classify_gh_api() {
       heads/*)
         if [ "$um" = DELETE ] && { { [ "$TIER" = worker ] && is_unit_branch "${orig_rest#heads/}"; } \
           || { [ "$TIER" != mission-control ] && is_spec_family "${orig_rest#heads/}"; }; }; then
-          deny_now "$(worker_delete_deny "this gh api request" "${orig_rest#heads/}")"
+          deny_now "$(remote_delete_deny "this gh api request" "${orig_rest#heads/}")"
           return 0
         fi
         queue_protected "$eff" "$eff_ok" "this gh api ref write" "${orig_rest#heads/}"
@@ -3979,10 +4006,10 @@ classify_gh_api() {
   return 0
 }
 
-# worker_delete_deny <what> <branch> — the reason for deleting, on the remote,
+# remote_delete_deny <what> <branch> — the reason for deleting, on the remote,
 # a unit branch (the worker tier's refusal) or a spec's amendment or
 # spec-rework branch (the worker's and the tower's).
-worker_delete_deny() {
+remote_delete_deny() {
   if is_spec_family "$2"; then
     printf '%s' "$1 deletes $(sanitize_printable "$2" 'a spec branch') on the remote, a spec's amendment or spec-rework branch and so a spec branch; neither a worker nor the tower deletes one, since deleting and pushing it again would rewrite it with no lease - refusing. Leave it to the operator."
     return 0
@@ -4282,7 +4309,7 @@ act_gate() {
     return 1
   fi
   if [ "$ST_CFG" = 1 ] || [ "$ST_REF" = 1 ]; then
-    deny_now "$what follows a git config, remote, branch, checkout, switch, reset, or ref change in the same command; the guard checks the state as it is before the command runs - refusing (fail closed). Run the change first, as its own command."
+    deny_now "$what follows a git config, remote, branch, checkout, switch, reset, or ref change, or a fetch or pull that records an upstream, in the same command; the guard checks the state as it is before the command runs - refusing (fail closed). Run the change first, as its own command."
     return 1
   fi
   if [ "$kind" = rewrite ] && { [ "$ST_PUSH" = 1 ] || [ "$ST_FETCH" = 1 ] || [ "$ST_HEAD" = 1 ]; }; then
@@ -4310,28 +4337,57 @@ git_state_after() {
   done
   case $1 in
     config)
-      # A config command reads only by a read option or a leading read
-      # subcommand: a list or show word elsewhere may be a key, value,
-      # value-pattern or comment, and git writes the key all the same. A
-      # removal, rename, replace or add names one key or section, and can
-      # uncover a value a lower layer or an earlier include sets.
-      local cro=0 cw=0
-      case ${SW[$2]:-} in
-        list | get) cro=1 ;;
-        set | unset | rename-section | remove-section | edit) cw=1 ;;
-      esac
+      # A config command reads only by a read option standing as an option
+      # (before the first argument, not after --, not as a value option's
+      # value) or by a leading list or get subcommand: a read word anywhere
+      # else is a key, value, value-pattern or comment, and git writes the key
+      # all the same. A removal, rename, replace, add or edit changes the
+      # configuration, and a removal can uncover a value a lower layer or an
+      # earlier include sets.
+      local cro=0 cw=0 skip=0 args=0 cpos=0
       for a in "${SW[@]:$2}"; do
+        # A value option's value counts as a word, as every plain word did
+        # before this rule read options, so no write that refused before
+        # passes now.
+        if [ "$skip" = 1 ]; then
+          skip=0
+          cpos=$((cpos + 1))
+          continue
+        fi
         case $a in
+          --un* | --rem* | --ren* | --rep* | --add | --ed* | -e | -[!-]*e*) cw=1 ;;
+        esac
+        # From the first argument on, git reads every word as one.
+        if [ "$args" = 1 ]; then
+          cpos=$((cpos + 1))
+          continue
+        fi
+        case $a in
+          --) args=1 ;;
           --get | --get-all | --get-regexp | --get-urlmatch | --get-color | --get-colorbool | --list | -l) cro=1 ;;
-          --un* | --rem* | --ren* | --rep* | --add) cw=1 ;;
+          --comment | --file | -f | --blob | --type | --default | --value) skip=1 ;;
+          -*) ;;
+          list | get)
+            cro=1
+            args=1
+            ;;
+          set | unset | rename-section | remove-section | edit)
+            cw=1
+            args=1
+            ;;
+          *)
+            args=1
+            cpos=1
+            ;;
         esac
       done
       [ "$cw" = 0 ] || ST_CFG=1
-      [ "$cro" = 1 ] || [ "$pos" -lt 2 ] || ST_CFG=1
-      # Every word is read whatever ro says, since a value or value-pattern
-      # can spell a read verb (git config filter.y.clean sh list writes the
-      # key). Any filter key but required may be a program, and a section
-      # renamed into filter.* brings its keys along; an include, an editor or
+      [ "$cro" = 1 ] || [ "$cpos" -lt 2 ] || ST_CFG=1
+      # Every word is screened here whatever the read evidence says, since a
+      # value or value-pattern can spell a read verb (git config
+      # filter.y.clean sh list writes the key). Any filter key but required
+      # may be a program, and a section renamed into filter.* brings its keys
+      # along; an include, an editor or
       # a word the shell may still expand (a brace sequence spells
       # fil{t..t}er) may set anything. The rename word may follow the key, so
       # it is looked for first.
@@ -4357,26 +4413,48 @@ git_state_after() {
     remote)
       case $rsub in '' | show | get-url) ;; *) ST_CFG=1 ;; esac
       ;;
-    branch | tag)
-      [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1
-      # A move, copy, delete, force or upstream option writes whatever list
-      # word stands beside it, and an upstream set in one word leaves no
-      # positional while it changes branch.<b>.merge all the same.
-      if [ "$1" = branch ]; then
-        for a in "${SW[@]:$2}"; do
-          case $a in
-            -[mMcCdDfut]* | -[!-]*[mMcCdDfut]* | --mo* | --cop* | --del* | --forc* | --tr* | --no-tr* | --set-u* | --unset-u* | --edit*) ST_REF=1 ;;
-          esac
-        done
-      fi
+    tag) [ "$ro" = 1 ] || [ "$pos" = 0 ] || ST_REF=1 ;;
+    branch)
+      # Only a list-mode option makes a branch name a pattern; beside -v, or
+      # spelled list or show, it creates a branch, whose upstream git may
+      # record. A move, copy, delete, force, upstream or description option,
+      # in any abbreviation git takes, writes whatever stands beside it, and
+      # an upstream set in one word leaves no positional. A value option's
+      # value (--sort -committerdate) is neither a name nor a cluster.
+      local bl=0 bpos=0 skip=0 x nm
+      for a in "${SW[@]:$2}"; do
+        if [ "$skip" = 1 ]; then
+          skip=0
+          continue
+        fi
+        case $a in
+          --list | -l | -a | --all | -r | --remotes | --show-current | --contains* | --no-contains* | --merged* | --no-merged* | --points-at*) bl=1 ;;
+        esac
+        case $a in
+          --sort | --format | --contains | --no-contains | --merged | --no-merged | --points-at) skip=1 ;;
+          --*)
+            nm=${a#--}
+            nm=${nm%%=*}
+            for x in move copy delete force track no-track set-upstream-to unset-upstream edit-description; do
+              case $x in "$nm"*) ST_REF=1 ;; esac
+            done
+            ;;
+          -?*)
+            case $a in -*[mMcCdDfut]*) ST_REF=1 ;; esac
+            ;;
+          *) bpos=$((bpos + 1)) ;;
+        esac
+      done
+      [ "$bl" = 1 ] || [ "$bpos" = 0 ] || ST_REF=1
       ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;
     merge | pull | commit | cherry-pick | am | revert | rebase)
       ST_HEAD=1
-      # pull --set-upstream records branch.<b>.merge.
+      # pull --set-upstream, or any abbreviation down to --set, records
+      # branch.<b>.merge.
       if [ "$1" = pull ]; then
         for a in "${SW[@]:$2}"; do
-          case $a in --set-up*) ST_CFG=1 ;; esac
+          case $a in --set*) ST_CFG=1 ;; esac
         done
       fi
       ;;
@@ -4385,7 +4463,7 @@ git_state_after() {
       ST_FETCH=1
       for a in "${SW[@]:$2}"; do
         case $a in
-          --set-up*) ST_CFG=1 ;;
+          --set*) ST_CFG=1 ;;
           -*) ;;
           *:*) ST_FETCHSPEC=1 ;;
         esac
@@ -5324,7 +5402,7 @@ classify_git_push() {
   # remote and pushing it again would publish a rewrite with no lease: refused
   # to the worker tier whatever the branch's state, and the spec branches to
   # the tower too, which rewrites no spec branch.
-  if [ "$TIER" = worker ] || [ "$TIER" = tower ]; then
+  if [ "$TIER" != mission-control ]; then
     local t
     for r in ${refs[@]+"${refs[@]}"}; do
       t=''
@@ -5340,7 +5418,7 @@ classify_git_push() {
       t=${t#refs/heads/}
       t=${t#heads/}
       if [ -n "$t" ] && { { [ "$TIER" = worker ] && is_unit_branch "$t"; } || is_spec_family "$t"; }; then
-        deny_now "$(worker_delete_deny "this git push" "$t")"
+        deny_now "$(remote_delete_deny "this git push" "$t")"
         return 0
       fi
     done
