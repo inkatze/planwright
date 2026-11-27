@@ -3834,6 +3834,13 @@ classify_gh_api() {
         return 0
         ;;
     esac
+    # It also takes that branch off the remote, as deleting it would, so it is
+    # refused where the delete is.
+    if { [ "$TIER" = worker ] && is_unit_branch "$renamed"; } \
+      || { [ "$TIER" != mission-control ] && spec_family_branch "$renamed"; }; then
+      deny_now "this gh api branch rename moves $(sanitize_printable "$renamed" 'a unit or spec branch') off the remote, as deleting it would; a worker never renames or deletes a unit branch, and no session renames or deletes a spec's amendment or spec-rework branch - refusing. Add new commits instead."
+      return 0
+    fi
     local fv new_name='' i2=0
     while [ "$i2" -lt "${#fields[@]}" ]; do
       fv=${fields[$i2]}
@@ -3895,6 +3902,31 @@ classify_gh_api() {
 # unit branch on the remote.
 worker_delete_deny() {
   printf '%s' "$1 deletes $(sanitize_printable "$2" 'a unit branch') on the remote; a worker never deletes a unit branch, its own included, since deleting and pushing it again would publish a rewrite with no lease - refusing. Add new commits, or publish a rewrite of your own draft branch through scripts/worker-branch-sync.sh push."
+}
+
+# spec_family_branch <branch> — 0 when the branch, in any case, is a spec's
+# amendment branch (planwright/<spec>/amendment-<digits>) or its spec-rework
+# branch, which the protected set does not hold. Folded by expansion, so a tr
+# that failed cannot fold the name to one that matches nothing.
+spec_family_branch() {
+  local b=$1 rest spec leaf i=0 up=ABCDEFGHIJKLMNOPQRSTUVWXYZ low=abcdefghijklmnopqrstuvwxyz
+  while [ "$i" -lt 26 ]; do
+    b=${b//${up:$i:1}/${low:$i:1}}
+    i=$((i + 1))
+  done
+  case $b in planwright/?*/?*) ;; *) return 1 ;; esac
+  rest=${b#planwright/}
+  spec=${rest%%/*}
+  leaf=${rest#*/}
+  case $spec in flight | -* | *[!a-z0-9-]*) return 1 ;; esac
+  case $leaf in
+    spec-rework) return 0 ;;
+    amendment-?*)
+      case ${leaf#amendment-} in *[!0-9]*) return 1 ;; esac
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 # queue_protected <eff> <eff_ok> <what> <branch...>

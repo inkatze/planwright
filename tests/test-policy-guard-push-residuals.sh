@@ -157,5 +157,29 @@ done
 pg worker 'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=heads/feature'
 expect defer "[worker] a contents write to heads/feature still defers"
 
+# --- gh api branch renames that move a branch away (item C) -----------------
+
+echo "# gh api renames of a unit or spec-family branch"
+# A rename takes the branch off the remote as a delete does, so it is refused
+# where the matching delete is: a unit branch for a worker, a spec's amendment
+# or spec-rework branch for a worker or the tower.
+for tier in worker tower; do
+  for b in planwright/demo/amendment-2 planwright/demo/spec-rework Planwright/Demo/Amendment-3; do
+    pg "$tier" "gh api -X POST repos/acme/widgets/branches/$b/rename -f new_name=feature-z"
+    expect deny "[$tier] a rename of $b denies, as its delete does"
+    reason_has 'rename' "[$tier] the $b rename deny names the rename"
+  done
+done
+for b in planwright/demo/task-2 planwright/flight/other-1; do
+  pg worker "gh api -X POST repos/acme/widgets/branches/$b/rename -f new_name=feature-z"
+  expect deny "[worker] a rename of the unit branch $b denies, as its delete does"
+done
+for b in planwright/demo/amendment-x planwright/demo/spec-reworks feature-x; do
+  pg worker "gh api -X POST repos/acme/widgets/branches/$b/rename -f new_name=feature-z"
+  expect defer "[worker] a rename of $b (no unit or spec-family branch) defers"
+done
+pg tower 'gh api -X POST repos/acme/widgets/branches/planwright/demo/task-2/rename -f new_name=feature-z'
+expect defer "[tower] a rename of a unit branch defers, as its delete does at the tower"
+
 no_gh_calls
 finish
