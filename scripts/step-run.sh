@@ -918,7 +918,7 @@ render_line() {
   fi
   if ! committed_location "$ROW_LOCATION"; then
     if [ "$LOC_NO_TRUST" = 2 ]; then
-      printf 'step-run: step %s not run: its location %s is in the worktree its worker session record names, and that record names no usable PR base (pr_base), so this session trusts no commit there; no edit to the location and no fetch makes it runnable, only a relaunch with a unit or spec PR branch checked out, whose launch record names one\n' \
+      printf 'step-run: step %s not run: its location %s is in the worktree its worker session record names, and that record names no usable PR base (pr_base), so this session trusts no commit there; no edit to the location and no fetch makes it runnable, only a relaunch with a task or flight branch, or a planwright/<spec>/spec, spec-rework or amendment-<n> branch, checked out, whose launch record names one\n' \
         "$STEP" "$ROW_LOCATION" >"$work/loc.err"
     elif [ "$LOC_NO_TRUST" = 1 ]; then
       printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record is unusable or names no usable worktree, the base ref is missing, symbolic or shares no commit with HEAD, or the checkout is nested in that worktree); no edit to the location makes it runnable here, though fetching a missing base ref may\n' \

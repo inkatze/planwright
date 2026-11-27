@@ -1045,9 +1045,10 @@ authenticated account itself, on the unit's own open pull request.
 
 `mix ci`, `mix format` and `mix test`, with a short flag list and relative
 paths of the worktree, run unprompted only in a session whose record names a
-unit branch (a spec PR branch's record names a PR base but keeps prompting), and only
-while the diff of the worktree
-against the merge base with `refs/remotes/<pr_base>`, the untracked and ignored
+unit branch (the record of a `planwright/<spec>/spec`, `spec-rework` or
+`amendment-<n>` branch names a PR base but keeps prompting), and only while
+the diff of the worktree against the merge base with
+`refs/remotes/<pr_base>`, the untracked and ignored
 files, and the assume-unchanged and skip-worktree flags show nothing but
 images. Anything else the PR adds or changes keeps prompting, documents
 included (a base can read one as code), so committed code cannot be run

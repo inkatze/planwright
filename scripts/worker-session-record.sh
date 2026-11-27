@@ -27,9 +27,9 @@
 #                      (planwright/<spec>/spec, spec-rework or amendment-<n>,
 #                      narrower than spec_branch's grammar below); omitted on
 #                      any other branch, or when the remote's name falls
-#                      outside its grammar. The command guard and the step runner hold the
-#                      worktree's trusted files to its merge base, so a
-#                      record without it trusts none
+#                      outside its grammar. The command guard and the step
+#                      runner hold the worktree's trusted files to its merge
+#                      base, so a record without it trusts none
 #   stack_base        <remote>/<branch>: the base of a stacked pull request
 #                      (one whose base is another feature branch), from
 #                      --base <branch> or, with --base-from-pr, the PR's

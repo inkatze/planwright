@@ -567,17 +567,18 @@ committed or not, whichever spelling reaches it (`sh`, `bash`, a direct path,
 a symlinked folder, a `..` walk, inside `fish -c` or a loop, behind
 `timeout`), and so does `bats` on a folder; one the base gained counts once
 the worker merges the base. A record with no `pr_base` or a repeated one, a
-`pr_base` with no remote-tracking ref or one that is a symbolic ref, or a
+`pr_base` outside its grammar or with no remote-tracking ref or one that is a symbolic ref, or a
 base with no commit in common trusts no file in the worktree (a checkout
 outside it keeps HEAD), and a repository nested in the worktree trusts none
 either. The
 launcher writes `pr_base` for a task or flight branch and for a spec PR
 branch (`planwright/<spec>/spec`, `spec-rework` or `amendment-<n>`, the
 shapes a kickoff scope names), whose commits below that merge base are the
-base's own, as on a unit branch. A session whose checkout, primary or linked,
-holds any other branch or a detached HEAD prompts on every repository script,
-`bats` file and linter config in it, and step-run's refusal says its record
-names no PR base. A test suite the worker adds
+base's own, as on a unit branch. A session launched with any other branch or
+a detached HEAD checked out, primary or linked, prompts on every repository
+script, `bats` file and linter config in it, and step-run's refusal says its
+record names no PR base; the record is the launch's, so a later branch
+switch keeps the base it recorded. A test suite the worker adds
 prompts on every run for the life of its PR, through the compute router too
 (`compute-route.sh --test tests/test-x.sh -- bash tests/test-x.sh`): mission
 control vets each run, and `mise run` and a declared check command stay the

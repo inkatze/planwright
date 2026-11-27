@@ -1044,7 +1044,7 @@ else
   fail "spec PR branch: guard ok=$(guard_says 'bash scripts/ok.sh') own=$(guard_says 'bash scripts/own.sh') edited=$(guard_says 'bash scripts/edited.sh')"
 fi
 # The base also opens the own-branch merge arm for a unit; a spec PR branch's
-# record names none, so the merge still prompts.
+# record names no unit branch, so the merge still prompts.
 write "$WT"
 unit_merge=$(guard_says 'git merge origin/main' "$WT")
 REC=$SPEC_REC

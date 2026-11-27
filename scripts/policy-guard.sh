@@ -5261,9 +5261,9 @@ spec_route() {
 # planwright/<spec>/amendment-<n>; an amendment kickoff's scope
 # (kickoff_amendment_scope) names planwright/<spec>/amendment-<n> alone, and
 # denies when another spec's kickoff could share that scope. 1 otherwise.
-# KSN_NAME: the branch's last component, set when 0. scripts/
-# worker-session-record.sh records a PR base for the same branch shapes; the
-# two change together.
+# KSN_NAME: the branch's last component, set when 0.
+# scripts/worker-session-record.sh records a PR base for the same branch
+# shapes; the two change together.
 KSN_NAME=''
 kickoff_scope_names() {
   local b=$1 rest spec name
