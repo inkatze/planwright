@@ -360,6 +360,10 @@ loc_ran() { loc_run "$1" && [ -s "$tmp/ran" ] && grep -q '^passed' "$tmp/loc.out
 # NO_TRUST for the one given where no commit is trusted at all.
 EDIT='not as its trusted commit holds it'
 NO_TRUST='trusts no commit of'
+# NO_BASE for the one given where the record names no usable PR base, which no
+# fetch can repair: no_base_refused checks it says so and suggests none.
+NO_BASE='names no usable PR base'
+no_base_refused() { loc_refused "$1" "$NO_BASE" && ! grep -q 'fetching' "$tmp/loc.err"; }
 loc_refused() {
   ! loc_run "$1" && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
     && grep -q "${2:-$EDIT}" "$tmp/loc.err"
@@ -433,8 +437,8 @@ verdict $? "under a record, a local branch standing in for the deleted base ref 
 git -C "$lw" branch -q -D refs/remotes/origin/main
 git -C "$lw" update-ref refs/remotes/origin/main HEAD
 printf 'worktree_root=%s\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
-verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
+no_base_refused "$lw/tools/mark.sh"
+verdict $? "under a record with no pr_base, a location is refused, saying so and suggesting no fetch" "$(loc_out)"
 printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
 loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
@@ -448,11 +452,11 @@ for spec in "$lwp/|trailing slash" "$tmp/gone|a missing directory" "$tmp/elsewhe
   verdict $? "under a record whose worktree_root is not a canonical checkout (${spec#*|}), a location is refused" "$(loc_out)"
 done
 printf 'worktree_root=%s\npr_base=origin/main\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+no_base_refused "$lw/tools/mark.sh"
 verdict $? "under a record repeating pr_base, a location is refused" "$(loc_out)"
 git -C "$lw" update-ref refs/remotes/o+x/main HEAD
 printf 'worktree_root=%s\npr_base=o+x/main\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+no_base_refused "$lw/tools/mark.sh"
 verdict $? "under a record whose pr_base names a remote outside its grammar, a location is refused" "$(loc_out)"
 git -C "$lw" update-ref -d refs/remotes/o+x/main
 {

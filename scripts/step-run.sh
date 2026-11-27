@@ -233,7 +233,8 @@ rgit() (
 # tell where; docs/permission-matcher-model.md lists each such record, as
 # the checks below and the guard's session_record_load apply them. Unlike the
 # guard it keeps no exception for a planwright root. Returns 1, printing
-# nothing, wherever nothing is trusted.
+# nothing, wherever nothing is trusted, and 2 where that is only because the
+# record names no usable pr_base, which no fetch repairs.
 trusted_commit() {
   local rec=${PLANWRIGHT_WORKER_SESSION_RECORD:-} line r_wt='' r_base='' r_sc='' n_wt=0 n_base=0 n_sc=0 size rdir sc oid rev
   if [ -z "$rec" ]; then
@@ -308,13 +309,13 @@ trusted_commit() {
   fi
   case $r_base in
     [A-Za-z0-9]*/?*) ;;
-    *) return 1 ;;
+    *) return 2 ;;
   esac
   case $r_base in
-    *[!A-Za-z0-9._/+@-]* | *..* | *//* | */ | *.lock | *.lock/* | */.* | *.) return 1 ;;
+    *[!A-Za-z0-9._/+@-]* | *..* | *//* | */ | *.lock | *.lock/* | */.* | *.) return 2 ;;
   esac
   case ${r_base%%/*} in
-    *[!A-Za-z0-9._-]*) return 1 ;;
+    *[!A-Za-z0-9._-]*) return 2 ;;
   esac
   ! rgit -C "$1" symbolic-ref -q "refs/remotes/$r_base" >/dev/null 2>&1 || return 1
   oid=$(rgit -C "$1" show-ref --verify --hash "refs/remotes/$r_base" 2>/dev/null) || return 1
@@ -341,7 +342,8 @@ trusted_commit() {
 # folder) refuses rather than trusts. Under a worker session record, a
 # location in a repository nested in the worktree is refused whatever it
 # holds, however it is spelled. LOC_NO_TRUST says the refusal was for
-# want of any trusted commit, so the message names no edit as the remedy.
+# want of any trusted commit, so the message names no edit as the remedy: 2
+# when the record names no usable pr_base (trusted_commit), 1 otherwise.
 LOC_NO_TRUST=0
 committed_location() {
   local loc=$1 d full root line meta want have rev r
@@ -383,7 +385,9 @@ committed_location() {
   esac
   [ -f "$full" ] && [ ! -L "$full" ] || return 1
   rev=$(trusted_commit "$root") || {
+    r=$?
     LOC_NO_TRUST=1
+    [ "$r" != 2 ] || LOC_NO_TRUST=2
     return 1
   }
   line=$(rgit -C "$root" -c core.quotePath=false ls-tree --full-tree "$rev" -- "${full#"$root"/}" 2>/dev/null) || return 1
@@ -912,8 +916,11 @@ render_line() {
     finish failed "$1"
   fi
   if ! committed_location "$ROW_LOCATION"; then
-    if [ "$LOC_NO_TRUST" = 1 ]; then
-      printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record names no usable worktree or base, the base ref is missing, symbolic or shares no commit with HEAD, or the checkout is nested in that worktree); no edit to the location makes it runnable here, though fetching a missing base ref may\n' \
+    if [ "$LOC_NO_TRUST" = 2 ]; then
+      printf 'step-run: step %s not run: its location %s is in the worktree its worker session record names, and that record names no usable PR base (pr_base), so this session trusts no commit there; no edit to the location and no fetch makes it runnable, only a record that names one\n' \
+        "$STEP" "$ROW_LOCATION" >"$work/loc.err"
+    elif [ "$LOC_NO_TRUST" = 1 ]; then
+      printf 'step-run: step %s not run: its location %s is in a git checkout this session trusts no commit of (its worker session record names no usable worktree, the base ref is missing, symbolic or shares no commit with HEAD, or the checkout is nested in that worktree); no edit to the location makes it runnable here, though fetching a missing base ref may\n' \
         "$STEP" "$ROW_LOCATION" >"$work/loc.err"
     else
       printf 'step-run: step %s not run: its location %s is in a git checkout, but not as its trusted commit holds it (HEAD, or the base in the worktree a worker session record names), or git cannot answer for that checkout; put it back, or outside that worktree commit it\n' \
