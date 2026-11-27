@@ -170,7 +170,7 @@ ci_check_run() {
   printf '{"__typename": "CheckRun", "name": "%s", "workflowName": "%s", "status": "COMPLETED", "conclusion": "%s", "startedAt": "%s", "detailsUrl": "https://github.com/acme/web/actions/runs/%s/job/1"}' \
     "$2" "${5:-ci}" "$3" "${4:-2026-11-26T10:34:03Z}" "$1"
 }
-collect_superseded() { # collect_superseded <label> <out name>: collect over the rollup superseded_pr wrote
+collect_superseded() { # collect_superseded <label> <out name>: collect over the rollup superseded_pr wrote, loading it into c
   PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/$2"
   expect_rc "$1" 0
   c=$(cat "$tmp/$2" 2>/dev/null)
@@ -202,6 +202,9 @@ hasnt "a superseded window-lock is not named for bypass" "bypass${tab}window-loc
 superseded_pr "$(ci_check_run 780 window-lock FAILURE '' release-window), $(ci_check_run 781 window-lock SUCCESS '' release-window), $live_run"
 collect_superseded "collect over a head with two window-lock runs started together" collected-locktie
 has "a tie in start names the window-lock run that did not pass for bypass" "bypass${tab}window-lock${tab}FAILURE"
+superseded_pr "$(ci_check_run 781 window-lock SUCCESS '' release-window), $(ci_check_run 780 window-lock FAILURE '' release-window), $live_run"
+collect_superseded "collect over the same tie listed the other way round" collected-locktie2
+has "and listing order does not change which one is named" "bypass${tab}window-lock${tab}FAILURE"
 mv "$tmp/pr.json.keep" "$tmp/pr.json"
 # The payload the ready-flip guard is asked about names the pull request and the
 # repository as two separate arguments of one format.

@@ -2,8 +2,9 @@
 # scripts/ready-guard.sh, scripts/ready-flip.sh and scripts/mc-readiness.sh
 # judge readiness by. Each prepends this file to its own program, so a fix here
 # reaches all three. Some other readers of a head's checks apply none of it:
-# the release gate (rl_ci_state in scripts/release-lib.sh) judges every check
-# strictly, and others read GitHub's combined rollup state (obs:f3adc102).
+# the release gate (rl_ci_state in scripts/release-lib.sh), beyond its own
+# window-lock and flip-point exclusions, judges every check, and others read
+# the combined rollup state or the raw rollup (obs:f3adc102).
 #
 # A cancelled check that a newer run of its workflow made obsolete is dropped
 # first (drop_superseded_cancels, below). Then a check run listed in
@@ -39,9 +40,9 @@ def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name 
 # drop below matches names exactly or by placeholder.
 def mac_family: (.name // "") | split(" ")[0];
 
-# The workflow run a check run belongs to, from its details URL; null for a
-# status context or a check run with no such URL.
-def check_workflow_run: if .context != null then null
+# The id of the workflow run a check run belongs to, from its details URL;
+# null for a status context or a check run with no such URL.
+def check_run_id: if .context != null then null
   else ((.detailsUrl // "") | capture("/actions/runs/(?<id>[0-9]+)")? | .id) // null end;
 
 def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED" and (.conclusion // "") == "CANCELLED";
@@ -50,18 +51,31 @@ def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED
 def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
   and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
 
-def regex_quote: gsub("(?<c>[\\\\.^$*+?()\\[\\]{}|])"; "\\\(.c)");
+# A matrix job cancelled before it expanded keeps `${{ … }}` in its name. Its
+# fixed parts, the text around each expression, are what an expanded name of
+# that job must keep: `test (shard 1/2)` fits `test (shard ${{ matrix.shard
+# }}/…)`. A name with no expression has none.
+def placeholder_parts: if contains("${{") then [splits("\\$\\{\\{.*?\\}\\}")] else null end;
 
-# Whether a check name could be one an unexpanded placeholder name stands for:
-# a matrix job cancelled before it expanded keeps `${{ … }}` in its name, so
-# `test (shard 1/2)` fits `test (shard ${{ matrix.shard }}/…)`. Every fixed
-# part of the placeholder must appear, in order, with something in place of
-# each `${{ … }}`; a placeholder that starts or ends with `${{ … }}` fits
-# nothing, since a bare prefix or suffix would let unrelated jobs fit it.
-def fits_placeholder($placeholder):
-  ($placeholder | [splits("\\$\\{\\{.*?\\}\\}")]) as $parts
-  | $parts[0] != "" and ($parts | last) != ""
-    and test("^" + ($parts | map(regex_quote) | join(".+")) + "$");
+# Whether a name fits a placeholder's parts: it starts with the first, ends
+# with the last, and holds every middle part in order, with at least one
+# character in place of each expression. Plain string matching, so no name can
+# make it slow and jq and gojq agree. A placeholder that starts or ends with an
+# expression fits nothing, since a bare prefix or suffix would let unrelated
+# jobs fit it. An expression's stand-in may itself hold fixed text, so a
+# sibling job shaped like a shard can fit; the later run's own entries for the
+# job still count.
+def fits_parts($parts):
+  . as $name | ($parts | length) as $k
+  | $k >= 2 and $parts[0] != "" and $parts[$k - 1] != ""
+    and ($name | startswith($parts[0])) and ($name | endswith($parts[$k - 1]))
+    and (reduce $parts[1:$k - 1][] as $part ({at: (($parts[0] | length) + 1)};
+        if .at == null then .
+        else ($name[.at:] | split($part)) as $pieces
+          | if ($pieces | length) < 2 then {at: null}
+            else {at: (.at + ($pieces[0] | length) + ($part | length) + 1)} end
+        end)
+      | .at != null and .at <= ($name | length) - ($parts[$k - 1] | length));
 
 # When a newer run on the head cancels an older run of its workflow, the older
 # run's checks end CANCELLED. A cancelled matrix job is reported under its
@@ -70,22 +84,23 @@ def fits_placeholder($placeholder):
 # to the check that did not pass. So a finished CANCELLED check with a known
 # time is dropped when another workflow run of the same workflow has a check
 # that succeeded (SUCCESS or NEUTRAL, a skip running nothing) and started no
-# earlier, with the same name, or for a placeholder, a name the placeholder
-# fits. Only cancellations go: a failure, a check still running, and a pass
-# are never dropped, whatever ran after them, so a later failing re-run and a
+# earlier, with the same name, or for a placeholder, a name its parts fit.
+# Only cancellations go: a failure, a check still running, and a pass are
+# never dropped, whatever ran after them, so a later failing re-run and a
 # reused run's earlier macOS passes count as before. A cancellation with no
 # such successor still counts.
 def drop_superseded_cancels:
   if any(.[]; check_cancelled) | not then . else
-    [.[] | {entry: ., run_id: check_workflow_run, workflow: (.workflowName // ""), name: (.name // ""),
-      started: check_started, cancelled: check_cancelled, succeeded: check_succeeded}] as $rows
+    [.[] | (.name // "" | tostring) as $name | check_cancelled as $cancelled
+      | {entry: ., run_id: check_run_id, workflow: (.workflowName // ""), name: $name,
+         started: check_started, cancelled: $cancelled, succeeded: check_succeeded,
+         parts: (if $cancelled then ($name | placeholder_parts) else null end)}] as $rows
     | [$rows[] | select(.succeeded and .run_id != null and .workflow != "")] as $successes
     | [$rows[]
         | . as $row
         | ($row.cancelled and $row.run_id != null and $row.started != ""
             and any($successes[]; .run_id != $row.run_id and .workflow == $row.workflow and .started >= $row.started
-              and (.name == $row.name
-                or (($row.name | contains("${{")) and (.name | fits_placeholder($row.name)))))) as $superseded
+              and (.name == $row.name or ($row.parts != null and (.name | fits_parts($row.parts)))))) as $superseded
         | select($superseded | not)
         | .entry]
   end;

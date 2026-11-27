@@ -1104,9 +1104,17 @@ run_checks "checks (default): a pass of another job sharing the first word super
 # shellcheck disable=SC2016 # GitHub's unexpanded matrix names, verbatim
 {
   run_checks "checks (default): another matrix job's shard sharing the first word supersedes no placeholder" deny \
-    "$(ci_check_run 601 'test integration (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test unit and more (shard 1/2)' SUCCESS)" 'integration .shard'
+    "$(ci_check_run 601 'test integration (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test unit and more (shard 1/2)' SUCCESS)" 'integration .shard [^ ]+ matrix.shard [^ ]+ is CANCELLED'
   run_checks "checks (default): another job sharing the text before its own parenthesis supersedes no placeholder" deny \
-    "$(ci_check_run 601 'build (linux) (${{ matrix.arch }})' CANCELLED),$(ci_check_run 780 'build (windows)' SUCCESS)" 'build .linux.'
+    "$(ci_check_run 601 'build (linux) (${{ matrix.arch }})' CANCELLED),$(ci_check_run 780 'build (windows)' SUCCESS)" 'build .linux. [(][^ ]+ matrix.arch [^ ]+ is CANCELLED'
+  run_checks "checks (default): a name with text before the placeholder's start does not fit it" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'integration test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): an empty stand-in for an expression does not fit the placeholder" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard /2)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): a placeholder's fixed text is matched literally" deny \
+    "$(ci_check_run 601 'build v1.2 (${{ matrix.os }})' CANCELLED),$(ci_check_run 780 'build v1x2 (linux)' SUCCESS)" 'v1.2 [(][^ ]+ matrix.os [^ ]+ is CANCELLED'
+  run_checks "checks (default): a shard whose fixed text holds regex characters fits its placeholder" defer \
+    "$(ci_check_run 601 'a+b [${{ matrix.os }}]' CANCELLED),$(ci_check_run 780 'a+b [linux]' SUCCESS)"
   run_checks "checks (default): a placeholder ending in its expression fits no job" deny \
     "$(ci_check_run 601 'build ${{ matrix.os }}' CANCELLED),$(ci_check_run 780 'build docs' SUCCESS)" 'check build [^ ]+ matrix.os [^ ]+ is CANCELLED'
   run_checks "checks (default): a placeholder starting with its expression fits no job" deny \
