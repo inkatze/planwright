@@ -531,6 +531,20 @@ LOC_REC=''
 loc_ran "$lw/tools/mark.sh"
 verdict $? "with no record, the location is held to HEAD again" "$(loc_out)"
 
+# --- a session on a spec PR branch is held to its base, as a unit's is -------
+# The record its launcher writes names the PR base, so a step script the base
+# holds runs there and one the session edited is refused.
+git -C "$lw" checkout -q -b planwright/demo/spec
+LOC_REC=$(env_run env PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" /bin/sh "$repo_root/scripts/worker-session-record.sh" \
+  write "$lw" 2>"$tmp/err")
+grep -qx 'pr_base=origin/main' "$LOC_REC" && loc_ran "$lw/tools/mark.sh"
+verdict $? "under a spec-branch session's launch record, a location the base holds runs" \
+  "$(loc_out) record: $(cat "$LOC_REC" "$tmp/err" 2>&1)"
+printf 'printf pwned >>"%s/ran"\n' "$tmp" >>"$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a spec-branch session's launch record, a location it edited is refused" "$(loc_out)"
+cp "$tmp/mark.orig" "$lw/tools/mark.sh"
+
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1

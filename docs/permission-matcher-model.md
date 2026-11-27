@@ -558,9 +558,10 @@ or another (`declared_location_ok`); an install copy, which is no checkout of
 its own, is trusted by location. Inside the worktree the session record
 names, that commit is the base: the merge base of HEAD and the record's
 `pr_base` remote-tracking ref (`trusted_rev`), since the worker can commit
-there and the guard never sees what a script runs. `pr_base` is the unit
-branch remote's default branch as the launcher recorded it, not a stacked
-PR's base, so a script only a stacked base holds prompts. Elsewhere the
+there and the guard never sees what a script runs. `pr_base` is the
+default branch of the checked-out unit or spec PR branch's remote as the
+launcher recorded it, not a stacked PR's base, so a script only a stacked
+base holds prompts. Elsewhere the
 commit is the checkout's HEAD. A script a worker wrote or edited prompts,
 committed or not, whichever spelling reaches it (`sh`, `bash`, a direct path,
 a symlinked folder, a `..` walk, inside `fish -c` or a loop, behind
@@ -570,9 +571,13 @@ the worker merges the base. A record with no `pr_base` or a repeated one, a
 base with no commit in common trusts no file in the worktree (a checkout
 outside it keeps HEAD), and a repository nested in the worktree trusts none
 either. The
-launcher writes `pr_base` only for a task or flight branch, so a kickoff,
-spec-branch or primary-checkout session prompts on every repository script,
-`bats` file and linter config in its worktree. A test suite the worker adds
+launcher writes `pr_base` for a task or flight branch and for a spec PR
+branch (`planwright/<spec>/spec`, `spec-rework` or `amendment-<n>`, the
+shapes a kickoff scope names), whose commits below that merge base are the
+base's own, as on a unit branch; any other session (a primary checkout, or a
+branch of neither kind) prompts on every repository script, `bats` file and
+linter config in its worktree, and step-run's refusal says its record names
+no PR base. A test suite the worker adds
 prompts on every run for the life of its PR, through the compute router too
 (`compute-route.sh --test tests/test-x.sh -- bash tests/test-x.sh`): mission
 control vets each run, and `mise run` and a declared check command stay the

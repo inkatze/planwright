@@ -952,6 +952,93 @@ else
   fail "spec branch: the field outlived its launch"
 fi
 
+echo "### a spec PR branch's record names the PR base a unit branch's does"
+gc() { git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "$@"; }
+SPW=$MAIN/.claude/worktrees/demo-spec
+git -C "$MAIN" worktree add -q --detach "$SPW" main
+on_branch() { git -C "$SPW" checkout -q -B "$1" main; }
+s64=a$(printf '%063d' 0)
+for b in planwright/demo/spec planwright/demo/spec-rework planwright/demo/amendment-2 \
+  planwright/demo/amendment-12 "planwright/$s64/spec" planwright/d-1/spec; do
+  on_branch "$b"
+  write "$SPW"
+  if [ "$RC" -eq 0 ] && [ "$(field pr_base)" = origin/main ] && ! grep -q '^unit_branch=' "$REC"; then
+    pass "spec PR branch: $b records the PR base and no unit branch"
+  else
+    fail "spec PR branch: $b record: $(tr '\n' ' ' <"$REC")"
+  fi
+done
+for b in planwright/demo/notes planwright/demo/amendment- planwright/demo/amendment-2a \
+  planwright/demo/spec-2 planwright/demo/sub/spec planwright/flight/spec \
+  planwright/-demo/spec "planwright/a$s64/spec" feature/spec spec other; do
+  on_branch "$b"
+  write "$SPW"
+  if [ "$RC" -eq 0 ] && ! grep -q '^pr_base=' "$REC"; then
+    pass "neither unit nor spec PR branch: $b records no PR base"
+  else
+    fail "neither unit nor spec PR branch: $b record: $(tr '\n' ' ' <"$REC")"
+  fi
+done
+git -C "$SPW" checkout -q --detach main
+write "$SPW"
+if [ "$RC" -eq 0 ] && ! grep -q '^pr_base=' "$REC"; then
+  pass "a detached HEAD records no PR base"
+else
+  fail "a detached HEAD record: $(tr '\n' ' ' <"$REC")"
+fi
+on_branch planwright/demo/spec
+git -C "$MAIN" config branch.planwright/demo/spec.remote upstream
+write "$SPW"
+if [ "$(field pr_base)" = upstream/main ]; then
+  pass "spec PR branch: the PR base is on the branch's own remote"
+else
+  fail "spec PR branch: remote upstream recorded '$(field pr_base)'"
+fi
+git -C "$MAIN" config --unset branch.planwright/demo/spec.remote
+REC=$(/bin/sh "$WRITER" write "$SPW" --base other 2>"$T/err")
+if [ -s "$REC" ] && [ "$(field pr_base)" = origin/main ] && ! grep -q '^stack_base=' "$REC" \
+  && grep -q 'no stacked base recorded' "$T/err"; then
+  pass "spec PR branch: --base records no stacked base, as for any branch but a unit's"
+else
+  fail "spec PR branch: --base other: $(tr '\n' ' ' <"$REC") err: $(cat "$T/err")"
+fi
+
+# The guard holds the spec branch's worktree to the same merge base: a
+# script main holds runs, one the session committed or edited prompts.
+mkdir -p "$MAIN/scripts"
+printf '#!/bin/sh\nprintf ok\\n\n' >"$MAIN/scripts/ok.sh"
+printf '#!/bin/sh\nprintf ok\\n\n' >"$MAIN/scripts/edited.sh"
+gc -C "$MAIN" add scripts && gc -C "$MAIN" commit -q -m "chore: scripts"
+git -C "$MAIN" push -q origin main && git -C "$MAIN" fetch -q origin
+on_branch planwright/demo/spec
+printf '#!/bin/sh\nprintf own\\n\n' >"$SPW/scripts/own.sh"
+gc -C "$SPW" add scripts/own.sh && gc -C "$SPW" commit -q -m "chore: own"
+printf 'printf edited\n' >>"$SPW/scripts/edited.sh"
+# guard_says <command>: allow or defer, for the record REC in the spec worktree.
+guard_says() {
+  local o
+  o=$(jq -cn --arg c "$1" --arg w "$SPW" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+    | (cd "$SPW" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+  case $o in
+    *'"allow"'*) printf allow ;;
+    *) printf defer ;;
+  esac
+}
+write "$SPW"
+if [ "$(guard_says 'bash scripts/ok.sh')" = allow ] && [ "$(guard_says 'bash scripts/own.sh')" = defer ] \
+  && [ "$(guard_says 'bash scripts/edited.sh')" = defer ]; then
+  pass "spec PR branch: the guard runs a script the base holds and prompts on one the session committed or edited"
+else
+  fail "spec PR branch: guard ok=$(guard_says 'bash scripts/ok.sh') own=$(guard_says 'bash scripts/own.sh') edited=$(guard_says 'bash scripts/edited.sh')"
+fi
+git -C "$SPW" checkout -q -- scripts/edited.sh && on_branch planwright/demo/notes
+write "$SPW"
+if [ "$(guard_says 'bash scripts/ok.sh')" = defer ]; then
+  pass "neither unit nor spec PR branch: the guard trusts no script in its worktree"
+else
+  fail "neither unit nor spec PR branch: the guard ran a script with no PR base recorded"
+fi
+
 echo
 echo "worker-session-record: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
