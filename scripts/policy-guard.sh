@@ -71,10 +71,12 @@
 # for a rewrite, that pushes, fetches, or makes a commit) is refused: every
 # segment is checked against the state as it stands before the command runs.
 # Where a loop, a background list, a pipeline or a coprocess can run a later
-# segment's change before an earlier act that reads it, that is refused too;
-# and a command other than git that writes a path through a .git directory or
-# a git configuration file (a redirect, cp, tee, sed -i, an expanded path for
-# a file-writing command) counts as a configuration and ref change.
+# segment's change before an earlier act that reads it, that is refused too,
+# a directory change (cd, pushd, popd) or a variable set counting there as
+# well; and a command other than git that writes a path through a .git
+# directory or a git configuration file (an output redirect, cp, tee, sed -i,
+# an expanded path for a file-writing command or a wrapper) counts as a
+# configuration and ref change.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -1234,12 +1236,13 @@ check_unprotected() {
 # --------------------------------------------------------------------------
 # Repository state.
 
+NO_CURRENT_BRANCH='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
+
 # current_branch <dir> — the checked-out branch name, or empty. git shortens
 # refs/heads/<b> to heads/<b> when another ref (a tag <b>) shares the name, so
 # the short form would match no protected entry; a branch whose short and full
 # names disagree reads as none, which every caller refuses or reads as no
-# branch.
-NO_CURRENT_BRANCH='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
+# branch (NO_CURRENT_BRANCH says why, in a push's refusal).
 current_branch() {
   local full short
   full=$(gitq "$1" symbolic-ref --quiet HEAD) || full=''
@@ -4105,8 +4108,7 @@ worker_delete_deny() {
 
 # spec_family_branch <branch> — 0 when the branch, in any case, is a spec's
 # amendment branch (planwright/<spec>/amendment-<digits>) or its spec-rework
-# branch, which the protected set does not hold. Folded by expansion, so a tr
-# that failed cannot fold the name to one that matches nothing.
+# branch, which the protected set does not hold.
 spec_family_branch() {
   local b rest spec leaf
   fold_ascii "$1"

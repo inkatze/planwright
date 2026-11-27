@@ -541,7 +541,8 @@
 # that reaches a reserved human control is REFUSED here, and refused again at
 # match time whatever a rule claims: a merge or pull, a ready-flip, a
 # force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh
-# api call that can write, and a push to
+# api call that can write, a git send-pack or git subtree (a command coverage
+# naming one), and a push to
 # main, master, or a spec branch stay the operator's (REQ-H1.1). A push is judged by its refspec's DESTINATION, not by
 # the punctuation around it, so `+main`, `refs/heads/main` and a force flag
 # bundled into a short-option run are the same refusal as `origin main`. A
@@ -2387,10 +2388,10 @@ push_word_present() {
 
 # command_words_reserved <lowercased command> — 0 when a word of the command,
 # its quotes removed, IS a pull, or git send-pack or git subtree, which update
-# remote branches with no push word for the push screens to parse. The
-# `git pull` substring in reserved_control
-# misses `git -C dir pull` and a doubled space, both of which git runs as a
-# pull; a command naming the word for any other reason reaches the operator.
+# remote branches with no push word for the push screens to parse. The `git
+# pull` substring in reserved_control misses `git -C dir pull` and a doubled
+# space, both of which git runs as a pull; a command naming the word for any
+# other reason reaches the operator.
 command_words_reserved() {
   (
     set -f
@@ -2593,7 +2594,7 @@ gh_write_word() {
 # reserved_command <command> — 0 when a rule may not answer the command: it
 # reaches a reserved control, or it is a push that does not positively parse
 # as safe. This is what the match runs; `capture` runs reserved_control, plus
-# the pull word screen on a command coverage, but never the push parse, since
+# the pull, send-pack and subtree word screen on a command coverage, but never the push parse, since
 # a rule's coverage is a prefix and a prefix is not a command.
 reserved_command() {
   reserved_control "$1" && return 0
