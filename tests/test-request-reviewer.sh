@@ -340,14 +340,18 @@ echo 2 >"$GHS/land_at"
 run --copilot
 check "only the requested reviewer's event counts (exit 6)" [ "$CODE" = 6 ]
 
-echo "# on a draft, a request that does not land points at the ready flip"
+echo "# on a draft, a request that does not land points at another request, never the flip"
 fixture
 : >"$GHS/no_land"
 run --copilot
 check "a draft whose request does not land exits 6" [ "$CODE" = 6 ]
 check "the draft state is still checked after the request" [ "$(mp_calls 'pr view')" = 2 ]
-check "the draft refusal names the ready flip as what fires PR-Agent" \
-  grep -q 'marking PR #42 ready fires PR-Agent' <<<"$OUT"
+check "the draft refusal names another request as what fires PR-Agent" \
+  grep -q 'request the review on PR #42 again' <<<"$OUT"
+check "and warns off the flip, which waits for that run" \
+  grep -q 'do not mark it ready to fire PR-Agent: the flip waits for its run' <<<"$OUT"
+check "it never offers the flip as the way to fire PR-Agent" \
+  not grep -q 'ready fires PR-Agent' <<<"$OUT"
 
 echo "# a request that does not land on a draft that came back ready is still re-drafted"
 fixture

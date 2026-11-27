@@ -29,7 +29,8 @@ marked ready or labelled. A draft push alone skips both jobs. The `check` job
 accepts that skip only when `mac_run` is false, and the mission-control
 readiness check treats a skipped or absent macOS job as unmet unless the same
 job ran at that head. To get macOS green on a draft before the ready flip, add the
-`ci-macos` label first, wait for green, then mark the pull request ready.
+`ci-macos` label first and wait for green; the bot review request and then the
+flip follow, in that order (`docs/CONTRIBUTING.md`, *The bot review*).
 
 The ready flip's own run then skips the suite jobs, macOS included, when an
 earlier run already passed every one of them on the same head, base and

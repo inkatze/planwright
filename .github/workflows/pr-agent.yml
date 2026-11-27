@@ -10,15 +10,14 @@ name: PR-Agent
 # exception), so a fork PR never reaches the key. Never switch the trigger to
 # pull_request_target.
 #
-# When it runs: once per pull request, on the run the ready flip fires
-# (ready_for_review), and again only when a fix round after the flip changes
-# code and asks for one more by requesting a reviewer (review_requested, which
-# scripts/request-reviewer.sh sends). Never on opened, synchronize or reopened:
-# each paid review is a review of a head that is still changing. The request is
-# the same pull_request event, so the conditions below apply unchanged. Any
-# reviewer's request counts, since the event does not say which; a draft never
-# runs, and a pull request opened ready needs a request to get its one run.
-# scripts/check-workflow-posture.sh enforces the trigger set.
+# When it runs: once per head, on the draft, when a review is requested
+# (scripts/request-reviewer.sh) once every other check is green; the ready flip
+# waits for that run, so a ready pull request can merge at once. Any
+# reviewer's request counts. ready_for_review covers a pull request flipped
+# with no review yet; a head already reviewed is skipped
+# (scripts/pr-agent-reviewed.sh), so the flip fires no second paid run. Never
+# on opened, synchronize or reopened, a head still changing;
+# scripts/check-workflow-posture.sh enforces the triggers and the draft run.
 #
 # Set the repository secret OPENROUTER_API_KEY to turn it on. Tune it with the
 # repository variables PR_AGENT_MODEL, PR_AGENT_FALLBACK_MODELS,
@@ -41,12 +40,13 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && !contains(github.event.pull_request.labels.*.name, 'skip-pr-agent')
-      && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Queued, never cancelled: a second event (the flip, another request)
+    # waits for the running review, then skips the head it recorded.
     concurrency:
       group: pr-agent-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
@@ -86,6 +86,17 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts
 
+      # Once per head: the flip after a draft's review, or a second request on
+      # an unchanged head, reviews nothing new. A failed read reviews anyway.
+      - name: Skip a head already reviewed
+        id: prior
+        if: env.HAS_KEY == 'true' && steps.head.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ steps.head.outputs.sha }}
+        run: /bin/bash scripts/pr-agent-reviewed.sh --pr "$PR" --head "$HEAD_SHA"
+
       # The wrapper retries a try whose model output came back empty or
       # unparseable (whether the action then exits 0 or 1) up to
       # PR_AGENT_REVIEW_RETRIES times, rate limits on a budget of their own,
@@ -97,7 +108,7 @@ jobs:
       # wrapper then names its own failure, and the run marker still posts.
       - name: Review
         id: review
-        if: env.HAS_KEY == 'true'
+        if: env.HAS_KEY == 'true' && steps.prior.outputs.reviewed != 'true'
         timeout-minutes: 40
         run: >-
           /bin/bash scripts/pr-agent-review.sh --image "$PR_AGENT_IMAGE"
@@ -161,9 +172,11 @@ jobs:
       # One comment per PR, edited in place on every run, for /bot-review:
       # PR-Agent names the reviewed commit only when a full review edits its
       # summary, and posts nothing when an automatic run fails. /bot-review's
-      # pr_agent_* regexes match the marker line; change them together.
+      # pr_agent_* regexes and scripts/pr-agent-reviewed.sh match the marker
+      # line; change them together. A skipped head keeps the marker of the run
+      # that reviewed it.
       - name: Record the run for /bot-review
-        if: ${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' }}
+        if: ${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' && steps.prior.outputs.reviewed != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}

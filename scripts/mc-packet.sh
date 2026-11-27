@@ -67,7 +67,7 @@ Usage:
       config/mc-cadence-lessons.tsv (--lessons names another file); no level
       changes the walk or marks an option
       a section with no input reads `- none`; a readiness file that does
-      not open with ready, not-ready or flip-for-review is refused, so no
+      not open with ready, not-ready or request-review is refused, so no
       packet goes out
       without its readiness result
 
@@ -154,10 +154,11 @@ section() { # section <title> <file|"">
 # named was never checked. Gap wording follows scripts/mc-readiness.sh's walk.
 cadence_lines() {
   cl_rc=0
-  # A flip-for-review walk holds a post-pr gap as pending the flip, not as a gap.
-  cl_flip=0
-  [ "$(head -n 1 "$readiness" | cut -f1)" != flip-for-review ] || cl_flip=1
-  F=$cl_flip H=$1 awk -F '\t' '
+  # A request-review walk holds a post-pr gap as pending the draft's bot
+  # review, not as a gap.
+  cl_due=0
+  [ "$(head -n 1 "$readiness" | cut -f1)" != request-review ] || cl_due=1
+  F=$cl_due H=$1 awk -F '\t' '
     $1 == "scope" && $2 == "spec-only" && $3 == ENVIRON["H"] { speconly = 1 }
     $1 != "cadence" { next }
     $2 == "audited" { audited = $3 }
@@ -180,7 +181,7 @@ cadence_lines() {
       if (speconly && audited == "") { print "Cadence: not required: a spec-only pull request is held for its sign-off"; exit }
       if (audited == "") { print "Cadence: not audited: no audit result was collected"; exit }
       if (audited != ENVIRON["H"]) { print "Cadence: not audited: the audit ran at " substr(audited, 1, 12) ", not the walked head " substr(ENVIRON["H"], 1, 12); exit }
-      if (gaps == "" && pend != "") print "Cadence: covered " (cov == "" ? "none" : cov) "; pending the flip: " pend
+      if (gaps == "" && pend != "") print "Cadence: covered " (cov == "" ? "none" : cov) "; pending the bot review: " pend
       else if (gaps == "") print "Cadence: all covered (" (cov == "" ? "no point has a configured step" : cov) ")"
       else { print "Cadence: covered " (cov == "" ? "none" : cov) "; gap " gaps; exit 3 }
     }' <"$evidence" || cl_rc=$?
@@ -222,8 +223,8 @@ case $verb in
     cp "$readiness" "$scratch/readiness" || mc_fail "the readiness result is unreadable: $(sanitize_printable "$readiness")"
     readiness=$scratch/readiness
     case $(head -n 1 "$readiness" | cut -f1) in
-      ready | not-ready | flip-for-review) ;;
-      *) mc_fail "the readiness result does not open with ready, not-ready or flip-for-review; no packet without it" ;;
+      ready | not-ready | request-review) ;;
+      *) mc_fail "the readiness result does not open with ready, not-ready or request-review; no packet without it" ;;
     esac
     for f in "$focus" "$risks" "$order"; do
       [ -z "$f" ] || [ -r "$f" ] || mc_fail "unreadable: $(sanitize_printable "$f")"

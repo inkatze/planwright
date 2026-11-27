@@ -144,7 +144,7 @@ hasnt "not as stale" "cadence${tab}gap${tab}post-pr${tab}stale"
 has "another point's stale gap is left as it was" "cadence${tab}gap${tab}convergence${tab}stale${tab}$other_unit"
 walk_collected "state,draft" "require,pr-agent"
 expect_rc "a draft holding it is not merge-ready" 4
-case $OUT in "flip-for-review${tab}$head"*) ok "a draft holding only another unit's post-pr is told to flip" ;; *) fail "a draft holding another unit's post-pr reads: $OUT" ;; esac
+case $OUT in "request-review${tab}$head"*) ok "a draft holding only another unit's post-pr is told to request its review" ;; *) fail "a draft holding another unit's post-pr reads: $OUT" ;; esac
 walk_collected "state,ready" "flip,2026-11-18T00:42:21Z" "require,pr-agent" "check,PR-Agent,SUCCESS" "born,PR-Agent,2026-11-18T00:42:23Z"
 expect_rc "a ready pull request holding it is not merge-ready" 4
 other_unit_short=$(printf '%.12s' "$other_unit")

@@ -390,8 +390,8 @@ On every path (`doctrine/human-gates.md`):
 - **Policy:** flip a PR ready only inside the configured
   `ready_flip_policy`, and in a repository the operator does not own only on
   their request (REQ-I1.2), with the readiness check walked first
-  (`scripts/mc-readiness.sh`'s `check`; `flip-for-review` is its go-ahead
-  when only the bot review is left).
+  (`scripts/mc-readiness.sh`'s `check`; `request-review` means request the
+  bot review first, never flip).
 - **Never** send to a person without the yes on the exact text and
   recipient; standing exceptions exist only as named configuration
   (REQ-I1.3).

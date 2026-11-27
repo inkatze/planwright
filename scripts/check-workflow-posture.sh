@@ -54,10 +54,11 @@
 # PR-Agent image must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or the dotted
 # spelling) to the same set as its first flow-style `types: [..]` list, since
 # the action silently skips any action its list leaves out. The types list
-# must carry ready_for_review (the run the ready flip fires) and nothing but
-# that and review_requested: the bot review runs once per pull request, not on
-# every push or edit, and a fix round after the flip asks for one more through
-# review_requested.
+# must be exactly review_requested (the request that runs the review on the
+# draft, which the flip then waits for) and ready_for_review (a pull request
+# flipped with no review yet): the bot review runs once per head, not on every
+# push or edit. Its job must not skip a draft (no `pull_request.draft`
+# condition outside a comment), or the request on the draft fires nothing.
 #
 # Cache and artifact posture beyond assertion 4 carries no standing check: an
 # accepted residual recorded in D-6, covered by the REQ-C1.1 audit only.
@@ -1119,15 +1120,19 @@ for ((i = 0; i < nfiles; i++)); do
   elif [ -z "$acts" ]; then
     fail "$file: a PR-Agent workflow must set GITHUB_ACTION_CONFIG__PR_ACTIONS (or GITHUB_ACTION_CONFIG.PR_ACTIONS) as a JSON list naming the trigger types, because the action skips any action its list leaves out and its default list differs"
   else
-    # The bot review is paid for per run: it runs once per pull request, on the
-    # run the ready flip fires, and again only when asked for.
+    # The bot review is paid for per run: it runs once per head, on the draft
+    # when a review is requested, before the flip.
     while IFS= read -r a; do
       case $a in
         ready_for_review | review_requested) ;;
-        *) fail "$file: a PR-Agent workflow must not trigger on '$a': it runs once per pull request, on ready_for_review, and again only on an explicit review_requested" ;;
+        *) fail "$file: a PR-Agent workflow must not trigger on '$a': it runs once per head, on an explicit review_requested (or ready_for_review when no review ran)" ;;
       esac
     done <<<"$trig"
-    printf '%s\n' "$trig" | grep -qx -- ready_for_review || fail "$file: a PR-Agent workflow must trigger on ready_for_review, the one run the ready flip starts"
+    printf '%s\n' "$trig" | grep -qx -- review_requested || fail "$file: a PR-Agent workflow must trigger on review_requested, the request that runs the review on the draft before the flip"
+    printf '%s\n' "$trig" | grep -qx -- ready_for_review || fail "$file: a PR-Agent workflow must trigger on ready_for_review, for a pull request flipped with no review yet"
+    if grep -Eq '^[^#]*pull_request\.draft' "$file"; then
+      fail "$file: a PR-Agent workflow must run on a draft: drop its pull_request.draft condition, since the review request on the draft is what fires it and the flip waits for that run"
+    fi
     while IFS= read -r a; do
       printf '%s\n' "$acts" | grep -qx -- "$a" || fail "$file: PR_ACTIONS omits '$a', which the workflow triggers on, so PR-Agent skips it"
     done <<<"$trig"

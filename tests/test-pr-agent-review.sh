@@ -835,9 +835,25 @@ marker=$(awk '/^      - name: / { on = ($0 == "      - name: Record the run for 
 # shellcheck disable=SC2016 # the workflow's literal text
 for want in "STATUS: \${{ steps.review.outcome == 'skipped' && 'failure' || steps.review.outcome }}" \
   'PR: ${{ github.event.pull_request.number }}' 'HEAD_SHA: ${{ steps.head.outputs.sha }}' \
-  "if: \${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' }}"; do
+  "if: \${{ !cancelled() && env.HAS_KEY == 'true' && steps.head.outputs.sha != '' && steps.prior.outputs.reviewed != 'true' }}"; do
   case "$marker" in *"$want"*) ;; *) missing="$missing [marker step: $want]" ;; esac
 done
+# A head already reviewed skips the review and keeps its marker.
+printf '%s\n' "$review" | grep -qF "if: env.HAS_KEY == 'true' && steps.prior.outputs.reviewed != 'true'" \
+  || missing="$missing [the Review step waits on the once-per-head check]"
+prior=$(awk '/^      - name: / { on = ($0 == "      - name: Skip a head already reviewed") } on' "$WORKFLOW")
+# shellcheck disable=SC2016 # the workflow's literal text
+for want in '        id: prior' "if: env.HAS_KEY == 'true' && steps.head.outputs.sha != ''" \
+  'run: /bin/bash scripts/pr-agent-reviewed.sh --pr "$PR" --head "$HEAD_SHA"' \
+  'GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}' 'PR: ${{ github.event.pull_request.number }}' \
+  'HEAD_SHA: ${{ steps.head.outputs.sha }}'; do
+  case "$prior" in *"$want"*) ;; *) missing="$missing [once-per-head step: $want]" ;; esac
+done
+# It runs after the checkout that brings scripts/ and before the review.
+order=$(grep -n -e '^      - name: Check out the review wrapper$' -e '^      - name: Skip a head already reviewed$' \
+  -e '^      - name: Review$' "$WORKFLOW" | cut -d: -f2- | tr -d ' -' | tr '\n' ',')
+[ "$order" = "name:Checkoutthereviewwrapper,name:Skipaheadalreadyreviewed,name:Review," ] \
+  || missing="$missing [step order: $order]"
 printf '%s\n' "$review" | grep -qx '        id: review' || missing="$missing [the Review step's id]"
 grep -qx '        id: head' "$WORKFLOW" || missing="$missing [the head step's id]"
 if [ -z "$missing" ] && [ -n "$step_min" ] && [ -n "$job_min" ] && [ -n "$deadline" ] \

@@ -135,6 +135,92 @@ set_policy unit-owner
 echo tied-red >"$GHS/ci"
 run_helper flip --spec specs/demo --task 1
 check "a failure started in the same second as a success of its check is not green" [ "$CODE" = 4 ]
+
+echo "# the bot review: the flip waits for PR-Agent's run on the draft head"
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "with PR-Agent in the repository, a head it never reviewed parks (exit 4)" [ "$CODE" = 4 ]
+check "no flip is made before PR-Agent's run" [ "$(calls 'pr ready')" = 0 ]
+check "the park waits through the bound for the run" [ "$(rollups)" = 3 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo green >"$GHS/ci"
+run_helper evaluate --spec specs/demo --task 1
+check "the evaluation names the missing run and the request that starts it" \
+  grep -q 'ci-rollup	fail	no PR-Agent run has finished on .*; request a review (scripts/request-reviewer.sh)' <<<"$OUT"
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-pending >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a PR-Agent run still going on the draft holds the flip (exit 4)" [ "$CODE" = 4 ]
+check "no flip is made while PR-Agent runs" [ "$(calls 'pr ready')" = 0 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-pending >"$GHS/ci"
+echo 3 >"$GHS/ci_green_from"
+echo pr-agent-green >"$GHS/ci_then"
+run_helper flip --spec specs/demo --task 1
+check "the flip waits until PR-Agent's run finishes, then flips" [ "$CODE" = 0 ]
+check "it polled through the running review, flipping on the read that saw it finish (plus the guard's own read)" [ "$(rollups)" = 4 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-failed >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a failed PR-Agent run on the draft refuses the flip (exit 4)" [ "$CODE" = 4 ]
+check "at once, with no wait for a run that already finished" [ "$(rollups)" = 1 ]
+fixture
+set_policy unit-owner
+mkdir -p "$F/wt/.github/workflows"
+printf 'jobs:\n  review:\n    steps:\n      - env:\n          PR_AGENT_IMAGE: pragent/pr-agent@sha256:0\n' >"$F/wt/.github/workflows/pr-agent.yml"
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "only the pinned head's workflows decide: an uncommitted one owes no review" [ "$CODE" = 0 ]
+rm -rf "$F/wt/.github"
+fixture
+set_policy unit-owner
+echo green >"$GHS/ci"
+# A git whose grep cannot read the tree (exit 128): the wait must stay.
+real_git=$(command -v git)
+# shellcheck disable=SC2016 # the shim's own positional parameters
+printf '#!/bin/sh\n[ "$1" != grep ] || exit 128\nexec %s "$@"\n' "$real_git" >"$STUBBIN/git"
+chmod +x "$STUBBIN/git"
+run_helper flip --spec specs/demo --task 1
+rm -f "$STUBBIN/git"
+check "an unreadable tree keeps the review wait, so the flip parks (exit 4)" [ "$CODE" = 4 ]
+check "and no flip is made" [ "$(calls 'pr ready')" = 0 ]
+check "the park is the check rollup's, where the review wait lives" grep -q 'pending ready-flip: ci-rollup' <<<"$(bullet)"
+check "after polling the whole bound for the review" [ "$(rollups)" = 3 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "the flip parks on the check rollup, where the review wait lives" grep -q 'pending ready-flip: ci-rollup' <<<"$(bullet)"
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a finished green PR-Agent run on the head lets the flip through" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+runs_pr_agent
+echo pr-agent-skipped >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a skipped PR-Agent run (the skip-pr-agent label) is the opt-out" [ "$CODE" = 0 ]
+fixture
+set_policy unit-owner
+echo green >"$GHS/ci"
+run_helper flip --spec specs/demo --task 1
+check "a repository without PR-Agent flips on green as before" [ "$CODE" = 0 ]
+
 fixture
 set_policy unit-owner
 echo capped >"$GHS/ci"

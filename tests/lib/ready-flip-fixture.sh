@@ -55,8 +55,9 @@ case "$1 $2" in
         [ ! -f "$GHS/head_lag_until" ] || [ "$n" -gt "$(cat "$GHS/head_lag_until")" ] \
           || head=0123456789012345678901234567890123456789
         ci=$(cat "$GHS/ci")
-        # ci_green_from turns the rollup green from the nth read on.
-        [ ! -f "$GHS/ci_green_from" ] || [ "$n" -lt "$(cat "$GHS/ci_green_from")" ] || ci=green
+        # ci_green_from turns the rollup green from the nth read on, to the
+        # value in ci_then when one is given.
+        [ ! -f "$GHS/ci_green_from" ] || [ "$n" -lt "$(cat "$GHS/ci_green_from")" ] || ci=$(cat "$GHS/ci_then" 2>/dev/null || echo green)
         case $ci in
           green) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]' ;;
           failing) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
@@ -74,6 +75,10 @@ case "$1 $2" in
           window-lock-and-red) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           window-lock-foreign) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"window-lock","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
           window-lock-only) roll='[{"__typename":"CheckRun","name":"window-lock","workflowName":"release-window","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          pr-agent-green) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"COMPLETED","conclusion":"SUCCESS"}]' ;;
+          pr-agent-skipped) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"COMPLETED","conclusion":"SKIPPED"}]' ;;
+          pr-agent-failed) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
+          pr-agent-pending) roll='[{"__typename":"CheckRun","name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"PR-Agent","workflowName":"PR-Agent","status":"IN_PROGRESS","conclusion":""}]' ;;
           own-name-checkrun-red) roll='[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"planwright/pre-ready-flip","status":"COMPLETED","conclusion":"FAILURE"}]' ;;
         esac
         printf '{"headRefOid":"%s","statusCheckRollup":%s}\n' "$head" "$roll"
@@ -216,6 +221,18 @@ build_fixture() {
 set_policy() { # <value>
   mkdir -p "$F/wt/.claude"
   printf 'ready_flip_policy: %s\nready_flip_ci_wait: 30s\n' "$1" >"$F/wt/.claude/planwright.local.yml"
+}
+
+# runs_pr_agent — the unit head's CI runs the PR-Agent image, as this
+# repository's does, so the flip waits for its run on the head. Committed,
+# pushed and reviewed, so the head stays the converged one.
+runs_pr_agent() {
+  mkdir -p "$F/wt/.github/workflows"
+  printf 'jobs:\n  review:\n    steps:\n      - env:\n          PR_AGENT_IMAGE: pragent/pr-agent@sha256:0\n' >"$F/wt/.github/workflows/pr-agent.yml"
+  gitf add .github/workflows/pr-agent.yml
+  gitf commit -q -m 'ci: the bot review'
+  gitf push -q origin "$BRANCH" 2>/dev/null
+  record_review
 }
 
 # run_polled <poll seconds> <max polls> <args...> — the helper from the unit

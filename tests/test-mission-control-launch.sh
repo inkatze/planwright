@@ -185,7 +185,9 @@ for kind in tower orchestrator worker reviewer ad-hoc mission-control; do
       grep -qx '## Verification cadence' "$composed_brief" && grep -qF 'step-run.sh audit --through post-pr' "$composed_brief" \
         && grep -qF 'step-run.sh audit --through pre-pr' "$composed_brief" \
         && grep -qF "mission-control:$name" "$composed_brief" \
-        && ok "[$kind] the composed brief carries the cadence, its audit and its tier unit" \
+        && grep -qF 'reads request-review: that waits on the bot review a review request fires, and the flip comes only after it.' "$composed_brief" \
+        && ! grep -qF 'flip-for-review' "$composed_brief" \
+        && ok "[$kind] the composed brief carries the cadence, its audit, its tier unit and the review-before-flip exception" \
         || fail "[$kind] the composed brief lacks the cadence section: $(cat "$composed_brief")"
       # Every path the section names is a file of this install.
       missing_paths=''
