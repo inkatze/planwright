@@ -2042,13 +2042,17 @@ seg_command_name() {
 
 # git_state_path <text> — 0 when the text names git's own state: a path
 # through a directory named .git, or a global or system git configuration
-# file, whole or after an option's = or attached short flag (of=.git/HEAD,
-# -o.git/config). It is read with quotes and backslashes dropped and in lower
-# case, as a shell and a case-insensitive filesystem read it.
+# file, anywhere in the word (after an option's =, inside a script argument
+# such as sed's '1w .git/config') or after an attached run of short flags
+# (-qO.git/config). It is read with quotes and backslashes dropped and in
+# lower case, as a shell and a case-insensitive filesystem read it, and with
+# every character that cannot be part of a path name read as a separator.
 git_state_path() {
-  local t=${1//[\"\'\\]/} c
+  local t=${1//[\"\'\\]/} c f=''
   fold_ascii "$t"
-  for c in "$FA" "${FA#*=}" "${FA#-?}"; do
+  [[ $FA =~ ^-[a-z]+(.+)$ ]] && f=${BASH_REMATCH[1]}
+  FA=${FA//[!a-z0-9._~\/-]//}
+  for c in "$FA" "$f"; do
     case $c in
       .git | .git/* | */.git | */.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | \
         git/config | git/config/* | */git/config | */git/config/* | .config/git | .config/git/* | \

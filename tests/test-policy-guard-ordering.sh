@@ -97,6 +97,8 @@ for cmd in "while true; do git rebase -i HEAD~1; done" \
   "export HOME=/a; for i in 1 2; do git push origin $B; export HOME=/b; done" \
   "for i in 1 2; do git push origin HEAD; popd; done" "for i in 1 2; do git push origin $B; HOME=/b; done" \
   "for i in 1 2; do git push origin $B; unset GIT_DIR; done" \
+  "for i in 1 2; do git push origin $B; repeat 1 cd /tmp; done" \
+  "for i in 1 2; do git push origin $B; export PATH=/x:/usr/bin; done" \
   "git push origin $B:$B | tee \"/tmp/push-\$\$.log\""; do
   pg worker "$cmd"
   expect deny "[worker] $cmd (a change a loop's next pass runs before the act) denies"
@@ -145,7 +147,9 @@ for cmd in "printf x >> \".git\"/config && git push origin $B" "printf x >> .gi'
   "cp cfg \"\$G/\"; git push origin $B" "tee .gi{t,x}/config < c; git push origin $B" \
   "dd if=evil of=.git/HEAD; git push origin HEAD" "sort -o.git/HEAD x; git push origin HEAD" \
   "wget --output-document=.git/config URL; git push origin $B" "printf x 1<>.git/config; git push origin $B" \
-  "coproc cp cfg \"\$d\"; git push origin $B" "set -- 1; for x do cp cfg \"\$d\"; done; git push origin $B"; do
+  "coproc cp cfg \"\$d\"; git push origin $B" "set -- 1; for x do cp cfg \"\$d\"; done; git push origin $B" \
+  "sed -n '1w .git/config' /tmp/p && git push origin $B" "wget -qO.git/config http://x/c && git push origin $B" \
+  "awk 'BEGIN{print \"x\" >> \".git/config\"}'; git push origin $B" "tar -xC.git -f /tmp/p.tar; git push origin $B"; do
   pg worker "$cmd"
   expect deny "[worker] $cmd (a quoted, folded, globbed or expanded git state path) denies"
 done
