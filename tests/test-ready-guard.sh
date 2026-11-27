@@ -1165,6 +1165,10 @@ run_checks "checks (default): a successor naming no workflow run supersedes noth
   "$SUPERSEDED,"'{"name":"test (shard 1/2)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-26T10:34:15Z"},'"$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): a shard passed in another workflow supersedes no placeholder" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard 1/2)' SUCCESS '' lint),$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): a shard passed before the placeholder's cancellation supersedes nothing" deny \
+  "$(ci_check_run 500 'test (shard 1/2)' SUCCESS 2026-11-26T10:30:00Z),$(ci_check_run 601 "$SHARDS" CANCELLED)" "$SHARDS_CANCELLED"
+run_checks "checks (default): a shard started in the placeholder's own second supersedes it" defer \
+  "$(ci_check_run 601 "$SHARDS" CANCELLED "$TIE"),$(ci_check_run 780 'test (shard 1/2)' SUCCESS "$TIE")"
 run_checks "checks (default): a pass in the cancelled check's own run supersedes nothing" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
