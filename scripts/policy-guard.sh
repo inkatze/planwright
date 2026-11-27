@@ -6384,13 +6384,14 @@ mc_inplace_unparsed() {
   mc_inplace_text "$MC_RT"
 }
 
-# mc_env_split <text> — in MC_ES, the text with each env -S string glued to
-# its cluster parted off as a statement of its own (RE_MC_ENV_SPLIT), after
-# the text as given on a line of its own: a match in quoted data must not cut
-# a write that follows it out of the scans. Run it outside nocasematch: a
-# lowercase s is no -S, and a word env does not open is no string of its
-# (git log -Scp). Each match is consumed, so the text is scanned once per
-# match; past the bound the screen refuses (fail closed).
+# mc_env_split <text> — in MC_ES, the text with each env -S or --split-string=
+# string glued on parted off as a statement of its own (RE_MC_ENV_SPLIT); a
+# string opening with an option or an assignment is read as env's again, so a
+# later -S in it is found. Callers read the text as given too, apart: a match
+# in quoted data must not cut a write that follows it out of a scan. Run it
+# outside nocasematch: a lowercase s is no -S, and a word env does not open is
+# no string of its (git log -Scp). Each match is consumed, so the text is
+# scanned once per match; past the bound the screen refuses (fail closed).
 mc_env_split() {
   local t=$1 out='' m pre n=0
   case $t in *[Ee][Nn][Vv]*[S=]*) ;; *)
@@ -6405,12 +6406,9 @@ mc_env_split() {
     pre=${t%%"$m"*}
     out+=$pre${m%?}' ; '
     t=${t:$((${#pre} + ${#m} - 1))}
+    case $t in -* | [A-Za-z_]*=*) t="env $t" ;; esac
   done
-  if [ -n "$out" ]; then
-    MC_ES=$1$NL$out$t
-  else
-    MC_ES=$t
-  fi
+  MC_ES=$out$t
 }
 
 # mc_inplace_text <text> [word] — 0 when the text, its quotes and escapes
@@ -6420,7 +6418,7 @@ mc_env_split() {
 # In text holding a case statement a ) can end a pattern before a command, so
 # there it opens one.
 mc_inplace_text() {
-  local t=${1//[\"\'\\]/} rc=1 lead=$RE_MC_INPLACE_LEAD re
+  local t=${1//[\"\'\\]/} rc=1 lead=$RE_MC_INPLACE_LEAD re u
   if [ "${2:-}" = word ]; then
     lead=$RE_MC_INPLACE_WORD_LEAD
   else
@@ -6428,19 +6426,22 @@ mc_inplace_text() {
   fi
   re='(^|[;&|(){}[:space:]])case[[:space:]]'
   [[ $t =~ $re ]] && t=${t//[)]/;}
+  # The text is read as given and, apart, with env's -S strings parted off.
   mc_env_split "$t"
-  t=$MC_ES
-  re=$lead$RE_MC_INPLACE_PERL_TOOL
-  [[ $t =~ $re ]] && return 0
-  shopt -s nocasematch
-  re=$lead$RE_MC_INPLACE_AWK_TOOL
-  [[ $t =~ $re ]] && rc=0
-  re=$lead$RE_MC_INPLACE_AWK_INCLUDE
-  [[ $t =~ $re ]] && rc=0
-  re=$lead$RE_MC_INPLACE_EDITOR_TOOL
-  [[ $t =~ $re ]] && rc=0
-  shopt -u nocasematch
-  return "$rc"
+  for u in "$t" "$MC_ES"; do
+    re=$lead$RE_MC_INPLACE_PERL_TOOL
+    [[ $u =~ $re ]] && return 0
+    shopt -s nocasematch
+    re=$lead$RE_MC_INPLACE_AWK_TOOL
+    [[ $u =~ $re ]] && rc=0
+    re=$lead$RE_MC_INPLACE_AWK_INCLUDE
+    [[ $u =~ $re ]] && rc=0
+    re=$lead$RE_MC_INPLACE_EDITOR_TOOL
+    [[ $u =~ $re ]] && rc=0
+    shopt -u nocasematch
+    [ "$rc" = 1 ] || return 0
+  done
+  return 1
 }
 
 # mc_env_rebound <name> — 0 when the command could rebind the variable, so its
@@ -7181,27 +7182,6 @@ mc_env_glued_s() {
   pre=${c%%[uCSaPLU]*}
   [ "${c:${#pre}:1}" = S ] && [ -n "${c:$((${#pre} + 1))}" ]
 }
-# mc_env_string_runs <word> <sep: 0|1> — 0 when env's -S string in the word
-# (the whole word with sep 1, else past its S or =) names a command: a word
-# that is neither an option nor an assignment.
-mc_env_string_runs() {
-  local s=$1 w ws=()
-  if [ "$2" = 0 ]; then
-    case $s in --*=*) s=${s#*=} ;; *) s=${s#*S} ;; esac
-  fi
-  s=${s//\\_/ }
-  s=${s//[\"\'\\]/}
-  read -r -a ws <<<"$s"
-  for w in ${ws[@]+"${ws[@]}"}; do
-    case $w in
-      -* | [A-Za-z_]*=*)
-        [[ $w =~ ^-|^[A-Za-z_][A-Za-z0-9_]*= ]] || return 0
-        ;;
-      *) return 0 ;;
-    esac
-  done
-  return 1
-}
 mc_env_sep_s() {
   local c=${1#-} pre
   case $1 in
@@ -7213,6 +7193,29 @@ mc_env_sep_s() {
   esac
   pre=${c%%[uCSaPLU]*}
   [ "${c:${#pre}}" = S ]
+}
+
+# mc_env_string_runs <word> <sep: 0|1> — 0 when env's -S string in the word
+# (the whole word with sep 1, else past its S or =) names a command: a word
+# that is neither an option nor an assignment. env parts the string at any
+# blank or line break, and at \_.
+mc_env_string_runs() {
+  local s=$1 w ws=()
+  if [ "$2" = 0 ]; then
+    case $s in --*=*) s=${s#*=} ;; *) s=${s#*S} ;; esac
+  fi
+  s=${s//\\_/ }
+  s=${s//[\"\'\\]/}
+  s=${s//[$'\t\n\r\v\f']/ }
+  read -r -a ws <<<"$s"
+  for w in ${ws[@]+"${ws[@]}"}; do
+    case $w in
+      -*) ;;
+      *=*) [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || return 0 ;;
+      *) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 # mc_wrap_opt_value <wrapper> <option word> — 0 when the wrapper's option
@@ -7306,14 +7309,24 @@ mc_unwrap() {
           -?*)
             # env's -S string, glued on or the next word, is the command it
             # runs.
+            # A string of options and assignments alone names no command: env
+            # reads it as its own words and reads on.
             if [ "$wrap" = env ]; then
               if mc_env_glued_s "${SW[$i]}"; then
-                MC_ENV_SI=$i MC_ENV_SEP=0 MC_VI=$i
-                return 0
+                if mc_env_string_runs "${SW[$i]}" 0; then
+                  MC_ENV_SI=$i MC_ENV_SEP=0 MC_VI=$i
+                  return 0
+                fi
+                i=$((i + 1))
+                continue
               fi
               if mc_env_sep_s "${SW[$i]}" && [ $((i + 1)) -lt "$n" ]; then
-                MC_ENV_SI=$((i + 1)) MC_ENV_SEP=1 MC_VI=$((i + 1))
-                return 0
+                if mc_env_string_runs "${SW[$((i + 1))]}" 1; then
+                  MC_ENV_SI=$((i + 1)) MC_ENV_SEP=1 MC_VI=$((i + 1))
+                  return 0
+                fi
+                i=$((i + 2))
+                continue
               fi
             fi
             ! mc_wrap_opt_value "$wrap" "${SW[$i]}" || i=$((i + 1))
@@ -8140,9 +8153,10 @@ XEOF_RUN
         ;;
     esac
     mc_env_split "${t//[\"\'\\]/}"
-    # Copied out: mc_inplace_unparsed below runs mc_env_split again.
+    # Copied out: mc_inplace_unparsed below runs mc_env_split again. The text
+    # is read as given and, apart, split.
     local es=$MC_ES
-    [[ $es =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
+    [[ ${t//[\"\'\\]/} =~ $RE_MC_WRITE_VERB || $es =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
     ! mc_inplace_unparsed "$t" || emit_deny "$MC_REPO_WRAPPED_DENY"
     # link(1) makes a hard link, to a link too; prose says "link", so only a
     # statement it opens counts.
@@ -8153,7 +8167,7 @@ XEOF_RUN
     re='(^|[^[:alnum:]_.-])((sort|c[u]rl)[^;&|]*[[:space:]](-[A-Za-z]*o|--output)|w[g]et[^;&|]*[[:space:]](-[A-Za-z]*[OP]|--output-document|--directory-prefix)|(g?tar|unzip)([^[:alnum:]_-]|$))'
     shopt -s nocasematch
     k=1
-    [[ $es =~ $re ]] && k=0
+    [[ ${t//[\"\'\\]/} =~ $re || $es =~ $re ]] && k=0
     shopt -u nocasematch
     [ "$k" = 1 ] || emit_deny "$MC_UNPARSED_DENY"
     mc_copy_hazard 0
@@ -8172,7 +8186,7 @@ XEOF_RUN
     case ${W[$k]} in
       *'$('* | *'`'*)
         mc_env_split "${W[$k]//[\"\'\\]/}"
-        [[ $MC_ES =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
+        [[ ${W[$k]//[\"\'\\]/} =~ $RE_MC_WRITE_VERB || $MC_ES =~ $RE_MC_WRITE_VERB ]] && emit_deny "$MC_SETTINGS_DENY"
         ! mc_inplace_text "${W[$k]}" || emit_deny "$MC_REPO_WRAPPED_DENY"
         ;;
     esac
@@ -8230,11 +8244,6 @@ XEOF_RUN
     mc_unwrap exact
     vx=$MC_VI
     envsi=$MC_ENV_SI envsep=$MC_ENV_SEP
-    # A -S string of assignments and options alone names no command: env
-    # reads it as its own arguments, and the next word runs.
-    if [ "$envsi" -ge 0 ] && ! mc_env_string_runs "${SW[$envsi]}" "$envsep"; then
-      envsi=-1
-    fi
     mc_unwrap
     vi=$MC_VI
     # A runner (a wrapper, xargs, a shell, find and the like) hands text to
@@ -8273,8 +8282,8 @@ XEOF_RUN
         # command string (a shell's -c text) is read as one of its own. So
         # does the command an exact reading of the wrapper options finds where
         # it is not mc_unwrap's (a value read as the command). At or past
-        # env's -S string, mc_unwrap's word is that string's or an argument,
-        # save xargs's, which still opens a statement.
+        # env's -S string, mc_unwrap's word is the string itself or an
+        # argument of its command, save xargs's, which still opens a statement.
         if [ "$k" = "$vi" ] && [ "$MC_XARGS" = 0 ] && [ "$envsi" -lt 0 ]; then
           ci="$ci CMD "
         elif { [ "$k" = "$vi" ] && { [ "$envsi" -lt 0 ] || [ "$MC_XARGS" = 1 ]; }; } || [ "$k" = "$vx" ]; then
