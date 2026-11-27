@@ -6404,6 +6404,10 @@ symref_dsts() {
       1) continue ;;
       *) emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, and git could not resolve it to see where it pushes (git exit $rc) - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>." ;;
     esac
+    # A name git reads as more than one ref resolves to nothing here, while
+    # push may still take its one branch, so only a commit id passes empty.
+    [ -n "$t" ] || [[ $r =~ ^[0-9a-fA-F]{4,64}$ ]] \
+      || emit_deny "this git push names $(sanitize_printable "$r" 'a source') with no destination, which git reads as more than one ref or as no single ref, so the guard cannot tell where it pushes - refusing (fail closed). Name the destination: git push <remote> <branch>:<branch>."
     case $t in
       refs/heads/?*) SYM_DSTS="$SYM_DSTS ${t#refs/heads/}" ;;
     esac

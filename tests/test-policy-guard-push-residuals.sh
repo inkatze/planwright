@@ -133,6 +133,14 @@ for tier in worker tower; do
   pg "$tier" 'git push origin main-worktree/HEAD' "$LINKED" "$LINKED"
   expect deny "[$tier] a push of main-worktree/HEAD, the primary checkout's main, denies"
 done
+# A name git reads as two refs, a local symbolic branch and a remote-tracking
+# ref, still pushes the branch it names.
+AMB="$SANDBOX/ambiguous"
+clone_on "$AMB" planwright/demo/task-1 1
+gitq -C "$AMB" symbolic-ref refs/heads/origin refs/heads/main
+fixture 'a push of a symbolic branch named like the remote' "$AMB" origin origin
+pg worker 'git push origin origin' "$AMB"
+expect deny "[worker] a push of a source git reads as more than one ref denies"
 BADREFS="$SANDBOX/bad-refs"
 clone_on "$BADREFS" planwright/demo/task-1 1
 printf 'not a packed ref line\n' >>"$BADREFS/.git/packed-refs"
