@@ -37,9 +37,10 @@
 #      draft too: the request is what starts the review the ready flip waits
 #      for), so a request that never lands loses that run silently. Poll
 #      until the reviewer has a review_requested event newer than step 1's,
-#      or is a requested reviewer it was not in step 1, up to the bound below; a read
-#      that fails is polled past. A reviewer already requested in step 1
-#      with no newer event has not landed: no new event fired PR-Agent.
+#      or is a requested reviewer it was not in step 1, up to the bound
+#      below; a read that fails is polled past. A reviewer already requested
+#      in step 1 with no newer event has not landed: no new event fired
+#      PR-Agent.
 #
 # The check stays wired whether or not the host un-drafts on request today,
 # so a host change is caught.

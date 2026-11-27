@@ -178,12 +178,12 @@ THE WALK refuses, each failure one line:
     review is still required, as above). The exception is a post-pr gap (no
     completion, one only on heads outside the pull request's history such as
     another unit's in a reused worktree, or a step never recorded) on a
-    draft whose bot review is due: that point waits
-    on the run a review request fires, so it is pending the request, not a
-    gap. When the due review and such gaps are all the walk holds, the
-    verdict is request-review (below); with any other refusal the verdict
-    stays not-ready and names that refusal. Once the run exists, and on a
-    ready pull request, the post-pr gap is a gap again;
+    draft whose bot review is due: that point waits on the run a review
+    request fires, so it is pending the request, not a gap. When the due
+    review and such gaps are all the walk holds, the verdict is
+    request-review (below); with any other refusal the verdict stays
+    not-ready and names that refusal. Once the run exists, and on a ready
+    pull request, the post-pr gap is a gap again;
   - each edited spec bundle not signed off, on any pull request;
   - each drift row: a changed deliverable no spec edit covers, or a drift
     check that could not run (scripts/spec-drift-check.sh);
