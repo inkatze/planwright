@@ -69,9 +69,9 @@
 # any read failure denies. A reserved act after an earlier segment of the same
 # command that changes git configuration (HOME or XDG_CONFIG_HOME set, dropped
 # or bound included), the checked-out branch, or refs (or, for a rewrite,
-# that pushes, fetches, or makes a commit) is refused, and so is one that
-# sets HOME or XDG_CONFIG_HOME on itself: every segment is checked against
-# the state as it stands before the command runs.
+# that pushes, fetches, or makes a commit) is refused, since every segment is
+# checked against the state as it stands before the command runs; so is one
+# that sets HOME or XDG_CONFIG_HOME on itself.
 # A guard that crashes or is signalled under a tier denies rather than leaving
 # the call undecided.
 #
@@ -1841,7 +1841,8 @@ ST_CFG=0
 # configuration: a git config naming a filter key, an include, an editor or a
 # word the shell may still expand; a clone or init; an alias; a GIT_
 # variable assigned or exported; or HOME or XDG_CONFIG_HOME set, dropped or
-# bound by any spelling names_cfgenv reads. It, ST_REF, ST_CFG
+# bound, whether assigned in a segment of its own or by any spelling
+# names_cfgenv reads. It, ST_REF, ST_CFG
 # and ST_HEAD are also read once every segment is classified
 # (kickoff_text_check).
 ST_FILT=0
@@ -1868,17 +1869,18 @@ RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$
 # an array, which is not exported), assigned, or attached to an option
 # (printf -vHOME, read -aHOME); a name word the shell still expands (an
 # expansion, a brace or an unquoted glob, which the tokenizer marks not
-# literal), since it could build either; a subscript other than a plain
-# number, which the shell evaluates as arithmetic even quoted (a[HOME=1]);
-# or any nameref, which a later assignment can bind to either. Only name
-# words are read: a for or select loop's names before its `in` (zsh takes
-# several), printf's -v target before its format, getopts' second operand,
-# and not the value of read's or mapfile's value options. A declaration's
-# value is not split, so only its name is read; any other builtin splits an
-# expanded word whole. A quoted name is what it spells, and a longer name
-# sharing the prefix (HOMEBREW_*) is not it.
+# literal), since it could build either; a name whose subscript is other
+# than a plain number, which the shell evaluates as arithmetic even quoted
+# (a[HOME=1]); or any nameref, which a later assignment can bind to either.
+# Only name words are read: a for or select loop's names before its `in`
+# (zsh takes several), printf's -v target before its format, getopts' name
+# operand, and not the value a read or mapfile value option takes, alone or
+# ending a cluster (-rp). Of an assignment only the name is read; outside a
+# declaration a non-literal word counts whole, since splitting could make
+# it a name. A quoted name is what it spells, and a longer name sharing the
+# prefix (HOMEBREW_*) is not it.
 names_cfgenv() {
-  local w wl sub k=1 n=${#SW[@]} skipv=0 pos=0 decl=0
+  local w wl t p sub vl='' k=1 n=${#SW[@]} skipv=0 pos=0 decl=0
   case $1 in
     for | select)
       n=1
@@ -1887,6 +1889,8 @@ names_cfgenv() {
       done
       ;;
     export | declare | typeset | readonly | local) decl=1 ;;
+    read) vl=dinNptu ;;
+    mapfile | readarray) vl=dnOsuCc ;;
   esac
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
@@ -1910,39 +1914,39 @@ names_cfgenv() {
           *) return 1 ;;
         esac
         ;;
-      read)
-        case $w in -d | -i | -n | -N | -p | -t | -u)
-          skipv=1
-          continue
-          ;;
-        esac
-        ;;
-      mapfile | readarray)
-        case $w in -d | -n | -O | -s | -u | -C | -c)
-          skipv=1
-          continue
-          ;;
-        esac
-        ;;
       getopts)
+        # A leading -- is dropped before the optstring.
+        [ "$pos$w" != 0-- ] || continue
         pos=$((pos + 1))
         [ "$pos" = 2 ] || continue
         ;;
     esac
-    case $w in
+    # A value option alone, or as a cluster's last letter with none before
+    # it, takes the next word.
+    if [ -n "$vl" ]; then
+      case $w in
+        -[!-]*)
+          t=${w#-}
+          case $t in
+            *["$vl"])
+              case ${t%?} in *["$vl"]*) ;; *) skipv=1 ;; esac
+              ;;
+          esac
+          ;;
+      esac
+    fi
+    t=${w%%=*}
+    case $t in
       *'['*)
-        sub=${w#*\[}
+        p=${t%%\[*}
+        sub=${t:$((${#p} + 1))}
         sub=${sub%%]*}
         case $sub in '' | *[!0-9]*) return 0 ;; esac
         ;;
     esac
-    case $w in
-      *=*)
-        if [ "$decl" = 1 ]; then
-          case ${w%%=*} in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
-        else
-          [ "$wl" = 1 ] || return 0
-        fi
+    case "$decl:$w" in
+      1:*=*)
+        case $t in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
         ;;
       *) [ "$wl" = 1 ] || return 0 ;;
     esac
@@ -4490,18 +4494,17 @@ git_state_after() {
     branch)
       # Only a list-mode option makes a branch name a pattern; beside -v, or
       # spelled list or show, it creates a branch, whose upstream git may
-      # record, and a negated list option (--no-list, --no-points-at, in any
-      # abbreviation) can switch list mode back off. A move, copy, delete,
-      # force, upstream or description option, in any abbreviation git
-      # takes, writes whatever stands beside it, and an upstream set in one
-      # word leaves no positional. A value option's value, abbreviated or not
-      # (--sor -committerdate), is neither a name nor a cluster; after -- every
-      # word is a name.
+      # record. A move, copy, delete, force, upstream or description option,
+      # in any abbreviation git takes, writes whatever stands beside it, and
+      # an upstream set in one word leaves no positional. A value option's
+      # value, abbreviated or not (--sor -committerdate), is neither a name
+      # nor a cluster; after -- or --end-of-options every word is a name.
       # List mode is kept in four groups: --list and its siblings (-l, -a,
       # -r), which --no-list clears; the --contains and --merged filters,
       # which git keeps in list mode whatever follows; --points-at, which
       # --no-points-at clears; and --show-current, which --no-show-current
-      # clears. A later list option sets its group again.
+      # clears; each negation in any abbreviation git takes. A later list
+      # option sets its group again.
       local bl_l=0 bl_f=0 bl_p=0 bl_c=0 bpos=0 skip=0 ends=0 x nm
       for a in "${SW[@]:$2}"; do
         if [ "$skip" = 1 ]; then
