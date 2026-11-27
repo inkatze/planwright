@@ -4417,27 +4417,49 @@ git_state_after() {
     branch)
       # Only a list-mode option makes a branch name a pattern; beside -v, or
       # spelled list or show, it creates a branch, whose upstream git may
-      # record. A move, copy, delete, force, upstream or description option,
-      # in any abbreviation git takes, writes whatever stands beside it, and
-      # an upstream set in one word leaves no positional. A value option's
-      # value (--sort -committerdate) is neither a name nor a cluster.
-      local bl=0 bpos=0 skip=0 x nm
+      # record, and a negated list option (--no-list, --no-points-at, in any
+      # abbreviation) can switch list mode back off. A move, copy, delete,
+      # force, upstream or description option, in any abbreviation git
+      # takes, writes whatever stands beside it, and an upstream set in one
+      # word leaves no positional. A value option's value, abbreviated or not
+      # (--sor -committerdate), is neither a name nor a cluster; after -- every
+      # word is a name.
+      local bl=0 bneg=0 bpos=0 skip=0 ends=0 x nm
       for a in "${SW[@]:$2}"; do
         if [ "$skip" = 1 ]; then
           skip=0
+          continue
+        fi
+        if [ "$ends" = 1 ]; then
+          bpos=$((bpos + 1))
           continue
         fi
         case $a in
           --list | -l | -a | --all | -r | --remotes | --show-current | --contains* | --no-contains* | --merged* | --no-merged* | --points-at*) bl=1 ;;
         esac
         case $a in
-          --sort | --format | --contains | --no-contains | --merged | --no-merged | --points-at) skip=1 ;;
+          --) ends=1 ;;
           --*)
             nm=${a#--}
             nm=${nm%%=*}
             for x in move copy delete force track no-track set-upstream-to unset-upstream edit-description; do
               case $x in "$nm"*) ST_REF=1 ;; esac
             done
+            if [ "${#nm}" -ge 3 ]; then
+              for x in no-list no-show-current no-points-at; do
+                case $x in "$nm"*) bneg=1 ;; esac
+              done
+            fi
+            case $a in
+              *=*) ;;
+              *)
+                if [ "${#nm}" -ge 2 ]; then
+                  for x in sort format contains no-contains merged no-merged points-at; do
+                    case $x in "$nm"*) skip=1 ;; esac
+                  done
+                fi
+                ;;
+            esac
             ;;
           -?*)
             case $a in -*[mMcCdDfut]*) ST_REF=1 ;; esac
@@ -4445,6 +4467,7 @@ git_state_after() {
           *) bpos=$((bpos + 1)) ;;
         esac
       done
+      [ "$bneg" = 0 ] || bl=0
       [ "$bl" = 1 ] || [ "$bpos" = 0 ] || ST_REF=1
       ;;
     switch | checkout | update-ref | symbolic-ref | reset | worktree | stash | replace | notes) ST_REF=1 ;;

@@ -352,6 +352,33 @@ for cmd in 'git branch --show-current && git push origin planwright/demo/task-1'
   expect defer "[worker] a read beside the push still defers: $cmd"
 done
 
+echo "# a git branch create is read whatever list option stood before it"
+# A negated list option switches list mode back off, so the names create a
+# branch whose upstream git records; the worker's static allows would run
+# the pair unprompted.
+for tier in worker tower; do
+  for cmd in 'git branch --list --no-list planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch -l --no-l planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch --list --no-li planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch --points-at HEAD --no-points-at planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch --show-current --no-show-current planwright/demo/x origin/main && git push origin planwright/demo/x'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+    reason_has 'in the same command' "[$tier] the create denies through the same-command rule: $cmd"
+  done
+done
+for cmd in 'git branch --list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch -l "feat*" && git push origin planwright/demo/task-1' \
+  'git branch -r "origin/*" && git push origin planwright/demo/task-1' \
+  'git branch --contains HEAD "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --points-at HEAD "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list -- "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --sor -committerdate && git push origin planwright/demo/task-1' \
+  "git branch --format '%(refname:short)' && git push origin planwright/demo/task-1"; do
+  pg worker "$cmd"
+  expect defer "[worker] a listing beside the push still defers: $cmd"
+done
+
 echo "# no worker or tower deletes a spec's amendment or spec-rework branch"
 Z40=0000000000000000000000000000000000000000
 for tier in worker tower; do
