@@ -253,7 +253,7 @@ for tier in worker tower; do
     'gh api -X DELETE /repos/acme/widgets/branches/feature-x/protection' \
     'gh api -X DELETE repos/acme/widgets/rulesets/42' \
     'gh api -X PUT repos/acme/widgets/rulesets/42 -f enforcement=disabled' \
-    'gh api -X DELETE orgs/acme/rulesets/7' \
+    'gh api -X DELETE orgs/acme/rulesets/7' 'gh api -X PUT enterprises/acme/rulesets/9 -f enforcement=disabled' \
     "gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \"X\"}) { clientMutationId } }'" \
     "gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: \"X\", requiresApprovingReviews: false}) { clientMutationId } }'" \
     "gh api graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \"X\"}) { clientMutationId } }'" \

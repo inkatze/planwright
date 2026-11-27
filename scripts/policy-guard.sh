@@ -3976,7 +3976,7 @@ classify_gh_api() {
   local -a segs
   segs=("$@")
   case "${segs[0]:-}:${segs[2]:-}:${segs[3]:-}" in
-    repos:*:rulesets | repositories:rulesets:* | orgs:rulesets:*) prot=1 ;;
+    repos:*:rulesets | repositories:rulesets:* | orgs:rulesets:* | enterprises:rulesets:*) prot=1 ;;
     repos:*:branches) after_branch=5 ;;
     repositories:branches:*) after_branch=4 ;;
   esac
