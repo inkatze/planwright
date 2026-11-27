@@ -149,7 +149,9 @@ for cmd in "printf x >> \".git\"/config && git push origin $B" "printf x >> .gi'
   "wget --output-document=.git/config URL; git push origin $B" "printf x 1<>.git/config; git push origin $B" \
   "coproc cp cfg \"\$d\"; git push origin $B" "set -- 1; for x do cp cfg \"\$d\"; done; git push origin $B" \
   "sed -n '1w .git/config' /tmp/p && git push origin $B" "wget -qO.git/config http://x/c && git push origin $B" \
-  "awk 'BEGIN{print \"x\" >> \".git/config\"}'; git push origin $B" "tar -xC.git -f /tmp/p.tar; git push origin $B"; do
+  "awk 'BEGIN{print \"x\" >> \".git/config\"}'; git push origin $B" "tar -xC.git -f /tmp/p.tar; git push origin $B" \
+  "curl -4so.git/config https://x/cfg && git push origin $B" "sort -ogitconfig x; git push origin $B" \
+  "sort -qogit/config x; git push origin $B"; do
   pg worker "$cmd"
   expect deny "[worker] $cmd (a quoted, folded, globbed or expanded git state path) denies"
 done
@@ -167,7 +169,8 @@ for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git pu
   "git push origin $B; cp cfg .git/config" "touch ../mirror.git/x && git push origin $B" \
   "echo \"git@github.com:o/r.git\" && git push origin $B" \
   "cp a notes.txt && git push origin $B" "sed -i s/a/b/ README.md; git push origin $B" \
-  "rm -f build/x && git commit --amend --no-edit" "wc -l < .git/config; git push origin $B"; do
+  "rm -f build/x && git commit --amend --no-edit" "wc -l < .git/config; git push origin $B" \
+  "sed -i 's|git config|git config --global|' README.md; git push origin $B"; do
   pg worker "$cmd"
   expect defer "[worker] $cmd (a read, a write outside git's state, no act, or a change after the act in plain sequence) defers"
 done

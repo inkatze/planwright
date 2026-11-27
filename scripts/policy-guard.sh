@@ -1950,7 +1950,8 @@ seg_mark() {
 # does not flag: a directory change, or an assignment, export or unset of a
 # variable git, its configuration or its command lookup reads, which a loop's
 # next pass runs before its acts; and a write that may reach git's own state
-# (an output redirect on any segment, or a command other than git). Run once
+# (an output redirect on any segment, or a command other than git or a
+# read-only one). Run once
 # the segment is classified, so its own act reads the state before them and
 # the next segment's seg_mark counts them as its.
 seg_effects() {
@@ -2043,23 +2044,41 @@ seg_command_name() {
 
 # git_state_path <text> — 0 when the text names git's own state: a path
 # through a directory named .git, or a global or system git configuration
-# file, anywhere in the word (after an option's =, inside a script argument
-# such as sed's '1w .git/config') or after an attached run of short flags
-# (-qO.git/config). It is read with quotes and backslashes dropped and in
-# lower case, as a shell and a case-insensitive filesystem read it, and with
-# every character that cannot be part of a path name read as a separator.
+# file, as the whole word or after any split of an attached short-flag run
+# (-ogitconfig, -qO.git/config, -4so.git/config). Read with quotes and
+# backslashes dropped and in lower case, as a shell and a case-insensitive
+# filesystem read it. A .git component is also found anywhere in the word,
+# every character that cannot be part of a path name read as a separator
+# (of=.git/HEAD, sed's '1w .git/config'), so an exclude list naming .git
+# counts too.
 git_state_path() {
-  local t=${1//[\"\'\\]/} c f=''
+  local t=${1//[\"\'\\]/} c i=1
   fold_ascii "$t"
-  [[ $FA =~ ^-[a-z]+(.+)$ ]] && f=${BASH_REMATCH[1]}
-  FA=${FA//[!a-z0-9._~\/-]//}
-  for c in "$FA" "$f"; do
-    case $c in
-      .git | .git/* | */.git | */.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | \
-        git/config | git/config/* | */git/config | */git/config/* | .config/git | .config/git/* | \
-        */.config/git | */.config/git/*) return 0 ;;
-    esac
-  done
+  git_state_name "$FA" && return 0
+  case $FA in
+    -[a-z0-9#]*)
+      while [ "$i" -lt "${#FA}" ]; do
+        case ${FA:$i:1} in [a-z0-9#]) ;; *) break ;; esac
+        i=$((i + 1))
+        git_state_name "${FA:$i}" && return 0
+      done
+      ;;
+  esac
+  c=/${FA//[!a-z0-9._~\/-]//}
+  case $c in
+    */.git | */.git/* | */.gitconfig*) return 0 ;;
+  esac
+  return 1
+}
+
+# git_state_name <folded path> — 0 when the path is, or runs through, git's
+# own state as git_state_path reads a whole word.
+git_state_name() {
+  case $1 in
+    .git | .git/* | */.git | */.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | \
+      git/config | git/config/* | */git/config | */git/config/* | .config/git | .config/git/* | \
+      */.config/git | */.config/git/*) return 0 ;;
+  esac
   return 1
 }
 

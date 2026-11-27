@@ -152,6 +152,7 @@ done
 HEXSHA=$(git -C "$AMB" rev-parse HEAD)
 pg worker "git push origin $HEXSHA" "$AMB"
 expect deny "[worker] a push of a bare object id, which git refuses with no destination and which can also be a ref name, denies"
+reason_has 'single ref' "[worker] the bare object id deny says git reads no single ref"
 BADREFS="$SANDBOX/bad-refs"
 clone_on "$BADREFS" planwright/demo/task-1 1
 printf 'not a packed ref line\n' >>"$BADREFS/.git/packed-refs"
@@ -269,7 +270,7 @@ for tier in worker tower; do
     'gh api -X PUT //repos/acme/widgets/pulls/1/merge'; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd (a dot or empty segment in a write's path) denies"
-    reason_has 'dot segment' "[$tier] $cmd denies as an unreadable path"
+    reason_has 'dot segment, or an empty segment' "[$tier] $cmd denies as an unreadable path"
   done
 done
 pg worker 'gh api repos/acme/widgets/./pulls/1'
