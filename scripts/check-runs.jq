@@ -38,7 +38,7 @@ def mac_skip: .context == null and (.conclusion // "") == "SKIPPED" and ((.name 
 # run's expanded shard names never supersede; so a skipped macOS entry is
 # dropped when a shard of the same job passed. This family key (the name up to
 # the first space) is coarse and serves only that macOS rule; the cancellation
-# drop below matches names exactly or by placeholder.
+# drop below matches only an unexpanded placeholder, by its fixed parts.
 def mac_family: (.name // "") | split(" ")[0];
 
 # The id of the workflow run a check run belongs to, from its details URL;
