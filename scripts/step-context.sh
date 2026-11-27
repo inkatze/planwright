@@ -1,30 +1,24 @@
 # shellcheck shell=sh
 # step-context.sh — sourced, never run: fills the step-context variables git
-# already knows when the caller left them unset, and refuses one a caller
-# exported that disagrees with git. step-run.sh, step-record.sh, and
-# resolve-steps.sh --preamble source it, so a worker runs each bare, with no
-# PLANWRIGHT_STEP_* prefix; each maps the refusal to its own exit code.
+# knows when the caller left them unset, and refuses an exported one that
+# disagrees with git. step-run.sh, step-record.sh, and resolve-steps.sh
+# --preamble source it, each mapping the refusal to its own exit code.
 #
 #   step_context_derive <worktree> [<program name for messages>]
 #     <worktree> is the unit's worktree, absolute and canonical.
-#       PLANWRIGHT_STEP_WORKTREE    <worktree> itself; an exported absolute
-#                                   path that resolves to it is replaced by
-#                                   it, a relative one refused
-#       PLANWRIGHT_STEP_BRANCH      the branch HEAD names (none on a detached
-#                                   HEAD, or when <worktree> is not the top of
-#                                   its own work tree)
-#       PLANWRIGHT_STEP_BASE_BRANCH main (not derived: a repository whose base
-#                                   is another branch exports it)
-#       PLANWRIGHT_STEP_UNIT_KIND   flight for planwright/flight/<id>, spec for
-#                                   planwright/<spec>/spec, task for
+#       PLANWRIGHT_STEP_WORKTREE    <worktree>; an exported absolute path that
+#                                   resolves to it is replaced, a relative one
+#                                   refused
+#       PLANWRIGHT_STEP_BRANCH      the branch HEAD names; none when detached
+#                                   or when <worktree> is not its own top
+#       PLANWRIGHT_STEP_BASE_BRANCH main, not derived (another base exports it)
+#       PLANWRIGHT_STEP_UNIT_KIND   flight, spec, or task for planwright/flight/
+#                                   <id>, planwright/<spec>/spec, or
 #                                   planwright/<spec>/task-<ids>; none for any
-#                                   other branch, planwright/flight/task-*
-#                                   included
-#     A variable set non-empty is kept when it equals what git says, and
-#     refused (return 2, both values on stderr) when it differs. The base
-#     branch has nothing to disagree with, and the spec, task ids, and PR
-#     number are never derived. Sets and exports only the variables it can
-#     derive; returns 0 otherwise.
+#                                   other branch, planwright/flight/task-* too
+#     A variable set non-empty is kept when it equals what git says, else
+#     refused (return 2, both values on stderr); the spec, task ids, and PR
+#     number are never derived. Returns 0 otherwise.
 #
 # POSIX sh; the caller owns `die` handling of the return.
 unset CDPATH
