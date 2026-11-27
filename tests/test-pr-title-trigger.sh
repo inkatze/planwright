@@ -63,9 +63,11 @@ uncommented() { sed 's/#.*$//' "$1"; }
 # defect state. Comments are stripped first, so
 # `types: [opened]  # TODO: add edited` cannot satisfy the C2 scan below —
 # over-matching here would be a false PASS, the one direction that hides the
-# defect this file exists to catch. block_body <file> <key> mark also prints a
-# `#block` line where each block starts, for a reader folding a value across
-# lines; no stripped line can read `#block`.
+# defect this file exists to catch.
+#
+# block_body <file> <key> mark also prints a `#block` line where each block
+# starts, for a reader folding a value across lines; no stripped line can read
+# `#block`.
 block_body() {
   uncommented "$1" | awk -v key="$2" -v mark="${3:-}" '
     {
@@ -99,8 +101,8 @@ block_body() {
 # `ci-${{ github.ref }}` in another workflow. A flow-mapping `concurrency:` is
 # not read, and fails C3 by name below.
 concurrency_groups() {
-  # q carries the two YAML quote characters so the single-quoted awk program
-  # below never has to contain one.
+  # The awk program's q carries the two YAML quote characters, so its
+  # single-quoted text never has to contain one.
   {
     uncommented "$1" | sed -n 's/^[[:space:]]*concurrency:[[:space:]]*\([^[:space:]{].*\)$/group: \1/p'
     block_body "$1" concurrency mark

@@ -1754,9 +1754,9 @@ assert_exit "the default workflows dir resolves to the repo's" 0 $?
 # ---------------------------------------------------------------------------
 
 # rel_value <file> <key> — the value of <key> under the top-level
-# `concurrency:`, a `>-` block folded onto one line. Only line breaks,
-# indentation and the spaces beside parentheses are normalized, all outside
-# quoted literals, so a literal's own spacing still counts.
+# `concurrency:`, a `>-` block folded onto one line. Outside quoted literals,
+# runs of whitespace collapse to one space and the spaces beside parentheses
+# are dropped, so a literal's own spacing still counts.
 rel_value() {
   awk -v key="$2" -v sq="'" '
     /^[^ #]/ {

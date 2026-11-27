@@ -192,7 +192,7 @@ mac_step() {
 # GATE_LINT or GATE_PLAN says otherwise; the Alpine smoke takes the Alpine
 # suite's result unless given its own.
 gate() {
-  LINT_RESULT="${GATE_LINT:-success}" PLAN_RESULT="${GATE_PLAN:-success}" REUSE_RUN="$1" MAC_RUN="$2" \
+  LINT_RESULT="${GATE_LINT-success}" PLAN_RESULT="${GATE_PLAN-success}" REUSE_RUN="$1" MAC_RUN="$2" \
     TEST_RESULT="$3" ALPINE_RESULT="$4" MACOS_RESULT="$5" MACOS_SMOKE_RESULT="$6" \
     ALPINE_SMOKE_RESULT="${7-$4}" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=acme/widgets \

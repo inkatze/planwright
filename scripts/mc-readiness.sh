@@ -62,8 +62,10 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       names (it describes the base), nor a
                                       cancelled check that a later run of
                                       its workflow on the head superseded
-                                      by succeeding at the same job;
-                                      SUCCESS, NEUTRAL and SKIPPED pass
+                                      by succeeding at a check of the same
+                                      name (for an unexpanded matrix name,
+                                      at one of its shards); SUCCESS,
+                                      NEUTRAL and SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or

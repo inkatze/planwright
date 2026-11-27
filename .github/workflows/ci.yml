@@ -419,15 +419,15 @@ jobs:
   # which branch protection reads as passing. When a newer run on the same ref
   # cancels the run, this job ends cancelled like every job of that run still
   # waiting on its needs, not red beside the live run, and branch protection
-  # never reads cancelled as passing. A matrix
-  # job's result is success only when every one of its shards succeeded, and a
-  # failed plan skips every planned shard, which fails it too. Then it runs
-  # the timing gate (`check:test-time` in `mise run check`) over every Linux
-  # shard's report at once: the gate needs one row per test file, which only
-  # the union holds, and its budgets are the Ubuntu runner's. On a ready flip that
-  # reuses a prior run (the plan job's reuse step), the suite jobs are
-  # skipped, the gate stands on that run's evidence and names it, and the
-  # timing gate, which that run's own check job passed, does not run again.
+  # never reads cancelled as passing. A matrix job's result is success only
+  # when every one of its shards succeeded, and a failed plan skips every
+  # planned shard, which fails it too. Then it runs the timing gate
+  # (`check:test-time` in `mise run check`) over every Linux shard's report at
+  # once: the gate needs one row per test file, which only the union holds,
+  # and its budgets are the Ubuntu runner's. On a ready flip that reuses a
+  # prior run (the plan job's reuse step), the suite jobs are skipped, the gate
+  # stands on that run's evidence and names it, and the timing gate, which
+  # that run's own check job passed, does not run again.
   check:
     needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite, alpine-smoke]
     if: ${{ !cancelled() }}
