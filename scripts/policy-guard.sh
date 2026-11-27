@@ -184,7 +184,8 @@
 #               refs/heads/) or a glob that can reach one, a non-literal
 #               refspec, --stdin, and --refmap with a value; a `git fetch` or
 #               `git remote` beside -c, a GIT_* variable, or a config or
-#               remote change in the same command; a `git remote add` fetching
+#               remote change (an upstream-recording fetch or pull included)
+#               in the same command; a `git remote add` fetching
 #               into a fetch mirror; `gh pr checkout`, `gh pr co`, the
 #               top-level `gh co`, and `gh repo sync`; and a gh or `git
 #               remote` subcommand given through an expansion. All deny with
@@ -1837,8 +1838,9 @@ tower_floor() {
 ST_CFG=0
 # A segment that may have set a filter program, or moved where git reads its
 # configuration: a git config naming a filter key, an include, an editor or a
-# word the shell may still expand; a clone or init; an alias; or a GIT_
-# variable, HOME or XDG_CONFIG_HOME assigned or exported. It, ST_REF, ST_CFG
+# word the shell may still expand; a clone or init; an alias; a GIT_
+# variable assigned or exported; or HOME or XDG_CONFIG_HOME set, dropped or
+# bound by any spelling CFGENV_SET reads. It, ST_REF, ST_CFG
 # and ST_HEAD are also read once every segment is classified
 # (kickoff_text_check).
 ST_FILT=0
@@ -1848,8 +1850,9 @@ ST_FETCHSPEC=0
 ST_PUSH=0
 ST_HEAD=0
 GIT_ENV_SET=0
-# CFGENV_SET: an earlier segment set HOME or XDG_CONFIG_HOME, where git reads
-# its global configuration; G_CFGENV: that, or this git segment's own prefix.
+# CFGENV_SET: an earlier segment may have set, dropped or bound HOME or
+# XDG_CONFIG_HOME, where git reads its global configuration (names_cfgenv);
+# G_CFGENV: that, or this git segment's own prefix.
 CFGENV_SET=0
 G_CFGENV=0
 
@@ -1862,14 +1865,20 @@ RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$
 # names_cfgenv <builtin> — 0 when the segment in SW[] may set or drop HOME or
 # XDG_CONFIG_HOME: a word naming one bare, subscripted (HOME[0] makes it an
 # array, which is not exported), assigned, or attached to an option
-# (printf -vHOME, read -aHOME); a name the guard cannot read; or any nameref,
-# which a later assignment can bind to either. A for or select loop sets only
-# its variable, and printf only its -v target. A longer name sharing the
-# prefix (HOMEBREW_*) is not it.
+# (printf -vHOME, read -aHOME); a name the guard cannot read (an expansion,
+# a brace or a glob builds it); or any nameref, which a later assignment can
+# bind to either. A for or select loop sets only the names before its `in`
+# (zsh takes several), and printf only its -v target. A longer name sharing
+# the prefix (HOMEBREW_*) is not it.
 names_cfgenv() {
   local w k=1 n=${#SW[@]}
   case $1 in
-    for | select) n=2 ;;
+    for | select)
+      n=1
+      while [ "$n" -lt "${#SW[@]}" ] && [ "${SW[$n]}" != in ]; do
+        n=$((n + 1))
+      done
+      ;;
   esac
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
@@ -1887,8 +1896,7 @@ names_cfgenv() {
         case $1 in declare | typeset | local) return 0 ;; esac
         ;;
     esac
-    # A name assembled by an expansion could be either.
-    case ${w%%=*} in *'$'* | *'`'*) return 0 ;; esac
+    case ${w%%=*} in *'$'* | *'`'* | *'{'* | *'*'* | *'?'* | *'['*) return 0 ;; esac
     k=$((k + 1))
   done
   return 1
@@ -2950,10 +2958,6 @@ classify_segments() {
           case " ${SW[*]} " in
             *" HOME"* | *" XDG_CONFIG_HOME"*) ST_FILT=1 ;;
           esac
-          if names_cfgenv "$base_verb"; then
-            CFGENV_SET=1
-            ST_FILT=1
-          fi
           # A value the shell later runs (a startup or prompt hook, an
           # arithmetic subscript) is screened as a command; printf sets one
           # only with -v.
@@ -2967,10 +2971,8 @@ classify_segments() {
           esac
           ;;
       esac
-      # Builtins that assign or drop a variable named among their words; the
-      # kickoff filter screen reads ST_FILT for the same move.
       case $base_verb in
-        read | mapfile | readarray | getopts | unset | for | select)
+        export | declare | typeset | readonly | local | let | printf | read | mapfile | readarray | getopts | unset | for | select)
           if names_cfgenv "$base_verb"; then
             CFGENV_SET=1
             ST_FILT=1
@@ -4255,7 +4257,7 @@ classify_git() {
   fi
   if [ "$TIER" = tower ] && { [ "$LC" = fetch ] || { [ "$LC" = remote ] && [ -n "$rsub" ] && [ "$rsub" != show ] && [ "$rsub" != get-url ]; }; } \
     && { [ "$cflag" = 1 ] || [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; }; then
-    deny_now "this git $LC runs with -c configuration, a GIT_* variable, or a git config or remote change in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run it on its own, without them."
+    deny_now "this git $LC runs with -c configuration, a GIT_* variable, or a git config or remote change (an upstream-recording fetch or pull included) in the same command, any of which can set a refspec writing a local branch where the guard cannot read it - refusing (fail closed). Run it on its own, without them."
     return 0
   fi
   [ "$TIER" != tower ] || classify_tower_git "$LC" "$k" "$dir" "$dir_ok"
@@ -4267,7 +4269,7 @@ classify_git() {
       # a filter program included.
       ST_FILT=1
       if [ "$GIT_ENV" = 1 ] || [ "$ST_CFG" = 1 ]; then
-        deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, or git remote), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
+        deny_now "this git $(sanitize_printable "$sub" 'subcommand') runs where git configuration is set in the same command or its environment (a GIT_* variable, git config, git remote, or an upstream-recording fetch or pull), so the guard cannot tell what it runs - refusing (fail closed). Run the configuration change and the command separately."
         return 0
       fi
       # git reads aliases from a repository the guard cannot place here.
@@ -4305,7 +4307,7 @@ act_gate() {
     return 1
   fi
   if [ "$G_CFGENV" = 1 ]; then
-    deny_now "$what runs with HOME or XDG_CONFIG_HOME set in the same command, which moves the global configuration git reads away from the one the guard reads - refusing (fail closed). Run it without that setting."
+    deny_now "$what runs after HOME or XDG_CONFIG_HOME may be set, dropped or bound (by an assignment, a builtin, a nameref, or a name the guard cannot read) in the same command, which can move the global configuration git reads away from the one the guard reads - refusing (fail closed). Run it as its own command."
     return 1
   fi
   if [ "$ST_CFG" = 1 ] || [ "$ST_REF" = 1 ]; then
@@ -4344,11 +4346,10 @@ git_state_after() {
       # all the same. A removal, rename, replace, add or edit changes the
       # configuration, and a removal can uncover a value a lower layer or an
       # earlier include sets.
-      local cro=0 cw=0 skip=0 args=0 cpos=0
+      local cro=0 cw=0 skip=0 args=0 cpos=0 x nm
       for a in "${SW[@]:$2}"; do
-        # A value option's value counts as a word, as every plain word did
-        # before this rule read options, so no write that refused before
-        # passes now.
+        # A value option's value counts toward the words, so a one-argument
+        # form beside one reads as a write (fail closed).
         if [ "$skip" = 1 ]; then
           skip=0
           cpos=$((cpos + 1))
@@ -4365,7 +4366,18 @@ git_state_after() {
         case $a in
           --) args=1 ;;
           --get | --get-all | --get-regexp | --get-urlmatch | --get-color | --get-colorbool | --list | -l) cro=1 ;;
-          --comment | --file | -f | --blob | --type | --default | --value) skip=1 ;;
+          -f | -[!-]*f) skip=1 ;;
+          --*=*) ;;
+          --?*)
+            # A value option in any abbreviation git takes (--comm) takes
+            # the next word, whatever it spells.
+            nm=${a#--}
+            if [ "${#nm}" -ge 2 ]; then
+              for x in comment file blob type default value; do
+                case $x in "$nm"*) skip=1 ;; esac
+              done
+            fi
+            ;;
           -*) ;;
           list | get)
             cro=1
@@ -4377,7 +4389,7 @@ git_state_after() {
             ;;
           *)
             args=1
-            cpos=1
+            cpos=$((cpos + 1))
             ;;
         esac
       done
@@ -4387,10 +4399,9 @@ git_state_after() {
       # value or value-pattern can spell a read verb (git config
       # filter.y.clean sh list writes the key). Any filter key but required
       # may be a program, and a section renamed into filter.* brings its keys
-      # along; an include, an editor or
-      # a word the shell may still expand (a brace sequence spells
-      # fil{t..t}er) may set anything. The rename word may follow the key, so
-      # it is looked for first.
+      # along; an include, an editor or a word the shell may still expand (a
+      # brace sequence spells fil{t..t}er) may set anything. The rename word
+      # may follow the key, so it is looked for first.
       renaming=0
       for a in "${SW[@]:$2}"; do
         case $a in --ren* | rename-section) renaming=1 ;; esac

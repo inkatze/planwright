@@ -222,6 +222,18 @@ for tier in worker tower; do
     reads protected_branches "[$tier] reads only protected_branches: $cmd"
   done
 done
+# With the message before the branch, every masked string's length decides
+# where the target key's value is read from.
+mfirst() { # <message input> <branch name>
+  printf "gh api graphql -f query='mutation{createCommitOnBranch(input:{message:{%s},branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"%s\"},expectedHeadOid:\"abc\"}){commit{oid}}}'" "$1" "$2"
+}
+for msg in "headline:\"say ${BS}\"hi${BS}\"\"" 'headline:"""a " b"""' 'headline:"""abc"""'; do
+  pg worker "$(mfirst "$msg" feature)"
+  expect defer "[worker] a masked message before the branch keeps its offset: $msg"
+  pg worker "$(mfirst "$msg" main)"
+  expect deny "[worker] a masked message before the branch still reads main: $msg"
+  reason_has "'main' is protected" "[worker] the target after a masked message is main: $msg"
+done
 # The target-key cap: 64 keys are read, a 65th refuses before any read.
 keys=''
 i=0

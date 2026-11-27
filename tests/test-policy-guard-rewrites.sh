@@ -329,9 +329,26 @@ for cmd in 'git branch --set-upstream-to=origin/main && git push origin planwrig
   'declare HOME[0]=/tmp/h; git push' 'typeset HOME[0]=/tmp/h; git push' \
   'declare XDG_CONFIG_HOME[0]=/tmp/x; git push' 'printf -v HOME[0] %s /tmp/h; git push' \
   'declare -n R; R=HOME; R=/tmp/h; git push' 'declare -n R=HOME[0]; R=/tmp/h; git push' \
-  'unset "$V"; git push'; do
+  'unset "$V"; git push' \
+  'git config --comm get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --co get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --comm --get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --comme -l remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -zf --get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -ze && git push origin planwright/demo/task-1' \
+  'git config --file f -- push.default && git push origin planwright/demo/task-1' \
+  'git branch -r --delete origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -r --del origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -r -d origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -r -D origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -uorigin/x && git push' \
+  'typeset -n R=HOME; R=/tmp/h; git push' 'typeset -n R; R=HOME; git push' \
+  'read -aXDG_CONFIG_HOME <<< x; git push' 'unset HO{M,}E; git push' 'export {HOME,X}=/tmp/h; git push' \
+  'read HO{M,}E <<< /tmp/h; git push' 'unset HOM?; git push' \
+  'for x HOME in a /tmp/h; do git push origin planwright/demo/task-1; done'; do
   pg worker "$cmd"
   expect deny "[worker] $cmd"
+  reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
 done
 for cmd in 'git branch --show-current && git push origin planwright/demo/task-1' \
   'git config --get push.default && git push origin planwright/demo/task-1' \
@@ -347,7 +364,11 @@ for cmd in 'git branch --show-current && git push origin planwright/demo/task-1'
   'git branch -a --list "feat*" && git push origin planwright/demo/task-1' \
   'for v in HOME PATH; do echo x; done; git push origin planwright/demo/task-1' \
   'export GREETING=HOME; git push origin planwright/demo/task-1' \
-  'printf -v out %s HOME; git push origin planwright/demo/task-1'; do
+  'printf -v out %s HOME; git push origin planwright/demo/task-1' \
+  'select v in HOME; do echo x; done; git push origin planwright/demo/task-1' \
+  "'for'; git push origin planwright/demo/task-1" \
+  'git config --get-color color.diff.new red && git push origin planwright/demo/task-1' \
+  'git config list --show-origin && git push origin planwright/demo/task-1'; do
   pg worker "$cmd"
   expect defer "[worker] a read beside the push still defers: $cmd"
 done

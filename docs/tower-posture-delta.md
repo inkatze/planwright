@@ -181,7 +181,8 @@ long-option prefixes, short clusters, ref forms, case, and repository
 aliases), a bare-name fetch destination (`main:main`) and an expansion among a
 fetch's words included. The guard also refuses forms no glob names: a
 `git fetch` or `git remote` run beside `-c` configuration, a `GIT_*`
-variable, or a config or remote change in the same command; a glob
+variable, or a config or remote change (an upstream-recording fetch or pull
+included) in the same command; a glob
 destination that can reach `refs/heads/`; `git remote add -f` into a fetch
 mirror; `gh co` (gh's default alias of `pr checkout`); and an alias it cannot
 read. `tests/fixtures/tower-deny-acts.tsv` maps each entry to its act. Plain

@@ -232,6 +232,13 @@ for cmd in 'HOME=/tmp/h git add scripts/kickoff-spec-push.sh' \
   'XDG_CONFIG_HOME+=/x; git status scripts/kickoff-spec-push.sh' \
   'HOME=/tmp/h git log -p -- scripts/kickoff-spec-push.sh' \
   'export XDG_CONFIG_HOME=/tmp/h; git show HEAD -- scripts/kickoff-spec-push.sh' \
+  'read HOME <<< /tmp/h; git log -p -- scripts/kickoff-spec-push.sh' \
+  'mapfile -t HOME < f; git log -p -- scripts/kickoff-spec-push.sh' \
+  'unset HOME; git log -p -- scripts/kickoff-spec-push.sh' \
+  'for HOME in /tmp/h; do git log -p -- scripts/kickoff-spec-push.sh; done' \
+  'read XDG_CONFIG_HOME <<< /tmp/h; git show HEAD -- scripts/kickoff-spec-push.sh' \
+  'printf -vHOME %s /tmp/h; git log -p -- scripts/kickoff-spec-push.sh' \
+  'declare -n R; git log -p -- scripts/kickoff-spec-push.sh' \
   "git clone $SANDBOX/origin.git $SANDBOX/empty && cd $SANDBOX/empty && git log -p -- scripts/kickoff-spec-push.sh" \
   'git zz && git log -p -- scripts/kickoff-spec-push.sh'; do
   for tier in worker tower; do
