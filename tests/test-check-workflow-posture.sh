@@ -2278,6 +2278,8 @@ assert_exit "pr-agent: the review and its run marker wait on that check" 0 $?
 # shellcheck disable=SC2016 # the workflow's literal text
 grep -q 'group: pr-agent-${{ github.event.pull_request.number }}' "$PA_REAL"
 assert_exit "pr-agent: the repo's workflow keeps its concurrency group" 0 $?
+grep -qx '      cancel-in-progress: false' "$PA_REAL"
+assert_exit "pr-agent: a second event queues behind a running review instead of cancelling it" 0 $?
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
