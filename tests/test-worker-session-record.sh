@@ -961,8 +961,13 @@ on_branch() {
   git -C "$SPW" checkout -q -B "$1" main && [ "$(git -C "$SPW" symbolic-ref --short HEAD)" = "$1" ]
 }
 s64=a$(printf '%063d' 0)
-for b in planwright/demo/spec planwright/demo/spec-rework planwright/demo/amendment-2 \
-  planwright/demo/amendment-12 "planwright/$s64/spec" planwright/d-1/spec; do
+SPEC_YES=(planwright/demo/spec planwright/demo/spec-rework planwright/demo/amendment-2
+  planwright/demo/amendment-12 "planwright/$s64/spec" planwright/d-1/spec)
+SPEC_NO=(planwright/demo/notes planwright/demo/amendment- planwright/demo/amendment-2a
+  planwright/demo/spec-2 planwright/demo/sub/spec planwright/flight/spec
+  planwright/-demo/spec "planwright/a$s64/spec" planwright/de_mo/spec planwright/de.mo/spec
+  planwright/Upper/spec feature/spec spec other)
+for b in "${SPEC_YES[@]}"; do
   on_branch "$b" || {
     fail "spec PR branch: $b could not be checked out"
     continue
@@ -974,10 +979,7 @@ for b in planwright/demo/spec planwright/demo/spec-rework planwright/demo/amendm
     fail "spec PR branch: $b record: $(tr '\n' ' ' <"$REC")"
   fi
 done
-for b in planwright/demo/notes planwright/demo/amendment- planwright/demo/amendment-2a \
-  planwright/demo/spec-2 planwright/demo/sub/spec planwright/flight/spec \
-  planwright/-demo/spec "planwright/a$s64/spec" planwright/de_mo/spec planwright/de.mo/spec \
-  planwright/Upper/spec feature/spec spec other; do
+for b in "${SPEC_NO[@]}"; do
   on_branch "$b" || {
     fail "neither unit nor spec PR branch: $b could not be checked out"
     continue
@@ -989,6 +991,24 @@ for b in planwright/demo/notes planwright/demo/amendment- planwright/demo/amendm
     fail "neither unit nor spec PR branch: $b record: $(tr '\n' ' ' <"$REC")"
   fi
 done
+# The writer's shapes are the policy guard's: its own kickoff_scope_names,
+# under the matching kickoff scope, accepts exactly the branches above that
+# record a PR base.
+awk '/^kickoff_scope_names\(\) \{$/,/^}$/' "$REPO_ROOT/scripts/policy-guard.sh" >"$T/ksn.sh"
+# shellcheck source=/dev/null
+. "$T/ksn.sh"
+ksn() (
+  rest=${1#planwright/}
+  PLANWRIGHT_WORKER_SCOPE=kickoff-${rest%%/*} kickoff_scope_names "$1" "$SPW" >/dev/null 2>&1
+)
+drift=''
+for b in "${SPEC_YES[@]}"; do ksn "$b" || drift="$drift $b"; done
+for b in "${SPEC_NO[@]}"; do ! ksn "$b" || drift="$drift $b"; done
+if [ -s "$T/ksn.sh" ] && [ -z "$drift" ]; then
+  pass "spec PR branch: the writer's shapes are exactly kickoff_scope_names's"
+else
+  fail "spec PR branch: kickoff_scope_names disagrees with the writer on:${drift:- (function not found)}"
+fi
 git -C "$SPW" checkout -q --detach main
 write "$SPW"
 if [ "$RC" -eq 0 ] && ! grep -q '^pr_base=' "$REC"; then
