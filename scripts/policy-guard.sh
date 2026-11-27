@@ -1865,18 +1865,40 @@ GIT_ENV_SET=0
 # The state flags above order acts by the command's text, but a loop body, a
 # background list, a pipeline or a coprocess can run a change written after an
 # act before it. seg_mark, run as each segment starts (and with -1 once all
-# are classified), records RO_FIRST_ACT, the first segment that queued an act,
-# and RO_LAST_CHG, the last whose classification set a flag; reorder_check
-# refuses a change after the first act in a command carrying any of them.
-RO_SI=-1 RO_FLAGS='' RO_PEND=0 RO_FIRST_ACT=-1 RO_LAST_CHG=-1
+# are classified), records for the segment before it the first act of each
+# kind it queued and the last change of each class act_gate reads: config,
+# refs, the environment or the directory for every act; a push, fetch or
+# commit-making command for a rewrite; a fetch writing a local ref for a merge.
+# reorder_check refuses a change after the first act that reads it, in a
+# command carrying any of those constructs.
+RO_SI=-1 RO_FC='' RO_FH='' RO_FS='' RO_PEND=0 RO_DIRS=0
+RO_ACT=-1 RO_REWRITE=-1 RO_MERGE=-1 RO_CHG_CFG=-1 RO_CHG_HIST=-1 RO_CHG_SPEC=-1
 seg_mark() {
-  local f="$ST_CFG$ST_REF$ST_FILT$ST_FETCH$ST_FETCHSPEC$ST_PUSH$ST_HEAD$GIT_ENV_SET"
+  local fc="$ST_CFG$ST_REF$ST_FILT$GIT_ENV_SET:$RO_DIRS" fh="$ST_PUSH$ST_FETCH$ST_HEAD" fs=$ST_FETCHSPEC i kind
   if [ "$RO_SI" -ge 0 ]; then
-    [ "${#PENDING[@]}" = "$RO_PEND" ] || [ "$RO_FIRST_ACT" -ge 0 ] || RO_FIRST_ACT=$RO_SI
-    [ "$f" = "$RO_FLAGS" ] || RO_LAST_CHG=$RO_SI
+    i=$RO_PEND
+    while [ "$i" -lt "${#PENDING[@]}" ]; do
+      kind=${PENDING[$i]%%"$TAB"*}
+      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI
+      case $kind in commit | rebase | pull) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI ;; esac
+      case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI ;; esac
+      i=$((i + 1))
+    done
+    [ "$fc" = "$RO_FC" ] || RO_CHG_CFG=$RO_SI
+    [ "$fh" = "$RO_FH" ] || RO_CHG_HIST=$RO_SI
+    [ "$fs" = "$RO_FS" ] || RO_CHG_SPEC=$RO_SI
   fi
-  RO_SI=$1 RO_FLAGS=$f RO_PEND=${#PENDING[@]}
-  if [ "$1" -ge 0 ] && writes_git_state "$1"; then
+  RO_SI=$1 RO_FC=$fc RO_FH=$fh RO_FS=$fs RO_PEND=${#PENDING[@]}
+}
+
+# seg_effects <seg> — the changes a segment makes that its classification
+# does not flag: a directory change, which moves every later act to another
+# checkout on a loop's next pass, and a write to git's own state by a command
+# that is not git. Run after seg_mark, so the change counts as this segment's.
+seg_effects() {
+  seg_command_name "$1"
+  case $SCN in cd | pushd | popd) RO_DIRS=$((RO_DIRS + 1)) ;; esac
+  if writes_git_state "$1"; then
     ST_CFG=1
     ST_REF=1
   fi
@@ -1885,7 +1907,10 @@ seg_mark() {
 reorder_check() {
   local t k=0 n=${#W[@]} why=''
   seg_mark -1
-  [ "$RO_FIRST_ACT" -ge 0 ] && [ "$RO_LAST_CHG" -gt "$RO_FIRST_ACT" ] || return 0
+  { [ "$RO_ACT" -ge 0 ] && [ "$RO_CHG_CFG" -gt "$RO_ACT" ]; } \
+    || { [ "$RO_REWRITE" -ge 0 ] && [ "$RO_CHG_HIST" -gt "$RO_REWRITE" ]; } \
+    || { [ "$RO_MERGE" -ge 0 ] && [ "$RO_CHG_SPEC" -gt "$RO_MERGE" ]; } \
+    || return 0
   for t in ${SEG_TERM[@]+"${SEG_TERM[@]}"}; do
     case $t in '&' | '|' | '|&') why='a background list or a pipeline' ;; esac
   done
@@ -1896,43 +1921,74 @@ reorder_check() {
     k=$((k + 1))
   done
   [ -z "$why" ] \
-    || deny_now "this command changes git configuration, a ref, HEAD or the environment in a segment written after a reserved act, inside $why, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
+    || deny_now "this command changes git configuration, a ref, HEAD, the environment or the directory in a segment written after a reserved act that reads it, inside $why, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
 }
 
-# writes_git_state <seg> — 0 when a segment that is not git names git's own
-# state, a path through a .git directory or a git configuration file, as a
-# redirect target or as a word of a command that may write it (any but the
-# read-only ones listed): git reads that state for every later act, and the
-# guard reads it before the command runs.
-GIT_STATE_READERS=' cat ls head tail grep egrep fgrep rg test [ [[ stat file wc diff cmp less more realpath readlink basename dirname du md5sum sha1sum sha256sum shasum od hexdump xxd strings jq '
-git_state_path() {
-  case $1 in
-    *.git | *.git/* | *gitconfig* | *git/config* | *.config/git*) return 0 ;;
-  esac
-  return 1
-}
-writes_git_state() {
-  local k=${SEG_S[$1]} e=${SEG_E[$1]} name=''
-  ! git_state_path "${SEG_RT[$1]:-}" || return 0
+# seg_command_name <seg> — set SCN to the segment's command name, past
+# reserved words, precommand words and assignments; empty when there is none.
+seg_command_name() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]}
+  SCN=''
   while [ "$k" -lt "$e" ]; do
     case ${W[$k]} in
       '!' | if | then | else | elif | do | while | until | time | command | builtin | exec | noglob | nocorrect) ;;
       *)
-        if [ "${WA[$k]}" = 1 ]; then
-          :
-        else
-          name=${W[$k]##*/}
-          break
-        fi
+        [ "${WA[$k]}" = 1 ] || {
+          SCN=${W[$k]##*/}
+          return 0
+        }
         ;;
     esac
     k=$((k + 1))
   done
-  [ -n "$name" ] && [ "$name" != git ] || return 1
-  case $GIT_STATE_READERS in *" $name "*) return 1 ;; esac
-  k=${SEG_S[$1]}
+}
+
+# git_state_path <text> — 0 when the text names git's own state: a path
+# through a .git directory, or a global or system git configuration file. It
+# is read with quotes and backslashes dropped and in lower case, as a shell
+# and a case-insensitive filesystem read it.
+git_state_path() {
+  local t=${1//[\"\'\\]/}
+  fold_ascii "$t"
+  case $FA in
+    *.git | *.git/* | .gitconfig* | */.gitconfig* | gitconfig | */gitconfig | *git/config | *git/config/* | \
+      *.config/git | *.config/git/*) return 0 ;;
+  esac
+  return 1
+}
+
+# fold_ascii <text> — set FA to the text with A-Z folded, by expansion.
+FA_UP=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+FA_LOW=abcdefghijklmnopqrstuvwxyz
+fold_ascii() {
+  local i=0
+  FA=$1
+  case $FA in *[A-Z]*) ;; *) return 0 ;; esac
+  while [ "$i" -lt 26 ]; do
+    FA=${FA//${FA_UP:$i:1}/${FA_LOW:$i:1}}
+    i=$((i + 1))
+  done
+}
+
+# writes_git_state <seg> — 0 when a segment that is not git may write git's
+# own state: a redirect target that names it or that the shell expands, or a
+# word naming it of any command but the read-only ones listed, or, for a
+# command that writes files, a word the shell expands. git reads that state
+# for every later act, and the guard reads it before the command runs.
+GIT_STATE_READERS=' cat ls head tail grep egrep fgrep test [ [[ stat file wc diff cmp less more realpath readlink basename dirname du md5sum sha1sum sha256sum shasum od hexdump strings jq '
+GIT_STATE_WRITERS=' cp mv install ln tee sed gsed perl dd truncate rsync rm unlink touch chmod ed ex awk gawk python python3 ruby node sh bash zsh dash ksh tar unzip patch cpio xxd ditto '
+writes_git_state() {
+  local k=${SEG_S[$1]} e=${SEG_E[$1]} rt=${SEG_RT[$1]:-}
+  ! git_state_path "$rt" || return 0
+  case $rt in *[\$\`*?[]*) return 0 ;; esac
+  seg_command_name "$1"
+  [ -n "$SCN" ] && [ "$SCN" != git ] || return 1
+  case $GIT_STATE_READERS in *" $SCN "*) return 1 ;; esac
   while [ "$k" -lt "$e" ]; do
     ! git_state_path "${W[$k]}" || return 0
+    case $GIT_STATE_WRITERS in
+      *" $SCN "*) [ "${WL[$k]}" = 1 ] || return 0 ;;
+    esac
     k=$((k + 1))
   done
   return 1
@@ -2828,6 +2884,7 @@ classify_segments() {
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
     seg_mark "$si"
+    seg_effects "$si"
     segment_text "$si"
     cur_text=$SEG_TEXT
     compound_shape "$si"

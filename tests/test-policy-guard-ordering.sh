@@ -66,10 +66,21 @@ for tier in worker tower; do
 done
 pg worker "for i in 1 2; do git push origin $B; $CFGPUSH; done"
 reason_has 'order' "the ordering deny says why"
-for cmd in "git push origin $B 2>&1 | tail -3" "for i in 1 2; do git push origin $B; done" \
-  "git push origin $B & wait" "git status | cat; git push origin $B"; do
+for cmd in "for i in 1 2; do git push origin HEAD; cd /tmp; done" \
+  "while true; do git commit --amend --no-edit; pushd /tmp; done" \
+  "for i in 1 2; do git commit --amend --no-edit; git fetch origin; done" \
+  "until false; do git merge origin/main; git fetch origin main:refs/heads/x; done"; do
   pg worker "$cmd"
-  expect defer "[worker] $cmd (no state change after the act) defers"
+  expect deny "[worker] $cmd (a directory change, or a fetch after a rewrite or merge, in a loop) denies"
+  reason_has 'order' "[worker] $cmd denies for its ordering"
+done
+for cmd in "git push origin $B 2>&1 | tail -3" "for i in 1 2; do git push origin $B; done" \
+  "git push origin $B & wait" "git status | cat; git push origin $B" \
+  "git merge origin/main && git push origin $B:$B 2>&1 | tail -3" \
+  "git merge --ff-only origin/main && git push origin $B:$B | cat" \
+  "git push origin $B:$B && git push origin HEAD:$B | cat" "git push origin $B; git config user.name x"; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (no state change after the act that the act reads) defers"
 done
 
 # --- B: non-git writes to git configuration or HEAD --------------------------
@@ -98,10 +109,23 @@ for tier in worker tower; do
     expect deny "[$tier] $cmd denies"
   done
 done
-for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git push origin $B" \
-  "printf x >> .git/config"; do
+for cmd in "printf x >> \".git\"/config && git push origin $B" "printf x >> .gi''t/config && git push origin $B" \
+  "printf x >> .gi\\t/config && git push origin $B" "printf x >> .GIT/config && git push origin $B" \
+  "cp cfg .GIT/config; git push origin $B" "cp gcfg ~/.GITCONFIG; git push origin $B" \
+  "xxd -r -p cfg.hex .git/config && git push origin $B" "cp cfg .gi?/config; git push origin $B" \
+  "cp cfg .[g]it/config; git push origin $B" "d=.git/config; cp cfg \"\$d\"; git push origin $B" \
+  "printf x > \"\$f\"; git push origin $B" "cp gcfg /etc/gitconfig; git push origin $B" \
+  "cp gcfg ~/.gitconfig.local; git push origin $B"; do
   pg worker "$cmd"
-  expect defer "[worker] $cmd (a read, a write outside git's state, or no act) defers"
+  expect deny "[worker] $cmd (a quoted, folded, globbed or expanded git state path) denies"
+done
+for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git push origin $B" \
+  "printf x >> .git/config" "grep x .git/config && git push origin $B" \
+  "printf x >> .gitignore && git push origin $B" "printf x > .github/ci.yml && git push origin $B" \
+  "printf x >> docs/gitconfig.md && git push origin $B" "echo \$HOME; git push origin $B" \
+  "git push origin $B; cp cfg .git/config"; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd (a read, a write outside git's state, no act, or a change after the act in plain sequence) defers"
 done
 
 # --- D: a tab or newline in the directory -----------------------------------
