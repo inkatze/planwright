@@ -6501,7 +6501,7 @@ cmd_capture() {
             # recorded before this check existed is still refused where it
             # would act.
             if reserved_control "$2" || ! fold_lc "$2" || command_words_reserved "$FL"; then
-              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, or a push to main, master, or a spec branch); those stay the operator's"
+              refuse "refusing a standing decision whose coverage reaches a reserved human control (a merge or pull, a ready-flip, a force-push, an amend, a squash, a fixup, a rebase, a git or gh alias, a gh api call that can write, a git send-pack or git subtree, or a push to main, master, or a spec branch); those stay the operator's"
             fi
             # Redacted like every other operator-supplied field (REQ-G1.8):
             # this one is persisted and, with a ledger helper installed, ships

@@ -646,7 +646,7 @@ unparsed_evidence() {
 }
 
 deny_unanalyzable() {
-  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, the kickoff push, or a git merge, pull, rebase, push, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
+  emit_deny "$1 and its text names a reserved act (a gh api request, a pull-request flip or merge, the merge helper, the kickoff push, or a git merge, pull, rebase, push, send-pack, subtree, or history rewrite) - refusing (fail closed). Issue that command on its own as a plain simple command."
 }
 
 # --------------------------------------------------------------------------
@@ -1400,6 +1400,24 @@ stack_base_load() { # <dir>
 # admits it: by --ff-only, as the single source.
 stack_is_spec() {
   [ -n "$STACK_BRANCH" ] && [ -n "$SPEC_BRANCH" ] && [ "$STACK_BRANCH" = "$SPEC_BRANCH" ]
+}
+
+# stack_hint <merge|pull> — set SH to the stacked-base form a refusal offers:
+# none without a stacked base, --ff-only where it is the launch's spec branch.
+stack_hint() {
+  local how
+  SH=''
+  [ -n "$STACK_BRANCH" ] || return 0
+  record_spec_branch "$UNIT_TOP"
+  case $1 in
+    merge) how="$BASE_REMOTE/$STACK_BRANCH" ;;
+    *) how="$BASE_REMOTE $STACK_BRANCH" ;;
+  esac
+  if stack_is_spec; then
+    SH=" or git $1 --ff-only $(sanitize_printable "$how" 'the spec branch') (this stacked PR's base, its launch's spec branch)"
+  else
+    SH=" or git $1 $(sanitize_printable "$how" 'the stacked base') (this stacked PR's base$([ "$1" != merge ] || printf %s ', or its tip commit id'))"
+  fi
 }
 
 # is_stack_ref <dir> <name> — 0 when the merge source is the stacked base: its
@@ -5934,7 +5952,8 @@ eval_merge() {
     [ "$rc" != 0 ] || continue
     [ "$rc" != 2 ] \
       || emit_deny "this git merge names the branch's own remote branch, but $(sanitize_printable "refs/remotes/$BASE_REMOTE/$CUR_BRANCH" 'its remote-tracking ref') is missing or a local branch or tag of that name points at another commit - refusing (fail closed). Push or fetch the branch first, and remove any local branch or tag of that name."
-    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$({ [ -z "$STACK_BRANCH" ] || stack_is_spec; } || printf %s " or git merge $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the stacked base') (this stacked PR's base, or its tip commit id)")$(! stack_is_spec || printf %s " or git merge --ff-only $(sanitize_printable "$BASE_REMOTE/$STACK_BRANCH" 'the spec branch') (this stacked PR's base, its launch's spec branch)"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+    stack_hint merge
+    emit_deny "a worker merges only the PR base ($(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this merge names $(sanitize_printable "$s" 'another source') - refusing. Use git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')$SH, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
   done
 }
 
@@ -6026,8 +6045,10 @@ eval_pull() {
     ! stack_is_spec \
       || emit_deny "this session's stacked base is its launch's spec branch ($(sanitize_printable "$SPEC_BRANCH" 'a spec branch')), and pulling it into $(sanitize_printable "$CUR_BRANCH" 'this branch') is admitted only with --ff-only, as merging it is - refusing. Use git pull --ff-only $(sanitize_printable "$BASE_REMOTE $SPEC_BRANCH" 'origin <spec branch>'), or merge the PR base: git merge $(sanitize_printable "$BASE_REMOTE/$BASE_BRANCH" 'origin/main')."
   fi
-  is_base_or_own_branch "$remote" "$ref" \
-    || emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main')$([ -z "$STACK_BRANCH" ] || printf %s " or git pull $(sanitize_printable "$BASE_REMOTE $STACK_BRANCH" 'the stacked base')"), or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+  if ! is_base_or_own_branch "$remote" "$ref"; then
+    stack_hint pull
+    emit_deny "a worker pulls only the PR base ($(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'the base')) or its own remote branch into its own branch, and this pull takes $(sanitize_printable "${remote:-no remote} ${ref:-no branch}" 'another source') - refusing. Use git pull $(sanitize_printable "$BASE_REMOTE $BASE_BRANCH" 'origin main')$SH, or scripts/converge-sync-main.sh (on a task branch or a flight branch carrying its id)."
+  fi
 }
 
 # rewrite_allowed <dir> <what> — unpushed_rewrite, then the unit branch. Under

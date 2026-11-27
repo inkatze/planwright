@@ -207,6 +207,14 @@ for cmd in "git merge origin/$SPEC_BR" "git merge --no-edit refs/remotes/origin/
   "git pull origin $SPEC_BR" "git pull --no-ff origin $SPEC_BR"; do
   sg worker "$cmd" "$REC_SAME"
   expect deny "[worker] stack base = spec branch: $cmd is refused, as the spec-branch rule refuses it"
+  case $cmd in
+    *pull* | *"origin/$SPEC_BR") reason_has 'ff-only' "[worker] stack base = spec branch: $cmd names --ff-only" ;;
+  esac
+done
+for cmd in "git merge origin/$OTHER_BR" "git pull origin $OTHER_BR"; do
+  sg worker "$cmd" "$REC_SAME"
+  expect deny "[worker] stack base = spec branch: another source, $cmd, is refused"
+  reason_has 'ff-only' "[worker] stack base = spec branch: the refusal of $cmd offers the spec branch only by --ff-only"
 done
 for cmd in "git merge --ff-only origin/$SPEC_BR" "git pull --ff-only origin $SPEC_BR" 'git merge origin/main'; do
   sg worker "$cmd" "$REC_SAME"
