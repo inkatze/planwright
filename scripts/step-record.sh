@@ -461,10 +461,10 @@
 # a plugin-cache copy the installed record no longer names, a broken install
 # missing a sourced helper) · 2 a usage or
 # field-validation error, or a PLANWRIGHT_STEP_* environment name outside the
-# documented set on new-run, write, supersede, regenerate, or status, or an
-# exported branch, worktree, or kind that disagrees with git there (the other
-# verbs, bar excerpt and args-digest, only warn; resolve-steps.sh --check-env
-# judges it) · 3 lookup found no
+# documented set on new-run, write, supersede, regenerate, or status (the
+# other verbs, bar excerpt and args-digest, only warn; resolve-steps.sh
+# --check-env judges it), or an exported branch, worktree, or kind that
+# disagrees with git on those same verbs · 3 lookup found no
 # record to stand on (or no unretired limited record), or heads found no move.
 #
 # Portable POSIX sh + awk + iconv; bash 3.2 / BSD tooling floor.

@@ -7,8 +7,9 @@
 #
 #   step_context_derive <worktree> [<program name for messages>]
 #     <worktree> is the unit's worktree, absolute and canonical.
-#       PLANWRIGHT_STEP_WORKTREE    <worktree> itself; an exported path that
-#                                   resolves to it is replaced by it
+#       PLANWRIGHT_STEP_WORKTREE    <worktree> itself; an exported absolute
+#                                   path that resolves to it is replaced by
+#                                   it, a relative one refused
 #       PLANWRIGHT_STEP_BRANCH      the branch HEAD names (none on a detached
 #                                   HEAD, or when <worktree> is not the top of
 #                                   its own work tree)
