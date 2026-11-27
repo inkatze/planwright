@@ -94,7 +94,8 @@ fi; done"; do
   pg worker "$cmd"
   expect defer "[worker] $cmd (no state change after the act that the act reads) defers"
 done
-for cmd in "while true; do git rebase -i HEAD~1; done" \
+for cmd in "while true; do git rebase -i HEAD~1; done" "repeat 2 git rebase -i HEAD~1" \
+  "repeat 2 do git rebase -i HEAD~1; done" \
   "export HOME=/a; for i in 1 2; do git push origin $B; export HOME=/b; done" \
   "for i in 1 2; do git push origin HEAD; popd; done" "for i in 1 2; do git push origin $B; HOME=/b; done" \
   "for i in 1 2; do git push origin $B; unset GIT_DIR; done" \

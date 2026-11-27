@@ -1928,18 +1928,20 @@ GIT_ENV_SET=0
 # next pass runs the act after it.
 RO_SI=-1 RO_FLAGS_CFG='' RO_FLAGS_HIST='' RO_FLAGS_FETCHSPEC='' RO_PEND=0 RO_CHANGES=0
 RO_ACT=-1 RO_REWRITE=-1 RO_MERGE=-1 RO_CHG_CFG=-1 RO_CHG_HIST=-1 RO_CHG_FETCHSPEC=-1
-# The compound depth (CS_DEPTH) each first act stood at: a change in an act's
-# own segment repeats before it only when the act sits inside a loop.
+# The compound depth (CS_DEPTH) each first act stood at, 1 where the depth
+# cannot be read (CS_NOCD: a zsh repeat, a reserved word after a redirect): a
+# change in an act's own segment repeats before it only inside a compound.
 RO_ACT_D=0 RO_REWRITE_D=0 RO_MERGE_D=0
 seg_mark() {
-  local fc="$ST_CFG$ST_REF$ST_FILT$GIT_ENV_SET:$RO_CHANGES" fh="$ST_PUSH$ST_FETCH$ST_HEAD" fs=$ST_FETCHSPEC i kind
+  local fc="$ST_CFG$ST_REF$ST_FILT$GIT_ENV_SET:$RO_CHANGES" fh="$ST_PUSH$ST_FETCH$ST_HEAD" fs=$ST_FETCHSPEC i kind d=$CS_DEPTH
+  [ "$CS_NOCD" = 0 ] || [ "$d" -gt 0 ] || d=1
   if [ "$RO_SI" -ge 0 ]; then
     i=$RO_PEND
     while [ "$i" -lt "${#PENDING[@]}" ]; do
       kind=${PENDING[$i]%%"$TAB"*}
-      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI RO_ACT_D=$CS_DEPTH
-      case $kind in commit | rebase) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI RO_REWRITE_D=$CS_DEPTH ;; esac
-      case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI RO_MERGE_D=$CS_DEPTH ;; esac
+      [ "$RO_ACT" -ge 0 ] || RO_ACT=$RO_SI RO_ACT_D=$d
+      case $kind in commit | rebase) [ "$RO_REWRITE" -ge 0 ] || RO_REWRITE=$RO_SI RO_REWRITE_D=$d ;; esac
+      case $kind in merge | pull) [ "$RO_MERGE" -ge 0 ] || RO_MERGE=$RO_SI RO_MERGE_D=$d ;; esac
       i=$((i + 1))
     done
     [ "$fc" = "$RO_FLAGS_CFG" ] || RO_CHG_CFG=$RO_SI
