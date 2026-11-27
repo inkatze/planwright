@@ -1951,9 +1951,8 @@ seg_mark() {
 # variable git, its configuration or its command lookup reads, which a loop's
 # next pass runs before its acts; and a write that may reach git's own state
 # (an output redirect on any segment, or a command other than git or a
-# read-only one). Run once
-# the segment is classified, so its own act reads the state before them and
-# the next segment's seg_mark counts them as its.
+# read-only one). Run once the segment is classified, so its own act reads
+# the state before them and the next segment's seg_mark counts them as its.
 seg_effects() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]} w
   seg_command_name "$1"
@@ -2044,17 +2043,17 @@ seg_command_name() {
 
 # git_state_path <text> — 0 when the text names git's own state: a path
 # through a directory named .git, or a global or system git configuration
-# file, as the whole word or after any split of an attached short-flag run
-# (-ogitconfig, -qO.git/config, -4so.git/config). Read with quotes and
-# backslashes dropped and in lower case, as a shell and a case-insensitive
-# filesystem read it. A .git component is also found anywhere in the word,
-# every character that cannot be part of a path name read as a separator
-# (of=.git/HEAD, sed's '1w .git/config'), so an exclude list naming .git
-# counts too.
+# file, as the whole word, after an option's = (of=git/config), or after any
+# split of an attached short-flag run (-ogitconfig, -qO.git/config,
+# -4so.git/config). Read with quotes and backslashes dropped and in lower
+# case, as a shell and a case-insensitive filesystem read it. A .git
+# component or a .gitconfig name is also found anywhere in the word, every
+# character that cannot be part of a path name read as a separator (sed's
+# '1w .git/config'), so an exclude list naming .git counts too.
 git_state_path() {
   local t=${1//[\"\'\\]/} c i=1
   fold_ascii "$t"
-  git_state_name "$FA" && return 0
+  git_state_name "$FA" || git_state_name "${FA#*=}" || git_state_name "${FA##*=}" && return 0
   case $FA in
     -[a-z0-9#]*)
       while [ "$i" -lt "${#FA}" ]; do
