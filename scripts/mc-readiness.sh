@@ -67,7 +67,8 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       NEUTRAL; a skip does not count) at
                                       a shard of it (within
                                       scripts/check-runs.jq's bounds);
-                                      SUCCESS, NEUTRAL and SKIPPED pass
+                                      SUCCESS, NEUTRAL and SKIPPED pass.
+                                      A rollup at the cap emits none
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or
