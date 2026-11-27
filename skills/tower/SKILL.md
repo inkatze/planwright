@@ -299,7 +299,7 @@ rung is never accepted for a mutation or for a read beyond the inline bound.
    extend recommendation the operator answers, never a duplicate or an
    auto-fold. `<feature-name>` passes unchanged to the drafting skill's own
    name check.
-3. **Offer the kickoff, never start it (REQ-D1.3).** When the drafting session
+3. **Offer the kickoff (REQ-D1.3).** When the drafting session
    ends with a bundle at Draft, the tower offers `/spec-kickoff specs/<spec>`
    to the operator and stops; when it ends otherwise (a stop with its re-open
    command, an extend into a bundle already Ready or Active, an abandoned
@@ -342,8 +342,9 @@ durable evidence through the existing surfaces:
 - **Gated relays:** the post-sign-off go above, on explicit request.
 
 The tower never supervises or polls spec-mode execution: no watch loop, timer,
-or unprompted read of orchestrator state. A flight's dispatch, pause, and
-landing reach the attention store by push, and the tower renders them through
+or unprompted read of orchestrator state. Spec-mode pushes stay on the
+fleet surfaces; a flight's dispatch, pause, and landing reach the attention
+store by push, and the tower renders them through
 `scripts/fleet-attention.sh` (REQ-F1.1, REQ-F1.2).
 
 ## Refusals
@@ -359,7 +360,7 @@ handed back, never silently.
   non-signed-spec refusal (REQ-G1.2); a worker's hard pauses and
   pending-sign-off checklist are not one.
 - **Amend, squash, rebase.** Pushed history stays append-only, on both
-  rules (REQ-G1.3); the tower never runs them, posture or no posture.
+  rules (REQ-G1.3); the tower never runs them.
 - **Force-push.** Only when the operator asks for it in this turn, never
   from a standing decision or a relayed item, and never to main, a protected
   branch, or a spec branch (`doctrine/human-gates.md`). Run

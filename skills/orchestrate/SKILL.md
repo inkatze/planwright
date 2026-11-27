@@ -149,8 +149,8 @@ Selector exits:
   failed closed).
 - Exit 3 (transient evidence hold: format-version 2 bundle-wide, or format-version
   3 with nothing ready while work is withheld behind a failed repository) →
-  **report the hold and end the step cleanly** (REQ-B1.5, REQ-B1.7), the
-  lock-contention shape; a later step re-selects (the `--watch` loop continues,
+  **report the hold and end the step cleanly** (REQ-B1.5, REQ-B1.7); a later
+  step re-selects (the `--watch` loop continues,
   unlike exit 1). v1 keeps its degraded-but-proceed behavior.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
@@ -171,9 +171,8 @@ caution scale per `proportionality` (run-start); scoping is declared, never sile
 
 The dispatch record is the **task branch** plus the **timestamped runtime marker**
 — **never** a `tasks.md` write (D-1, REQ-A1.1): `main` carries no dispatch commit
-and worker bases stay pristine (REQ-A1.2); section placement is the reconcile's,
-off the dispatch path. The per-spec advisory lock serializes only this window; its
-law is `orchestration-concurrency` (read here). **The unit's repository**
+and worker bases stay pristine (REQ-A1.2). The per-spec advisory lock serializes
+only this window (`orchestration-concurrency`, read here). **The unit's repository**
 (D-25): `scripts/resolve-work-repo.sh <root>/<spec> --task <id>` prints the
 `<work-repo>` receiving the worktree, branch, worker, and PR, whichever
 repository this session started in (a holder resolves through the registry);
@@ -185,16 +184,15 @@ and takes the lock itself, so never hold it while calling. On those rungs and
 tmux each task id is its own unit (no bundle). Ordered steps:
 
 1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire <root>/<spec>`. Exit
-   1 (another live holder) is a **clean no-op**: skip this step; `--bookkeeping`
-   reconciles anything dropped.
+   1 is a **clean no-op**: skip this step.
 2. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45;
    fleet-hardening D-9), **inside the lock, before the durable acts**, stopping
    dispatch against spec content changed since sign-off and against a **stale local
    `main`**:
    - **Fetch-before-gate** (D-9, REQ-D1.1). `scripts/dispatch-fetch.sh --spec
-     <spec> <work-repo>` fetches `origin` (bounded by
-     `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch, **no
-     local-`main` advance**) and prints the anchor of the bundle's primary view.
+     <spec> <work-repo>` fetches `origin` (bounded by `dispatch_fetch_ttl`,
+     **no local-`main` advance**) and prints the anchor of the bundle's primary
+     view.
      Exit **0**, or **3** (`no-remote`, offline) → gate against it; any other
      nonzero → park to Awaiting input.
    - **Validate the entry** (brief's most recent, from the primary view; formats:
@@ -206,17 +204,14 @@ tmux each task id is its own unit (no bundle). Ordered steps:
      unparseable / non-sanctioned / wrong-writer entry** → halt (repair the
      record, REQ-F1.10). A **pre-change entry** (`spec-format` *Pre-change
      anchors*) mismatches over unedited content (remedy: its one-time
-     classify-then-self-re-anchor). Halts go to Awaiting input; no bypass flag.
+     classify-then-self-re-anchor). Halts go to Awaiting input.
 3. **Create the task branch as the first durable act** (REQ-A1.1, D-3), via the
    worktree step below, cut from `main`, named `planwright/<spec>/task-<id>` (a
    bundle: one `task-<id>-<id>` branch, D-36) from grammar-validated ids only.
-   Branch-first is fail-safe: a crash here leaves neither branch nor marker, so the
-   task derives Ready for clean re-dispatch.
+   Branch-first is fail-safe (`orchestration-concurrency`).
 4. **Write the timestamped runtime dispatch marker** (D-3, REQ-A1.1):
-   `scripts/orchestrate-marker.sh write <root>/<spec> <id> [<id>...]` — one marker
-   per task id, never a single `<id>-<id>` marker. It holds the task In progress
-   until its branch carries a commit (branch evidence then supersedes it); no
-   `tasks.md` write or commit.
+   `scripts/orchestrate-marker.sh write <root>/<spec> <id> [<id>...]`, one marker
+   per task id (semantics: `orchestration-concurrency`).
 5. **Release the lock** before dispatching: `scripts/orchestrate-lock.sh release
    <root>/<spec>`.
 
@@ -308,8 +303,7 @@ after a worker.
   in place of the dispatch record's steps 3–4, places the unit and launches:
   the opening turn rides the launch, no message or keystroke. Release the
   lock whatever its exit; on exit 0 run its `confirm` with the `launch`
-  lines' values (on `failed-at-startup`, clear the marker), since any other
-  exit prints no `launch` lines. Pass it `--backend tmux` only when this
+  lines' values (on `failed-at-startup`, clear the marker). Pass it `--backend tmux` only when this
   run's `--backend tmux` or a yes to the tmux-context ask chose tmux. Its
   exit 17 (nothing placed) parks the unit with the reason it prints, never
   retried with `--backend tmux`. Observe workers with **capture-pane**;
@@ -384,7 +378,7 @@ write (D-7). The sweep:
    last-known refs (the gate blocks on `4`, stale-transient).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's in-progress
-   set — no committed placement exists), **reconcile PR state first**: merged →
+   set), **reconcile PR state first**: merged →
    move to Completed (v1 only; v2 completion is derived); open → leave In
    progress. Only when no PR resolves it do you consider orphaning.
 3. **Orphan only on the three-part predicate** `orchestration-concurrency`
@@ -446,13 +440,21 @@ dispatched arm); attended, present it and wait.
 ## Stop conditions (mandatory human handoff)
 
 Each is defined at its point of use; this is the enumeration, not a second
-definition: a Bring-up hold on outward acts; pre-flight steps 4 to 6
-(spec status, validator on a dispatch path, kickoff brief); a freshness-gate
-halt; a taskless or unreadable `tasks.md` (selection exit 2); cohesion
-ambiguity (ask); a relayed worker halt (recorded, never re-dispatched); `gh`
-unreachable (record Awaiting input, continue local,
-REQ-K1.6, K1.7). Selection transient-evidence hold (exit 3) is reported and
-lock contention (`acquire` exit 1) is a clean no-op; neither is a halt.
+definition.
+
+| Condition | Where |
+| --- | --- |
+| Bring-up hold on outward acts | Bring-up steps 1 and 3. |
+| Spec not Ready or Active | Pre-flight step 4. |
+| Missing/erroring validator | Pre-flight step 5 (dispatch path). |
+| No / partial kickoff brief | Pre-flight step 6. |
+| Freshness-gate halt | The locked-window gate. |
+| Taskless / unreadable tasks.md | Selection exit 2. |
+| Selection transient-evidence hold | Selection exit 3 (v2, or v3 per-repository): report and end cleanly, not a halt. |
+| Lock contention | `acquire` exit 1: a clean no-op, skip the step. |
+| Cohesion ambiguity | Cohesion-first bundling: multiple valid groupings; ask. |
+| Worker halt relayed | A worker halted to Awaiting input; recorded, never re-dispatched. |
+| `gh` unreachable | Any `gh` read: record Awaiting input, continue local (REQ-K1.6, K1.7). |
 
 ## Invariants
 
