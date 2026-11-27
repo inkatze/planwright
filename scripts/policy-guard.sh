@@ -3941,11 +3941,11 @@ classify_gh_api() {
         return 0
         ;;
     esac
-    # It also takes that branch off the remote, as deleting it would, so it is
-    # refused where the delete is.
+    # It also takes that branch off the remote, as deleting it would. Mission
+    # control writes no branch at all (queue_protected).
     if { [ "$TIER" = worker ] && is_unit_branch "$renamed"; } \
       || { [ "$TIER" != mission-control ] && spec_family_branch "$renamed"; }; then
-      deny_now "this gh api branch rename moves $(sanitize_printable "$renamed" 'a unit or spec branch') off the remote, as deleting it would; a worker never renames or deletes a unit branch, and no session renames or deletes a spec's amendment or spec-rework branch - refusing. Add new commits instead."
+      deny_now "this gh api branch rename takes $(sanitize_printable "$renamed" 'a unit or spec branch') off the remote, as deleting it would; a worker renames no unit branch, and no session renames a spec's amendment or spec-rework branch - refusing. Add new commits instead."
       return 0
     fi
     local fv new_name='' i2=0
