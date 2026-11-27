@@ -1174,6 +1174,13 @@ run_checks "checks (default): a failed placeholder is never dropped" deny \
 # shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
 run_checks "checks (default): a placeholder of exactly the length bound still fits" defer \
   "$(ci_check_run 601 "t$(printf '%0116d' 0) (\${{ m }})" CANCELLED),$(ci_check_run 780 "t$(printf '%0116d' 0) (x)" SUCCESS)"
+same_name=""
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+  same_name="$same_name$(ci_check_run 601 "s$i" CANCELLED),$(ci_check_run 780 "s$i" SUCCESS),"
+done
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+run_checks "checks (default): same-name cancellations do not use up the considered placeholders" defer \
+  "$same_name$(ci_check_run 601 'late (${{ m }})' CANCELLED),$(ci_check_run 780 'late (x)' SUCCESS)"
 run_checks "checks (default): a pass in the cancelled check's own run supersedes nothing" deny \
   "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
 run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
