@@ -446,7 +446,7 @@ dispatched arm); attended, present it and wait.
 ## Stop conditions (mandatory human handoff)
 
 Each is defined at its point of use; this is the enumeration, not a second
-definition: a Bring-up `refuse` or posture hold; pre-flight steps 4 to 6
+definition: a Bring-up hold on outward acts; pre-flight steps 4 to 6
 (spec status, validator on a dispatch path, kickoff brief); a freshness-gate
 halt; a taskless or unreadable `tasks.md` (selection exit 2); cohesion
 ambiguity (ask); a relayed worker halt (recorded, never re-dispatched); `gh`
