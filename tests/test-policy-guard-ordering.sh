@@ -177,6 +177,11 @@ for tier in worker tower; do
     expect deny "[$tier] $cmd denies"
   done
 done
+for cmd in "( git send-pack $ORIGIN HEAD:refs/heads/main )" "{ git send-pack $ORIGIN HEAD:main; }" \
+  'echo $(git send-pack x HEAD:refs/heads/main)' '( git subtree push -P d origin main )'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd (a plumbing or subtree push the guard cannot parse) denies"
+done
 for cmd in 'for x do git status; done' 'for x in a b; do echo hi; done' 'for x do echo do; done' \
   "for x do git push origin $B:$B; done" 'repeat 2 echo hi'; do
   pg worker "$cmd"

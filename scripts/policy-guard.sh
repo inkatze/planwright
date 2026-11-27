@@ -305,7 +305,7 @@ RE_GH_API='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?api([^[:alnum:
 RE_GH_PR='(^|[^[:alnum:]_.-])gh[^[:alnum:]_.-](.*[^[:alnum:]_-])?pr[^[:alnum:]_-]+(ready|merge)([^[:alnum:]_-]|$)'
 # git, its global options (each with at most one value), then the subcommand.
 RE_GIT_HEAD='(^|[^[:alnum:]_.-])git([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*[[:space:]]+'
-RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push)([^[:alnum:]_-]|\$)"
+RE_GIT_ACT="${RE_GIT_HEAD}(merge|pull|rebase|push|send-pack|subtree)([^[:alnum:]_-]|\$)"
 RE_GIT_REWRITE="${RE_GIT_HEAD}commit([[:space:]].*)?[[:space:]]--(am|sq|fix)"
 # A substitution after `git commit` could produce --amend at run time.
 RE_GIT_COMMIT_SUBST="${RE_GIT_HEAD}"'commit([^[:alnum:]_-].*)?(\$\(|`)'
@@ -1994,7 +1994,7 @@ writes_git_state() {
   return 1
 }
 
-RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
+RESERVED_WORD_RE='^(merge|pull|rebase|push|send-pack|subtree|commit|ready|api|--am.*|--sq.*|--fix.*)$'
 # A command word that is one variable naming a directory, then a literal
 # path: `"$ROOT/scripts/x.sh"`. Any other expanded command word could be git.
 # shellcheck disable=SC2016 # a regex; `$` is literal
