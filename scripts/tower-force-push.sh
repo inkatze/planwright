@@ -465,7 +465,7 @@ reword() {
     case $rc in
       0) ;;
       1) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history" ;;
-      2) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), whose name the protected-set reader refuses (or which it could not run), so whether it is protected is unknown; refusing (fail closed)" ;;
+      2) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), whose name the protected-set reader refuses (or the reader could not run), so whether it is protected is unknown; refusing (fail closed)" ;;
       *) refuse "the protected set could not be read (protected-branch.sh exit $rc); refusing (fail closed)" ;;
     esac
   done
