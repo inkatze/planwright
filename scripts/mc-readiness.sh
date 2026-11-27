@@ -154,8 +154,8 @@ THE WALK refuses, each failure one line:
     after a fix round reviews the head while its check stays on the commit the
     run first fired at, so a run marker stands in for the check: the latest
     one github-actions[bot] posted for a run attempt, naming the full head
-    with status success, whose attempt is a PR-Agent one with a start time
-    that finished green. Any other marker is named and not counted;
+    with status success, whose attempt is a PR-Agent one, has a start time
+    read and finished green. Any other marker is named and not counted;
   - a pending check on a ready pull request, told by its run's creation time:
     created at or after the flip, it is the flip's own run and only has to
     finish; created before the flip and still running at it, the flip came
