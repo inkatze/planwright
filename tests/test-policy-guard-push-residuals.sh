@@ -139,8 +139,16 @@ AMB="$SANDBOX/ambiguous"
 clone_on "$AMB" planwright/demo/task-1 1
 gitq -C "$AMB" symbolic-ref refs/heads/origin refs/heads/main
 fixture 'a push of a symbolic branch named like the remote' "$AMB" origin origin
-pg worker 'git push origin origin' "$AMB"
-expect deny "[worker] a push of a source git reads as more than one ref denies"
+gitq -C "$AMB" symbolic-ref refs/heads/beef refs/heads/main
+gitq -C "$AMB" update-ref refs/remotes/beef HEAD
+fixture 'a push of a hex-named symbolic branch beside a remote-tracking ref' "$AMB" origin beef
+for tier in worker tower; do
+  for src in origin beef; do
+    pg "$tier" "git push origin $src" "$AMB"
+    expect deny "[$tier] a push of $src, which git reads as more than one ref, denies"
+    reason_has 'single ref' "[$tier] the $src deny says git reads no single ref"
+  done
+done
 BADREFS="$SANDBOX/bad-refs"
 clone_on "$BADREFS" planwright/demo/task-1 1
 printf 'not a packed ref line\n' >>"$BADREFS/.git/packed-refs"
