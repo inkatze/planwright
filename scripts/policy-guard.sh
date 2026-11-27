@@ -1874,13 +1874,13 @@ RE_ROOTED_SCRIPT='^\$(\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/[^$`]+$
 # (a[HOME=1]); or any nameref, which a later assignment can bind to either.
 # Only name words are read: a for or select loop's names before its `in`
 # (zsh takes several), printf's -v target before its format, getopts' name
-# operand, and not the value a read or mapfile value option takes, alone or
-# ending a cluster (-rp). Of an assignment only the name is read; outside a
-# declaration a non-literal word counts whole, since splitting could make
-# it a name. A quoted name is what it spells, and a longer name sharing the
-# prefix (HOMEBREW_*) is not it.
+# operand, and not the value a read or mapfile value option takes, attached
+# or as the next word (-rp). A declaration's value is not split, so only its
+# name need be literal; any other builtin's non-literal word counts whole,
+# since splitting could make it a name. A quoted name is what it spells, and
+# a longer name sharing the prefix (HOMEBREW_*) is not it.
 names_cfgenv() {
-  local w wl t p sub vl='' k=1 n=${#SW[@]} skipv=0 pos=0 decl=0
+  local w wl cl nm sub vopts='' k=1 n=${#SW[@]} skipv=0 pos=0 decl=0
   case $1 in
     for | select)
       n=1
@@ -1889,8 +1889,8 @@ names_cfgenv() {
       done
       ;;
     export | declare | typeset | readonly | local) decl=1 ;;
-    read) vl=dinNptu ;;
-    mapfile | readarray) vl=dnOsuCc ;;
+    read) vopts=dinNptu ;;
+    mapfile | readarray) vopts=dnOsuCc ;;
   esac
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
@@ -1915,38 +1915,47 @@ names_cfgenv() {
         esac
         ;;
       getopts)
-        # A leading -- is dropped before the optstring.
-        [ "$pos$w" != 0-- ] || continue
+        # One leading -- is dropped before the optstring.
+        [ "$k$w" != 2-- ] || continue
         pos=$((pos + 1))
         [ "$pos" = 2 ] || continue
         ;;
     esac
-    # A value option alone, or as a cluster's last letter with none before
-    # it, takes the next word.
-    if [ -n "$vl" ]; then
+    # A read or mapfile value option (one of vopts; read's -a takes the
+    # array's name, which is read) takes the next word when it ends a
+    # cluster with no other value option before it, and the rest of the
+    # word when it does not, which is then a value, not a name.
+    if [ -n "$vopts" ]; then
       case $w in
         -[!-]*)
-          t=${w#-}
-          case $t in
-            *["$vl"])
-              case ${t%?} in *["$vl"]*) ;; *) skipv=1 ;; esac
+          cl=${w#-}
+          case $cl in
+            *["$vopts"])
+              case ${cl%?} in *["$vopts"]*) ;; *) skipv=1 ;; esac
               ;;
+          esac
+          case ${cl%%["$vopts"]*} in
+            "$cl" | *a*) ;;
+            *) continue ;;
           esac
           ;;
       esac
     fi
-    t=${w%%=*}
-    case $t in
-      *'['*)
-        p=${t%%\[*}
-        sub=${t:$((${#p} + 1))}
-        sub=${sub%%]*}
-        case $sub in '' | *[!0-9]*) return 0 ;; esac
-        ;;
-    esac
+    # The name ends at its first [ or =. A subscript runs from that [ to the
+    # last ], and the shell evaluates it as arithmetic unless it is a plain
+    # number; a quoted compound value of a declaration ('([HOME=1]=x)') is
+    # evaluated too. The cuts are prefix and suffix removals, linear on a
+    # long word, where ${w#*\[} would not be.
+    nm=${w%%[=[]*}
+    if [ "${w:${#nm}:1}" = '[' ]; then
+      sub=${w:$((${#nm} + 1))}
+      sub=${sub%]*}
+      case $sub in '' | *[!0-9]*) return 0 ;; esac
+    fi
     case "$decl:$w" in
       1:*=*)
-        case $t in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
+        case ${w#*=} in '('*) return 0 ;; esac
+        case $nm in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
         ;;
       *) [ "$wl" = 1 ] || return 0 ;;
     esac

@@ -436,14 +436,26 @@ for cmd in 'git config --c get remote.origin.push x && git push origin planwrigh
   'getopts -- a HOME; git push' 'read -t 5 HOME <<< /tmp/h; git push origin planwright/demo/task-1' \
   'read -pa HOME <<< x; git push' 'export HOM*=/tmp/h; git push origin planwright/demo/task-1' \
   'export HOM?=/tmp/h; git push origin planwright/demo/task-1' \
-  'git config -z remote.origin.push --get && git push origin planwright/demo/task-1'; do
+  'git config -z remote.origin.push --get && git push origin planwright/demo/task-1' \
+  'read -pd HOME <<< /tmp/x; git push' 'read -dp HOME <<< /tmp/x; git push' 'mapfile -dn HOME <<< /tmp/x; git push' \
+  'read -a HOME <<< /tmp/h; git push' 'read -e HOME <<< /tmp/h; git push' \
+  "read 'x[a[0],HOME=1]' <<< v; git push origin planwright/demo/task-1" \
+  "read 'a[1==(HOME=0)]' <<< v; git push origin planwright/demo/task-1" \
+  "declare 'a[1==(HOME=0)]=1'; git push origin planwright/demo/task-1" \
+  "declare -a 'a=([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  "local -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  'getopts -- -- HOME; git push'; do
   pg worker "$cmd"
   expect deny "[worker] $cmd"
   reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
 done
-# A value a read or mapfile option takes, a declaration's value, and a
-# listing's filter are not names.
+# What a read or mapfile option takes (attached or as the next word), a
+# declaration's or let's value, and a listing's filter are not names.
 for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
+  "read -p'Continue? [y/N] ' ans; git push origin planwright/demo/task-1" \
+  "read -rp'[y/N] ' ans; git push origin planwright/demo/task-1" "read -d'[' x; git push origin planwright/demo/task-1" \
+  "mapfile -d'[' a < f; git push origin planwright/demo/task-1" \
+  "export FOO='a[b]=c'; git push origin planwright/demo/task-1" 'declare FOO=$PWD=x; git push origin planwright/demo/task-1' \
   "read -sp 'Password [hidden]: ' pw; git push origin planwright/demo/task-1" \
   "export PS1='[x@y] '; git push origin planwright/demo/task-1" "export FOO='a[b]'; git push origin planwright/demo/task-1" \
   "local x='[a]'; git push origin planwright/demo/task-1" 'local n=${#arr[@]}; git push origin planwright/demo/task-1' \
@@ -457,11 +469,14 @@ for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
   'declare FOO=$PWD; git push origin planwright/demo/task-1' 'typeset FOO=$PWD; git push origin planwright/demo/task-1' \
   'readonly FOO=$PWD; git push origin planwright/demo/task-1' 'local FOO=$PWD; git push origin planwright/demo/task-1' \
   "let 'y=a[i]'; git push origin planwright/demo/task-1" \
-  'git branch --contains HEAD --no-points-at "feat*" && git push origin planwright/demo/task-1' \
-  'git config -tint --get core.bare && git push origin planwright/demo/task-1' \
+  'git branch --contains HEAD --no-points-at "feat*" && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] an option's value, a declaration's value or a listing still defers: $cmd"
+done
+for cmd in 'git config -tint --get core.bare && git push origin planwright/demo/task-1' \
   'git config -z --get core.bare && git push origin planwright/demo/task-1'; do
   pg worker "$cmd"
-  expect defer "[worker] no name the shell sets, or a listing, still defers: $cmd"
+  expect defer "[worker] a config read through a short cluster still defers: $cmd"
 done
 for cmd in "declare 'arr[0]=x'; git push origin planwright/demo/task-1" \
   'export FOO=$PWD; git push origin planwright/demo/task-1' 'printf %s $PWD; git push origin planwright/demo/task-1' \
