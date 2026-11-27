@@ -156,7 +156,7 @@ rm -f "$repo/.github/workflows/pr-agent.yml"
 # cancelled by the newer. The cancelled one's matrix jobs are reported under
 # their unexpanded names, which the live run's shard names never supersede,
 # and its check job ties the live one's start. Once a later run of the same
-# workflow on the head succeeded at one of its shards, the cancellation is no flip
+# workflow on the head passed one of its shards, the cancellation is no flip
 # condition; a cancelled run with no passing successor still is, and nothing
 # but a cancellation is ever dropped.
 mv "$tmp/pr.json" "$tmp/pr.json.keep"
@@ -199,6 +199,9 @@ has "a successor's failed job supersedes nothing" "check${tab}${placeholder}${ta
 superseded_pr "$(ci_check_run 780 window-lock SUCCESS '' release-window), $(ci_check_run 601 window-lock CANCELLED '' release-window), $live_run"
 collect_superseded "collect over a head with a superseded window-lock" collected-lock
 hasnt "a superseded window-lock is not named for bypass" "bypass${tab}window-lock"
+superseded_pr "$(ci_check_run 780 window-lock FAILURE '' release-window), $(ci_check_run 781 window-lock SUCCESS '' release-window), $live_run"
+collect_superseded "collect over a head with two window-lock runs started together" collected-locktie
+has "a tie in start names the window-lock run that did not pass for bypass" "bypass${tab}window-lock${tab}FAILURE"
 mv "$tmp/pr.json.keep" "$tmp/pr.json"
 # The payload the ready-flip guard is asked about names the pull request and the
 # repository as two separate arguments of one format.

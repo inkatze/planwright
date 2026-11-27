@@ -1,9 +1,9 @@
 # check-runs.jq — the one selection of a pull request's check runs that
 # scripts/ready-guard.sh, scripts/ready-flip.sh and scripts/mc-readiness.sh
 # judge readiness by. Each prepends this file to its own program, so a fix here
-# reaches all three. Some other readers of a head's checks apply none of it,
-# the release gate (rl_ci_state in scripts/release-lib.sh) among them; the
-# observation 2026-11-26-release-gate-superseded-cancels lists them.
+# reaches all three. Some other readers of a head's checks apply none of it:
+# the release gate (rl_ci_state in scripts/release-lib.sh) judges every check
+# strictly, and others read GitHub's combined rollup state (obs:f3adc102).
 #
 # A cancelled check that a newer run of its workflow made obsolete is dropped
 # first (drop_superseded_cancels, below). Then a check run listed in
@@ -46,17 +46,22 @@ def check_workflow_run: if .context != null then null
 
 def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED" and (.conclusion // "") == "CANCELLED";
 
+# Unlike check_passed, a skip is no success here: it ran nothing.
 def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
   and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
 
+def regex_quote: gsub("(?<c>[\\\\.^$*+?()\\[\\]{}|])"; "\\\(.c)");
+
 # Whether a check name could be one an unexpanded placeholder name stands for:
 # a matrix job cancelled before it expanded keeps `${{ … }}` in its name, so
-# `test (shard 1/2)` fits `test (shard ${{ matrix.shard }}/…)`. The fixed text
-# before the first `${{` and after the last `}}` must both match, and a
-# placeholder with no fixed text before it fits nothing.
+# `test (shard 1/2)` fits `test (shard ${{ matrix.shard }}/…)`. Every fixed
+# part of the placeholder must appear, in order, with something in place of
+# each `${{ … }}`; a placeholder that starts or ends with `${{ … }}` fits
+# nothing, since a bare prefix or suffix would let unrelated jobs fit it.
 def fits_placeholder($placeholder):
-  ($placeholder | split("${{")[0]) as $head | ($placeholder | split("}}") | last) as $tail
-  | $head != "" and startswith($head) and endswith($tail) and length >= ($head | length) + ($tail | length);
+  ($placeholder | [splits("\\$\\{\\{.*?\\}\\}")]) as $parts
+  | $parts[0] != "" and ($parts | last) != ""
+    and test("^" + ($parts | map(regex_quote) | join(".+")) + "$");
 
 # When a newer run on the head cancels an older run of its workflow, the older
 # run's checks end CANCELLED. A cancelled matrix job is reported under its
@@ -72,13 +77,13 @@ def fits_placeholder($placeholder):
 # such successor still counts.
 def drop_superseded_cancels:
   if any(.[]; check_cancelled) | not then . else
-    [.[] | {entry: ., run: check_workflow_run, workflow: (.workflowName // ""), name: (.name // ""),
+    [.[] | {entry: ., run_id: check_workflow_run, workflow: (.workflowName // ""), name: (.name // ""),
       started: check_started, cancelled: check_cancelled, succeeded: check_succeeded}] as $rows
-    | [$rows[] | select(.succeeded and .run != null and .workflow != "")] as $successes
+    | [$rows[] | select(.succeeded and .run_id != null and .workflow != "")] as $successes
     | [$rows[]
         | . as $row
-        | ($row.cancelled and $row.run != null and $row.started != ""
-            and any($successes[]; .run != $row.run and .workflow == $row.workflow and .started >= $row.started
+        | ($row.cancelled and $row.run_id != null and $row.started != ""
+            and any($successes[]; .run_id != $row.run_id and .workflow == $row.workflow and .started >= $row.started
               and (.name == $row.name
                 or (($row.name | contains("${{")) and (.name | fits_placeholder($row.name)))))) as $superseded
         | select($superseded | not)

@@ -317,6 +317,8 @@ $got"
     'concurrency:' "  group: \${{ format('ci-{0}-{1}' , fromJSON('\"x\"') , github.sha ) }}"
   reads_as "the scalar concurrency form is read" 'ci-${{ github.ref }}' \
     'concurrency: ci-${{ github.ref }}'
+  reads_as "a comma inside a quoted format() argument is read whole" "ci-\${{ 'a,b' }}" \
+    'concurrency:' "  group: \${{ format('ci-{0}', 'a,b') }}"
 }
 
 # --- C4: the metadata gate is not the code gate ------------------------------

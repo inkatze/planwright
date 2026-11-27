@@ -62,10 +62,11 @@ THE EVIDENCE file (collect writes it; a fixture may stand in) opens with
                                       names (it describes the base), nor a
                                       cancelled check that a later run of
                                       its workflow on the head superseded
-                                      by succeeding at a check of the same
-                                      name (for an unexpanded matrix name,
-                                      at one of its shards); SUCCESS,
-                                      NEUTRAL and SKIPPED pass
+                                      by passing (SUCCESS or NEUTRAL) a
+                                      check of the same name (for an
+                                      unexpanded matrix name, one of its
+                                      shards); SUCCESS, NEUTRAL and
+                                      SKIPPED pass
   bypass<TAB><name><TAB><state>       a ready_base_state_checks check whose
                                       latest finished run did not pass: no
                                       condition, but named by a ready or
@@ -1111,8 +1112,8 @@ collect() {
       | "check\t" + ((.name // .context // "-") | clean) + "\t"
       + (if (.conclusion // "") != "" then .conclusion else (.state // "PENDING") end | clean)),
     ((.statusCheckRollup // []) | latest_check_runs[]
-      | (check_workflow_run // empty) as $r
-      | "runref\t" + ((.name // .context // "-") | clean) + "\t" + $r),
+      | (check_workflow_run // empty) as $run_id
+      | "runref\t" + ((.name // .context // "-") | clean) + "\t" + $run_id),
     ((.body // "") | split("\n")[] | "bodyline\t" + (gsub("[\t\r]"; " ")))' >"$cl_tmp/pr" 2>"$cl_tmp/err" \
     || mc_fail "the pull request read failed: $(sanitize_printable "$(head -c 300 "$cl_tmp/err")")"
   cl_head=$(awk -F '\t' '$1 == "head" { print $2; exit }' "$cl_tmp/pr")
