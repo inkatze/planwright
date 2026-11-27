@@ -2186,10 +2186,10 @@ pa_case pa-no-actions "[$PA_ALL]" ""
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a workflow with no pr_actions fails" 1 $?
 
-pa_case pa-extra-action "[ready_for_review]" "$PA_ALL_JSON"
+pa_case pa-extra-action "[$PA_ALL]" '["ready_for_review", "review_requested", "labeled"]'
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a pr_actions entry the trigger never delivers fails" 1 $?
-assert_contains "pr-agent: the undelivered action is named" "review_requested" "$out"
+assert_contains "pr-agent: the undelivered action is named" "PR_ACTIONS names 'labeled', which the pull_request types never deliver" "$out"
 
 # The bot review runs once per head, on the draft when a review is requested:
 # a push-driven trigger burns the review budget on every commit.
@@ -2203,7 +2203,7 @@ done
 pa_case pa-no-flip-trigger "[review_requested]" '["review_requested"]'
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "pr-agent: a workflow with no ready_for_review trigger fails" 1 $?
-assert_contains "pr-agent: the flip's own trigger is named" "ready_for_review" "$out"
+assert_contains "pr-agent: the flip's own trigger is named" "must trigger on ready_for_review" "$out"
 
 # The review runs on the draft, fired by a review request, and the flip waits
 # for it: without review_requested, or with a job that skips drafts, the flip
