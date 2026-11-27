@@ -48,6 +48,8 @@ def check_run_id: if .context != null then null
 
 def check_cancelled: .context == null and (.status // "COMPLETED") == "COMPLETED" and (.conclusion // "") == "CANCELLED";
 
+def cancelled_placeholder: check_cancelled and ((.name // "" | tostring) | contains("${{"));
+
 # Unlike check_passed, a skip is no success here: it ran nothing.
 def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED"
   and ((.conclusion // "") as $c | $c == "SUCCESS" or $c == "NEUTRAL");
@@ -60,7 +62,7 @@ def check_succeeded: .context == null and (.status // "COMPLETED") == "COMPLETED
 # late costs well under a second.
 def placeholder_name_max: 128;
 def placeholder_expressions_max: 4;
-def placeholder_rows_max: 16;
+def placeholders_considered_max: 16;
 
 # A matrix job cancelled before it expanded keeps `${{ … }}` in its name. Its
 # fixed parts, the text around each expression, are what an expanded name of
@@ -108,9 +110,9 @@ def fits_parts($parts):
 # timed-out job reported cancelled cannot hide behind a same-second pass. A
 # placeholder with no such successor still counts.
 def drop_superseded_cancels:
-  if any(.[]; check_cancelled and ((.name // "" | tostring) | contains("${{"))) | not then . else
-    (reduce (.[] | check_cancelled and ((.name // "" | tostring) | contains("${{"))) as $p
-      ({n: 0, ok: []}; .ok += [$p and .n < placeholder_rows_max] | .n += (if $p then 1 else 0 end))
+  if any(.[]; cancelled_placeholder) | not then . else
+    (reduce (.[] | cancelled_placeholder) as $p
+      ({n: 0, ok: []}; .ok += [$p and .n < placeholders_considered_max] | .n += (if $p then 1 else 0 end))
       | .ok) as $placeholder_ok
     | [to_entries[] | .key as $i | .value
       | {entry: ., run_id: check_run_id, workflow: (.workflowName // ""), name: (.name // "" | tostring),
