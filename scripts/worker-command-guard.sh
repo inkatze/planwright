@@ -2210,7 +2210,9 @@ mix_run_ok() {
   local i w task expect=0 here
   [ "$HOOK_DEPTH" -eq 0 ] && [ "$IN_SUBST" = 0 ] && [ "$SCOPED_RD" = 0 ] && [ "$OUTSIDE_CD" = 0 ] || return 1
   [ "${sw[0]}" = mix ] && [ "${swq[0]}" -lt 0 ] && [ "$cwn" -eq "$swn" ] && [ "$cwn" -ge 2 ] || return 1
-  [ -n "$REC_WT" ] && [ -n "$REC_BASE" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
+  # A spec PR branch's record names a PR base too, for its trusted scripts
+  # alone: mix stays a unit's.
+  [ -n "$REC_UNIT" ] && [ -n "$REC_WT" ] && [ -n "$REC_BASE" ] && [ -n "$REC_AUDIT_LOG" ] || return 1
   # The tree is read as it is now, so an earlier segment of this command that
   # writes or runs repository code could change what mix then executes.
   [ "$ARM_ACT" = 0 ] && [ "$OB_WROTE" = 0 ] && [ "$OB_LINKY" = 0 ] && [ "$OB_TOUCH" = 0 ] && [ "$RUN_SEEN" = 0 ] || return 1

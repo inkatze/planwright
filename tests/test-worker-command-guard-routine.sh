@@ -257,6 +257,13 @@ fixture_git -C "$WT" config core.worktree "$CS/clean-tree"
 assert_defer "a core.worktree that points git at another tree" "mix test" Bash "$WT"
 mkwt mix-flag-value
 assert_defer "a flag value that is another flag" "mix test --seed --trace" Bash "$WT"
+# A spec PR branch's record names the PR base but no unit branch: mix stays
+# the unit's alone, even with the tree at the base.
+mkwt mix-spec-branch
+fixture_git -C "$WT" checkout -q -b planwright/demo/spec
+assert_allow "the same tree under the unit's record" "mix test" Bash "$WT"
+grep -v '^unit_branch=' "$REC" >"$REC.tmp" && mv "$REC.tmp" "$REC"
+assert_defer "a spec PR branch's record, the tree at the base" "mix test" Bash "$WT"
 
 echo "### class 4, the unsafe cases: code that differs from the PR base never runs unprompted"
 mkwt mix-commit-test

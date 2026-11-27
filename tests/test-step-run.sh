@@ -364,6 +364,10 @@ loc_refused() {
   ! loc_run "$1" && [ ! -e "$tmp/ran" ] && grep -q '^failed' "$tmp/loc.out" \
     && grep -q "${2:-$EDIT}" "$tmp/loc.err"
 }
+# no_base_refused <location>: refused because the record names no usable PR
+# base, which no fetch can repair, so the refusal says so and suggests none.
+NO_BASE='names no usable PR base'
+no_base_refused() { loc_refused "$1" "$NO_BASE" && ! grep -q 'fetching' "$tmp/loc.err"; }
 loc_ran "$lw/tools/mark.sh"
 verdict $? "a committed, unmodified location runs" "$(loc_out)"
 loc_ran tools/mark.sh
@@ -428,13 +432,13 @@ loc_ran "$tmp/other/tools/kept.sh"
 verdict $? "under a record, another checkout is still held to its HEAD" "$(loc_out)"
 git -C "$lw" branch -q -d -r origin/main
 git -C "$lw" branch refs/remotes/origin/main HEAD
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
-verdict $? "under a record, a local branch standing in for the deleted base ref is refused" "$(loc_out)"
+loc_refused "$lw/tools/mark.sh" "$NO_TRUST" && grep -q 'fetching a missing base ref' "$tmp/loc.err"
+verdict $? "under a record, a local branch standing in for the deleted base ref is refused, naming the fetch" "$(loc_out)"
 git -C "$lw" branch -q -D refs/remotes/origin/main
 git -C "$lw" update-ref refs/remotes/origin/main HEAD
 printf 'worktree_root=%s\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
-verdict $? "under a record with no pr_base, a location is refused" "$(loc_out)"
+no_base_refused "$lw/tools/mark.sh"
+verdict $? "under a record with no pr_base, a location is refused, saying so and suggesting no fetch" "$(loc_out)"
 printf 'worktree_root=%s\nworktree_root=%s\npr_base=origin/main\n' "$lwp" "$lwp" >"$tmp/loc.record"
 loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
 verdict $? "under a record repeating worktree_root, a location is refused" "$(loc_out)"
@@ -448,12 +452,15 @@ for spec in "$lwp/|trailing slash" "$tmp/gone|a missing directory" "$tmp/elsewhe
   verdict $? "under a record whose worktree_root is not a canonical checkout (${spec#*|}), a location is refused" "$(loc_out)"
 done
 printf 'worktree_root=%s\npr_base=origin/main\npr_base=origin/main\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+no_base_refused "$lw/tools/mark.sh"
 verdict $? "under a record repeating pr_base, a location is refused" "$(loc_out)"
 git -C "$lw" update-ref refs/remotes/o+x/main HEAD
 printf 'worktree_root=%s\npr_base=o+x/main\n' "$lwp" >"$tmp/loc.record"
-loc_refused "$lw/tools/mark.sh" "$NO_TRUST"
+no_base_refused "$lw/tools/mark.sh"
 verdict $? "under a record whose pr_base names a remote outside its grammar, a location is refused" "$(loc_out)"
+printf 'worktree_root=%s\npr_base=origin/a..b\n' "$lwp" >"$tmp/loc.record"
+no_base_refused "$lw/tools/mark.sh"
+verdict $? "under a record whose pr_base names a branch outside its grammar, a location is refused" "$(loc_out)"
 git -C "$lw" update-ref -d refs/remotes/o+x/main
 {
   printf 'worktree_root=%s\npr_base=origin/main\n' "$lwp"
@@ -526,6 +533,28 @@ verdict $? "under the usable record again, the base's location runs" "$(loc_out)
 LOC_REC=''
 loc_ran "$lw/tools/mark.sh"
 verdict $? "with no record, the location is held to HEAD again" "$(loc_out)"
+
+# --- a session on a spec PR branch is held to its base, as a unit's is -------
+# The record its launcher writes names the PR base, so a step script the base
+# holds runs there and one the session edited is refused.
+git -C "$lw" checkout -q -b planwright/demo/spec
+LOC_REC=$(env_run env PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" /bin/sh "$repo_root/scripts/worker-session-record.sh" \
+  write "$lw" 2>"$tmp/err")
+grep -qx 'pr_base=origin/main' "$LOC_REC" && loc_ran "$lw/tools/mark.sh"
+verdict $? "under a spec-branch session's launch record, a location the base holds runs" \
+  "$(loc_out) record: $(cat "$LOC_REC" "$tmp/err" 2>&1)"
+printf 'printf pwned >>"%s/ran"\n' "$tmp" >>"$lw/tools/mark.sh"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a spec-branch session's launch record, a location it edited is refused" "$(loc_out)"
+# Committed on the spec branch, the edit is HEAD's but not the base's.
+git -C "$lw" commit -q -a -m "chore: a spec-branch edit"
+loc_refused "$lw/tools/mark.sh"
+verdict $? "under a spec-branch session's launch record, a location it committed is refused" "$(loc_out)"
+git -C "$lw" checkout -q -b planwright/demo/notes HEAD~1
+LOC_REC=$(env_run env PLANWRIGHT_FLEET_STATE_DIR="$tmp/fleet" /bin/sh "$repo_root/scripts/worker-session-record.sh" \
+  write "$lw" 2>"$tmp/err")
+no_base_refused "$lw/tools/mark.sh"
+verdict $? "under the launch record of a branch of neither kind, a location is refused for want of a PR base" "$(loc_out)"
 
 if [ "$failures" -gt 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2

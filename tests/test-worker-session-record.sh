@@ -952,6 +952,149 @@ else
   fail "spec branch: the field outlived its launch"
 fi
 
+echo "### a spec PR branch's record names the PR base a unit branch's does"
+tgit() { git -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "$@"; }
+SPW=$MAIN/.claude/worktrees/demo-spec
+git -C "$MAIN" worktree add -q --detach "$SPW" main
+# on_branch <name>: <name> checked out in SPW, fresh from main, or a failure.
+on_branch() {
+  git -C "$SPW" checkout -q -B "$1" main && [ "$(git -C "$SPW" symbolic-ref --short HEAD)" = "$1" ]
+}
+s64=a$(printf '%063d' 0)
+SPEC_YES=(planwright/demo/spec planwright/demo/spec-rework planwright/demo/amendment-2
+  planwright/demo/amendment-12 planwright/demo/amendment-01 "planwright/$s64/spec" planwright/d-1/spec
+  planwright/1demo/spec planwright/a/spec planwright/demo-/spec)
+SPEC_NO=(planwright/demo/notes planwright/demo/amendment- planwright/demo/amendment-2a
+  planwright/demo/spec-2 planwright/demo/sub/spec planwright/flight/spec
+  planwright/-demo/spec "planwright/a$s64/spec" planwright/de_mo/spec planwright/de.mo/spec
+  planwright/Upper/spec feature/spec spec other)
+for b in "${SPEC_YES[@]}"; do
+  on_branch "$b" || {
+    fail "spec PR branch: $b could not be checked out"
+    continue
+  }
+  write "$SPW"
+  if [ "$RC" -eq 0 ] && [ "$(field pr_base)" = origin/main ] && ! grep -q '^unit_branch=' "$REC"; then
+    pass "spec PR branch: $b records the PR base and no unit branch"
+  else
+    fail "spec PR branch: $b record: $(tr '\n' ' ' <"$REC")"
+  fi
+done
+for b in "${SPEC_NO[@]}"; do
+  on_branch "$b" || {
+    fail "neither unit nor spec PR branch: $b could not be checked out"
+    continue
+  }
+  write "$SPW"
+  if [ "$RC" -eq 0 ] && ! grep -q '^pr_base=' "$REC"; then
+    pass "neither unit nor spec PR branch: $b records no PR base"
+  else
+    fail "neither unit nor spec PR branch: $b record: $(tr '\n' ' ' <"$REC")"
+  fi
+done
+# The writer's shapes are the policy guard's: its own kickoff_scope_names,
+# under the matching kickoff scope, accepts exactly the branches above that
+# record a PR base.
+awk '/^kickoff_scope_names\(\) \{$/,/^}$/' "$REPO_ROOT/scripts/policy-guard.sh" >"$T/ksn.sh"
+# shellcheck source=/dev/null
+. "$T/ksn.sh"
+ksn() (
+  rest=${1#planwright/}
+  PLANWRIGHT_WORKER_SCOPE=kickoff-${rest%%/*} kickoff_scope_names "$1" "$SPW" >/dev/null 2>&1
+)
+if ! declare -F kickoff_scope_names >/dev/null; then
+  fail "spec PR branch: kickoff_scope_names could not be extracted from scripts/policy-guard.sh"
+else
+  drift=''
+  for b in "${SPEC_YES[@]}"; do ksn "$b" || drift="$drift $b"; done
+  for b in "${SPEC_NO[@]}"; do ! ksn "$b" || drift="$drift $b"; done
+  if [ -z "$drift" ]; then
+    pass "spec PR branch: the writer's shapes are exactly kickoff_scope_names's"
+  else
+    fail "spec PR branch: kickoff_scope_names disagrees with the writer on:$drift"
+  fi
+fi
+git -C "$SPW" checkout -q --detach main
+write "$SPW"
+if [ "$RC" -eq 0 ] && ! grep -q '^pr_base=' "$REC"; then
+  pass "a detached HEAD records no PR base"
+else
+  fail "a detached HEAD record: $(tr '\n' ' ' <"$REC")"
+fi
+on_branch planwright/demo/spec
+git -C "$MAIN" config branch.planwright/demo/spec.remote upstream
+write "$SPW"
+if [ "$(field pr_base)" = upstream/main ]; then
+  pass "spec PR branch: the PR base is on the branch's own remote"
+else
+  fail "spec PR branch: remote upstream recorded '$(field pr_base)'"
+fi
+git -C "$MAIN" config --unset branch.planwright/demo/spec.remote
+REC=$(/bin/sh "$WRITER" write "$SPW" --base other 2>"$T/err")
+if [ -s "$REC" ] && [ "$(field pr_base)" = origin/main ] && ! grep -q '^stack_base=' "$REC" \
+  && grep -q 'no stacked base recorded' "$T/err"; then
+  pass "spec PR branch: --base records no stacked base, as for any branch but a unit's"
+else
+  fail "spec PR branch: --base other: $(tr '\n' ' ' <"$REC") err: $(cat "$T/err")"
+fi
+
+# The guard holds the spec branch's worktree to the same merge base: a
+# script main holds runs, one the session committed or edited prompts.
+mkdir -p "$MAIN/scripts"
+printf '#!/bin/sh\nprintf ok\\n\n' >"$MAIN/scripts/ok.sh"
+printf '#!/bin/sh\nprintf ok\\n\n' >"$MAIN/scripts/edited.sh"
+tgit -C "$MAIN" add scripts && tgit -C "$MAIN" commit -q -m "chore: scripts"
+git -C "$MAIN" push -q origin main && git -C "$MAIN" fetch -q origin
+on_branch planwright/demo/spec
+printf '#!/bin/sh\nprintf own\\n\n' >"$SPW/scripts/own.sh"
+tgit -C "$SPW" add scripts/own.sh && tgit -C "$SPW" commit -q -m "chore: own"
+printf 'printf edited\n' >>"$SPW/scripts/edited.sh"
+# guard_says <command> [<dir>]: allow or defer, for the record REC with its
+# shell in <dir> (the spec worktree by default).
+guard_says() {
+  local o w=${2:-$SPW}
+  o=$(jq -cn --arg c "$1" --arg w "$w" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}' \
+    | (cd "$w" && PLANWRIGHT_WORKER_SESSION_RECORD=$REC /bin/bash "$GUARD" 2>/dev/null))
+  case $o in
+    *'"allow"'*) printf allow ;;
+    *) printf defer ;;
+  esac
+}
+write "$SPW"
+SPEC_REC=$REC
+if [ "$(guard_says 'bash scripts/ok.sh')" = allow ] && [ "$(guard_says 'bash scripts/own.sh')" = defer ] \
+  && [ "$(guard_says 'bash scripts/edited.sh')" = defer ]; then
+  pass "spec PR branch: the guard runs a script the base holds and prompts on one the session committed or edited"
+else
+  fail "spec PR branch: guard ok=$(guard_says 'bash scripts/ok.sh') own=$(guard_says 'bash scripts/own.sh') edited=$(guard_says 'bash scripts/edited.sh')"
+fi
+# The base also opens the own-branch merge arm for a unit; a spec PR branch's
+# record names no unit branch, so the merge still prompts.
+write "$WT"
+unit_merge=$(guard_says 'git merge origin/main' "$WT")
+REC=$SPEC_REC
+if [ "$unit_merge" = allow ] && [ "$(guard_says 'git merge origin/main')" = defer ]; then
+  pass "spec PR branch: the base merge a unit's record opens still prompts"
+else
+  fail "spec PR branch: base merge unit=$unit_merge spec=$(guard_says 'git merge origin/main')"
+fi
+# A session that leaves the spec branch keeps its launch record, and HEAD's
+# new commits stay above the base.
+git -C "$SPW" checkout -q -- scripts/edited.sh && on_branch planwright/demo/notes
+printf '#!/bin/sh\nprintf own2\\n\n' >"$SPW/scripts/own2.sh"
+tgit -C "$SPW" add scripts/own2.sh && tgit -C "$SPW" commit -q -m "chore: own2"
+if [ "$(guard_says 'bash scripts/ok.sh')" = allow ] && [ "$(guard_says 'bash scripts/own2.sh')" = defer ]; then
+  pass "spec PR branch: after a switch away, a commit the session made still prompts"
+else
+  fail "spec PR branch: after a switch, ok=$(guard_says 'bash scripts/ok.sh') own2=$(guard_says 'bash scripts/own2.sh')"
+fi
+write "$SPW"
+if [ "$(guard_says 'bash scripts/ok.sh')" = defer ]; then
+  pass "neither unit nor spec PR branch: the guard trusts no script in its worktree"
+else
+  fail "neither unit nor spec PR branch: the guard ran a script with no PR base recorded"
+fi
+
 echo
 echo "worker-session-record: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]

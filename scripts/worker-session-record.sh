@@ -20,20 +20,24 @@
 #   unit_branch        the branch checked out there, when it is a task or
 #                      flight branch (otherwise omitted)
 #   worktree_root      the worktree's canonical top level
-#   pr_base            <remote>/<branch>: the unit branch's remote (origin
-#                      when unset) and that remote's default branch as
-#                      recorded locally, else main; omitted when unit_branch
-#                      is, or when the remote's name falls outside its
-#                      grammar. The command guard and the step runner hold the
-#                      worktree's trusted files to its merge base, so a
-#                      record without it trusts none
+#   pr_base            <remote>/<branch>: the checked-out branch's remote
+#                      (origin when unset) and that remote's default branch
+#                      as recorded locally, else main, when that branch is a
+#                      unit branch or a kickoff-scoped spec PR branch
+#                      (planwright/<spec>/spec, spec-rework or amendment-<n>,
+#                      narrower than spec_branch's grammar below); omitted on
+#                      any other branch, or when the remote's name falls
+#                      outside its grammar. The command guard and the step
+#                      runner hold the worktree's trusted files to its merge
+#                      base, so a record without it trusts none
 #   stack_base        <remote>/<branch>: the base of a stacked pull request
 #                      (one whose base is another feature branch), from
 #                      --base <branch> or, with --base-from-pr, the PR's
 #                      baseRefName read once from gh (the one network call,
 #                      made only on request, kept only from an open PR whose
 #                      head is in this repository); omitted when it is the
-#                      default base, outside the branch grammar, or unknown. It is the one
+#                      default base, outside the branch grammar, or unknown,
+#                      and on any branch but a unit branch. It is the one
 #                      branch besides the default base a worker's base merge
 #                      may take (scripts/policy-guard.sh,
 #                      scripts/converge-sync-main.sh --base)
@@ -376,7 +380,8 @@ if [ -n "$primary" ]; then
     || printf '%s: worker_check_commands is longer than %s bytes; the declarations past it are dropped\n' "$me" "$MAX_CHECKS_LEN" >&2
 fi
 
-unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
+checked_out=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || checked_out=''
+unit=$checked_out
 case $unit in
   planwright/flight/task-*) unit='' ;;
   planwright/flight/*) printf '%s\n' "$unit" | grep -Eq '^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$' || unit='' ;;
@@ -384,9 +389,23 @@ case $unit in
   *) unit='' ;;
 esac
 
+# A kickoff-scoped spec PR branch, in the grammar scripts/policy-guard.sh's
+# kickoff_scope_names reads one by (planwright/<spec>/spec, spec-rework or
+# amendment-<n>; they change together), is no unit branch but takes the PR
+# base a unit branch does: the commits below it are the base's, which the
+# session cannot have authored.
+pr_branch=$unit
+if [ -z "$pr_branch" ] && printf '%s\n' "$checked_out" \
+  | grep -Eq '^planwright/[a-z0-9][a-z0-9-]{0,63}/(spec|spec-rework|amendment-[0-9]+)$'; then
+  case $checked_out in
+    planwright/flight/*) ;;
+    *) pr_branch=$checked_out ;;
+  esac
+fi
+
 pr_base=''
-if [ -n "$unit" ]; then
-  remote=$(gitq "$wt" config --get "branch.$unit.remote") || remote=''
+if [ -n "$pr_branch" ]; then
+  remote=$(gitq "$wt" config --get "branch.$pr_branch.remote") || remote=''
   case $remote in
     '' | .) remote=origin ;;
   esac
@@ -412,9 +431,10 @@ fi
 # only when it differs from the default base the record names, and only inside
 # the branch grammar the guards re-check. A stacked base asked for and not
 # recorded gets a stderr warning, since the worker's merge of it is refused
-# later; a PR on the default base is not stacked and gets none.
+# later; a PR on the default base is not stacked and gets none, and a spec PR
+# branch never records one.
 stack_base=''
-if [ -n "$pr_base" ]; then
+if [ -n "$unit" ] && [ -n "$pr_base" ]; then
   if [ "$have_base" = 2 ] && command -v gh >/dev/null 2>&1; then
     pr_line=$(cd -- "$wt" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 15 gh pr view "$unit" \
       --json baseRefName,state,isCrossRepository --jq '[.state, (.isCrossRepository | tostring), .baseRefName] | join(" ")' \
