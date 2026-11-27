@@ -3059,8 +3059,8 @@ refspecs names its destination as `<src>:<dst>`: `git push origin
 feature:feature` can be answered, while `git push origin feature`, a bare
 `git push`, and any push with one bare-name refspec reach you, since git
 reads such a destination from configuration and local refs the command does
-not show. That is judged at match time, so a rule covering `git push ` is
-recorded.
+not show. That is judged at match time, so a rule covering every `git push`
+is recorded.
 
 A permission prompt outside every rule you wrote reaches you. The tower never
 answers one on its own judgment, and mentioning a prompt in passing is not

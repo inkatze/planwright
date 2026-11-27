@@ -2109,7 +2109,7 @@ writes_git_state() {
   local k=${SEG_S[$1]} e=${SEG_E[$1]} t writer=0
   for t in ${SEG_WT[$1]:-}; do
     ! git_state_path "$t" || return 0
-    case $t in *[\$\`*?[{~]*) return 0 ;; esac
+    case $t in *[\$\`*?[\{~]*) return 0 ;; esac
   done
   [ -n "$SCN" ] && [ "$SCN" != git ] || return 1
   case $GIT_STATE_READERS in *" $SCN "*) return 1 ;; esac
