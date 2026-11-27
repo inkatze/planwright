@@ -1213,6 +1213,7 @@ check_unprotected() {
 # the short form would match no protected entry; a branch whose short and full
 # names disagree reads as none, which every caller refuses or reads as no
 # branch.
+NO_CURRENT_BRANCH='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
 current_branch() {
   local full short
   full=$(gitq "$1" symbolic-ref --quiet HEAD) || full=''
@@ -4018,11 +4019,9 @@ worker_delete_deny() {
 # branch, which the protected set does not hold. Folded by expansion, so a tr
 # that failed cannot fold the name to one that matches nothing.
 spec_family_branch() {
-  local b=$1 rest spec leaf i=0 up=ABCDEFGHIJKLMNOPQRSTUVWXYZ low=abcdefghijklmnopqrstuvwxyz
-  while [ "$i" -lt 26 ]; do
-    b=${b//${up:$i:1}/${low:$i:1}}
-    i=$((i + 1))
-  done
+  local b rest spec leaf
+  fold_ascii "$1"
+  b=$FA
   case $b in planwright/?*/?*) ;; *) return 1 ;; esac
   rest=${b#planwright/}
   spec=${rest%%/*}
@@ -4402,10 +4401,11 @@ git_state_after() {
   esac
 }
 
-# record_plain <what> <text> — 1, with the refusal queued, when text a queued
-# act's tab-separated record carries holds a tab or newline: a directory named
-# <a real clone><tab>... would be read as that clone, the rest shifting the
-# record's fields.
+# record_plain <what> <text> — 1 (the refusal queued) when <text>, a field of
+# a queued act's tab-separated record, holds a tab or newline: a directory
+# named <a real clone><tab>... would be read as that clone, the rest shifting
+# the record's fields. classify_git_act checks every act's directory; each
+# record checks the arguments it carries.
 record_plain() {
   case $2 in
     *"$TAB"* | *"$NL"*)
@@ -5003,7 +5003,7 @@ classify_git_merge() {
   if [ "${#SEG_S[@]}" = 1 ] && [ "${#GP_POS[@]}" = 1 ] && [ -z "$GP_SHORT" ] && [ "$GP_LONG" = "$GP_LITLONG" ]; then
     case $GP_LONG in ' ' | ' no-edit ') bare=1 ;; esac
   fi
-  record_plain 'this git merge' "$dir ${GP_POS[*]-}" || return 0
+  record_plain 'this git merge' "${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="merge$TAB$dir$TAB$ff$TAB$plain$TAB$bare$TAB${GP_POS[*]-}"
 }
 
@@ -5064,7 +5064,7 @@ classify_git_pull() {
     esac
     k=$((k + 1))
   done
-  record_plain 'this git pull' "$dir ${GP_POS[*]-}" || return 0
+  record_plain 'this git pull' "${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="pull$TAB$dir$TAB$mode$TAB$ff$TAB${GP_POS[*]-}"
 }
 
@@ -5109,7 +5109,7 @@ classify_git_rebase() {
       ur=-1
     fi
   done
-  record_plain 'this git rebase' "$dir $onto ${GP_POS[*]-}" || return 0
+  record_plain 'this git rebase' "${GP_POS[*]-}" || return 0
   PENDING[${#PENDING[@]}]="rebase$TAB$dir$TAB$root$TAB$ur$TAB$onto$TAB${GP_POS[*]-}"
 }
 
@@ -5214,7 +5214,7 @@ classify_git_commit() {
       }
   done
   [ "$amend" = 0 ] || targets="HEAD $targets"
-  record_plain 'this git commit' "$dir $targets" || return 0
+  record_plain 'this git commit' "$targets" || return 0
   PENDING[${#PENDING[@]}]="commit$TAB$dir$TAB$targets"
 }
 
@@ -6295,8 +6295,6 @@ EOF
   return 0
 }
 
-CB_NONE='is detached, or names a branch that shares its name with another ref (a tag), which git then pushes under a name the guard cannot read'
-
 # legacy_remote_check <dir> <remote> — deny a push to a remote a legacy
 # remotes/<name> or branches/<name> file names: git still reads a push mapping
 # from either (a Push: line, or <url>#<branch>, which pushes HEAD to <branch>),
@@ -6356,7 +6354,7 @@ eval_push() {
   cb=$(current_branch "$dir")
   if [ -z "$refs" ]; then
     [ "$del" = 0 ] || emit_deny 'this git push deletes without naming a ref - refusing (fail closed).'
-    [ -n "$cb" ] || emit_deny "this git push names no branch and HEAD $CB_NONE, so the guard cannot tell what it pushes - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
+    [ -n "$cb" ] || emit_deny "this git push names no branch and HEAD $NO_CURRENT_BRANCH, so the guard cannot tell what it pushes - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
     local pd rp
     pd=$(gitq "$dir" config --get push.default) || pd=''
     [ "$(lower "$pd")" != matching ] \
@@ -6400,7 +6398,7 @@ eval_push() {
       [ -n "$dst" ] || emit_deny 'this git push carries a refspec with an empty destination, which the guard does not read - refusing (fail closed).'
       case $dst in
         HEAD | @)
-          [ -n "$cb" ] || emit_deny "this git push pushes HEAD, and HEAD $CB_NONE - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
+          [ -n "$cb" ] || emit_deny "this git push pushes HEAD, and HEAD $NO_CURRENT_BRANCH - refusing (fail closed). Name the branch, in full: git push <remote> <branch>:<branch>."
           dst=$cb
           ;;
         refs/heads/*) dst=${dst#refs/heads/} ;;

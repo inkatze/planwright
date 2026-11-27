@@ -40,7 +40,7 @@ e2e() {
   [ "$before" != "$after" ] || fail "fixture: $label does not move main when run, so its case would be vacuous"
 }
 
-# --- A: a change written after the act can run before it --------------------
+# --- a change written after the act can run before it -----------------------
 
 echo "# ordering: loops, background lists, pipelines and coprocesses"
 CFGPUSH="git config remote.origin.push refs/heads/$B:refs/heads/main"
@@ -83,7 +83,7 @@ for cmd in "git push origin $B 2>&1 | tail -3" "for i in 1 2; do git push origin
   expect defer "[worker] $cmd (no state change after the act that the act reads) defers"
 done
 
-# --- B: non-git writes to git configuration or HEAD --------------------------
+# --- non-git writes to git configuration or HEAD -----------------------------
 
 echo "# writes to git state by other commands"
 PUSHCFG='[remote "origin"]\n\tpush = refs/heads/planwright/demo/task-1:refs/heads/main\n'
@@ -128,7 +128,7 @@ for cmd in "cat .git/HEAD && git push origin $B" "printf x > notes.txt && git pu
   expect defer "[worker] $cmd (a read, a write outside git's state, no act, or a change after the act in plain sequence) defers"
 done
 
-# --- D: a tab or newline in the directory -----------------------------------
+# --- a tab or newline in the directory --------------------------------------
 
 echo "# a tab or newline in an act's directory"
 # The record is tab-separated; a directory named <real clone><TAB>... would
@@ -159,7 +159,7 @@ done
 pg worker "git commit --amend --no-edit -m 'a${TAB}b'"
 expect defer "[worker] a tab in a commit message, which no record carries, still defers"
 
-# --- F1: a loop body that shares its loop's segment --------------------------
+# --- a loop body that shares its loop's segment ------------------------------
 
 echo "# loop bodies with no list or no separator"
 # `for x do ...` (no in list) and zsh's `repeat <n> <command>` carry their

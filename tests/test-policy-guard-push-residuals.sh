@@ -1,9 +1,11 @@
 #!/bin/bash
 # Adversarial suite for scripts/policy-guard.sh: pushes whose real destination
 # git reads from somewhere other than the command line (a tag sharing the
-# current branch's name, a legacy remotes or branches file, a local symbolic
-# branch), the plumbing and contrib commands that push (git send-pack, git
-# subtree push), and a gh api contents write naming heads/<branch>.
+# current branch's name, a legacy remotes or branches file, a symbolic ref),
+# the plumbing and contrib commands that push (git send-pack, git subtree
+# push), and the gh api writes that reach a branch another way: a contents
+# write naming heads/<branch>, a rename that takes a unit or spec-family
+# branch off the remote, and a change to branch protection or a ruleset.
 #
 # Each fixture is first checked against real git, a dry run into the sandbox
 # origin, so a case whose push would not reach main fails as a broken fixture
@@ -34,7 +36,7 @@ fixture() { # <label> <dir> <git push args...>
   reaches_main "$@" || fail "fixture: $label does not reach main in real git, so its case would be vacuous"
 }
 
-# --- a tag named like the current branch (finding 1) ------------------------
+# --- a tag named like the current branch ------------------------------------
 
 echo "# a tag sharing the current branch's name"
 TAGD="$SANDBOX/tagmain"
@@ -58,7 +60,7 @@ reason_has 'shares its name' "the ambiguous-branch deny says why"
 pg worker 'git push origin planwright/demo/task-1:planwright/demo/task-1' "$TAGU"
 expect defer "[worker] a push naming its destination in full still defers beside a same-named tag"
 
-# --- legacy remotes and branches files (finding 2) --------------------------
+# --- legacy remotes and branches files --------------------------------------
 
 echo "# legacy remotes/ and branches/ files"
 LEG="$SANDBOX/legacy"
@@ -88,7 +90,7 @@ gitq -C "$LEG" worktree add -b planwright/demo/task-8 "$LEGWT" HEAD
 pg worker 'git push leg2' "$LEGWT"
 expect deny "[worker] a linked worktree reads its repository's legacy branches file too"
 
-# --- a local branch that is a symbolic ref (finding 4) ----------------------
+# --- a local branch that is a symbolic ref ----------------------------------
 
 echo "# symbolic local branches"
 SYM="$SANDBOX/symref"
@@ -131,7 +133,7 @@ printf 'not a packed ref line\n' >>"$BADREFS/.git/packed-refs"
 pg worker 'git push origin planwright/demo/task-1' "$BADREFS"
 expect deny "[worker] a push whose local refs cannot be listed, to resolve its symbolic refs, denies"
 
-# --- git send-pack and git subtree push (finding 5) -------------------------
+# --- git send-pack and git subtree push -------------------------------------
 
 echo "# plumbing and contrib pushes"
 SP="$SANDBOX/sendpack"
@@ -166,7 +168,7 @@ gitq -C "$SP" config alias.sp send-pack
 pg worker "git sp $ORIGIN HEAD:refs/heads/main" "$SP"
 expect deny "[worker] an alias expanding to git send-pack denies, as one expanding to git push does"
 
-# --- gh api contents write naming heads/<branch> (finding 9) -----------------
+# --- gh api contents write naming heads/<branch> -----------------------------
 
 echo "# gh api contents branch spellings"
 for tier in worker tower; do
@@ -177,7 +179,7 @@ done
 pg worker 'gh api -X PUT repos/acme/widgets/contents/README.md -f message=m -f content=eA== -f branch=heads/feature'
 expect defer "[worker] a contents write to heads/feature still defers"
 
-# --- gh api branch renames that move a branch away (item C) -----------------
+# --- gh api branch renames that move a branch away --------------------------
 
 echo "# gh api renames of a unit or spec-family branch"
 # A rename takes the branch off the remote as a delete does, so it is refused
@@ -201,7 +203,7 @@ done
 pg tower 'gh api -X POST repos/acme/widgets/branches/planwright/demo/task-2/rename -f new_name=feature-z'
 expect defer "[tower] a rename of a unit branch defers, as its delete does at the tower"
 
-# --- branch protection and rulesets (item F2) -------------------------------
+# --- branch protection and rulesets -----------------------------------------
 
 echo "# gh api writes to branch protection or a ruleset"
 for tier in worker tower; do
