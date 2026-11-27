@@ -1749,8 +1749,8 @@ assert_exit "the default workflows dir resolves to the repo's" 0 $?
 # ---------------------------------------------------------------------------
 # Release-commit concurrency (release-hardening REQ-I1.1). A release commit's
 # push runs in an uncancellable group of its own, so a later merge cannot
-# cancel the run release-publish.sh waits on; every other event keeps the
-# per-ref group with cancellation.
+# cancel the run release-arm.sh waits on and release-publish.sh gates on;
+# every other event keeps the per-ref group with cancellation.
 # ---------------------------------------------------------------------------
 
 # rel_value <file> <key> — the value of <key> under the top-level

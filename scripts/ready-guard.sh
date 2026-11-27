@@ -69,8 +69,8 @@
 # `behind_by == 0` or the behind-base policy lets it through: under the shipped
 # `checks`, when the latest run of every check on the head passed (over
 # scripts/check-runs.jq's selection: base-state checks and superseded
-# cancellations left out); under
-# `conflict-only`, always; under `refuse`, never (see behind_base_policy).
+# cancellations left out); under `conflict-only`, always; under `refuse`,
+# never (see behind_base_policy).
 # Currency is deliberately NOT keyed on `mergeStateStatus`, which reports
 # `BEHIND` only under the base's "require up to date" branch protection — on an
 # unprotected base (planwright's own `main`) a stale PR reads `CLEAN`, which is
