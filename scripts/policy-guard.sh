@@ -1838,6 +1838,39 @@ ST_PUSH=0
 ST_HEAD=0
 GIT_ENV_SET=0
 
+# The state flags above order acts by the command's text, but a loop body, a
+# background list, a pipeline or a coprocess can run a change written after an
+# act before it. seg_mark, run as each segment starts (and with -1 once all
+# are classified), records RO_FIRST_ACT, the first segment that queued an act,
+# and RO_LAST_CHG, the last whose classification set a flag; reorder_check
+# refuses a change after the first act in a command carrying any of them.
+RO_SI=-1 RO_FLAGS='' RO_PEND=0 RO_FIRST_ACT=-1 RO_LAST_CHG=-1
+seg_mark() {
+  local f="$ST_CFG$ST_REF$ST_FILT$ST_FETCH$ST_FETCHSPEC$ST_PUSH$ST_HEAD$GIT_ENV_SET"
+  if [ "$RO_SI" -ge 0 ]; then
+    [ "${#PENDING[@]}" = "$RO_PEND" ] || [ "$RO_FIRST_ACT" -ge 0 ] || RO_FIRST_ACT=$RO_SI
+    [ "$f" = "$RO_FLAGS" ] || RO_LAST_CHG=$RO_SI
+  fi
+  RO_SI=$1 RO_FLAGS=$f RO_PEND=${#PENDING[@]}
+}
+
+reorder_check() {
+  local t k=0 n=${#W[@]} why=''
+  seg_mark -1
+  [ "$RO_FIRST_ACT" -ge 0 ] && [ "$RO_LAST_CHG" -gt "$RO_FIRST_ACT" ] || return 0
+  for t in ${SEG_TERM[@]+"${SEG_TERM[@]}"}; do
+    case $t in '&' | '|' | '|&') why='a background list or a pipeline' ;; esac
+  done
+  while [ -z "$why" ] && [ "$k" -lt "$n" ]; do
+    case ${W[$k]} in
+      for | while | until | select | repeat | coproc | function | do) why='a loop, a coprocess or a function' ;;
+    esac
+    k=$((k + 1))
+  done
+  [ -z "$why" ] \
+    || deny_now "this command changes git configuration, a ref, HEAD or the environment in a segment written after a reserved act, inside $why, which can run that change before the act; the guard checks each act against the state as the text orders it - refusing. Run the change and the act as separate commands."
+}
+
 RESERVED_WORD_RE='^(merge|pull|rebase|push|commit|ready|api|--am.*|--sq.*|--fix.*)$'
 # A command word that is one variable naming a directory, then a literal
 # path: `"$ROOT/scripts/x.sh"`. Any other expanded command word could be git.
@@ -2727,6 +2760,7 @@ classify_segments() {
   CS_LOST=0
   while [ "$si" -lt "${#SEG_S[@]}" ]; do
     segment_words "$si"
+    seg_mark "$si"
     segment_text "$si"
     cur_text=$SEG_TEXT
     compound_shape "$si"
@@ -8554,6 +8588,7 @@ handle_bash() {
       && deny_unanalyzable 'this command evaluates text carrying a substitution in an arithmetic context'
   fi
   classify_segments
+  reorder_check
   [ -z "$DENY_NOW" ] || emit_deny "$DENY_NOW"
   [ "${#PENDING[@]}" = 0 ] && return 0
   need_timeout
