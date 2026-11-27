@@ -86,7 +86,11 @@
 #                     which touches only the Awaiting-input section of tasks.md
 #   ci-rollup         the PR head's check rollup is a positive green (at least
 #                     one success, nothing failing or pending) within
-#                     ready_flip_ci_wait, the planwright/pre-ready-flip and
+#                     ready_flip_ci_wait, over scripts/check-runs.jq's
+#                     selection (only the latest run of each check counts;
+#                     a matrix job's superseded placeholder cancellation and
+#                     ready_base_state_checks are left out), the
+#                     planwright/pre-ready-flip and
 #                     planwright/pre-spec-ready-flip statuses excluded; a host
 #                     read that fails is retried within the same bound
 #                     (The bot review is not among these: the repo's PR-Agent

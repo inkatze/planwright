@@ -33,9 +33,41 @@ name: ci
 permissions:
   contents: read
 
+# A newer run on the same ref cancels the older one, but a release commit's run
+# neither cancels nor is cancelled: a push whose subject is release-please's
+# `chore: release <digit>…` gets a group of its own, because release-publish.sh
+# tags only a release commit whose gating checks all passed. A shared group
+# would also drop a pending run, so keying the group matters as much as the
+# cancel flag. The subject is the release PR's title only under a squash merge.
+# Expressions have no regex, hence one startsWith per digit (startsWith is
+# always case-insensitive). Both values must carry the same predicate;
+# tests/test-check-workflow-posture.sh holds that.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    ${{ github.event_name == 'push' && (
+    startsWith(github.event.head_commit.message, 'chore: release 0') ||
+    startsWith(github.event.head_commit.message, 'chore: release 1') ||
+    startsWith(github.event.head_commit.message, 'chore: release 2') ||
+    startsWith(github.event.head_commit.message, 'chore: release 3') ||
+    startsWith(github.event.head_commit.message, 'chore: release 4') ||
+    startsWith(github.event.head_commit.message, 'chore: release 5') ||
+    startsWith(github.event.head_commit.message, 'chore: release 6') ||
+    startsWith(github.event.head_commit.message, 'chore: release 7') ||
+    startsWith(github.event.head_commit.message, 'chore: release 8') ||
+    startsWith(github.event.head_commit.message, 'chore: release 9'))
+    && format('ci-release-{0}', github.sha) || format('ci-{0}', github.ref) }}
+  cancel-in-progress: >-
+    ${{ !(github.event_name == 'push' && (
+    startsWith(github.event.head_commit.message, 'chore: release 0') ||
+    startsWith(github.event.head_commit.message, 'chore: release 1') ||
+    startsWith(github.event.head_commit.message, 'chore: release 2') ||
+    startsWith(github.event.head_commit.message, 'chore: release 3') ||
+    startsWith(github.event.head_commit.message, 'chore: release 4') ||
+    startsWith(github.event.head_commit.message, 'chore: release 5') ||
+    startsWith(github.event.head_commit.message, 'chore: release 6') ||
+    startsWith(github.event.head_commit.message, 'chore: release 7') ||
+    startsWith(github.event.head_commit.message, 'chore: release 8') ||
+    startsWith(github.event.head_commit.message, 'chore: release 9'))) }}
 
 # The Claude Code CLI the lint and test jobs install; see the lint job's
 # install step for why it is pinned and its floor.
@@ -381,21 +413,24 @@ jobs:
           path: ${{ runner.temp }}/timing-report.tsv
           overwrite: true
 
-  # The aggregate status, joining every job on every platform. It always runs,
-  # so a failed, skipped, or cancelled job above fails it rather than leaving
-  # it skipped, which branch protection reads as passing; under `!cancelled()`
-  # a run cancelled while this job waited would skip it. A matrix job's result
-  # is success only when every one of its shards succeeded, and a failed plan
-  # skips every planned shard, which fails it too. Then it runs the timing
-  # gate (`check:test-time` in `mise run check`) over every Linux shard's
-  # report at once: the gate needs one row per test file, which only the union
-  # holds, and its budgets are the Ubuntu runner's. On a ready flip that
-  # reuses a prior run (the plan job's reuse step), the suite jobs are
-  # skipped, the gate stands on that run's evidence and names it, and the
-  # timing gate, which that run's own check job passed, does not run again.
+  # The aggregate status, joining every job on every platform. It runs unless
+  # its run was cancelled, so a failed or skipped job above, or one that timed
+  # out (which reads as cancelled), fails it rather than leaving it skipped,
+  # which branch protection reads as passing. When a newer run on the same ref
+  # cancels the run, this job ends cancelled like every job of that run still
+  # waiting on its needs, not red beside the live run, and branch protection
+  # never reads cancelled as passing. A matrix job's result is success only
+  # when every one of its shards succeeded, and a failed plan skips every
+  # planned shard, which fails it too. Then it runs the timing gate
+  # (`check:test-time` in `mise run check`) over every Linux shard's report at
+  # once: the gate needs one row per test file, which only the union holds,
+  # and its budgets are the Ubuntu runner's. On a ready flip that reuses a
+  # prior run (the plan job's reuse step), the suite jobs are skipped, the gate
+  # stands on that run's evidence and names it, and the timing gate, which
+  # that run's own check job passed, does not run again.
   check:
     needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite, alpine-smoke]
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

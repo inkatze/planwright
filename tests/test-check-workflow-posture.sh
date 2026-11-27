@@ -1747,6 +1747,232 @@ out="$(cd "$TMP" && "$GUARD" 2>&1)"
 assert_exit "the default workflows dir resolves to the repo's" 0 $?
 
 # ---------------------------------------------------------------------------
+# Release-commit concurrency (release-hardening REQ-I1.1). A release commit's
+# push runs in an uncancellable group of its own, so a later merge cannot
+# cancel the run release-arm.sh waits on and release-publish.sh gates on;
+# every other event keeps the per-ref group with cancellation.
+# ---------------------------------------------------------------------------
+
+# rel_value <file> <key> — the value of <key> under the top-level
+# `concurrency:`, a `>-` block folded onto one line. Outside quoted literals,
+# runs of whitespace collapse to one space and the spaces just inside
+# parentheses are dropped, so a literal's own spacing still counts.
+rel_value() {
+  awk -v key="$2" -v sq="'" '
+    /^[^ #]/ {
+      in_concurrency = ($0 ~ /^concurrency:[ \t]*$/)
+      in_value = 0
+      next
+    }
+    !in_concurrency { next }
+    in_value {
+      if ($0 ~ /^[ \t]*$/) next
+      if ($0 ~ /^   /) {
+        out = out " " $0
+        next
+      }
+      in_value = 0
+    }
+    $0 ~ "^  " key ":" {
+      v = $0
+      sub(/^[^:]*:[ \t]*/, "", v)
+      if (v == ">-") {
+        in_value = 1
+        out = ""
+      } else {
+        out = v
+      }
+    }
+    END {
+      n = split(out, part, sq)
+      res = ""
+      for (i = 1; i <= n; i++) {
+        p = part[i]
+        if (i % 2 == 1) {
+          gsub(/[ \t]+/, " ", p)
+          gsub(/[(] /, "(", p)
+          gsub(/ [)]/, ")", p)
+        }
+        res = res (i > 1 ? sq : "") p
+      }
+      sub(/^ /, "", res)
+      sub(/ $/, "", res)
+      print res
+    }
+  ' "$1"
+}
+
+# The predicate is built from release-please's own title pattern (its root
+# package's, else the top-level one), so if that pattern changes and its prefix
+# no longer matches the subject ci.yml tests for, this fails now rather than
+# at the next release.
+RELEASE_PATTERN="$(jq -r '.packages["."]["pull-request-title-pattern"] // ."pull-request-title-pattern" // empty' \
+  "$REPO_ROOT/release-please-config.json")"
+# shellcheck disable=SC2016 # release-please's literal placeholder
+RELEASE_PREFIX="${RELEASE_PATTERN%'${version}'}"
+pattern_rc=0
+[ -n "$RELEASE_PREFIX" ] && [ "$RELEASE_PREFIX" != "$RELEASE_PATTERN" ] || pattern_rc=1
+assert_exit "release concurrency: release-please's title pattern is a prefix then the version (got: $RELEASE_PATTERN)" 0 "$pattern_rc"
+
+# rel_predicate [<prefix>] — the ten-digit release test: one startsWith per
+# leading version digit, joined with ||, over release-please's prefix by
+# default.
+rel_predicate() {
+  local d terms=""
+  for d in 0 1 2 3 4 5 6 7 8 9; do
+    terms="$terms${terms:+ || }startsWith(github.event.head_commit.message, '${1-$RELEASE_PREFIX}$d')"
+  done
+  printf "github.event_name == 'push' && (%s)" "$terms"
+}
+RELEASE_PRED="$(rel_predicate)"
+# shellcheck disable=SC2016 # literal GitHub expressions
+REL_GROUP_TAIL=" && format('ci-release-{0}', github.sha) || format('ci-{0}', github.ref) }}"
+REL_NOT_CHOICE="group is not a ci-release-<sha> / ci-<ref> choice"
+REL_NOT_NEGATED="cancel-in-progress is not the negated predicate"
+REL_SPLIT="the group and the cancel flag carry different predicates"
+REL_NOT_TEN="the predicate is not the ten-digit release test"
+REL_JOB_LEVEL="a job declares its own concurrency"
+
+# rel_check <file> — exit 0 when the group and the cancel flag carry the one
+# release predicate and no job overrides them; otherwise print why and exit 1.
+rel_check() {
+  local group cancel group_pred cancel_pred
+  # A job-level group would let a later merge cancel that job of the release
+  # commit's run, whatever the top-level block says.
+  if grep -qE '^[[:space:]]+concurrency:' "$1"; then
+    echo "$REL_JOB_LEVEL"
+    return 1
+  fi
+  group="$(rel_value "$1" group)"
+  cancel="$(rel_value "$1" cancel-in-progress)"
+  case "$group" in
+    "\${{ "*"$REL_GROUP_TAIL") ;;
+    *)
+      echo "$REL_NOT_CHOICE: $group"
+      return 1
+      ;;
+  esac
+  case "$cancel" in
+    "\${{ !("*") }}") ;;
+    *)
+      echo "$REL_NOT_NEGATED: $cancel"
+      return 1
+      ;;
+  esac
+  group_pred="${group#"\${{ "}"
+  group_pred="${group_pred%"$REL_GROUP_TAIL"}"
+  cancel_pred="${cancel#"\${{ !("}"
+  cancel_pred="${cancel_pred%") }}"}"
+  [ "$group_pred" = "$cancel_pred" ] || {
+    echo "$REL_SPLIT"
+    return 1
+  }
+  [ "$group_pred" = "$RELEASE_PRED" ] || {
+    echo "$REL_NOT_TEN: $group_pred"
+    return 1
+  }
+}
+
+out="$(rel_check "$CI_YML")"
+assert_exit "release concurrency: ci.yml keys a release commit's push on its own uncancellable group${out:+: $out}" 0 $?
+
+# rel_kind <group value> <event> <subject> — release or ordinary, from the
+# value's own push gate (in its canonical spelling) and startsWith prefixes,
+# matched case-insensitively as GitHub's startsWith is.
+rel_kind() {
+  local prefix subject
+  case "$1" in
+    *"github.event_name == 'push' && ("*)
+      [ "$2" = push ] || {
+        echo ordinary
+        return
+      }
+      ;;
+  esac
+  subject="$(printf '%s' "$3" | tr '[:upper:]' '[:lower:]')"
+  while IFS= read -r prefix; do
+    [ -n "$prefix" ] || continue
+    case "$subject" in "$prefix"*)
+      echo release
+      return
+      ;;
+    esac
+  done <<EOF
+$(printf '%s\n' "$1" | grep -o "startsWith(github.event.head_commit.message, '[^']*')" | sed "s/^[^']*'//; s/'.*//" | tr '[:upper:]' '[:lower:]')
+EOF
+  echo ordinary
+}
+# rel_assert_kind <want> <group value> <event> <subject> <label>
+rel_assert_kind() {
+  local kind kind_rc=0
+  kind="$(rel_kind "$2" "$3" "$4")"
+  [ "$kind" = "$1" ] || kind_rc=1
+  assert_exit "release concurrency: $5 (got: $kind)" 0 "$kind_rc"
+}
+REL_CI_GROUP="$(rel_value "$CI_YML" group)"
+for subj in "chore: release 0.85.0 (#1190)" "chore: release 1.0.0" "chore: release 9.9.9" \
+  "Chore: release 1.0.0"; do
+  rel_assert_kind release "$REL_CI_GROUP" push "$subj" "a push titled '$subj' runs in the release group"
+done
+for subj in "chore: release-window tweak" "chore: release notes" "chore: releases 1" \
+  "chore:  release 1.0.0" "feat: x"; do
+  rel_assert_kind ordinary "$REL_CI_GROUP" push "$subj" "a push titled '$subj' stays in the ordinary group"
+done
+rel_assert_kind ordinary "$REL_CI_GROUP" pull_request "chore: release 1.0.0" \
+  "a pull_request run with a release title stays ordinary"
+# The cases above must be able to fail: with no push gate a pull_request run
+# would land in the release group.
+rel_assert_kind release "\${{ (${RELEASE_PRED#"github.event_name == 'push' && ("}$REL_GROUP_TAIL" \
+  pull_request "chore: release 1.0.0" "without the push gate a pull_request run is judged release"
+
+# rel_case <name> <group> <cancel> [<indicator>] [<job lines>] — a concurrency
+# block whose two values are one-line block scalars (`>-` by default), then
+# `jobs:` and any job lines given (newline-separated), at $TMP/rel-<name>.yml.
+rel_case() {
+  printf '%s\n' '---' 'concurrency:' "  group: ${4:->-}" "    $2" \
+    "  cancel-in-progress: ${4:->-}" "    $3" 'jobs:' >"$TMP/rel-$1.yml"
+  [ -z "${5:-}" ] || printf '%s\n' "$5" >>"$TMP/rel-$1.yml"
+}
+# rel_mutation <name> <group> <cancel> <reason> [<indicator>] [<job lines>] —
+# that block must fail the check, and for its own reason.
+rel_mutation() {
+  local out rc
+  rel_case "$1" "$2" "$3" "${5:-}" "${6:-}"
+  out="$(rel_check "$TMP/rel-$1.yml")"
+  rc=$?
+  assert_exit "release concurrency: mutation '$1' fails the check" 1 "$rc"
+  assert_contains "release concurrency: mutation '$1' is refused because $4" "$4" "$out"
+}
+rel_case good "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}"
+out="$(rel_check "$TMP/rel-good.yml")"
+assert_exit "release concurrency: a block carrying the intended predicate passes${out:+: $out}" 0 $?
+
+term7="'${RELEASE_PREFIX}7'"
+term7_spaced="'${RELEASE_PREFIX} 7'"
+pred_spaced="${RELEASE_PRED/"$term7"/$term7_spaced}"
+pred_no7="${RELEASE_PRED/" || startsWith(github.event.head_commit.message, $term7)"/}"
+pred_other="$(rel_predicate 'chore(main): release ')"
+# shellcheck disable=SC2016 # literal GitHub expressions
+{
+  rel_mutation ref-only 'ci-${{ github.ref }}' 'true' "$REL_NOT_CHOICE"
+  rel_mutation every-push "ci-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}" \
+    "\${{ github.event_name == 'pull_request' }}" "$REL_NOT_CHOICE"
+  rel_mutation release-on-ref \
+    "\${{ $RELEASE_PRED && format('ci-release-{0}', github.ref) || format('ci-{0}', github.ref) }}" \
+    "\${{ !($RELEASE_PRED) }}" "$REL_NOT_CHOICE"
+  rel_mutation keep-newline "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" \
+    "$REL_NOT_CHOICE" '>'
+  rel_mutation cancel-false "\${{ $RELEASE_PRED$REL_GROUP_TAIL" 'false' "$REL_NOT_NEGATED"
+  rel_mutation group-drops-7 "\${{ $pred_no7$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_SPLIT"
+  rel_mutation cancel-drops-7 "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_SPLIT"
+  rel_mutation both-drop-7 "\${{ $pred_no7$REL_GROUP_TAIL" "\${{ !($pred_no7) }}" "$REL_NOT_TEN"
+  rel_mutation literal-spacing "\${{ $pred_spaced$REL_GROUP_TAIL" "\${{ !($pred_spaced) }}" "$REL_NOT_TEN"
+  rel_mutation other-title-prefix "\${{ $pred_other$REL_GROUP_TAIL" "\${{ !($pred_other) }}" "$REL_NOT_TEN"
+  rel_mutation job-level "\${{ $RELEASE_PRED$REL_GROUP_TAIL" "\${{ !($RELEASE_PRED) }}" "$REL_JOB_LEVEL" '' \
+    "$(printf '%s\n' '  x:' '    concurrency:' '      group: x-${{ github.ref }}' '      cancel-in-progress: true')"
+}
+
+# ---------------------------------------------------------------------------
 # The platform matrix (--matrix; universal-binary REQ-B1.6). Each case is the
 # passing matrix below with one edit, so each failure is pinned to that edit.
 # ---------------------------------------------------------------------------

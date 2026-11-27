@@ -151,6 +151,71 @@ PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme
 c=$(cat "$tmp/collected-pa" 2>/dev/null)
 hasnt "a workflow naming the PR-Agent image only in a comment states no bot-review requirement" "require${tab}pr-agent"
 rm -f "$repo/.github/workflows/pr-agent.yml"
+
+# A superseded run: two ci runs on the head, the older one cancelled by the
+# newer, whose jobs start after it. The cancelled one's other jobs are
+# superseded by the live run's same-name checks, but its matrix jobs are
+# reported under their unexpanded names, which no shard name replaces. Once a
+# later run of the same workflow on the head passed one of its shards, that
+# cancellation is no flip condition; a cancelled run with no passing
+# successor still is, and nothing but such a cancellation is ever dropped.
+mv "$tmp/pr.json" "$tmp/pr.json.keep"
+superseded_pr() { # superseded_pr <rollup entries>: the pull request read with that rollup
+  printf '{"headRefOid": "%s", "labels": [], "files": [{"path": "src/app.c"}], "body": "", "isDraft": false, "statusCheckRollup": [%s]}\n' \
+    "$head" "$1" >"$tmp/pr.json"
+}
+# ci_check_run <run id> <name> <conclusion> [<started>] [<workflow>]: one check
+# run of that workflow run, by default a ci one. Run 601 is the cancelled run;
+# any other run is its successor, whose jobs start later, as on GitHub.
+ci_check_run() {
+  local started=${4:-2026-11-26T10:34:15Z}
+  [ -n "${4:-}" ] || [ "$1" != 601 ] || started=2026-11-26T10:34:05Z
+  printf '{"__typename": "CheckRun", "name": "%s", "workflowName": "%s", "status": "COMPLETED", "conclusion": "%s", "startedAt": "%s", "detailsUrl": "https://github.com/acme/web/actions/runs/%s/job/1"}' \
+    "$2" "${5:-ci}" "$3" "$started" "$1"
+}
+collect_superseded() { # collect_superseded <label> <out name>: collect over the rollup superseded_pr wrote, loading it into c
+  PATH="$tmp/bin:$PATH" mc_run mc-readiness.sh collect --program alpha --repo acme/web --pr 7 --worktree "$repo" --out "$tmp/$2"
+  expect_rc "$1" 0
+  c=$(cat "$tmp/$2" 2>/dev/null)
+}
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+placeholder='test (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+cancelled_run="$(ci_check_run 601 lint CANCELLED), $(ci_check_run 601 "$placeholder" CANCELLED), $(ci_check_run 601 check CANCELLED)"
+live_run="$(ci_check_run 780 lint SUCCESS), $(ci_check_run 780 'test (shard 1/2)' SUCCESS), $(ci_check_run 780 'test (shard 2/2)' SUCCESS), $(ci_check_run 780 check SUCCESS)"
+superseded_pr "$cancelled_run, $live_run"
+collect_superseded "collect over a head with a superseded ci run" collected-superseded
+hasnt "a run superseded by a passing one on the head leaves no cancelled check" "${tab}CANCELLED"
+has "and the passing run's check is what is judged" "check${tab}check${tab}SUCCESS"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-superseded" --conditions "$tmp/no-cond"
+expect_out "and the walk runs over it" "${tab}$head"
+expect_no_out "and raises no failed check for it" "fail${tab}check${tab}"
+superseded_pr "$cancelled_run"
+collect_superseded "collect over a head with a lone cancelled run" collected-lone
+has "a cancelled run with no passing successor still counts" "check${tab}check${tab}CANCELLED"
+mc_run mc-readiness.sh walk --evidence "$tmp/collected-lone" --conditions "$tmp/no-cond"
+expect_out "and the walk names its cancelled check" "fail${tab}check${tab}check is CANCELLED"
+superseded_pr "$(ci_check_run 601 "$placeholder" CANCELLED), $(ci_check_run 780 'test (shard 1/2)' FAILURE), $(ci_check_run 780 check FAILURE)"
+collect_superseded "collect over a head whose successor failed the job" collected-redsucc
+has "a successor's failed job supersedes nothing" "check${tab}${placeholder}${tab}CANCELLED"
+# The bypass rows follow the latest-run rule too: a window-lock cancelled and
+# then passed by a later run is not named as a check the operator bypasses.
+superseded_pr "$(ci_check_run 780 window-lock SUCCESS '' release-window), $(ci_check_run 601 window-lock CANCELLED '' release-window), $live_run"
+collect_superseded "collect over a head with a window-lock passed after its cancellation" collected-lock
+hasnt "a window-lock passed after its cancellation is not named for bypass" "bypass${tab}window-lock"
+superseded_pr "$(ci_check_run 780 window-lock FAILURE '' release-window), $(ci_check_run 781 window-lock SUCCESS '' release-window), $live_run"
+collect_superseded "collect over a head with two window-lock runs started together" collected-locktie
+has "a tie in start names the window-lock run that did not pass for bypass" "bypass${tab}window-lock${tab}FAILURE"
+superseded_pr "$(ci_check_run 781 window-lock SUCCESS '' release-window), $(ci_check_run 780 window-lock FAILURE '' release-window), $live_run"
+collect_superseded "collect over the same tie listed the other way round" collected-locktie2
+has "and listing order does not change which one is named" "bypass${tab}window-lock${tab}FAILURE"
+# A rollup at the cap is refused as truncated, so no check is selected from it.
+capped=""
+for i in $(seq 1 100); do capped="$capped${capped:+, }$(ci_check_run 780 "c$i" SUCCESS)"; done
+superseded_pr "$capped"
+collect_superseded "collect over a head whose rollup reaches the cap" collected-capped
+has "a rollup at the cap is marked truncated" "truncated${tab}checks"
+hasnt "and no check is selected from it" "check${tab}c1${tab}"
+mv "$tmp/pr.json.keep" "$tmp/pr.json"
 # The payload the ready-flip guard is asked about names the pull request and the
 # repository as two separate arguments of one format.
 if grep -qF "}}' \"\$3\" \"\$2\" >\"\$cl_tmp/payload\"" "$repo_root/scripts/mc-readiness.sh"; then ok "the guard payload takes the pull request and the repository as separate arguments"; else fail "the guard payload's printf arguments are malformed"; fi

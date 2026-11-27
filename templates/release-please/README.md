@@ -104,6 +104,23 @@ the release commit, the publish step will not tag. Two ways forward:
 This obligation applies only if you publish with planwright core's script; a
 bring-your-own publish step gates however you wrote it.
 
+### Keep the release commit's CI run uncancellable
+
+A CI workflow whose release-commit run shares the common per-branch
+`concurrency` group lets the next merge cancel or drop that run:
+`cancel-in-progress: true` cancels it mid-flight, and any shared group drops
+it while it is still queued, whatever the cancel flag. Cancelled mid-flight,
+it leaves a failing check and publish refuses. Dropped while still queued, it
+leaves no check from that workflow: the verdict is `none` (which
+`require_ci: false` lets through) when nothing else reports on the commit, and
+green when another workflow's check passed, so publish can proceed without
+your tests having run. Give the release commit's push a group keyed by its own
+commit and its workflow (for example
+`${{ github.workflow }}-release-${{ github.sha }}`; groups are shared across
+every workflow in the repository) with cancellation off, as planwright's own
+`.github/workflows/ci.yml` does. That workflow spots the release commit by its
+subject, which is the release PR's title only under a squash merge.
+
 ### Do not make `ci` a required check on the release PR
 
 It is tempting to make the `ci` status check **required** on the release PR via

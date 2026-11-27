@@ -1072,6 +1072,137 @@ run_checks "checks (default): a failure started in the same second as a success 
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
 run_checks "checks (default): a failure started in the same second as a success of its context denies, listed before it" deny \
   '{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-11-05T19:30:00Z"},{"name":"test","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-05T19:30:00Z"}' 'test is FAILURE'
+# ci_check_run <run id> <name> <conclusion> [<started>] [<workflow>] [<status>]:
+# one check run of that workflow run, by default a ci one. Run 601 is the
+# cancelled run; any other run is its successor, whose jobs start later, as a
+# successor's do on GitHub, unless <started> says otherwise.
+ci_check_run() {
+  local started=${4:-2026-11-26T10:34:15Z}
+  [ -n "${4:-}" ] || [ "$1" != 601 ] || started=2026-11-26T10:34:05Z
+  printf '{"name":"%s","workflowName":"%s","status":"%s","conclusion":"%s","startedAt":"%s","detailsUrl":"https://github.com/acme/widgets/actions/runs/%s/job/1"}' \
+    "$2" "${5:-ci}" "${6:-COMPLETED}" "$3" "$started" "$1"
+}
+TIE=2026-11-26T10:34:15Z
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix names, verbatim
+{
+  SHARDS='test (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+  MAC_SHARDS='macos-suite (shard ${{ matrix.shard }}/${{ strategy.job-total }})'
+}
+# The denial reason naming $SHARDS as cancelled.
+SHARDS_CANCELLED='job-total[ }]*[)] is CANCELLED'
+SUPERSEDED="$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 check CANCELLED)"
+run_checks "checks (default): a run's cancellations, superseded by a passing run of its workflow at the head, pass" defer \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check SUCCESS)"
+run_checks "checks (default): a cancelled run with no passing successor denies" deny \
+  "$SUPERSEDED" "$SHARDS_CANCELLED"
+run_checks "checks (default): a successor that has not reported the job yet supersedes nothing" deny \
+  "$SUPERSEDED,$(ci_check_run 780 lint SUCCESS),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" 'check is CANCELLED'
+run_checks "checks (default): a successor still running still holds the flip" deny \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check '' 0001-01-01T00:00:00Z ci IN_PROGRESS)" 'check is PENDING'
+run_checks "checks (default): a successor's skip of the job supersedes nothing" deny \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SKIPPED),$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): another workflow's passing check of the same name supersedes nothing" deny \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check SUCCESS '' lint)" 'check is CANCELLED'
+run_checks "checks (default): a pass of another job sharing the first word supersedes nothing" deny \
+  "$(ci_check_run 601 'Test integration' CANCELLED),$(ci_check_run 780 'Test unit' SUCCESS)" 'Test integration is CANCELLED'
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix names, verbatim
+{
+  run_checks "checks (default): another matrix job's shard sharing the first word supersedes no placeholder" deny \
+    "$(ci_check_run 601 'test integration (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test unit and more (shard 1/2)' SUCCESS)" 'integration .shard [^ ]+ matrix.shard [^ ]+ is CANCELLED'
+  run_checks "checks (default): another job sharing the text before its own parenthesis supersedes no placeholder" deny \
+    "$(ci_check_run 601 'build (linux) (${{ matrix.arch }})' CANCELLED),$(ci_check_run 780 'build (windows)' SUCCESS)" 'build .linux. [(][^ ]+ matrix.arch [^ ]+ is CANCELLED'
+  run_checks "checks (default): a name with text before the placeholder's start does not fit it" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'integration test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): an empty stand-in for an expression does not fit the placeholder" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard /2)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): a placeholder's fixed text is matched literally" deny \
+    "$(ci_check_run 601 'build v1.2 (${{ matrix.os }})' CANCELLED),$(ci_check_run 780 'build v1x2 (linux)' SUCCESS)" 'v1.2 [(][^ ]+ matrix.os [^ ]+ is CANCELLED'
+  run_checks "checks (default): a shard whose fixed text holds regex characters fits its placeholder" defer \
+    "$(ci_check_run 601 'a+b [${{ matrix.os }}]' CANCELLED),$(ci_check_run 780 'a+b [linux]' SUCCESS)"
+  run_checks "checks (default): an empty stand-in for the last expression does not fit the placeholder" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard 12/)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): an empty stand-in for a lone expression does not fit the placeholder" deny \
+    "$(ci_check_run 601 'test (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test (shard )' SUCCESS)" 'matrix.shard [^ ]+ is CANCELLED'
+  run_checks "checks (default): a shard holding every middle part in order fits the placeholder" defer \
+    "$(ci_check_run 601 't ${{ a }} x ${{ b }} y ${{ c }} z' CANCELLED),$(ci_check_run 780 't 1 x 2 y 3 z' SUCCESS)"
+  run_checks "checks (default): a name missing a middle part does not fit the placeholder" deny \
+    "$(ci_check_run 601 't ${{ a }} x ${{ b }} y ${{ c }} z' CANCELLED),$(ci_check_run 780 't 1 q 2 y 3 z' SUCCESS)" 'c [^ ]+ z is CANCELLED'
+  run_checks "checks (default): a name holding the middle parts out of order does not fit the placeholder" deny \
+    "$(ci_check_run 601 't ${{ a }} x ${{ b }} y ${{ c }} z' CANCELLED),$(ci_check_run 780 't 1 y 2 x 3 z' SUCCESS)" 'c [^ ]+ z is CANCELLED'
+  run_checks "checks (default): two expressions side by side take one character each" defer \
+    "$(ci_check_run 601 'a ${{ x }}${{ y }} z' CANCELLED),$(ci_check_run 780 'a 12 z' SUCCESS)"
+  run_checks "checks (default): two expressions side by side need a character each" deny \
+    "$(ci_check_run 601 'a ${{ x }}${{ y }} z' CANCELLED),$(ci_check_run 780 'a 1 z' SUCCESS)" 'y [^ ]+ z is CANCELLED'
+  zeros=$(printf '%0130d' 0)
+  run_checks "checks (default): a placeholder past the length bound fits nothing, so its cancellation counts" deny \
+    "$(ci_check_run 601 "t \${{ a$zeros }} z" CANCELLED),$(ci_check_run 780 't 1 z' SUCCESS)" '0000 [^ ]+ z is CANCELLED'
+  run_checks "checks (default): a successor past the length bound fits nothing" deny \
+    "$(ci_check_run 601 't ${{ a }} z' CANCELLED),$(ci_check_run 780 "t $zeros z" SUCCESS)" 'a [^ ]+ z is CANCELLED'
+  run_checks "checks (default): a placeholder at the expression bound still fits" defer \
+    "$(ci_check_run 601 's ${{ a }}.${{ a }}.${{ a }}.${{ a }} e' CANCELLED),$(ci_check_run 780 's 1.1.1.1 e' SUCCESS)"
+  run_checks "checks (default): a placeholder past the expression bound fits nothing" deny \
+    "$(ci_check_run 601 's ${{ a }}.${{ a }}.${{ a }}.${{ a }}.${{ a }} e' CANCELLED),$(ci_check_run 780 's 1.1.1.1.1 e' SUCCESS)" 'a [^ ]+ e is CANCELLED'
+  decoys=""
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+    decoys="$decoys$(ci_check_run 601 "d$i (\${{ m }})" CANCELLED),$(ci_check_run 780 "d$i (x)" SUCCESS),"
+  done
+  run_checks "checks (default): a placeholder past the considered count fits nothing" deny \
+    "$decoys$(ci_check_run 601 'late (${{ m }})' CANCELLED),$(ci_check_run 780 'late (x)' SUCCESS)" 'late [(][^ ]+ m [^ ]+ is CANCELLED'
+  run_checks "checks (default): a placeholder ending in its expression fits no job" deny \
+    "$(ci_check_run 601 'build ${{ matrix.os }}' CANCELLED),$(ci_check_run 780 'build docs' SUCCESS)" 'check build [^ ]+ matrix.os [^ ]+ is CANCELLED'
+  run_checks "checks (default): a placeholder starting with its expression fits no job" deny \
+    "$(ci_check_run 601 '${{ matrix.os }} build' CANCELLED),$(ci_check_run 780 'deploy build' SUCCESS)" 'matrix.os .. build is CANCELLED'
+  run_checks "checks (default): a name missing the placeholder's middle text does not fit it" deny \
+    "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard integration)' SUCCESS)" "$SHARDS_CANCELLED"
+  run_checks "checks (default): a name with text after the placeholder's end does not fit it" deny \
+    "$(ci_check_run 601 'test (shard ${{ matrix.shard }})' CANCELLED),$(ci_check_run 780 'test (shard 1) extra' SUCCESS)" 'matrix.shard ..[)] is CANCELLED'
+}
+run_checks "checks (default): an expanded shard's cancellation needs a pass of that same shard" deny \
+  "$(ci_check_run 601 'test (shard 1/2)' CANCELLED),$(ci_check_run 780 'test (shard 2/2)' SUCCESS),$(ci_check_run 780 check SUCCESS)" 'shard 1/2. is CANCELLED'
+run_checks "checks (default): a neutral successor supersedes a cancellation" defer \
+  "$SUPERSEDED,$(ci_check_run 780 'test (shard 1/2)' NEUTRAL),$(ci_check_run 780 check SUCCESS)"
+run_checks "checks (default): a successor naming no workflow run supersedes nothing" deny \
+  "$SUPERSEDED,"'{"name":"test (shard 1/2)","workflowName":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-11-26T10:34:15Z"},'"$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): a shard passed in another workflow supersedes no placeholder" deny \
+  "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard 1/2)' SUCCESS '' lint),$(ci_check_run 780 check SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): a shard passed before the placeholder's cancellation supersedes nothing" deny \
+  "$(ci_check_run 500 'test (shard 1/2)' SUCCESS 2026-11-26T10:30:00Z),$(ci_check_run 601 "$SHARDS" CANCELLED)" "$SHARDS_CANCELLED"
+run_checks "checks (default): a shard started in the placeholder's own second supersedes it" defer \
+  "$(ci_check_run 601 "$SHARDS" CANCELLED "$TIE"),$(ci_check_run 780 'test (shard 1/2)' SUCCESS "$TIE")"
+# A superseded placeholder of another job beside it, so the drop runs.
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+run_checks "checks (default): a failed placeholder is never dropped" deny \
+  "$(ci_check_run 601 "$SHARDS" FAILURE),$(ci_check_run 601 'lint (${{ matrix.os }})' CANCELLED),$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 'lint (linux)' SUCCESS)" 'job-total[ }]*[)] is FAILURE'
+run_checks "checks (default): a successor of exactly the length bound still fits" defer \
+  "$(ci_check_run 601 "t$(printf '%0100d' 0) (\${{ m }})" CANCELLED),$(ci_check_run 780 "t$(printf '%0100d' 0) ($(printf '%024d' 0))" SUCCESS)"
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+run_checks "checks (default): a placeholder of exactly the length bound still fits" defer \
+  "$(ci_check_run 601 "t$(printf '%0116d' 0) (\${{ m }})" CANCELLED),$(ci_check_run 780 "t$(printf '%0116d' 0) (x)" SUCCESS)"
+same_name=""
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+  same_name="$same_name$(ci_check_run 601 "s$i" CANCELLED),$(ci_check_run 780 "s$i" SUCCESS),"
+done
+# shellcheck disable=SC2016 # GitHub's unexpanded matrix name, verbatim
+run_checks "checks (default): same-name cancellations do not use up the considered placeholders" defer \
+  "$same_name$(ci_check_run 601 'late (${{ m }})' CANCELLED),$(ci_check_run 780 'late (x)' SUCCESS)"
+run_checks "checks (default): a pass in the cancelled check's own run supersedes nothing" deny \
+  "$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 601 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): an older pass does not absorb a later cancellation" deny \
+  "$(ci_check_run 780 check SUCCESS),$(ci_check_run 800 check CANCELLED 2026-11-26T11:00:00Z)" 'check is CANCELLED'
+run_checks "checks (default): a cancellation with no time at all is never dropped" deny \
+  "$(ci_check_run 601 "$SHARDS" CANCELLED 0001-01-01T00:00:00Z),$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): a cancellation naming no workflow run is never dropped" deny \
+  '{"name":"'"$SHARDS"'","workflowName":"ci","status":"COMPLETED","conclusion":"CANCELLED","startedAt":"2026-11-26T10:34:03Z"},'"$(ci_check_run 780 'test (shard 1/2)' SUCCESS)" "$SHARDS_CANCELLED"
+run_checks "checks (default): an older run's failure tied with a later run's pass denies" deny \
+  "$(ci_check_run 601 check FAILURE "$TIE"),$(ci_check_run 780 check SUCCESS "$TIE")" 'check is FAILURE'
+run_checks "checks (default): a same-name cancellation tied with a pass is never dropped" deny \
+  "$(ci_check_run 601 check CANCELLED "$TIE"),$(ci_check_run 780 check SUCCESS "$TIE")" 'check is CANCELLED'
+run_checks "checks (default): a failure beside a superseded placeholder is never dropped" deny \
+  "$(ci_check_run 601 check FAILURE "$TIE"),$(ci_check_run 601 "$SHARDS" CANCELLED),$(ci_check_run 780 'test (shard 1/2)' SUCCESS),$(ci_check_run 780 check SUCCESS "$TIE")" 'check is FAILURE'
+run_checks "checks (default): a re-run of the older run failing after the newer run passed denies" deny \
+  "$(ci_check_run 780 check SUCCESS),$(ci_check_run 601 check FAILURE 2026-11-26T13:03:00Z)" 'check is FAILURE'
+run_checks "checks (default): a reused run's skips keep the earlier run's macOS passes" defer \
+  "$(ci_check_run 601 'test (shard 1/2)' SUCCESS),$(ci_check_run 601 'macos-suite (shard 1/4)' SUCCESS),$(ci_check_run 601 macos-smoke SUCCESS),$(ci_check_run 601 check SUCCESS),$(ci_check_run 780 "$SHARDS" SKIPPED 2026-11-26T11:00:00Z),$(ci_check_run 780 "$MAC_SHARDS" SKIPPED 2026-11-26T11:00:00Z),$(ci_check_run 780 macos-smoke SKIPPED 2026-11-26T11:00:00Z),$(ci_check_run 780 check SUCCESS 2026-11-26T11:00:00Z)"
 many=$(
   i=0
   while [ $i -lt 100 ]; do

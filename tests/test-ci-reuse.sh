@@ -188,10 +188,11 @@ mac_step() {
 }
 
 # gate <REUSE_RUN> <MAC_RUN> <test> <alpine> <macos-suite> <macos-smoke>
-# [<alpine-smoke>]: the check job's gate step, lint and plan succeeded; the
-# Alpine smoke takes the Alpine suite's result unless given its own.
+# [<alpine-smoke>]: the check job's gate step, lint and plan succeeded unless
+# GATE_LINT or GATE_PLAN says otherwise; the Alpine smoke takes the Alpine
+# suite's result unless given its own.
 gate() {
-  LINT_RESULT=success PLAN_RESULT=success REUSE_RUN="$1" MAC_RUN="$2" \
+  LINT_RESULT="${GATE_LINT-success}" PLAN_RESULT="${GATE_PLAN-success}" REUSE_RUN="$1" MAC_RUN="$2" \
     TEST_RESULT="$3" ALPINE_RESULT="$4" MACOS_RESULT="$5" MACOS_SMOKE_RESULT="$6" \
     ALPINE_SMOKE_RESULT="${7-$4}" \
     GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=acme/widgets \
@@ -493,6 +494,63 @@ done
 new_case draft
 mac_step "" true
 assert_contains "a draft without the label still skips macOS" "run=false" "$(cat "$STUB_DIR/mac-output")"
+
+# ---------------------------------------------------------------------------
+# A superseded run. A newer run on the same ref cancels this one, so every job
+# still waiting on its needs ends cancelled. The check job must end that way
+# too rather than run and fail beside the live run, while a need that failed
+# or timed out (a timeout reads as cancelled in `needs`) in a run nobody
+# cancelled still fails it.
+# ---------------------------------------------------------------------------
+# check_job_if: the check job's own `if:`, as ci.yml writes it.
+check_job_if() {
+  awk '
+    $0 == "  check:" { in_job = 1; next }
+    in_job && /^  [a-z]/ { exit }
+    in_job && /^    if: / { sub(/^    if: /, ""); print; exit }
+  ' "$CI_YML"
+}
+# check_outcome <job if> <run cancelled> <lint> <plan> <test> <alpine>
+# <macos-suite> <macos-smoke>: the check job's conclusion. A job whose `if:`
+# is false when its run is cancelled ends cancelled, as the waiting jobs of a
+# cancelled run do; one that runs takes its gate step's result.
+check_outcome() {
+  case "$1:$2" in
+    "\${{ always() }}:"*) ;;
+    "\${{ !cancelled() }}:false") ;;
+    "\${{ !cancelled() }}:true")
+      echo cancelled
+      return
+      ;;
+    *)
+      echo "unmodelled if: $1"
+      return
+      ;;
+  esac
+  GATE_LINT="$3" GATE_PLAN="$4" gate "" true "$5" "$6" "$7" "$8"
+  if [ "$gate_rc" -eq 0 ]; then echo success; else echo failure; fi
+}
+CHECK_IF="$(check_job_if)"
+# shellcheck disable=SC2016 # literal GitHub expressions
+ALWAYS_IF='${{ always() }}'
+superseded="true cancelled cancelled cancelled cancelled cancelled cancelled"
+# shellcheck disable=SC2086 # the case's results, one word each
+{
+  assert_eq "superseded: under always() the check job runs and fails beside the live run" \
+    failure "$(check_outcome "$ALWAYS_IF" $superseded)"
+  assert_eq "superseded: ci.yml's check job ends cancelled, not red" \
+    cancelled "$(check_outcome "$CHECK_IF" $superseded)"
+}
+for job_if in "$ALWAYS_IF" "$CHECK_IF"; do
+  assert_eq "live run under $job_if: a failed test job fails the check" \
+    failure "$(check_outcome "$job_if" false success success failure success success success)"
+  assert_eq "live run under $job_if: a timed-out test job fails the check" \
+    failure "$(check_outcome "$job_if" false success success cancelled success success success)"
+  assert_eq "live run under $job_if: a cancelled plan fails the check" \
+    failure "$(check_outcome "$job_if" false success cancelled skipped skipped skipped skipped)"
+  assert_eq "live run under $job_if: every job green passes the check" \
+    success "$(check_outcome "$job_if" false success success success success success success)"
+done
 
 # ---------------------------------------------------------------------------
 # The workflow's own wiring around those steps.

@@ -620,7 +620,8 @@ fi
 #     shard jobs, and the gate runs in the
 #     aggregate job whose id `check` is the status branch protection and the
 #     ready-flip tooling read. That job must run whatever the jobs it needs
-#     did, fail unless they all passed, and judge every shard's report at once.
+#     did unless its run was cancelled, fail unless they all passed, and judge
+#     every shard's report at once.
 # ---------------------------------------------------------------------------
 ci="$REPO_ROOT/.github/workflows/ci.yml"
 job_block() {
@@ -639,7 +640,7 @@ lint_block="$(job_block lint)"
 {
   assert_contains "ci.yml has an aggregate check job needing lint, plan, test, and every platform job" "$check_block" \
     "needs: [lint, plan, test, macos-suite, macos-smoke, alpine-suite, alpine-smoke]"
-  assert_contains "the check job runs whatever its needs did" "$check_block" 'if: ${{ always() }}'
+  assert_contains "the check job runs whatever its needs did, unless its run was cancelled" "$check_block" 'if: ${{ !cancelled() }}'
   assert_contains "the check job fails unless lint and the plan passed" "$check_block" \
     '[ "$LINT_RESULT" = success ] && [ "$PLAN_RESULT" = success ]'
   assert_contains "the check job fails unless every shard passed" "$check_block" \
