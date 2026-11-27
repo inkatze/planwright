@@ -635,6 +635,32 @@ else
   fail "reword of a commit an amendment branch holds was not refused (exit $rc: $(cat "$tmp/err"))"
 fi
 g push -q origin --delete planwright/demo/amendment-3
+# The holders are listed before they are read, so a listing that fails
+# refuses rather than leaving no holder to check.
+real_git=$(command -v git)
+mkdir -p "$tmp/git-shim"
+printf '#!/bin/sh\ncase " $* " in *" for-each-ref "*" --contains "*) exit 128 ;; esac\nexec %s "$@"\n' "$real_git" >"$tmp/git-shim/git"
+chmod +x "$tmp/git-shim/git"
+rc=$(PATH="$tmp/git-shim:$PATH" rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 3 ] && grep -q 'listing' "$tmp/err"; then
+  ok "reword refuses when listing the branches that hold the commit fails"
+else
+  fail "a failed holder listing did not refuse the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+# A holder whose protected-set read fails refuses with that reason.
+cp -R "$(dirname "$FP")" "$tmp/s5"
+mv "$tmp/s5/protected-branch.sh" "$tmp/s5/protected-branch.real.sh"
+# shellcheck disable=SC2016 # the stub's own text, expanded when it runs
+printf '#!/bin/sh\ncase $1 in holder-x) exit 5 ;; esac\nexec /bin/sh "%s" "$@"\n' "$tmp/s5/protected-branch.real.sh" >"$tmp/s5/protected-branch.sh"
+chmod +x "$tmp/s5/protected-branch.sh"
+g push -q origin "$HELD:refs/heads/holder-x"
+rc=$(cd "$W" && rc_of "$tmp/s5/tower-force-push.sh" reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 1 ] && grep -q 'could not be read (protected-branch.sh exit 5)' "$tmp/err"; then
+  ok "reword refuses a holder whose protected-set read fails"
+else
+  fail "a holder's failed protected-set read did not refuse the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+g push -q origin --delete holder-x
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
