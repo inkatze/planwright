@@ -174,8 +174,8 @@ THE WALK refuses, each failure one line:
   - a cadence not audited at the head, and each gap the audit named: the
     configured cadence binds whatever the gate data names, except on a
     spec-only pull request (a spec-only scope at the head), which is held
-    for its sign-off instead of the cadence and the required steps. The
-    exception is a post-pr gap (no completion, one only on heads outside the
+    for its sign-off instead of the cadence and the required steps (its bot
+    review is still required, as above). The exception is a post-pr gap (no completion, one only on heads outside the
     pull request's history such as another unit's in a reused worktree, or a
     step never recorded) on a draft whose bot review is due: that point waits
     on the run a review request fires, so it is pending the request, not a
@@ -557,13 +557,14 @@ END {
   if (!nc) fail("check", "no individual check context at the head")
   # The bot review runs on the draft, on a review request, and the flip waits
   # for it: a draft with no run at its head is due a request, and a ready pull
-  # request with none is refused. A run before the flip is the one wanted; one
-  # still running at the flip is a too-early flip, which describe() names.
+  # request with none is refused. A finished run from before the flip counts;
+  # one still running at the flip is a too-early flip, which describe() names.
+  # A spec-only pull request is no exception: its flip waits the same way.
   # No apostrophe here: this is a shell string.
   marked = needbot ? bot_marker() : 0
-  unreviewed = needbot && !botseen && !marked
-  due = unreviewed && state == "draft"
-  if (unreviewed && !due) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) and wait for its run" mwhy)
+  nobotrun = needbot && !botseen && !marked
+  reviewdue = nobotrun && state == "draft"
+  if (nobotrun && !reviewdue) fail("bot-review", "no PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) and wait for its run" mwhy)
   speconly = (speconly_head == head)
   if (needmac && !speconly) {
     hint = "; add the ci-macos label so CI runs it on the draft"
@@ -579,7 +580,7 @@ END {
     for (i = 1; i <= ncad; i++) {
       # Until the draft review runs, a post-pr gap that may wait on it is
       # pending the review request, not a gap.
-      if ((i in cadpf) && due) pend[++np] = cadpf[i]
+      if ((i in cadpf) && reviewdue) pend[++np] = cadpf[i]
       else fail("cadence", cad[i])
     }
     if (!unaud && audited != head) fail("cadence", "the configured cadence was not audited at " substr(head, 1, 12))
@@ -606,7 +607,7 @@ END {
     for (i = 1; i <= nf; i++) print fails[i]
     exit 4
   }
-  if (due) {
+  if (reviewdue) {
     print "request-review\t" head
     print "pending\tbot-review\tno PR-Agent run at " substr(head, 1, 12) "; request a review (scripts/request-reviewer.sh) on the draft, then wait for the run it fires" mwhy
     for (i = 1; i <= np; i++) print "pending\tpost-pr\t" pend[i] "; pending the bot review (PR-Agent) a review request fires, which a post-pr step may wait on"

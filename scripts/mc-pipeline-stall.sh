@@ -52,7 +52,7 @@ many of its drafts as the 500-byte event leaves room for (so no reason is
 cut off however many drafts there are). The reasons, in this order:
   merge conflict           the snapshot reads it CONFLICTING
   red check <name>         a check on its head finished red
-  no CI on its head        no check context at all
+  no CI on its head        no check context, or only a PR-Agent run
   checks pending           a check still running, a draft's PR-Agent run
                            included (the flip waits for it, as it does
                            in a red check)
@@ -62,7 +62,8 @@ cut off however many drafts there are). The reasons, in this order:
   launch hold (usage)      the draft is otherwise clear and a usage hold
                            (scripts/mc-usage.sh held) keeps launches back
   launch hold (host bound) the same, the host-wide bound at its limit
-  awaiting a review request otherwise clear but for its due bot review (a
+  awaiting a review request
+                           otherwise clear but for its due bot review (a
                            request-review walk) and nothing holds launches
   awaiting a flip          otherwise clear, its bot review done, and nothing
                            holds launches
@@ -207,12 +208,12 @@ reason() {
     return 0
   fi
   # A draft's PR-Agent run is a check like any other: the flip waits for it.
-  # Only "no CI" leaves it out, since a review alone is no CI.
   r_red=$(awk -F '\t' '$1 == "check" && $3 != "SUCCESS" && $3 != "NEUTRAL" && $3 != "SKIPPED" && $3 != "PENDING" && $3 != "QUEUED" && $3 != "IN_PROGRESS" { print $2; exit }' "$evf")
   if [ -n "$r_red" ]; then
     printf 'red check %s\n' "$(printf '%s' "$r_red" | tr '\t\n\r' '   ' | mc_clean_text)"
     return 0
   fi
+  # A review alone is no CI.
   if ! awk -F '\t' '$1 == "check" && $2 !~ /^PR-Agent( |$)/ { f = 1 } END { exit !f }' "$evf"; then
     printf 'no CI on its head\n'
     return 0

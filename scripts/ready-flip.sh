@@ -823,7 +823,8 @@ pred_review() {
 }
 
 # Judges the latest run of each check context (scripts/check-runs.jq, which
-# pred_ci prepends). A list at the read's cap of 100 may have been cut.
+# pred_ci prepends). A list at the read's cap of 100 may have been cut. Takes
+# --argjson ex, base_state and bot (whether a finished PR-Agent run is owed).
 # shellcheck disable=SC2016
 ROLLUP_JQ='
   if ((.statusCheckRollup // []) | type) != "array" then empty
