@@ -574,10 +574,10 @@ either. The
 launcher writes `pr_base` for a task or flight branch and for a spec PR
 branch (`planwright/<spec>/spec`, `spec-rework` or `amendment-<n>`, the
 shapes a kickoff scope names), whose commits below that merge base are the
-base's own, as on a unit branch; any other session (a primary checkout, or a
-branch of neither kind) prompts on every repository script, `bats` file and
-linter config in its worktree, and step-run's refusal says its record names
-no PR base. A test suite the worker adds
+base's own, as on a unit branch. A session whose checkout, primary or linked,
+holds any other branch or a detached HEAD prompts on every repository script,
+`bats` file and linter config in it, and step-run's refusal says its record
+names no PR base. A test suite the worker adds
 prompts on every run for the life of its PR, through the compute router too
 (`compute-route.sh --test tests/test-x.sh -- bash tests/test-x.sh`): mission
 control vets each run, and `mise run` and a declared check command stay the

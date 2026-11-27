@@ -20,13 +20,14 @@
 #   unit_branch        the branch checked out there, when it is a task or
 #                      flight branch (otherwise omitted)
 #   worktree_root      the worktree's canonical top level
-#   pr_base            <remote>/<branch>: the checked-out unit or spec PR
-#                      branch's remote (origin when unset) and that remote's
-#                      default branch as recorded locally, else main; omitted
-#                      on any other branch (a spec PR branch is
-#                      planwright/<spec>/spec, spec-rework or amendment-<n>),
-#                      or when the remote's name falls outside its
-#                      grammar. The command guard and the step runner hold the
+#   pr_base            <remote>/<branch>: the checked-out branch's remote
+#                      (origin when unset) and that remote's default branch
+#                      as recorded locally, else main, when that branch is a
+#                      unit branch or a kickoff-scoped spec PR branch
+#                      (planwright/<spec>/spec, spec-rework or amendment-<n>,
+#                      narrower than spec_branch's grammar below); omitted on
+#                      any other branch, or when the remote's name falls
+#                      outside its grammar. The command guard and the step runner hold the
 #                      worktree's trusted files to its merge base, so a
 #                      record without it trusts none
 #   stack_base        <remote>/<branch>: the base of a stacked pull request
@@ -388,22 +389,23 @@ case $unit in
   *) unit='' ;;
 esac
 
-# A spec PR branch, in the grammar scripts/policy-guard.sh's
+# A kickoff-scoped spec PR branch, in the grammar scripts/policy-guard.sh's
 # kickoff_scope_names reads one by (planwright/<spec>/spec, spec-rework or
-# amendment-<n>), is no unit branch but takes the PR base a unit branch does:
-# the commits below it are the base's, which the session cannot have authored.
-based=$unit
-if [ -z "$based" ] && printf '%s\n' "$checked_out" \
+# amendment-<n>; they change together), is no unit branch but takes the PR
+# base a unit branch does: the commits below it are the base's, which the
+# session cannot have authored.
+pr_branch=$unit
+if [ -z "$pr_branch" ] && printf '%s\n' "$checked_out" \
   | grep -Eq '^planwright/[a-z0-9][a-z0-9-]{0,63}/(spec|spec-rework|amendment-[0-9]+)$'; then
   case $checked_out in
     planwright/flight/*) ;;
-    *) based=$checked_out ;;
+    *) pr_branch=$checked_out ;;
   esac
 fi
 
 pr_base=''
-if [ -n "$based" ]; then
-  remote=$(gitq "$wt" config --get "branch.$based.remote") || remote=''
+if [ -n "$pr_branch" ]; then
+  remote=$(gitq "$wt" config --get "branch.$pr_branch.remote") || remote=''
   case $remote in
     '' | .) remote=origin ;;
   esac
