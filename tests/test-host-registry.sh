@@ -209,7 +209,7 @@ assert_contains "malformed --host names the field" alias "$err"
 
 # More defaults and refusals, each naming its field.
 run none "$tmp/local.yml" get box-a idle
-assert_eq "idle defaults to ten minutes" 10 "$out"
+assert_eq "idle defaults to fifteen minutes" 15 "$out"
 run none "$tmp/local.yml" get box-a compute
 assert_eq "compute stance read" accepted "$out"
 reg 'host box-a account=acct-one ceiling=0'

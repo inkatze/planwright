@@ -36,7 +36,7 @@ script_dir=$(cd -- "$script_dir" && pwd -P) || exit 2
 config_get=$script_dir/config-get.sh
 
 DEFAULT_GRACE=30
-DEFAULT_IDLE=10
+DEFAULT_IDLE=15
 
 say() { printf 'host-registry: %s\n' "$(printf '%s' "$1" | tr -d '\000-\037\177')" >&2; }
 die() {

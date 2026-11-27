@@ -15,12 +15,12 @@
 # The host runs the kind through `fleet-remote.sh compute` in the caller's
 # worktree. The command runs here instead, with one `compute-route: warning:`
 # line, when the host cannot be reached, is over fleet_compute_load_cap (load
-# per core), or the run fails before its command starts (a refused target, no
-# clone, SSH down); and silently when the knob is `local`. A worktree with
-# uncommitted changes also runs here, since the host tests only the committed
-# HEAD. A run whose command started is never repeated: its result stands.
-#
-# Knobs (config-get.sh): fleet_compute_host, fleet_compute_load_cap,
+# per core), is on hold in the host registry or the registry cannot be read, is
+# registry-shared and cannot show its input idle for its registry idle time,
+# or the run fails before its command starts (a refused target, no clone,
+# SSH down); and silently when the knob is `local`. A dirty worktree also runs
+# here, since the host tests only the committed HEAD. A run whose command
+# started is never repeated. Knobs: fleet_compute_host, fleet_compute_load_cap,
 # fleet_compute_timeout (whole seconds; empty takes the channel's default).
 # Exit: the command's own status; 2 usage error.
 set -u
@@ -168,37 +168,110 @@ trap 'stop 129' HUP
 trap 'stop 130' INT
 trap 'stop 143' TERM
 
-# The load probe, bounded by a watchdog: ConnectTimeout covers only the connect
+fall_back() {
+  rm -rf "$work"
+  warn "$1; running locally"
+  shift
+  run_here "$@"
+}
+unreachable="compute host unreachable"
+
+registry() {
+  "$script_dir/host-registry.sh" get "$host" "$1" 2>"$work/registry.err"
+}
+reg_fail() {
+  # shellcheck disable=SC2016 # $ is sed's last-line address
+  _why=$(sed -n '/^host-registry: /h;${g;p;}' "$work/registry.err")
+  _rc=$1
+  shift
+  fall_back "the host registry cannot be read for this host (${_why:-host-registry.sh exit $_rc})" "$@"
+}
+reg_rc=0
+hold=$(registry hold) || reg_rc=$?
+shared=no
+[ "$reg_rc" -ne 0 ] || shared=$(registry shared) || reg_rc=$?
+case $reg_rc in
+  0) ;;
+  # Exit 3 (no registry, or a host it does not list) and 2 (an alias outside
+  # the registry's grammar, which it can never list): neither held nor shared.
+  2 | 3)
+    hold=no
+    shared=no
+    # The helper also exits 3 for a configured file it cannot read, which is no
+    # proof that the host is free.
+    reg_file=$(conf remote_hosts_file) || reg_file=''
+    [ -z "$reg_file" ] || { [ -f "$reg_file" ] && [ -r "$reg_file" ]; } || reg_fail "$reg_rc" "$@"
+    ;;
+  *) reg_fail "$reg_rc" "$@" ;;
+esac
+[ "$hold" != yes ] || fall_back "compute host is on hold (registry hold=yes)" "$@"
+
+# Each probe is bounded by a watchdog: ConnectTimeout covers only the connect
 # phase, and a host that accepts the connection and then stalls would hang the
 # gate here instead of passing the host over.
-/bin/sh "$channel" --host "$host" load >"$work/probe" 2>/dev/null </dev/null &
-child=$!
-(
-  sleep 30
-  kill "$child" 2>/dev/null
-) >/dev/null 2>&1 </dev/null &
-watchdog=$!
-wait "$child"
-prc=$?
-child=''
-pkill -P "$watchdog" 2>/dev/null
-kill "$watchdog" 2>/dev/null
-{ wait "$watchdog"; } 2>/dev/null
-probe=''
-[ "$prc" -ne 0 ] || probe=$(sed -n '1p' "$work/probe")
-load=${probe%% *}
-cores=${probe#* }
-case $load in '' | *[!0-9.]* | *.*.* | .) probe='' ;; esac
-case $cores in '' | *[!0-9]*) probe='' ;; esac
-if [ -z "$probe" ]; then
-  rm -rf "$work"
-  warn "compute host unreachable; running locally"
-  run_here "$@"
+probe_run() {
+  /bin/sh "$channel" --host "$host" "$1" >"$2" 2>/dev/null </dev/null &
+  child=$!
+  (
+    sleep 30
+    kill "$child" 2>/dev/null
+  ) >/dev/null 2>&1 </dev/null &
+  watchdog=$!
+  wait "$child"
+  _prc=$?
+  child=''
+  pkill -P "$watchdog" 2>/dev/null
+  kill "$watchdog" 2>/dev/null
+  { wait "$watchdog"; } 2>/dev/null
+  watchdog=''
+  return "$_prc"
+}
+
+# cap_field <line> <name>: the first <name>= value on a capacity line, or nothing.
+cap_field() {
+  _l=" $1 "
+  case $_l in
+    *" $2="*)
+      _f=${_l#*" $2="}
+      printf '%s' "${_f%% *}"
+      ;;
+  esac
+}
+load=''
+cores=''
+idle=''
+no_load=$unreachable
+if [ "$shared" = yes ]; then
+  # The capacity line carries the load probe's fields, so a shared host is
+  # probed once.
+  probe_run capacity "$work/probe" || fall_back "$unreachable" "$@"
+  line=$(sed -n '1p' "$work/probe")
+  load=$(cap_field "$line" load)
+  cores=$(cap_field "$line" cores)
+  idle=$(cap_field "$line" idle_secs)
+  no_load="compute host is shared and did not report a usable load and core count"
+elif probe_run load "$work/probe"; then
+  line=$(sed -n '1p' "$work/probe")
+  load=${line%% *}
+  cores=${line#* }
 fi
+case $load in '' | *[!0-9.]* | *.*.* | .) fall_back "$no_load" "$@" ;; esac
+case $cores in '' | *[!0-9]*) fall_back "$no_load" "$@" ;; esac
 if awk -v l="$load" -v c="$cores" -v cap="$cap" 'BEGIN { exit !(c > 0 && l / c > cap) }'; then
-  rm -rf "$work"
-  warn "compute host is busy (load $load on $cores cores, cap $cap per core); running locally"
-  run_here "$@"
+  fall_back "compute host is busy (load $load on $cores cores, cap $cap per core)" "$@"
+fi
+
+if [ "$shared" = yes ]; then
+  idle_min=$(registry idle) || reg_fail "$?" "$@"
+  # A leading zero would read as octal in $(( )).
+  idle_min=${idle_min#"${idle_min%%[!0]*}"}
+  case $idle in
+    unavailable) fall_back "compute host is shared and its input idle time is unavailable, so its owner's absence cannot be read" "$@" ;;
+    '' | *[!0-9]* | ?????????????*) fall_back "compute host is shared and did not report its input idle time" "$@" ;;
+  esac
+  if [ "$idle" -lt $((${idle_min:-0} * 60)) ]; then
+    fall_back "compute host is shared and its owner is using it (input within the last ${idle}s, registry idle ${idle_min:-0} minutes)" "$@"
+  fi
 fi
 
 # remote_run: the channel call, in a function so the caller's own command
