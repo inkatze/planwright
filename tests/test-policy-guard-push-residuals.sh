@@ -254,11 +254,17 @@ for tier in worker tower; do
     "gh api graphql -f query='mutation { updateBranchProtectionRule(input: {branchProtectionRuleId: \"X\", requiresApprovingReviews: false}) { clientMutationId } }'" \
     "gh api graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \"X\"}) { clientMutationId } }'" \
     "gh api graphql -f query='mutation { createBranchProtectionRule(input: {repositoryId: \"R\", pattern: \"x\"}) { clientMutationId } }'" \
-    'gh api -X DELETE repositories/123/branches/main/protection' 'gh api -X DELETE repositories/123/rulesets/4' \
-    'gh api -X PUT repos/acme/widgets/./branches/main/protection -F enforce_admins=false'; do
+    'gh api -X DELETE repositories/123/branches/main/protection' 'gh api -X DELETE repositories/123/rulesets/4'; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd denies"
     reason_has 'protection or a ruleset' "[$tier] $cmd denies as a protection change"
+  done
+  # A dot segment, which a server normalizes away, is unreadable on any write.
+  for cmd in 'gh api -X PUT repos/acme/widgets/./branches/main/protection -F enforce_admins=false' \
+    'gh api -X PUT repos/acme/widgets/./pulls/1/merge' 'gh api -X PUT ./repos/acme/widgets/pulls/1/merge' \
+    'gh api -X PATCH repos/acme/widgets/git/refs/heads/./main -F force=true'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd (a dot segment in a write's path) denies"
   done
 done
 for cmd in 'gh api repos/acme/widgets/branches/main/protection' 'gh api repos/acme/widgets/rulesets' \

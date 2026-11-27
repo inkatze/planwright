@@ -3895,7 +3895,7 @@ classify_gh_api() {
 
   ep=$(norm_endpoint "$endpoint")
   case $ep in
-    *%* | *..* | *//*)
+    *%* | *..* | *//* | . | ./* | */. | */./*)
       ghapi_opaque 'its path carries a percent escape, a dot segment, or an empty segment'
       return 0
       ;;
@@ -3945,13 +3945,9 @@ classify_gh_api() {
   # Branch protection and rulesets guard main, so no write to them passes,
   # whatever branch it names: a protection segment anywhere after a
   # branches/<name> route (a branch name may hold slashes), or a rulesets route.
-  # A . segment is dropped first, as a server normalizing the path would.
   local prot=0 after_branch=0 s
   local -a segs
-  segs=()
-  for s in "$@"; do
-    [ "$s" = . ] || segs[${#segs[@]}]=$s
-  done
+  segs=("$@")
   case "${segs[0]:-}:${segs[2]:-}:${segs[3]:-}" in
     repos:*:rulesets | repositories:rulesets:* | orgs:rulesets:*) prot=1 ;;
     repos:*:branches) after_branch=5 ;;
