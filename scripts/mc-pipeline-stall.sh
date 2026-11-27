@@ -208,7 +208,9 @@ reason() {
     return 0
   fi
   # A draft's PR-Agent run is a check like any other: the flip waits for it.
-  r_red=$(awk -F '\t' '$1 == "check" && $3 != "SUCCESS" && $3 != "NEUTRAL" && $3 != "SKIPPED" && $3 != "PENDING" && $3 != "QUEUED" && $3 != "IN_PROGRESS" { print $2; exit }' "$evf")
+  # The unfinished states are the readiness walk's, so a run waiting on its
+  # concurrency group reads as pending, never red.
+  r_red=$(awk -F '\t' '$1 == "check" && $3 != "SUCCESS" && $3 != "NEUTRAL" && $3 != "SKIPPED" && $3 !~ /^(PENDING|QUEUED|IN_PROGRESS|EXPECTED|WAITING|REQUESTED)$/ { print $2; exit }' "$evf")
   if [ -n "$r_red" ]; then
     printf 'red check %s\n' "$(printf '%s' "$r_red" | tr '\t\n\r' '   ' | mc_clean_text)"
     return 0
@@ -218,7 +220,7 @@ reason() {
     printf 'no CI on its head\n'
     return 0
   fi
-  if awk -F '\t' '$1 == "check" && ($3 == "PENDING" || $3 == "QUEUED" || $3 == "IN_PROGRESS") { f = 1 } END { exit !f }' "$evf"; then
+  if awk -F '\t' '$1 == "check" && $3 ~ /^(PENDING|QUEUED|IN_PROGRESS|EXPECTED|WAITING|REQUESTED)$/ { f = 1 } END { exit !f }' "$evf"; then
     printf 'checks pending\n'
     return 0
   fi

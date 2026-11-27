@@ -246,7 +246,8 @@ case $ev in *"evidence unread (1): acme/web#7"*) ok "a draft whose evidence cann
 # --- the bot review runs on the draft, so the flip waits on it --------------
 rm -f "$runtime"/pipeline-stall* "$tmp/broken.7"
 printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.12"
-printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tPENDING\n' >"$tmp/evidence.13"
+# WAITING: a run held by its concurrency group behind a running review.
+printf 'state\tdraft\ncheck\tbuild\tSUCCESS\ncheck\tPR-Agent\tWAITING\n' >"$tmp/evidence.13"
 : >"$tmp/walk.12"
 : >"$tmp/walk.13"
 printf 'state\tdraft\ncheck\tbuild\tFAILURE\ncheck\tPR-Agent\tFAILURE\n' >"$tmp/evidence.14"
