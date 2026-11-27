@@ -90,9 +90,8 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
    `test-spec.md`.
 3. **Resolve the doctrine docs** (above).
 4. **Verify the spec is Ready or Active** (REQ-C1.1, D-33). Read the
-   `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
-   started) and `Active` (work in flight) are dispatchable;
-   refuse Draft, Done, Retired, and Superseded. For **Draft**, halt and prompt
+   `**Status:**` line in `requirements.md`. `Ready` and `Active` are
+   dispatchable; refuse Draft, Done, Retired, and Superseded. For **Draft**, halt and prompt
    `/spec-kickoff`; for Done or terminal, say it has nothing to orchestrate.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh <root>/<spec>`. On
    a dispatch step a missing or non-executable validator **fails closed** and
@@ -101,8 +100,8 @@ per **Halt → Awaiting input**; simultaneous ones batch into the step report
 6. **Verify the kickoff brief** (D-36). `<root>/<spec>/kickoff-brief.md` must exist
    and carry a final sign-off record with its anchor line (formats: `spec-format`).
    Absent or partial: halt and prompt `/spec-kickoff`.
-7. **Run the reconcile sweep** (REQ-F1.1). Before selecting new work, rebuild from
-   disk and reconcile stale In-progress entries — see **Reconcile sweep**.
+7. **Run the reconcile sweep** (REQ-F1.1) before selecting new work: see
+   **Reconcile sweep**.
 
 ## Bring-up (REQ-B1.1 to REQ-B1.5, D-4, D-6, D-8)
 
@@ -121,8 +120,8 @@ Each read is bounded, inline, repeated on request, not polled.
    isolation: warn once, naming the supported launch, never blocking.
 3. **Posture.** The activation handshake, `scripts/tower-session.sh activate`:
    only a refusal opening `ACTIVE` proves plugin enforcement, which then meets
-   the floor, and it re-marks the session an orchestrator. Any other outcome means it is
-   missing or broken, and the orchestrator holds its outward acts as `refuse`
+   the floor, and it re-marks the session an orchestrator. Any other outcome
+   means it is missing or broken, and the orchestrator holds its outward acts as `refuse`
    does. Name every layer read, `hooks/hooks.json` included.
 
 ## Selection (REQ-F1.2)
