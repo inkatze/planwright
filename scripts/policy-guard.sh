@@ -133,9 +133,9 @@
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
 #   push       a force or bulk push denies, and so does one with any word
-#               (an option, its value or a refspec) the shell expands; every
-#               other push reads the
-#               protected set and denies a target inside it, a bare push's
+#               the shell expands (the remote, a refspec, an option or its
+#               value); every other push reads the protected set and denies
+#               a target inside it, a bare push's
 #               targets including branch.<b>.merge however it is spelled. A
 #               refspec naming a source with no destination denies where
 #               remote.<remote>.push is configured, since git maps it there,
@@ -1980,13 +1980,13 @@ names_cfgenv() {
     fi
     case "$decl:$w" in
       1:*=*)
-        # A quoted compound value ('([HOME=1]=x)', starting with ( and
-        # ending with )) is evaluated by declare, typeset and local (the name
-        # may already be an array) and by readonly given -a or -A, and sets
-        # a name only through a subscript or an expansion, so it counts when
-        # it holds [ or $; export never evaluates it. Only an unsubscripted
-        # name is read here, though -a or -A has bash evaluate a subscripted
-        # one's too.
+        # declare, typeset and local evaluate a quoted compound value, one
+        # that starts with ( and ends with ) such as '([HOME=1]=x)', since the
+        # name may already be an array; readonly does given -a or -A, and
+        # export never does. It sets a name only through a subscript or an
+        # expansion, so it counts when it holds [ or $. Only an unsubscripted
+        # name is read here, though under -a or -A bash also evaluates the
+        # value given to a subscripted name.
         lhs=${w%%=*}
         case ${w:${#nm}:1}${w:$((${#lhs} + 1)):1}${w:$((${#w} - 1))}:$1:$aopt in
           '=()':declare:* | '=()':typeset:* | '=()':local:* | '=()':readonly:1)
@@ -4637,12 +4637,16 @@ classify_git_act() {
     merge | pull | rebase | commit | push) ;;
     *) return 0 ;;
   esac
-  for a in "${SW[@]:$((k + 1))}"; do
-    case $a in
-      --) break ;;
-      --help | -h) return 0 ;;
-    esac
-  done
+  # A push reads its own help flag, since one git takes as an option's value
+  # (--repo -h) leaves the push to run.
+  if [ "$sub" != push ]; then
+    for a in "${SW[@]:$((k + 1))}"; do
+      case $a in
+        --) break ;;
+        --help | -h) return 0 ;;
+      esac
+    done
+  fi
   case $sub in
     merge) classify_git_merge "$((k + 1))" "$dir" "$dir_ok" ;;
     pull) classify_git_pull "$((k + 1))" "$dir" "$dir_ok" ;;
@@ -5423,7 +5427,7 @@ classify_git_commit() {
 
 classify_git_push() {
   local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w name endopts=0 b c force=0 bulk=0 del=0 repo_opt=0
-  local is_repo repo_val='' j=$1
+  local is_repo repo_val='' j help=0
   local -a pos=()
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
@@ -5436,6 +5440,7 @@ classify_git_push() {
       # git takes every word after -- or --end-of-options as a positional
       # (the remote, then refspecs).
       -- | --end-of-options) endopts=1 ;;
+      -h | --help) help=1 ;;
       --no-*) ;;
       --*)
         name=${w#--}
@@ -5504,17 +5509,12 @@ classify_git_push() {
     esac
     k=$((k + 1))
   done
-  if [ "$force" = 1 ]; then
-    deny_now 'this git push forces, and a raw force-push is refused at every tier. Push new commits instead; a worker whose launch record allows a draft-branch rewrite publishes it through scripts/worker-branch-sync.sh push, and any other force-push is the tower'"'"'s, on the operator'"'"'s explicit request.'
-    return 0
-  fi
-  if [ "$bulk" = 1 ]; then
-    deny_now 'this git push sends every branch (--all, --branches, --mirror) or prunes remote branches, which reaches main - refusing. Push your own branch by name.'
-    return 0
-  fi
-  # Every word counts, an option's and its value as much as a refspec: the
-  # shell expands --{delete,verbose} or -{,v}o into options read above as
-  # none, and a value the guard skips can be spent as a refspec.
+  # Every word counts, not only the remote and refspecs: the shell expands
+  # --{delete,verbose} into options read above as none, and -{,v}o into
+  # -o -vo, so the value the guard skipped is spent as a refspec. An
+  # expansion could likewise turn a -h into an option's value, so this check
+  # comes before the help flag is honoured.
+  j=$1
   while [ "$j" -lt "$n" ]; do
     [ "${SWL[$j]}" = 1 ] \
       || {
@@ -5523,6 +5523,16 @@ classify_git_push() {
       }
     j=$((j + 1))
   done
+  # A -h or --help git reads as an option prints usage and pushes nothing.
+  [ "$help" = 0 ] || return 0
+  if [ "$force" = 1 ]; then
+    deny_now 'this git push forces, and a raw force-push is refused at every tier. Push new commits instead; a worker whose launch record allows a draft-branch rewrite publishes it through scripts/worker-branch-sync.sh push, and any other force-push is the tower'"'"'s, on the operator'"'"'s explicit request.'
+    return 0
+  fi
+  if [ "$bulk" = 1 ]; then
+    deny_now 'this git push sends every branch (--all, --branches, --mirror) or prunes remote branches, which reaches main - refusing. Push your own branch by name.'
+    return 0
+  fi
   if [ "$repo_opt" = 1 ] && [ "${#pos[@]}" -gt 0 ]; then
     deny_now 'this git push combines --repo with positional arguments, which the guard does not read - refusing (fail closed). Name the remote as the first argument.'
     return 0
@@ -5531,7 +5541,7 @@ classify_git_push() {
   # read as the remote a bare push goes to.
   if [ "$repo_opt" = 1 ]; then
     if [ -z "$repo_val" ]; then
-      deny_now 'this git push names its remote through --repo with a value the guard cannot read - refusing (fail closed). Name the remote literally as the first argument.'
+      deny_now 'this git push gives --repo but names no remote with it - refusing (fail closed). Name the remote literally as the first argument.'
       return 0
     fi
     pos[0]=$repo_val

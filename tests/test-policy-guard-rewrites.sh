@@ -265,10 +265,13 @@ for cmd in 'git push --repo=other' 'git push --repo other' 'git push --rep=other
   pg worker "$cmd" "$RCFG" "$RCFG"
   expect defer "[worker] --repo naming a plain remote still defers: $cmd"
 done
-for cmd in 'git push --repo="$R"' 'git push --repo'; do
+pg worker 'git push --repo="$R"' "$RCFG" "$RCFG"
+expect deny "[worker] --repo with an expanded value denies"
+reason_has 'expansion or pattern' "[worker] the expanded --repo value gets the expansion deny"
+for cmd in 'git push --repo' 'git push --repo='; do
   pg worker "$cmd" "$RCFG" "$RCFG"
-  expect deny "[worker] --repo with a value the guard cannot read denies: $cmd"
-  reason_has 'cannot read' "[worker] the unreadable --repo deny says why: $cmd"
+  expect deny "[worker] --repo naming no remote denies: $cmd"
+  reason_has 'names no remote' "[worker] the empty --repo deny says why: $cmd"
 done
 TABC=$(printf '\t')
 for cmd in "git push --repo='origin${TABC}planwright/demo/task-1'" "git push origin 'planwright/demo/task-1${TABC}x'" \
@@ -456,11 +459,13 @@ for cmd in 'git config --c get remote.origin.push x && git push origin planwrigh
   expect deny "[worker] $cmd"
   reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
 done
-# What a read or mapfile option takes (attached or as the next word), a
-# value export never evaluates, readonly's without -a, a declaration's that
-# is no compound holding a subscript or expansion, let's operand naming
-# nothing here, and a listing's filter are not names.
+# Not names: a read or mapfile option's value (attached or the next word),
+# any export value, a readonly value without -a, a declaration value that is
+# not a compound holding [ or $, a let operand naming nothing here, and a
+# listing's filter.
 for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
+  "declare MSG='(see [1]) fix'; git push origin planwright/demo/task-1" \
+  "declare MSG='(\$5) fix'; git push origin planwright/demo/task-1" "local -a arr='(a b) [x]'; git push origin planwright/demo/task-1" \
   "declare MSG='(wip)'; git push origin planwright/demo/task-1" "local re='(a|b)'; git push origin planwright/demo/task-1" \
   "declare -a arr='()'; git push origin planwright/demo/task-1" "readonly -a 'a=(x)'; git push origin planwright/demo/task-1" \
   "readonly MSG='(draft)'; git push origin planwright/demo/task-1" "export MSG='(wip)'; git push origin planwright/demo/task-1" \
@@ -563,6 +568,34 @@ set_knobs 'protected_branches:'
 pg worker 'git push origin -- planwright/demo/task-1'
 expect defer "[worker] a refspec after -- still defers"
 
+echo "# a push's -h is help only where git reads it as an option"
+for tier in worker tower; do
+  for cmd in 'git push origin --repo -h -uf main:planwright/demo/task-2' \
+    'git push origin -o -h --force HEAD:planwright/demo/task-2' \
+    'git push origin --repo -h --mirror' 'git push origin -o $X -h HEAD:planwright/demo/task-2'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] a -h taken as an option's value leaves the push read: $cmd"
+  done
+  for cmd in 'git push -h' 'git push origin planwright/demo/task-1 --help' 'git push --force -h'; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] a push git reads -h or --help on prints usage and still defers: $cmd"
+  done
+done
+for cmd in 'git push origin -o -h :planwright/demo/task-1' 'git push origin --push-option -h :planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'never deletes a unit branch' "[worker] the delete behind a -h value names the unit-branch rule: $cmd"
+done
+for cmd in 'git push origin --repo -h :planwright/demo/task-1' 'git push origin --rep -h :planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'combines --repo' "[worker] a -h taken as --repo's value leaves the --repo check to refuse: $cmd"
+done
+set_knobs 'protected_branches: release/*'
+pg worker 'git push origin -o -h HEAD:release/1'
+expect deny "[worker] a protected destination behind a -h value is read"
+set_knobs 'protected_branches:'
+
 echo "# a push word the shell expands is refused, whatever it spells"
 for tier in worker tower; do
   for cmd in 'git push origin --{delete,verbose} planwright/demo/amendment-1' \
@@ -573,7 +606,9 @@ for tier in worker tower; do
     'git push origin --delet[e] planwright/demo/amendment-1' 'git push origin --delet? planwright/demo/task-2' \
     'git push origin -{,v}o HEAD:m{a,}in' 'git push origin -{,v}o :planwright/demo/amendment-1' \
     'git push -u origin -{,v}o :planwright/demo/spec-rework' 'git push origin -o $X planwright/demo/task-1' \
-    'git push origin --push-option=$X planwright/demo/task-1' 'git push origin -o"$X" planwright/demo/task-1'; do
+    'git push origin --push-option=$X planwright/demo/task-1' 'git push origin -o"$X" planwright/demo/task-1' \
+    'git push --{delete,verbose} origin planwright/demo/amendment-1' 'git push --delet[e] origin planwright/demo/task-2' \
+    'git push -{,v}o :planwright/demo/task-2 origin' 'git push $R planwright/demo/task-1'; do
     pg "$tier" "$cmd"
     expect deny "[$tier] $cmd"
     reason_has 'expansion or pattern' "[$tier] the deny names the word the guard cannot read: $cmd"
