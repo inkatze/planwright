@@ -26,12 +26,14 @@
 #
 # Every verb but purge refuses inside a dispatched worker (a dispatch that
 # exported PLANWRIGHT_WORKER_HANDLE or PLANWRIGHT_WORKER_SCOPE), refuses any
-# branch in the protected set (scripts/protected-branch.sh: main, master, a
-# spec branch, and the protected_branches additions), and refreshes <r>/<b>
+# branch in the protected set (scripts/protected-branch.sh: main, master,
+# planwright/<spec>/spec, and the protected_branches additions), refuses a
+# spec's amendment or spec-rework branch (spec_family), and refreshes <r>/<b>
 # (default remote `origin`) first. confirm and push refuse a <c> whose tip
 # contains the remote tip (nothing would be dropped: a plain push suffices).
-# reword refreshes every remote branch and refuses a commit a protected one
-# contains, since rewording it would fork that history.
+# reword refreshes every remote branch and refuses a commit a protected one or
+# a spec branch contains, since rewording it would fork that history, or one
+# a branch holds whose protection cannot be read.
 #
 # The confirmation is one JSON object that scripts/check-confirmation.sh
 # accepts (this script checks it before printing): `question` and `options`
@@ -49,9 +51,10 @@
 # Planwright-Sign-Off-Rejected trailer naming an old id must be re-stamped.
 #
 # Exit: 0 done (a push the remote took though it reported a failure
-# included, with a note); 1 refused (a dispatched worker, protected, moved
-# since the confirmation or deleted or moved while pushing, nothing dropped,
-# not on the branch); 2 usage; 3 a git or remote failure.
+# included, with a note); 1 refused (a dispatched worker, protected or a spec
+# branch, protection that cannot be read, moved since the confirmation or
+# deleted or moved while pushing, nothing dropped, not on the branch); 2
+# usage; 3 a git or remote failure.
 #
 # Untrusted text (subjects, names) reaches the terminal only through
 # sanitize_printable or as jq-encoded JSON. Portable bash 3.2.
@@ -207,8 +210,39 @@ commit_of() {
   printf '%s' "$oid"
 }
 
+# spec_family <branch> — 0 when the branch is a spec's amendment branch
+# (planwright/<spec>/amendment-<digits>) or its spec-rework branch, which are
+# spec branches though the protected set holds only planwright/<spec>/spec.
+# <spec> is one segment and never the flight namespace, as the policy guard
+# reads it, so a flight branch with such a name stays rewritable. Case-blind,
+# as the protected set's comparison is.
+spec_family() {
+  local rest spec leaf rc=1
+  shopt -s nocasematch
+  case $1 in
+    planwright/?*/?*)
+      rest=${1#*/}
+      spec=${rest%%/*}
+      leaf=${rest#*/}
+      # Both cases spelled: a negated bracket does not fold under nocasematch.
+      case $spec in flight | *[!A-Za-z0-9-]* | -*) spec='' ;; esac
+      if [ -n "$spec" ]; then
+        case $leaf in
+          spec-rework) rc=0 ;;
+          amendment-?*)
+            case ${leaf#*-} in *[!0-9]*) ;; *) rc=0 ;; esac
+            ;;
+        esac
+      fi
+      ;;
+  esac
+  shopt -u nocasematch
+  return "$rc"
+}
+
 protected_or_refuse() { # <branch>
   local rc=0
+  ! spec_family "$1" || refuse "'$(safe "$1")' is a spec's amendment or spec-rework branch, a spec branch; no tier rewrites it"
   "$script_dir/protected-branch.sh" "$1" >/dev/null || rc=$?
   case $rc in
     0) ;;
@@ -415,14 +449,25 @@ reword() {
   # a commit main now holds as safe to reword. Pruned, so a branch the remote
   # deleted neither refuses the reword nor blocks a new branch's fetch.
   git fetch --quiet --prune --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" 2>/dev/null \
-    || broken "fetching $(safe "$REMOTE")'s branches failed; which protected branches hold the commit is unknown"
+    || broken "fetching $(safe "$REMOTE")'s branches failed; which protected or spec branches hold the commit is unknown"
   local ref name rc
-  for ref in $(git for-each-ref --format='%(refname)' --contains "$COMMIT" "refs/remotes/$REMOTE/"); do
+  local holders
+  holders=$(git for-each-ref --format='%(refname)' --contains "$COMMIT" "refs/remotes/$REMOTE/") \
+    || broken "listing $(safe "$REMOTE")'s branches that hold the commit failed; which protected or spec branches hold it is unknown"
+  for ref in $holders; do
     name=${ref#refs/remotes/"$REMOTE"/}
     [ "$name" != "$BRANCH" ] && [ "$name" != HEAD ] || continue
+    if spec_family "$name"; then
+      refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), a spec's amendment or spec-rework branch; rewording it would fork that history"
+    fi
     rc=0
     "$script_dir/protected-branch.sh" "$name" >/dev/null 2>&1 || rc=$?
-    [ "$rc" = 0 ] || refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history"
+    case $rc in
+      0) ;;
+      1) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), which is protected; rewording it would fork that history" ;;
+      2) refuse "that commit is also on $(safe "$REMOTE")/$(safe "$name"), whose name the protected-set reader refuses (or the reader could not run), so whether it is protected is unknown; refusing (fail closed)" ;;
+      *) refuse "the protected set could not be read (protected-branch.sh exit $rc); refusing (fail closed)" ;;
+    esac
   done
 
   local map work c p parents np new tree sign='' gpgsign rc=0

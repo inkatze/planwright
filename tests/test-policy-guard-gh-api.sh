@@ -163,8 +163,197 @@ for tier in worker tower; do
   done
 done
 
+echo "# gh api: a GraphQL branch write's target is read in every spelling GraphQL accepts"
+set_knobs 'protected_branches:'
+# GraphQL reads a comma as white space, so a key may stand apart from its
+# colon or its value by one; a branch given by node id, a block string, an
+# escape or a byte-order mark hides the name. A second field naming an
+# unprotected branch is the decoy that keeps the read from coming up empty.
+BOM=$(printf '\357\273\277')
+BS=\\
+ccob() {
+  printf "gh api graphql -f query='mutation{a:createCommitOnBranch(input:{branch:{%s},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}} b:createRef(input:{repositoryId:\"R\",name:\"refs/heads/feature\",oid:\"abc\"}){ref{name}}}'" "$1"
+}
+ccob1() { # <branch input> <message input> — one mutation, no decoy
+  printf "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{%s},message:{%s},expectedHeadOid:\"abc\"}){commit{oid}}}'" "$1" "$2"
+}
+GRAPHQL_HIDDEN=(
+  "$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName:\"ma${BS}u0069n\"")"
+  "$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName:\"x${BS}\"main\"")"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:""')"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:main')"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"heads/main"')"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"feature",x:"open')"
+  "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"\"\"a${BS}\"\"\" branchName:\"main\" \"\"\"")"
+  "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"planwright/demo/spec\"}){linkedBranch{id}}}'"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName,:"main"')"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:,"main"')"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName , : "main"')"
+  "$(ccob 'id:"REF_main"')"
+  "$(ccob 'id:"REF_main",branchName:"feature"')"
+  "$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"""main"""')"
+  "$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName$BOM:\"main\"")"
+  "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"\"\"main\"\"\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'"
+  "gh api graphql -f query='mutation{a:createRef(input:{repositoryId:\"R\",name,:\"refs/heads/main\",oid:\"abc\"}){ref{name}} b:createRef(input:{repositoryId:\"R\",name:\"refs/heads/feature\",oid:\"abc\"}){ref{name}}}'"
+)
+for tier in worker tower; do
+  for cmd in "${GRAPHQL_HIDDEN[@]}"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+  done
+  for cmd in "gh api graphql -f query='mutation{createCommitOnBranch(input:{branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"feature\"},message:{headline:\"x\"},expectedHeadOid:\"abc\"}){commit{oid}}}'" \
+    "gh api graphql -f query='mutation {
+  createCommitOnBranch(input: {
+    branch: { repositoryNameWithOwner: \"acme/widgets\", branchName: \"feature\" },
+    message: { headline: \"x\" }, expectedHeadOid: \"abc\"
+  }) { commit { oid url } }
+}'" \
+    "gh api graphql -f query='mutation{createRef(input:{repositoryId:\"R\",name:\"refs/heads/feature\",oid:\"abc\"}){ref{name}}}'" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName,:"feature"' 'headline:"x"')" \
+    "$(ccob1 "repositoryNameWithOwner:\"acme/widgets\",branchName$BOM:\"feature\"" 'headline:"x"')" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"chore: set id: 5",body:"name: y"')" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"say ${BS}\"branchName: main${BS}\"\"")" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"x"},clientMutationId:"c"')" \
+    "gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"feature\"}){linkedBranch{id}}}'" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"a${BS}${BS}\",body:\"x id: 5\"")" \
+    "$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"""a " id: 5 """')"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] a branch write naming an unprotected branch literally still defers: $cmd"
+    reads protected_branches "[$tier] reads only protected_branches: $cmd"
+  done
+done
+# With the message before the branch, every masked string's length decides
+# where the target key's value is read from.
+mfirst() { # <message input> <branch name>
+  printf "gh api graphql -f query='mutation{createCommitOnBranch(input:{message:{%s},branch:{repositoryNameWithOwner:\"acme/widgets\",branchName:\"%s\"},expectedHeadOid:\"abc\"}){commit{oid}}}'" "$1" "$2"
+}
+for msg in "headline:\"say ${BS}\"hi${BS}\"\"" 'headline:"""a " b"""' 'headline:"""abc"""'; do
+  pg worker "$(mfirst "$msg" feature)"
+  expect defer "[worker] a masked message before the branch keeps its offset: $msg"
+  pg worker "$(mfirst "$msg" main)"
+  expect deny "[worker] a masked message before the branch still reads main: $msg"
+  reason_has "'main' is protected" "[worker] the target after a masked message is main: $msg"
+done
+# The target-key cap: 64 keys are read, a 65th refuses before any read.
+keys=''
+i=0
+while [ "$i" -lt 63 ]; do
+  keys="$keys,branchName:\"feature\""
+  i=$((i + 1))
+done
+pg worker "$(ccob1 "repositoryNameWithOwner:\"acme/widgets\",branchName:\"feature\"$keys" 'headline:"x"')"
+expect defer "[worker] 64 target keys are read"
+reads protected_branches "[worker] 64 target keys read only protected_branches"
+pg worker "$(ccob1 "repositoryNameWithOwner:\"acme/widgets\",branchName:\"feature\"$keys,branchName:\"feature\"" 'headline:"x"')"
+expect deny "[worker] a 65th target key refuses"
+reason_has 'more target keys' "[worker] the key-cap deny says why"
+reads none "[worker] the key-cap deny reads nothing"
+# Each spelling denies through the rule that reads it, not through another.
+for spec in "plain, non-empty string|$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName:\"ma${BS}u0069n\"")" \
+  "plain, non-empty string|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:""')" \
+  "plain, non-empty string|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:main')" \
+  "node id|$(ccob 'id:"REF_main"')" \
+  "'main' is protected|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName,:"main"')" \
+  "'main' is protected|$(ccob "repositoryNameWithOwner:\"acme/widgets\",branchName$BOM:\"main\"")" \
+  "'main' is protected|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"heads/main"')" \
+  "does not close|$(ccob 'repositoryNameWithOwner:"acme/widgets",branchName:"feature",x:"open')" \
+  "'planwright/demo/spec' is protected|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",name:\"planwright/demo/spec\"}){linkedBranch{id}}}'" \
+  "escaped delimiter|gh api graphql -f query='mutation{createCommitOnBranch(input:{message:{headline:\"\"\"a${BS}\"\"\" \"\"\"},branch:{repositoryNameWithOwner:\"acme/widgets\",branchName,:\"main\"},expectedHeadOid:\"abc\",clientMutationId:\"\"\" branchName:\"feature\" ${BS}\"\"\" \"\"\"}){commit{oid}}}'" \
+  "plain, non-empty string|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:" "' 'headline:"x"')" \
+  "does not name literally|gh api graphql -f query='mutation{createLinkedBranch(input:{issueId:\"I\",oid:\"abc\",clientMutationId:\"\"\"name:\"\" \"\"\"}){linkedBranch{id}}}'" \
+  "node id|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' "headline:\"a${BS}${BS}\",id:\"REF_x\"")" \
+  "does not close|$(ccob1 'repositoryNameWithOwner:"acme/widgets",branchName:"feature"' 'headline:"""abc')"; do
+  pg worker "${spec#*|}"
+  expect deny "[worker] ${spec#*|}"
+  reason_has "${spec%%|*}" "[worker] the deny names its own rule (${spec%%|*}): ${spec#*|}"
+done
+
+echo "# gh api: a REST path is classified whatever prefix or dot segment it carries"
+set_knobs 'protected_branches:'
+REST_HIDDEN=(
+  'gh api -X PATCH repositories/123/git/refs/heads/main -f sha=abc'
+  'gh api -X PUT repositories/123/pulls/42/merge'
+  'gh api -X POST repositories/123/branches/main/rename -f new_name=old'
+  'gh api -X PUT repositories/123/contents/README.md -f message=m -f content=eA=='
+  'gh api -X PATCH https://api.github.com/repositories/123/git/refs/heads/main -f sha=abc'
+  'gh api -X PATCH repos/acme/widgets/./git/refs/heads/main -f sha=abc'
+  'gh api -X PUT ./repos/acme/widgets/pulls/42/merge'
+  'gh api -X PUT repos/acme/./widgets/pulls/42/merge'
+  'gh api -X PUT /repos/acme/widgets/pulls/42/merge/.'
+  'gh api -X POST repos/acme/widgets/Branches/main/rename -f new_name=old'
+  'gh api -X POST repos/acme/widgets/branches/main/Rename -f new_name=old'
+  'gh api -X POST REPOS/acme/widgets/BRANCHES/main/RENAME -f new_name=old'
+  'gh api -X POST repositories/123/Branches/main/RENAME -f new_name=old'
+  'gh api -X PATCH REPOSITORIES/123/git/refs/heads/main -f sha=abc'
+  'gh api -X POST repos/acme/widgets/branches/main/rename/ -f new_name=old'
+  'gh api -X POST repositories/1/branches/main/rename/ -f new_name=old'
+  'gh api -X POST repos/acme/widgets/branches/planwright/demo/spec/Rename -f new_name=x'
+)
+for tier in worker tower; do
+  for cmd in "${REST_HIDDEN[@]}"; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+  done
+  for cmd in 'gh api -X PATCH repositories/123/git/refs/heads/feature -f sha=abc' \
+    'gh api -X POST repositories/123/branches/feature/rename -f new_name=feature2' \
+    'gh api -X POST repos/acme/widgets/Branches/Feature/Rename -f new_name=feature2' \
+    'gh api -X PUT repos/acme/widgets/contents/.github/x.yml -f message=m -f content=eA== -f branch=feature'; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] an unprotected write through either prefix still defers: $cmd"
+    reads protected_branches "[$tier] reads only protected_branches: $cmd"
+  done
+  for cmd in 'gh api repositories/123/pulls' \
+    "gh api -X POST repositories/123/pulls/42/requested_reviewers -f 'reviewers[]=octocat'"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] $cmd"
+    reads none "[$tier] no read: $cmd"
+  done
+done
+pg worker 'gh api -X POST repos/acme/widgets/Branches/main/rename -f new_name=old'
+reason_has "'main' is protected" "the cased rename reads the branch it moves, not the path"
+pg worker 'gh api -X POST repos/acme/widgets/branches/planwright/demo/spec/Rename -f new_name=x'
+reason_has "'planwright/demo/spec' is protected" "a rename keeps the slashes inside the branch it moves"
+
+echo "# gh api: a failed lower-case fold never reads as an unclassified request"
+# A tr that fails would fold every name to empty, so no path or command name
+# would match. The stub still strips control bytes (tr -d), so each deny keeps
+# its own reason.
+TRBIN="$SANDBOX/failing-tr"
+REAL_TR=$(command -v tr)
+mkdir -p "$TRBIN"
+printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\nexit 1\n' "$REAL_TR" >"$TRBIN/tr"
+chmod +x "$TRBIN/tr"
+for spec in 'could not be read \(exit 5\)|gh api -X PATCH repos/acme/widgets/git/refs/heads/main -f sha=abc' \
+  'merges a pull request|gh api -X PUT Repos/acme/widgets/pulls/42/merge' \
+  'could not be read \(exit 5\)|gh api -X POST repos/acme/widgets/branches/main/rename -f new_name=old' \
+  'names gh by a path or another spelling|GH api -X PUT repos/acme/widgets/pulls/42/merge' \
+  'could not be read \(exit 5\)|Git push origin main'; do
+  PG_PATH="$TRBIN:$PATH" pg worker "${spec#*|}"
+  expect deny "[worker] with a failing tr: ${spec#*|}"
+  reason_has "${spec%%|*}" "[worker] with a failing tr, the deny names its own rule: ${spec#*|}"
+done
+PG_PATH="$TRBIN:$PATH" pg worker 'gh api repos/acme/widgets/pulls'
+expect defer "[worker] with a failing tr, a read still defers"
+# Text over the expansion fold's limit goes through tr, taken only when its
+# output is whole and folded; a tr that truncates, prints nothing, or folds
+# nothing leaves the expansion fold to read it.
+for kind in working truncates empty identity; do
+  mkdir -p "$SANDBOX/tr-$kind"
+  case $kind in
+    working) printf '#!/bin/sh\nexec %s "$@"\n' "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+    truncates) printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\n%s "$@" | head -c 100\n' "$REAL_TR" "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+    empty) printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\ncat >/dev/null\n' "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+    identity) printf '#!/bin/sh\ncase $1 in -d) exec %s "$@" ;; esac\ncat\n' "$REAL_TR" >"$SANDBOX/tr-$kind/tr" ;;
+  esac
+  chmod +x "$SANDBOX/tr-$kind/tr"
+  LONG=$(printf '%17000s' '' | "$REAL_TR" ' ' X)
+  PG_PATH="$SANDBOX/tr-$kind:$PATH" pg worker "echo $LONG; bash scripts/KICKOFF-SPEC-PUSH.SH demo"
+  expect deny "[worker] a long command naming the kickoff push in capitals, tr stub: $kind"
+  reason_has 'too long' "[worker] the long command's deny is the length rule's, tr stub: $kind"
+done
+
 echo "# gh api: no tier profile defers on every gh api line"
-for cmd in "${CLASSIFIED[@]}" "${UNREADABLE[@]}" "${OTHER_ACTS[@]}"; do
+for cmd in "${CLASSIFIED[@]}" "${UNREADABLE[@]}" "${OTHER_ACTS[@]}" "${GRAPHQL_HIDDEN[@]}" "${REST_HIDDEN[@]}"; do
   pg '' "$cmd"
   expect defer "no tier: $cmd"
   reads none "no tier, no read: $cmd"

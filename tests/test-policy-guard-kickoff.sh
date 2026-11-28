@@ -56,6 +56,23 @@ PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$AMEND_OTHER" "$
 expect deny "[worker, kickoff-demo] another spec's amendment branch denies"
 PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$AMEND_BAD" "$AMEND_BAD"
 expect deny "[worker, kickoff-demo] a non-digit amendment suffix denies"
+# Under push.default=upstream an amendment branch pushed by name lands on its
+# branch.<b>.merge, here the spec branch, however that value is spelled; the
+# helper's full refspec does not.
+AMEND_UPCFG="$SANDBOX/amend-upstream-config"
+gitq clone "$ORIGIN" "$AMEND_UPCFG"
+gitq -C "$AMEND_UPCFG" switch -c planwright/demo/amendment-2
+gitq -C "$AMEND_UPCFG" config push.default upstream
+gitq -C "$AMEND_UPCFG" config branch.planwright/demo/amendment-2.remote origin
+for m in refs/heads/planwright/demo/spec planwright/demo/spec heads/planwright/demo/spec; do
+  gitq -C "$AMEND_UPCFG" config branch.planwright/demo/amendment-2.merge "$m"
+  for cmd in 'git push origin planwright/demo/amendment-2' 'git push -u origin planwright/demo/amendment-2' 'git push'; do
+    PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$cmd" "$AMEND_UPCFG" "$AMEND_UPCFG"
+    expect deny "[worker, kickoff-demo] push.default=upstream with merge=$m carries the amendment branch onto the spec branch: $cmd"
+  done
+  PLANWRIGHT_WORKER_SCOPE=kickoff-demo pg worker "$KICKOFF_PUSH" "$AMEND_UPCFG" "$AMEND_UPCFG"
+  expect defer "[worker, kickoff-demo] the kickoff push's full refspec is not remapped (merge=$m), and still defers"
+done
 for bad in amendment- amendment-3-1; do
   AMEND_BAD2="$SANDBOX/amend-bad-$bad"
   gitq clone "$ORIGIN" "$AMEND_BAD2"

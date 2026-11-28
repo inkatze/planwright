@@ -97,6 +97,32 @@ for b in main master planwright/demo/spec refs/heads/main release/v1; do
   fi
 done
 [ "$failures" = 0 ] && ok "every verb refuses main, master, a spec branch, and a protected_branches addition"
+# A spec's amendment and spec-rework branches are spec branches too, though
+# the protected set holds only the sign-off branch.
+for b in planwright/demo/amendment-3 planwright/demo/spec-rework refs/heads/planwright/demo/amendment-3 \
+  Planwright/Demo/Amendment-3 planwright/demo/SPEC-REWORK; do
+  for verb in confirm push reword; do
+    case $verb in
+      confirm) rc=$(rc_of fp confirm --branch "$b" --to "$TIP") ;;
+      push) rc=$(rc_of fp push --branch "$b" --to "$TIP" --lease "$TIP") ;;
+      reword) rc=$(rc_of fp reword --branch "$b" --commit "$TIP" --message-file "$W/a") ;;
+    esac
+    if ! { [ "$rc" = 1 ] && grep -q 'amendment or spec-rework branch' "$tmp/err"; }; then
+      fail "$verb on '$b' was not refused as a spec branch (exit $rc: $(cat "$tmp/err"))"
+    fi
+  done
+done
+[ "$failures" = 0 ] && ok "every verb refuses a spec's amendment and spec-rework branches"
+# The flight namespace, a nested path, and a non-digit amendment suffix name
+# no spec's branch, so the tower may still rewrite them.
+for b in planwright/flight/amendment-log-fix planwright/flight/spec-rework planwright/a/b/amendment-1 \
+  planwright/demo/amendment-3b Planwright/Flight/amendment-1; do
+  rc=$(rc_of fp confirm --branch "$b" --to "$TIP")
+  if grep -q 'amendment or spec-rework branch' "$tmp/err"; then
+    fail "confirm on '$b' was refused as a spec branch (exit $rc)"
+  fi
+done
+[ "$failures" = 0 ] && ok "a flight or other non-spec branch named like one is not refused as a spec branch"
 for var in PLANWRIGHT_WORKER_HANDLE PLANWRIGHT_WORKER_SCOPE; do
   for verb in push confirm reword; do
     # Run in the fixture, so a refusal that slipped past a fetch reaches only it.
@@ -597,6 +623,53 @@ for want in 'scripts/tower-force-push.sh`'"'"'s `confirm' 'never from a standing
   esac
 done
 [ "$failures" = 0 ] && ok "the tower's refusals carry the force-push path and its limits"
+
+# A commit an amendment branch also holds is not reworded elsewhere: that
+# would fork the spec branch's history.
+HELD=$(git -C "$tmp/origin.git" rev-parse "refs/heads/$BR")
+g push -q origin "$HELD:refs/heads/planwright/demo/amendment-3"
+rc=$(rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 1 ] && grep -q "amendment-3, a spec's amendment or spec-rework branch" "$tmp/err"; then
+  ok "reword refuses a commit an amendment branch also holds"
+else
+  fail "reword of a commit an amendment branch holds was not refused (exit $rc: $(cat "$tmp/err"))"
+fi
+g push -q origin --delete planwright/demo/amendment-3
+# The holders are listed before they are read, so a listing that fails
+# refuses rather than leaving no holder to check.
+real_git=$(command -v git)
+mkdir -p "$tmp/git-shim"
+printf '#!/bin/sh\ncase " $* " in *" for-each-ref "*" --contains "*) exit 128 ;; esac\nexec %s "$@"\n' "$real_git" >"$tmp/git-shim/git"
+chmod +x "$tmp/git-shim/git"
+rc=$(PATH="$tmp/git-shim:$PATH" rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 3 ] && grep -q 'listing' "$tmp/err"; then
+  ok "reword refuses when listing the branches that hold the commit fails"
+else
+  fail "a failed holder listing did not refuse the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+# A holder whose protected-set read fails refuses with that reason.
+cp -R "$(dirname "$FP")" "$tmp/s5"
+mv "$tmp/s5/protected-branch.sh" "$tmp/s5/protected-branch.real.sh"
+# shellcheck disable=SC2016 # the stub's own text, expanded when it runs
+printf '#!/bin/sh\ncase $1 in holder-x) exit 5 ;; esac\nexec /bin/sh "%s" "$@"\n' "$tmp/s5/protected-branch.real.sh" >"$tmp/s5/protected-branch.sh"
+chmod +x "$tmp/s5/protected-branch.sh"
+g push -q origin "$HELD:refs/heads/holder-x"
+rc=$(cd "$W" && rc_of "$tmp/s5/tower-force-push.sh" reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 1 ] && grep -q 'could not be read (protected-branch.sh exit 5)' "$tmp/err"; then
+  ok "reword refuses a holder whose protected-set read fails"
+else
+  fail "a holder's failed protected-set read did not refuse the reword (exit $rc: $(cat "$tmp/err"))"
+fi
+g push -q origin --delete holder-x
+# A holder git accepts but the protected-set reader refuses as a name.
+g push -q origin "$HELD:refs/heads/holder#x"
+rc=$(rc_of fp reword --branch "$BR" --commit "$HELD" --message-file "$W/a")
+if [ "$rc" = 1 ] && grep -q 'whose name the protected-set reader refuses' "$tmp/err"; then
+  ok "reword refuses a holder whose name the protected-set reader refuses"
+else
+  fail "a holder with a refused name did not refuse the reword with its reason (exit $rc: $(cat "$tmp/err"))"
+fi
+g push -q origin --delete "holder#x"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

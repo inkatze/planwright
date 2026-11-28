@@ -14,7 +14,7 @@
 #
 # Exit 0 ONLY when every branch is outside the set; every other exit refuses the
 # act: 1 protected, 2 usage or an invalid branch name, 4 a malformed set, and
-# 5 any other read failure (a broken install). The clear answer is the zero
+# 5 any other read or tool failure (a broken install). The clear answer is the zero
 # exit so a caller that tests only for success fails closed.
 set -uf
 
@@ -35,11 +35,24 @@ fi
   exit 2
 }
 
-# Case folds on both sides, as the tower queue's push screen folds it: `Main`
-# is `main` on a case-insensitive filesystem, and over-refusing is the safe
-# direction.
+# fold <text> — set FOLDED to the text case-folded. Names and entries both
+# fold, as the tower queue's push screen folds them: `Main` is `main` on a
+# case-insensitive filesystem, and over-refusing is the safe direction. A tr
+# that fails, prints less than it was given, or leaves an upper-case letter
+# would fold a name short of itself, to empty or not at all and match no
+# entry, so it is a broken install. The sentinel keeps trailing newlines, so
+# the lengths compare.
 fold() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+  FOLDED=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' && printf x) || FOLDED=''
+  case $FOLDED in
+    *[A-Z]*) ;;
+    *x)
+      FOLDED=${FOLDED%x}
+      [ "${#FOLDED}" != "${#1}" ] || return 0
+      ;;
+  esac
+  printf '%s\n' "protected-branch: tr could not case-fold a name (broken install); refusing" >&2
+  exit 5
 }
 refuse_name() {
   printf '%s\n' "protected-branch: invalid branch name '$(sanitize_printable "$1" "(unprintable name)")'" >&2
@@ -50,7 +63,8 @@ refuse_name() {
 # case until it is validated: a folded `HEAD` would pass as the branch `head`.
 names=''
 for arg in "$@"; do
-  case "$(fold "$arg")" in
+  fold "$arg"
+  case "$FOLDED" in
     refs/heads/*) name=${arg#???????????} ;;
     *) name=$arg ;;
   esac
@@ -59,7 +73,8 @@ for arg in "$@"; do
     HEAD | @ | .* | */.* | *.lock | *.lock/* | *.) refuse_name "$arg" ;;
   esac
   [ "${#name}" -le 255 ] || refuse_name "$arg"
-  names="$names$(fold "$name") "
+  fold "$name"
+  names="$names$FOLDED "
 done
 
 set_out=$(/bin/sh "$script_dir/resolve-policy-knob.sh" protected_branches) || {
@@ -111,7 +126,8 @@ seg_match() {
 
 for name in $names; do
   for entry in $set_out; do
-    pattern=$(fold "$entry")
+    fold "$entry"
+    pattern=$FOLDED
     if seg_match "${pattern#refs/heads/}" "$name"; then
       printf '%s\n' "protected-branch: '$name' is protected (matches '$entry')" >&2
       exit 1

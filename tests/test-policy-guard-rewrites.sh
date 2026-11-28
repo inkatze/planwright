@@ -144,6 +144,492 @@ case $OUT in
   *) pass "the deny reason is stripped of control bytes" ;;
 esac
 
+echo "# a push is read through the configuration git applies to it"
+set_knobs 'protected_branches:'
+# git maps a refspec with no colon through remote.<remote>.push, a + there
+# forcing it, and pushes a bare push under push.default=upstream to
+# branch.<b>.merge however it is spelled.
+PCFG="$SANDBOX/push-config"
+clone_on "$PCFG" planwright/demo/task-1 0
+gitq -C "$PCFG" config remote.origin.push refs/heads/planwright/demo/task-1:refs/heads/main
+for tier in worker tower; do
+  for cmd in 'git push origin planwright/demo/task-1' 'git push -u origin planwright/demo/task-1' \
+    'git push origin refs/heads/planwright/demo/task-1' 'git push origin v1.0 planwright/demo/task-1'; do
+    pg "$tier" "$cmd" "$PCFG" "$PCFG"
+    expect deny "[$tier] remote.origin.push maps the no-colon refspec onto main: $cmd"
+  done
+  for cmd in 'git push origin planwright/demo/task-1:planwright/demo/task-1' 'git push origin HEAD' \
+    'git push upstream planwright/demo/task-1'; do
+    pg "$tier" "$cmd" "$PCFG" "$PCFG"
+    expect defer "[$tier] an explicit destination, HEAD, or another remote is not mapped: $cmd"
+  done
+done
+pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
+reason_has 'remote\.origin\.push is configured' "[worker] the mapped-refspec deny names the push configuration"
+# Any configured push refspec refuses, the self-map and the forcing + alike:
+# the guard does not read what it maps to.
+for pr in refs/heads/planwright/demo/task-1:refs/heads/planwright/demo/task-1 \
+  +refs/heads/planwright/demo/task-1:refs/heads/planwright/demo/task-1; do
+  gitq -C "$PCFG" config remote.origin.push "$pr"
+  pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
+  expect deny "[worker] remote.origin.push=$pr refuses the no-colon refspec"
+done
+gitq -C "$PCFG" config --unset remote.origin.push
+pg worker 'git push origin planwright/demo/task-1' "$PCFG" "$PCFG"
+expect defer "[worker] with no push refspec configured the no-colon push still defers"
+
+UPCFG="$SANDBOX/upstream-config"
+clone_on "$UPCFG" planwright/demo/task-1 0
+gitq -C "$UPCFG" config push.default upstream
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.remote origin
+for m in main heads/main master; do
+  gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge "$m"
+  for cmd in 'git push' 'git push origin'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect deny "[worker] push.default=upstream with branch.<b>.merge=$m: $cmd"
+  done
+done
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-1
+pg worker 'git push' "$UPCFG" "$UPCFG"
+expect defer "[worker] push.default=upstream to the branch's own name still defers"
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge planwright/demo/task-1
+pg worker 'git push' "$UPCFG" "$UPCFG"
+expect defer "[worker] an unqualified merge naming the branch itself still defers"
+# A named source with no destination goes to branch.<source>.merge too, under
+# push.default=upstream or its alias tracking.
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge refs/heads/main
+for pd in upstream tracking; do
+  gitq -C "$UPCFG" config push.default "$pd"
+  for cmd in 'git push origin planwright/demo/task-1' 'git push -u origin planwright/demo/task-1' \
+    'git push origin heads/planwright/demo/task-1' 'git push origin refs/heads/planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect deny "[worker] push.default=$pd sends the named source to branch.<b>.merge=main: $cmd"
+  done
+  for cmd in 'git push origin planwright/demo/task-1:planwright/demo/task-1' 'git push origin HEAD:planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect defer "[worker] push.default=$pd leaves an explicit destination alone: $cmd"
+  done
+done
+gitq -C "$UPCFG" config push.default upstream
+pg tower 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
+expect deny "[tower] push.default=upstream sends the named source to branch.<b>.merge=main"
+gitq -C "$UPCFG" config push.default current
+pg worker 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
+expect defer "[worker] push.default=current sends the named source to its own name"
+gitq -C "$UPCFG" config push.default upstream
+gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge refs/heads/planwright/demo/task-1
+pg worker 'git push origin planwright/demo/task-1' "$UPCFG" "$UPCFG"
+expect defer "[worker] push.default=upstream to the named source's own name still defers"
+for m in refs/tags/main refs/remotes/origin/main; do
+  gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge "$m"
+  for cmd in 'git push' 'git push origin planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect defer "[worker] branch.<b>.merge=$m names no branch, so it adds no target: $cmd"
+  done
+done
+for m in bad..name heads/; do
+  gitq -C "$UPCFG" config branch.planwright/demo/task-1.merge "$m"
+  for cmd in 'git push' 'git push origin planwright/demo/task-1'; do
+    pg worker "$cmd" "$UPCFG" "$UPCFG"
+    expect deny "[worker] branch.<b>.merge=$m names no branch the guard checks: $cmd"
+    reason_has 'branch\.<branch>\.merge, which names a destination' "[worker] the merge-value deny says why: $m, $cmd"
+  done
+done
+# A source spelled heads/<x> may be the branch heads/<x> or the branch <x>;
+# git takes whichever exists, so both merge values are read.
+gitq -C "$UPCFG" branch heads/x
+gitq -C "$UPCFG" config branch.heads/x.merge refs/heads/main
+for cmd in 'git push origin heads/x' 'git push origin refs/heads/heads/x'; do
+  pg worker "$cmd" "$UPCFG" "$UPCFG"
+  expect deny "[worker] the branch heads/x's own merge value is read: $cmd"
+done
+
+echo "# a push through --repo is read against the remote it names"
+RCFG="$SANDBOX/repo-option"
+clone_on "$RCFG" planwright/demo/task-1 0
+gitq -C "$RCFG" remote add other "$ORIGIN"
+gitq -C "$RCFG" config remote.other.push refs/heads/planwright/demo/task-1:refs/heads/main
+for tier in worker tower; do
+  for cmd in 'git push --repo=other' 'git push --repo other' 'git push --rep=other' 'git push -u --repo=other'; do
+    pg "$tier" "$cmd" "$RCFG" "$RCFG"
+    expect deny "[$tier] --repo names the remote whose push refspec applies: $cmd"
+    reason_has 'configured push refspec' "[$tier] the --repo deny names the remote's push refspec: $cmd"
+  done
+done
+gitq -C "$RCFG" config --unset remote.other.push
+gitq -C "$RCFG" config remote.other.mirror true
+pg worker 'git push --repo=other' "$RCFG" "$RCFG"
+expect deny "[worker] --repo names a mirror remote, which pushes every ref"
+gitq -C "$RCFG" config --unset remote.other.mirror
+for cmd in 'git push --repo=other' 'git push --repo other' 'git push --rep=other' 'git push -u --repo=other'; do
+  pg worker "$cmd" "$RCFG" "$RCFG"
+  expect defer "[worker] --repo naming a plain remote still defers: $cmd"
+done
+pg worker 'git push --repo="$R"' "$RCFG" "$RCFG"
+expect deny "[worker] --repo with an expanded value denies"
+reason_has 'expansion or pattern' "[worker] the expanded --repo value gets the expansion deny"
+for cmd in 'git push --repo' 'git push --repo='; do
+  pg worker "$cmd" "$RCFG" "$RCFG"
+  expect deny "[worker] --repo naming no remote denies: $cmd"
+  reason_has 'names no remote' "[worker] the empty --repo deny says why: $cmd"
+done
+TABC=$(printf '\t')
+for cmd in "git push --repo='origin${TABC}planwright/demo/task-1'" "git push origin 'planwright/demo/task-1${TABC}x'" \
+  "git push origin 'planwright/demo/task-1
+x'"; do
+  pg worker "$cmd" "$RCFG" "$RCFG"
+  expect deny "[worker] a tab or newline in a push word denies: $cmd"
+  reason_has 'tab or newline' "[worker] the tab-or-newline deny says why: $cmd"
+done
+# An abbreviated value option takes the next word, which is never the remote.
+gitq -C "$RCFG" config remote.origin.push refs/heads/planwright/demo/task-1:refs/heads/main
+for cmd in 'git push --receive git-receive-pack origin planwright/demo/task-1' \
+  'git push --exe git-receive-pack origin planwright/demo/task-1' \
+  'git push --recurse no origin planwright/demo/task-1'; do
+  pg worker "$cmd" "$RCFG" "$RCFG"
+  expect deny "[worker] an abbreviated value option leaves origin as the remote: $cmd"
+  reason_has 'remote\.origin\.push is configured' "[worker] the abbreviated-option deny reads origin's push refspec: $cmd"
+done
+gitq -C "$RCFG" config --unset remote.origin.push
+
+echo "# a push after a same-command change to what it reads denies"
+for cmd in 'git branch --set-upstream-to=origin/main && git push origin planwright/demo/task-1' \
+  'git branch -uorigin/main && git push' 'git branch --unset-upstream && git push' \
+  'git config --unset push.default && git push origin planwright/demo/task-1' \
+  'git config --unset-all remote.origin.push && git push origin planwright/demo/task-1' \
+  'git config --remove-section push && git push' 'git config --rename-section push x && git push' \
+  'HOME=/tmp/h git push origin planwright/demo/task-1' 'export HOME=/tmp/h; git push origin planwright/demo/task-1' \
+  'XDG_CONFIG_HOME=/tmp/x git push origin planwright/demo/task-1' 'export XDG_CONFIG_HOME=/tmp/x; git push' \
+  'HOME=/tmp/h; git push' 'declare -x HOME=/tmp/h; git push' 'HOME+=/x git push' \
+  'git config --unset push.default show && git push origin planwright/demo/task-1' \
+  'git config --rename-section push list && git push origin planwright/demo/task-1' \
+  'git config --replace-all remote.origin.push x list && git push origin planwright/demo/task-1' \
+  'git config push.default upstream show && git push origin planwright/demo/task-1' \
+  'git config --comment list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config set push.default upstream && git push origin planwright/demo/task-1' \
+  'git branch -v -u origin/main && git push' 'git branch -v -M main && git push origin HEAD' \
+  'git branch -vt x origin/main && git push origin x' \
+  'git fetch --set-upstream origin main && git push' 'git pull --set-upstream origin main && git push' \
+  'for HOME in /tmp/h; do git push origin planwright/demo/task-1; done' \
+  'read HOME <<< /tmp/h; git push origin planwright/demo/task-1' 'read -r XDG_CONFIG_HOME < f; git push' \
+  'mapfile -t HOME < f; git push' 'getopts h HOME; git push' 'unset HOME; git push' \
+  'unset -v XDG_CONFIG_HOME HOME; git push' 'declare -n R=HOME; R=/tmp/h; git push' \
+  'printf -v HOME %s /tmp/h; git push' \
+  'git config remote.origin.push x --get && git push origin planwright/demo/task-1' \
+  'git config --comment --get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --comment -l remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -- push.default --list && git push' 'git config --edit && git push origin planwright/demo/task-1' \
+  'git config -e && git push' 'git config edit && git push origin planwright/demo/task-1' \
+  'git fetch --set origin main && git push' 'git fetch --set-u origin main && git push' \
+  'git pull --set origin main && git push' \
+  'git branch -v --t x origin/main && git push origin x' 'git branch --u && git push' \
+  'git branch -v --d planwright/demo/task-2 && git push' \
+  'git branch -v planwright/demo/x origin/main && git push origin planwright/demo/x' \
+  'git branch list origin/main && git push origin list' 'git branch -v --track x origin/main && git push origin x' \
+  'git branch -v --edit-description && git push' \
+  'select HOME in /tmp/h; do git push; done' 'readarray HOME < f; git push' \
+  'printf -vHOME %s /tmp/h; git push' 'read -aHOME <<< /tmp/h; git push' 'read HOME[0] <<< /tmp/h; git push' \
+  'declare HOME[0]=/tmp/h; git push' 'typeset HOME[0]=/tmp/h; git push' \
+  'declare XDG_CONFIG_HOME[0]=/tmp/x; git push' 'printf -v HOME[0] %s /tmp/h; git push' \
+  'declare -n R; R=HOME; R=/tmp/h; git push' 'declare -n R=HOME[0]; R=/tmp/h; git push' \
+  'unset "$V"; git push' \
+  'git config --comm get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --co get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --comm --get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --comme -l remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -zf --get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -ze && git push origin planwright/demo/task-1' \
+  'git config --file f -- push.default && git push origin planwright/demo/task-1' \
+  'git branch -r --delete origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -r --del origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -r -d origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -r -D origin/planwright/demo/task-2 && git push origin planwright/demo/task-1' \
+  'git branch -uorigin/x && git push' \
+  'typeset -n R=HOME; R=/tmp/h; git push' 'typeset -n R; R=HOME; git push' \
+  'read -aXDG_CONFIG_HOME <<< x; git push' 'unset HO{M,}E; git push' 'export {HOME,X}=/tmp/h; git push' \
+  'read HO{M,}E <<< /tmp/h; git push' 'unset HOM?; git push' \
+  'for x HOME in a /tmp/h; do git push origin planwright/demo/task-1; done'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
+done
+for cmd in 'git branch --show-current && git push origin planwright/demo/task-1' \
+  'git config --get push.default && git push origin planwright/demo/task-1' \
+  'git config --list && git push origin planwright/demo/task-1' 'git config user.name && git push origin planwright/demo/task-1' \
+  'git config get push.default && git push origin planwright/demo/task-1' \
+  'git branch -v && git push' 'git branch -vv && git push' 'git branch --list && git push' \
+  'TERM=dumb git push origin planwright/demo/task-1' \
+  'export HOMEBREW_NO_AUTO_UPDATE=1; git push origin planwright/demo/task-1' \
+  'declare -x HOMER=1; git push origin planwright/demo/task-1' \
+  "printf 'HOME=%s\\n' x; git push origin planwright/demo/task-1" 'unset FOO; git push origin planwright/demo/task-1' \
+  'git branch --sort -committerdate && git push origin planwright/demo/task-1' \
+  'git branch --contains HEAD && git push origin planwright/demo/task-1' \
+  'git branch -a --list "feat*" && git push origin planwright/demo/task-1' \
+  'for v in HOME PATH; do echo x; done; git push origin planwright/demo/task-1' \
+  'export GREETING=HOME; git push origin planwright/demo/task-1' \
+  'printf -v out %s HOME; git push origin planwright/demo/task-1' \
+  'select v in HOME; do echo x; done; git push origin planwright/demo/task-1' \
+  "'for'; git push origin planwright/demo/task-1" \
+  'git config --get-color color.diff.new red && git push origin planwright/demo/task-1' \
+  'git config list --show-origin && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] a read beside the push still defers: $cmd"
+done
+
+echo "# a git branch create is read whatever list option stood before it"
+# A negated list option switches list mode back off, so the names create a
+# branch whose upstream git records; the worker's static allows would run
+# the pair unprompted.
+for tier in worker tower; do
+  for cmd in 'git branch --list --no-list planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch -l --no-l planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch --list --no-li planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch --points-at HEAD --no-points-at planwright/demo/x origin/main && git push origin planwright/demo/x' \
+    'git branch --show-current --no-show-current planwright/demo/x origin/main && git push origin planwright/demo/x'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+    reason_has 'in the same command' "[$tier] the create denies through the same-command rule: $cmd"
+  done
+done
+for cmd in 'git branch --list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch -l "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --contains HEAD "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --points-at HEAD "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list -- "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --sor -committerdate && git push origin planwright/demo/task-1' \
+  "git branch --format '%(refname:short)' && git push origin planwright/demo/task-1"; do
+  pg worker "$cmd"
+  expect defer "[worker] a listing beside the push still defers: $cmd"
+done
+
+echo "# a name, list option or value option is read the way git and the shell read it"
+for cmd in "read -r -p 'Continue? ' ans; git push origin planwright/demo/task-1" \
+  "unset 'arr[0]'; git push origin planwright/demo/task-1" \
+  "printf -v 'out[0]' %s x; git push origin planwright/demo/task-1" \
+  "mapfile -d '*' -t lines < f; git push origin planwright/demo/task-1" \
+  'printf -- -v HOME; git push origin planwright/demo/task-1' \
+  'git branch --no-list --list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list --no-points-at "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list --no-show-current "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --no-show-current -l "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --list -- --no-list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --so -committerdate && git push origin planwright/demo/task-1' \
+  'git branch --points-at HEAD --no-points-at && git push origin planwright/demo/task-1' \
+  'git branch -r --list "origin/*" && git push origin planwright/demo/task-1' \
+  'git config -t bool --get core.bare && git push origin planwright/demo/task-1' \
+  'git config --t bool --get push.default && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] $cmd"
+done
+for cmd in 'git config --c get remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --c list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config -f list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --file list remote.origin.push x && git push origin planwright/demo/task-1' \
+  'git config --file f push.default && git push origin planwright/demo/task-1' \
+  'git config -fof remote.origin.push --get && git push origin planwright/demo/task-1' \
+  'unset HOM*; git push' 'unset H[O]ME; git push' 'readonly HOME=/tmp/h; git push' \
+  'local HOME=/tmp/h; git push' 'let HOME=1; git push' \
+  'export $V=/tmp/h; git push origin planwright/demo/task-1' 'printf -v "$V" %s /tmp/h; git push' \
+  "read 'a[HOME=1]' <<< x; git push origin planwright/demo/task-1" \
+  "printf -v 'a[HOME=1]' %s x; git push origin planwright/demo/task-1" \
+  "a=1; unset 'a[HOME=1]'; git push origin planwright/demo/task-1" \
+  "declare 'a[\$i]=1'; git push origin planwright/demo/task-1" 'Y=x; unset x=$Y; git push' \
+  'git branch planwright/demo/x --end-of-options --list && git push origin planwright/demo/x' \
+  'read -rd -p HOME <<< /tmp/x; git push' 'mapfile -td -u HOME <<< a; git push' \
+  'getopts -- a HOME; git push' 'read -t 5 HOME <<< /tmp/h; git push origin planwright/demo/task-1' \
+  'read -pa HOME <<< x; git push' 'export HOM*=/tmp/h; git push origin planwright/demo/task-1' \
+  'export HOM?=/tmp/h; git push origin planwright/demo/task-1' \
+  'git config -z remote.origin.push --get && git push origin planwright/demo/task-1' \
+  'read -pd HOME <<< /tmp/x; git push' 'read -dp HOME <<< /tmp/x; git push' 'mapfile -dn HOME <<< /tmp/x; git push' \
+  'read -a HOME <<< /tmp/h; git push' 'read -e HOME <<< /tmp/h; git push' \
+  "read 'x[a[0],HOME=1]' <<< v; git push origin planwright/demo/task-1" \
+  "read 'a[1==(HOME=0)]' <<< v; git push origin planwright/demo/task-1" \
+  "declare 'a[1==(HOME=0)]=1'; git push origin planwright/demo/task-1" \
+  "declare -a 'a=([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  "local -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  'getopts -- -- HOME; git push' "declare -a 'a=(x [HOME=1]=y)'; git push origin planwright/demo/task-1" \
+  "readonly -a a='([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  'read -raXDG_CONFIG_HOME <<< x; git push' 'read -{,}p HOME <<< x; git push' 'read -ap -aHOME <<< x; git push' \
+  "typeset -a 'a=([HOME=1]=x)'; git push origin planwright/demo/task-1" \
+  "readonly -A a='([\$((HOME=1))]=x)'; git push origin planwright/demo/task-1" \
+  "readonly -pa a='([HOME=1]=x)'; git push origin planwright/demo/task-1" 'read -r$o x; git push' \
+  'read -$op HOME <<< x; git push' 'read -?p HOME <<< x; git push' \
+  "declare -a 'a=(\${HOME:=q})'; git push origin planwright/demo/task-1"; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
+done
+# Not names: a read or mapfile option's value (attached or the next word),
+# any export value, a readonly value without -a, a declaration value that is
+# not a compound holding [ or $, a let operand naming nothing here, and a
+# listing's filter.
+for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
+  "declare MSG='(see [1]) fix'; git push origin planwright/demo/task-1" \
+  "declare MSG='(\$5) fix'; git push origin planwright/demo/task-1" "local -a arr='(a b) [x]'; git push origin planwright/demo/task-1" \
+  "declare MSG='(wip)'; git push origin planwright/demo/task-1" "local re='(a|b)'; git push origin planwright/demo/task-1" \
+  "declare -a arr='()'; git push origin planwright/demo/task-1" "readonly -a 'a=(x)'; git push origin planwright/demo/task-1" \
+  "readonly MSG='(draft)'; git push origin planwright/demo/task-1" "export MSG='(wip)'; git push origin planwright/demo/task-1" \
+  "declare MSG='fix (wip)'; git push origin planwright/demo/task-1" 'read -Ep"$PS" x; git push origin planwright/demo/task-1' \
+  "read -p'Continue? [y/N] ' ans; git push origin planwright/demo/task-1" \
+  "read -rp'[y/N] ' ans; git push origin planwright/demo/task-1" "read -d'[' x; git push origin planwright/demo/task-1" \
+  "mapfile -d'[' a < f; git push origin planwright/demo/task-1" \
+  "export FOO='a[b]=c'; git push origin planwright/demo/task-1" 'declare FOO=$PWD=x; git push origin planwright/demo/task-1' \
+  "export PS1='(venv) '; git push origin planwright/demo/task-1" 'export MSG="(wip) fix"; git push origin planwright/demo/task-1' \
+  "readonly MSG='(draft) note'; git push origin planwright/demo/task-1" \
+  "declare 'arr[0]=[x]'; git push origin planwright/demo/task-1" "local 'm[1]=a]b'; git push origin planwright/demo/task-1" \
+  "declare 'arr[0]=(x)'; git push origin planwright/demo/task-1" "local 'm[1]=(wip)'; git push origin planwright/demo/task-1" \
+  "declare MSG='(wip) fix'; git push origin planwright/demo/task-1" "local msg='(draft) wip'; git push origin planwright/demo/task-1" \
+  'read -p"$PS" x; git push origin planwright/demo/task-1' 'read -t"$T" x; git push origin planwright/demo/task-1' \
+  'read -ru"$fd" x; git push origin planwright/demo/task-1' 'mapfile -u"$fd" a; git push origin planwright/demo/task-1' \
+  "read -sp 'Password [hidden]: ' pw; git push origin planwright/demo/task-1" \
+  "export PS1='[x@y] '; git push origin planwright/demo/task-1" "export FOO='a[b]'; git push origin planwright/demo/task-1" \
+  "local x='[a]'; git push origin planwright/demo/task-1" 'local n=${#arr[@]}; git push origin planwright/demo/task-1' \
+  'read -d "$D" ans; git push origin planwright/demo/task-1' 'read -i "$I" ans; git push origin planwright/demo/task-1' \
+  'read -n "$N" ans; git push origin planwright/demo/task-1' 'read -N "$N" ans; git push origin planwright/demo/task-1' \
+  'read -u "$U" ans; git push origin planwright/demo/task-1' \
+  'mapfile -d "$X" -t lines < f; git push origin planwright/demo/task-1' 'mapfile -n "$X" a < f; git push origin planwright/demo/task-1' \
+  'mapfile -O "$X" a < f; git push origin planwright/demo/task-1' 'mapfile -s "$X" a < f; git push origin planwright/demo/task-1' \
+  'mapfile -u "$X" a; git push origin planwright/demo/task-1' 'mapfile -C "$X" a < f; git push origin planwright/demo/task-1' \
+  'mapfile -c "$X" a < f; git push origin planwright/demo/task-1' \
+  'declare FOO=$PWD; git push origin planwright/demo/task-1' 'typeset FOO=$PWD; git push origin planwright/demo/task-1' \
+  'readonly FOO=$PWD; git push origin planwright/demo/task-1' 'local FOO=$PWD; git push origin planwright/demo/task-1' \
+  "let 'y=a[i]'; git push origin planwright/demo/task-1" \
+  'git branch --contains HEAD --no-points-at "feat*" && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] an option's value, a declaration's value or a listing still defers: $cmd"
+done
+for cmd in 'git config -tint --get core.bare && git push origin planwright/demo/task-1' \
+  'git config -z --get core.bare && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] a config read through a short cluster still defers: $cmd"
+done
+for cmd in "declare 'arr[0]=x'; git push origin planwright/demo/task-1" \
+  'export FOO=$PWD; git push origin planwright/demo/task-1' 'printf %s $PWD; git push origin planwright/demo/task-1' \
+  'printf -v; git push origin planwright/demo/task-1' 'printf %s -v HOME; git push origin planwright/demo/task-1' \
+  "read -r -p 'Total \$5=ok? ' ans; git push origin planwright/demo/task-1" \
+  'read -t "$T" ans; git push origin planwright/demo/task-1' 'read -r -p "$PS" ans; git push origin planwright/demo/task-1' \
+  'getopts ab: o "$@"; git push origin planwright/demo/task-1' "let 'i*=2'; git push origin planwright/demo/task-1" \
+  'git branch --show-current planwright/demo/x && git push origin planwright/demo/x' \
+  'git branch --points-at HEAD --no-list "feat*" && git push origin planwright/demo/task-1' \
+  'git branch --contains HEAD --no-list "feat*" && git push origin planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect defer "[worker] a word that names no HOME setting, or a listing, still defers: $cmd"
+done
+for tier in worker tower; do
+  pg "$tier" 'git branch --sort=-committerdate planwright/demo/x && git push origin planwright/demo/x'
+  expect deny "[$tier] an attached value option leaves the create beside it read"
+done
+pg worker 'HOME=/tmp/h git push origin planwright/demo/task-1'
+reason_has 'without that setting' "[worker] the HOME refusal on the act's own prefix names the remedy that applies"
+pg tower 'git fetch --set-upstream origin x; git fetch origin'
+reason_has 'record what a later fetch' "[tower] the fetch refusal names what an upstream-recording fetch changes"
+
+echo "# no worker or tower deletes a spec's amendment or spec-rework branch"
+Z40=0000000000000000000000000000000000000000
+for tier in worker tower; do
+  for cmd in 'git push origin :planwright/demo/amendment-3' 'git push origin --delete planwright/demo/amendment-3' \
+    'git push -d origin planwright/demo/spec-rework' 'git push origin :refs/heads/planwright/demo/spec-rework' \
+    'git push origin :Planwright/Demo/Amendment-3' "git push origin $Z40:planwright/demo/amendment-3" \
+    "git push origin $Z40:refs/heads/planwright/demo/spec-rework" \
+    'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/amendment-3' \
+    'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/spec-rework' \
+    'gh api -X DELETE repositories/1/git/refs/heads/planwright/demo/spec-rework' \
+    'git push origin --end-of-options -o :planwright/demo/amendment-1' \
+    'git push origin --end-of-options --exec :planwright/demo/spec-rework'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+    reason_has 'spec branch' "[$tier] the delete deny names the spec branch: $cmd"
+  done
+  for cmd in 'git push origin :feature-x' 'git push origin :planwright/demo/amendment-3b' \
+    'gh api -X DELETE repos/acme/widgets/git/refs/heads/feature-x'; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] a delete of a branch that is no spec's still defers: $cmd"
+  done
+done
+pg worker "git push origin $Z40:planwright/demo/task-1"
+expect deny "[worker] an all-zero source deletes a unit branch too"
+reason_has 'never deletes a unit branch' "[worker] the all-zero delete names the unit-branch rule"
+for cmd in 'git push origin :planwright/demo/task-1' 'gh api -X DELETE repos/acme/widgets/git/refs/heads/planwright/demo/task-1' \
+  'git push origin 0abc123:planwright/demo/amendment-3'; do
+  pg tower "$cmd"
+  expect defer "[tower] $cmd still reaches the prompt"
+done
+pg worker 'git push origin 0abc123:planwright/demo/task-1'
+expect defer "[worker] a source that only starts with a zero is no delete"
+# After --end-of-options every word is a positional, as after --: a word spelled
+# like a value option there is not one, so the refspec after it is read.
+pg worker 'git push origin --end-of-options -vo :planwright/demo/task-2'
+expect deny "[worker] a refspec after --end-of-options and an option-shaped word is read"
+reason_has 'never deletes a unit branch' "[worker] the --end-of-options delete names the unit-branch rule"
+set_knobs 'protected_branches: release/*'
+pg worker 'git push origin --end-of-options -o HEAD:release/1'
+expect deny "[worker] a protected destination after --end-of-options is read"
+set_knobs 'protected_branches:'
+pg worker 'git push origin -- planwright/demo/task-1'
+expect defer "[worker] a refspec after -- still defers"
+
+echo "# a push's -h is help only where git reads it as an option"
+for tier in worker tower; do
+  for cmd in 'git push origin --repo -h -uf main:planwright/demo/task-2' \
+    'git push origin -o -h --force HEAD:planwright/demo/task-2' \
+    'git push origin --repo -h --mirror'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] a -h taken as an option's value leaves the push read: $cmd"
+  done
+  pg "$tier" 'git push origin -o $X -h HEAD:planwright/demo/task-2'
+  expect deny "[$tier] an expansion that could make -h a value is refused before the help is honoured"
+  reason_has 'expansion or pattern' "[$tier] the -h behind an expansion gets the expansion deny"
+  for cmd in 'git push -h' 'git push origin planwright/demo/task-1 --help' 'git push --force -h' \
+    'git push --force --help' 'git push origin --all --help' 'git push --mirror -h'; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] a push whose -h or --help git reads as an option prints usage and still defers: $cmd"
+  done
+done
+for cmd in 'git push origin --end-of-options -h :planwright/demo/task-1' 'git push origin -- -h :planwright/demo/task-1' \
+  'git push origin -- --help :planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] a -h or --help after the options end is a refspec: $cmd"
+  reason_has 'never deletes a unit branch' "[worker] the delete after the options end is still read: $cmd"
+done
+for cmd in 'git push origin -o -h :planwright/demo/task-1' 'git push origin --push-option -h :planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'never deletes a unit branch' "[worker] the delete behind a -h value names the unit-branch rule: $cmd"
+done
+for cmd in 'git push origin --repo -h :planwright/demo/task-1' 'git push origin --rep -h :planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] $cmd"
+  reason_has 'combines --repo' "[worker] a -h taken as --repo's value leaves the --repo check to refuse: $cmd"
+done
+set_knobs 'protected_branches: release/*'
+pg worker 'git push origin -o -h HEAD:release/1'
+expect deny "[worker] a protected destination behind a -h value is read"
+set_knobs 'protected_branches:'
+
+echo "# a push word the shell expands is refused, whatever it spells"
+for tier in worker tower; do
+  for cmd in 'git push origin --{delete,verbose} planwright/demo/amendment-1' \
+    'git push origin --{delete,quiet} planwright/demo/task-2' \
+    'git push origin --{force,quiet} HEAD:planwright/demo/task-2' \
+    'git push -u origin --{force,quiet} HEAD:planwright/demo/amendment-1' \
+    'git push origin --{mirror,quiet}' 'git push origin --{all,quiet}' 'git push origin --{branches,quiet}' \
+    'git push origin --delet[e] planwright/demo/amendment-1' 'git push origin --delet? planwright/demo/task-2' \
+    'git push origin -{,v}o HEAD:m{a,}in' 'git push origin -{,v}o :planwright/demo/amendment-1' \
+    'git push -u origin -{,v}o :planwright/demo/spec-rework' 'git push origin -o $X planwright/demo/task-1' \
+    'git push origin --push-option=$X planwright/demo/task-1' 'git push origin -o"$X" planwright/demo/task-1' \
+    'git push --{delete,verbose} origin planwright/demo/amendment-1' 'git push --delet[e] origin planwright/demo/task-2' \
+    'git push -{,v}o :planwright/demo/task-2 origin' 'git push $R planwright/demo/task-1'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+    reason_has 'expansion or pattern' "[$tier] the deny names the word the guard cannot read: $cmd"
+  done
+  for cmd in 'git push origin planwright/demo/task-1' 'git push -u origin -o ci.skip planwright/demo/task-1' \
+    'git push origin "planwright/demo/task-1"' "git push origin --push-option='a b' planwright/demo/task-1"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] a push spelled literally still defers: $cmd"
+  done
+done
+
 # --- a cd that may not run --------------------------------------------------
 
 echo "# a cd is followed only when it runs"
