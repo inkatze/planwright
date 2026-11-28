@@ -906,7 +906,8 @@ A spec PR that falls behind `main` needs its branch
 (`planwright/<spec>/<name>`, an amendment branch for one) brought into a
 worktree to sync or walk it, and the policy guard otherwise refuses both
 halves: a worker's flight branch merges only the PR base or its own remote
-branch, and a worktree holding the spec branch is not the session's own unit
+branch (or a stacked base its record names, below), and a worktree holding
+the spec branch is not the session's own unit
 branch. A launch given `--spec-branch planwright/<spec>/<name>` (a
 worker-profile session on the stream-json rung only; the launcher checks with
 `gh` that the branch is the head of an open pull request, and refuses
@@ -917,8 +918,9 @@ worktree, never from the command text, the checkout, config or the
 environment. A record that is a symlink, is not this user's own regular file,
 sits inside the worktree, names the field twice, or names anything outside
 `planwright/<spec>/<name>` (a task or flight branch, a branch in the protected
-set) names no branch. Only the worker tier reads it. Two acts open, and
-nothing else:
+set other than a sign-off branch, below) names no branch. Only the worker
+tier reads it. Two acts open (a sign-off branch takes the separate pair
+below instead), and nothing else:
 
 - **Bring the branch in.** On the session's own flight branch,
   `git merge --ff-only origin/<spec branch>` (also spelled
@@ -929,8 +931,10 @@ nothing else:
   tag of the same name at another commit. Merging `origin/main` afterwards is
   the ordinary base merge, and the push of the result to the spec branch is an
   ordinary push by explicit refspec (`git push origin HEAD:refs/heads/<spec
-  branch>`) that the guard never refused: the spec branch is outside the
+  branch>`) that the guard never refused: such a spec branch is outside the
   protected set, and the profile's force and `+` denies still refuse a force.
+  A sign-off branch is in the protected set and takes neither act; it has its
+  own pair, below.
 - **Sync it with its base.** In a linked worktree that is the session's
   project directory with the named spec branch checked out, `git merge
   origin/main` (the PR base alone, by name and by what git resolves it to) is
@@ -950,7 +954,54 @@ nothing else:
 
 No force, reset or rebase is admitted by either act.
 
-A kickoff session needs no record for the second act: its launch scope
+A spec's sign-off branch (`planwright/<spec>/spec`) sits in the protected
+floor, and only its kickoff writes the spec's content there. A record naming
+it opens a narrower pair instead of the two acts above, so a worker launched
+on that pull request can land a forward merge of `main` and nothing else:
+
+- **Build the merge.** In a linked worktree that is the session's project
+  directory with the branch checked out, `git merge origin/main` alone (bare
+  or with `--no-edit`, the PR base by that spelling and by what git resolves
+  it to), as the command's only act. Any other source or spelling, any other
+  option, the fast-forward to the PR head, a pull, or a second command on the
+  line refuses.
+- **Push it.** A push by explicit refspec (`git push origin HEAD:refs/heads/<spec
+  branch>`, the branch by name, or `HEAD`), from the same worktree the merge
+  is built in (a flight checkout or another clone refuses), as the command's
+  only act, with a `HEAD` or local-branch source, to the branch's
+  own remote. That remote must fetch and push through its one URL: a push
+  URL, an `insteadOf` or `pushInsteadOf` rewrite, an upload-pack,
+  receive-pack, ssh or proxy override, or a remote-helper URL refuses. So
+  does local state that changes what git reads of history or of a merge:
+  replace refs (every read here ignores replace objects, as the push's
+  pack does), a shallow repository, a configured merge driver, and an
+  `info/grafts` or `info/attributes` that is anything but absent or an empty
+  regular file (one with content, a link, a FIFO or other special file, or
+  under a linked `info` directory, since git reads through what a size test
+  sees as empty). The
+  guard reads the PR head and the remote's default branch from the remote
+  itself (`git ls-remote --symref`), then fetches both with a bounded fetch
+  and requires the fetched refs to match, so no local ref, `origin/HEAD`
+  included, decides what counts as `main`. It admits the push only when it
+  fast-forwards that head and every commit it adds that `main` lacks lies on
+  a first-parent line that starts on the PR head itself (a merge onto an
+  older commit of the branch refuses, even once `main` holds the head). Each
+  such commit must be a two-parent merge whose
+  second parent `main` holds and whose tree is exactly the clean merge of its
+  parents (`git merge-tree --write-tree`, reading attributes from an empty
+  tree, so neither a worktree `.gitattributes` nor `core.attributesFile`
+  stands in for a hand resolution; that needs git 2.40 or later, and an
+  older git refuses with that reason), in every file and mode. A conflict
+  resolved by hand or any edit inside the merge refuses, spec files or not,
+  and so do a direct spec edit, any non-merge commit, a merge of anything but
+  `main`, a delete, a failed git read, and a push from a session with no
+  record or another pull request's. For both acts the protected-set read
+  exempts only the floor's own `planwright/*/spec` entry: a
+  `protected_branches` addition that matches the sign-off branch, a
+  duplicate of that entry included, still refuses them. Every other target
+  of the same push is read as usual.
+
+A kickoff session needs no record for the sync act: its launch scope
 (`PLANWRIGHT_WORKER_SCOPE`, set by the launcher, which no command can change
 for the hook) names its spec branches. `kickoff-<spec>` names
 `planwright/<spec>/spec`, `planwright/<spec>/spec-rework` and
@@ -959,14 +1010,38 @@ for the hook) names its spec branches. `kickoff-<spec>` names
 refused when another spec's kickoff could share that scope, as for its push.
 Checked out in the session's own linked worktree, such a branch takes the same
 base merge and fast-forward to its PR head under the same rules. `planwright/<spec>/spec` sits in the
-protected floor, which governs pushes and is reached only through the kickoff
-push helper, which reads no protected set for it, so its kickoff's local merge
+protected floor, which governs pushes; its kickoff reaches it through the
+kickoff push helper, which reads no protected set for it, so its kickoff's local merge
 there skips the protected set as that push does, `protected_branches`
 additions included; every other branch still reads the set. Whichever names the branch, the merge
 must be plain: an option outside the message, output, signing, hook and
 fast-forward ones (a squash, a strategy or strategy option, unrelated
 histories, `--no-commit`, `--autostash`), an abbreviated option or an expanded
 one refuses.
+
+## The stacked-base launch record
+
+A stacked PR's base is another feature branch, so the default-base rule would
+refuse its worker's base merge. A launch given `--base <branch>`, or
+`--base-from-pr` (one bounded `gh` read, kept only from an open PR whose head
+is in this repository), writes that branch into the session record as
+`stack_base=<remote>/<branch>` (`scripts/worker-session-record.sh`); a launch
+with neither records none. The policy
+guard reads it through the record checks it gives `spec_branch`: this user's
+own regular file of at most 4096 bytes outside the worktree, naming this unit
+branch, with one `stack_base` on the unit's remote inside the guard's branch
+grammar. With it, `git merge` of that branch's
+remote-tracking ref (or of its current tip's full id) and `git pull <remote>
+<branch>` pass under `worker_base_merge: allow`, and
+`scripts/converge-sync-main.sh --base <branch>` syncs it, fetching
+`refs/heads/<branch>` so a tag of that name is never merged. The sync script
+runs in the worker's own shell and reads the record the session's
+environment names; the guard refuses any worker command that sets or clears
+that variable. `pr_base` stays the default base, so the trusted files above
+are still held to it. The record is not revalidated: if the PR is retargeted
+to main, its old base stays mergeable until a relaunch writes a new record.
+The worker command guard approves only the default base's merge, so a
+stacked merge it sees prompts.
 
 ## Changing any of this
 

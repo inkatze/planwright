@@ -3,6 +3,7 @@
 # launch-time inputs its command guard trusts.
 #
 # Usage: worker-session-record.sh write <worktree> [<launch-id> | --session <handle>]
+#          [--base <branch> | --base-from-pr]
 #          [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit]
 #          [--spec-branch <branch>] [--launcher mission-control]
 #        worker-session-record.sh path <worktree>
@@ -26,6 +27,16 @@
 #                      grammar. The command guard and the step runner hold the
 #                      worktree's trusted files to its merge base, so a
 #                      record without it trusts none
+#   stack_base        <remote>/<branch>: the base of a stacked pull request
+#                      (one whose base is another feature branch), from
+#                      --base <branch> or, with --base-from-pr, the PR's
+#                      baseRefName read once from gh (the one network call,
+#                      made only on request, kept only from an open PR whose
+#                      head is in this repository); omitted when it is the
+#                      default base, outside the branch grammar, or unknown. It is the one
+#                      branch besides the default base a worker's base merge
+#                      may take (scripts/policy-guard.sh,
+#                      scripts/converge-sync-main.sh --base)
 #   worker_base_merge  the human-gates knob (omitted when it cannot be read)
 #   draft_rewrite      the human-gates knob, from the core, adopter, and
 #                      machine-local layers only (scripts/resolve-policy-knob.sh;
@@ -78,7 +89,10 @@
 #                      --spec-branch names, omitted otherwise: the policy guard
 #                      lets that session fast-forward its flight branch to it and
 #                      sync the checked-out branch with the PR base, and nothing
-#                      else. Never read from config, the checkout or the command
+#                      else; a sign-off branch (planwright/<spec>/spec) takes
+#                      only a lone base merge and a clean-merge push instead
+#                      (docs/permission-matcher-model.md). Never read from
+#                      config, the checkout or the command
 #   hook_exclude       worker_hook_exclude as a comma-joined list, omitted
 #                      when unset or when any member falls outside
 #                      [A-Za-z0-9_-]; the launcher exports it as
@@ -132,7 +146,8 @@ me=worker-session-record.sh
 # (they change together).
 MAX_CHECKS_LEN=2048
 # The record size every reader accepts (scripts/worker-command-guard.sh,
-# scripts/policy-guard.sh, scripts/worker-branch-sync.sh; they change together).
+# scripts/policy-guard.sh, scripts/worker-branch-sync.sh,
+# scripts/converge-sync-main.sh; they change together).
 MAX_RECORD_SIZE=4096
 script_dir=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 
@@ -141,7 +156,16 @@ die() {
   exit "${2:-1}"
 }
 
-usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--launcher mission-control] | path <worktree>"
+# The policy guard's valid_branch grammar, which re-checks every stack_base.
+branch_grammar_ok() {
+  case $1 in
+    '' | -* | /* | */ | *//* | *..* | *[!A-Za-z0-9._/+@-]* | *.lock | *.lock/* | */.* | .* | *.) return 1 ;;
+    HEAD | @) return 1 ;;
+  esac
+  [ "${#1}" -le 255 ]
+}
+
+usage="usage: $me write <worktree> [<launch-id> | --session <handle>] [--base <branch> | --base-from-pr] [--scratch | --fresh-scratch] [--mise-task-edit] [--lefthook-edit] [--spec-branch <branch>] [--launcher mission-control] | path <worktree>"
 [ "$#" -ge 2 ] || die "$usage" 2
 verb=$1
 case $verb in
@@ -155,6 +179,8 @@ launcher=''
 launch_id=''
 have_id=0
 session=''
+stack_arg=''
+have_base=0
 want_scratch=0
 mise_task_edit=0
 lefthook_edit=0
@@ -166,6 +192,18 @@ while [ "$#" -gt 0 ]; do
       want_scratch=1
       [ "$1" = --scratch ] || want_scratch=2
       shift
+      ;;
+    --base-from-pr)
+      [ "$have_base" = 0 ] || die "$usage" 2
+      have_base=2
+      shift
+      ;;
+    --base)
+      [ "$#" -ge 2 ] && [ "$have_base" = 0 ] || die "$usage" 2
+      branch_grammar_ok "$2" || die "--base is outside the branch grammar" 2
+      stack_arg=$2
+      have_base=1
+      shift 2
       ;;
     --mise-task-edit)
       [ "$mise_task_edit" = 0 ] || die "$usage" 2
@@ -342,7 +380,7 @@ unit=$(gitq "$wt" symbolic-ref --quiet --short HEAD) || unit=''
 case $unit in
   planwright/flight/task-*) unit='' ;;
   planwright/flight/*) printf '%s\n' "$unit" | grep -Eq '^planwright/flight/[a-z0-9][a-z0-9-]*-[0-9a-f]{8}$' || unit='' ;;
-  planwright/*/task-*) printf '%s\n' "$unit" | grep -Eq '^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$' || unit='' ;;
+  planwright/*/task-*) printf '%s\n' "$unit" | grep -Eq '^planwright/[a-z0-9][a-z0-9-]*/task-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?(-[0-9]+[a-z]?(\.[0-9]+[a-z]?)?)?$' || unit='' ;;
   *) unit='' ;;
 esac
 
@@ -365,6 +403,34 @@ if [ -n "$unit" ]; then
     [ -n "$head" ] && [ "$base" != "$head" ] || base=main
     pr_base=$remote/$base
   fi
+fi
+
+# A stacked PR's base is another feature branch: the one the launcher names
+# with --base, or with --base-from-pr the PR's own baseRefName read once from
+# gh, taken only from an open PR whose head is in this repository (gh matches
+# a branch name to a closed PR, or to a fork's, too); with neither, none. Kept
+# only when it differs from the default base the record names, and only inside
+# the branch grammar the guards re-check. A stacked base asked for and not
+# recorded gets a stderr warning, since the worker's merge of it is refused
+# later; a PR on the default base is not stacked and gets none.
+stack_base=''
+if [ -n "$pr_base" ]; then
+  if [ "$have_base" = 2 ] && command -v gh >/dev/null 2>&1; then
+    pr_line=$(cd -- "$wt" 2>/dev/null && /bin/sh "$script_dir/bounded-run.sh" 15 gh pr view "$unit" \
+      --json baseRefName,state,isCrossRepository --jq '[.state, (.isCrossRepository | tostring), .baseRefName] | join(" ")' \
+      2>/dev/null </dev/null | head -n 1) || pr_line=''
+    case $pr_line in
+      'OPEN false '?*) stack_arg=${pr_line#OPEN false } ;;
+      *) stack_arg='' ;;
+    esac
+  fi
+  if [ -n "$stack_arg" ] && [ "$stack_arg" != "${pr_base#*/}" ] && branch_grammar_ok "$stack_arg"; then
+    stack_base=${pr_base%%/*}/$stack_arg
+  fi
+fi
+if [ "$have_base" != 0 ] && [ -z "$stack_base" ] && { [ -z "$pr_base" ] || [ "$stack_arg" != "${pr_base#*/}" ]; }; then
+  printf '%s: no stacked base recorded (%s): the worktree holds no unit branch, the base is outside the branch grammar, or (with --base-from-pr) no open same-repository PR was read\n' \
+    "$me" "${stack_arg:-none read}" | tr -d '\000-\010\013-\037\177' >&2
 fi
 
 base_merge=''
@@ -502,6 +568,7 @@ record_lines() {
   [ -z "$unit" ] || printf 'unit_branch=%s\n' "$unit"
   printf 'worktree_root=%s\n' "$wt"
   [ -z "$pr_base" ] || printf 'pr_base=%s\n' "$pr_base"
+  [ -z "$stack_base" ] || printf 'stack_base=%s\n' "$stack_base"
   [ -z "$base_merge" ] || printf 'worker_base_merge=%s\n' "$base_merge"
   [ -z "$draft_rewrite" ] || printf 'draft_rewrite=%s\n' "$draft_rewrite"
   [ -z "$launcher" ] || printf 'launcher=%s\n' "$launcher"

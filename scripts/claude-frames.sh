@@ -56,10 +56,10 @@
 # Exit: 0 success, or clearance granted · 1 persist found no usable reading
 # (nothing written), or clearance not granted · 2 usage · 4/5 propagated from
 # the knob resolver, 4 also when a window's thresholds are a set the usage
-# gate refuses (outside 1-100, or not strictly ascending up its ladder) · 5
-# also when the throttle's ceiling cannot be read · 6 a runtime failure (no
-# fleet home, no clock, a link or non-regular file where the frame goes, a
-# write).
+# gate refuses (outside 1-100, or not strictly ascending up its ladder, though
+# rungs at 100 may repeat) · 5 also when the throttle's ceiling cannot be read
+# · 6 a runtime failure (no fleet home, no clock, a link or non-regular file
+# where the frame goes, a write).
 #
 # POSIX sh + awk on the bash 3.2 / BSD tooling floor. No eval; frame text is
 # data, parsed by awk and never interpolated into a command.
@@ -233,7 +233,9 @@ lowest() {
   lw_low=""
   for lw_v in "$@"; do
     [ "$lw_v" = off ] && continue
-    [ "$lw_v" -gt "$lw_prev" ] || die 4 "the $lw_w thresholds are not strictly ascending ($*)"
+    # As in the gate, rungs at 100, the wall, may repeat: an override parks a
+    # window's top rungs there, and refusing that set would pin a hold.
+    [ "$lw_v" -gt "$lw_prev" ] || [ "$lw_v" = 100 ] || die 4 "the $lw_w thresholds are not strictly ascending, only rungs at 100 may repeat ($*)"
     lw_prev=$lw_v
     [ -n "$lw_low" ] || lw_low=$lw_v
   done

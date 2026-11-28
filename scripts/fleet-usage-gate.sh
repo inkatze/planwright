@@ -645,15 +645,17 @@ window_rung() {
 }
 
 # ascending_thresholds <window> <t>...: exit 4 unless the enabled thresholds
-# are strictly ascending, so a rung switched `off` leaves the rest ordered.
+# are strictly ascending (rungs at 100, the wall, may repeat; a rung below 100
+# after one is refused), so a rung switched `off` leaves the rest ordered. An
+# override parks a window's top rungs at 100, where they still trip.
 ascending_thresholds() {
   at_w=$1
   shift
   at_prev=0
   for at_v in "$@"; do
     [ "$at_v" = off ] && continue
-    if [ "$at_v" -le "$at_prev" ]; then
-      printf '%s\n' "fleet-usage-gate: the $at_w thresholds are not strictly ascending ($*; off rungs skipped) — refusing non-monotonic thresholds" >&2
+    if [ "$at_v" -le "$at_prev" ] && [ "$at_v" != 100 ]; then
+      printf '%s\n' "fleet-usage-gate: the $at_w thresholds are not strictly ascending, only rungs at 100 may repeat ($*; off rungs skipped) — refusing non-monotonic thresholds" >&2
       exit 4
     fi
     at_prev=$at_v
@@ -661,10 +663,10 @@ ascending_thresholds() {
 }
 
 # resolve_thresholds: resolve every per-window threshold through the overlay
-# (REQ-E1.6) and validate each enabled one within 1-100 and strictly ascending
-# per window. A threshold is never 0 (the resolver refuses it), unlike a usage
-# PERCENTAGE, which may legitimately be 0. A malformed set is a fail-closed
-# config error (exit 4). Sets the S_*/W_* globals.
+# (REQ-E1.6) and validate each enabled one within 1-100 and ordered per window
+# as ascending_thresholds checks. A threshold is never 0 (the resolver refuses
+# it), unlike a usage PERCENTAGE, which may legitimately be 0. A malformed set
+# is a fail-closed config error (exit 4). Sets the S_*/W_* globals.
 resolve_thresholds() {
   S_DS=$(resolve_knob threshold fleet_usage_session_downshift 50) || exit $?
   S_RC=$(resolve_knob threshold fleet_usage_session_reduce_concurrency 70) || exit $?
