@@ -135,8 +135,8 @@
 #   push       a force or bulk push denies, and so does one with any word
 #               the shell expands (the remote, a refspec, an option or its
 #               value); every other push reads the protected set and denies
-#               a target inside it, a bare push's
-#               targets including branch.<b>.merge however it is spelled. A
+#               a target inside it, a bare push's targets including
+#               branch.<b>.merge however it is spelled. A
 #               refspec naming a source with no destination denies where
 #               remote.<remote>.push is configured, since git maps it there,
 #               and under push.default=upstream (or tracking) also targets
@@ -1980,13 +1980,13 @@ names_cfgenv() {
     fi
     case "$decl:$w" in
       1:*=*)
-        # declare, typeset and local evaluate a quoted compound value, one
-        # that starts with ( and ends with ) such as '([HOME=1]=x)', since the
-        # name may already be an array; readonly does given -a or -A, and
-        # export never does. It sets a name only through a subscript or an
-        # expansion, so it counts when it holds [ or $. Only an unsubscripted
-        # name is read here, though under -a or -A bash also evaluates the
-        # value given to a subscripted name.
+        # A quoted compound value ('([HOME=1]=x)', one that starts with (
+        # and ends with )) is evaluated by declare, typeset and local, since
+        # the name may already be an array, and by readonly given -a or -A;
+        # export never evaluates it. The value sets a name only through a
+        # subscript or an expansion, so it counts when it holds [ or $. Only
+        # an unsubscripted name is read here, though under -a or -A bash also
+        # evaluates the value given to a subscripted name.
         lhs=${w%%=*}
         case ${w:${#nm}:1}${w:$((${#lhs} + 1)):1}${w:$((${#w} - 1))}:$1:$aopt in
           '=()':declare:* | '=()':typeset:* | '=()':local:* | '=()':readonly:1)
@@ -5541,7 +5541,7 @@ classify_git_push() {
   # read as the remote a bare push goes to.
   if [ "$repo_opt" = 1 ]; then
     if [ -z "$repo_val" ]; then
-      deny_now 'this git push gives --repo but names no remote with it - refusing (fail closed). Name the remote literally as the first argument.'
+      deny_now 'this git push gives --repo but names no remote with it - refusing (fail closed). Name the remote as the first argument.'
       return 0
     fi
     pos[0]=$repo_val

@@ -572,14 +572,24 @@ echo "# a push's -h is help only where git reads it as an option"
 for tier in worker tower; do
   for cmd in 'git push origin --repo -h -uf main:planwright/demo/task-2' \
     'git push origin -o -h --force HEAD:planwright/demo/task-2' \
-    'git push origin --repo -h --mirror' 'git push origin -o $X -h HEAD:planwright/demo/task-2'; do
+    'git push origin --repo -h --mirror'; do
     pg "$tier" "$cmd"
     expect deny "[$tier] a -h taken as an option's value leaves the push read: $cmd"
   done
-  for cmd in 'git push -h' 'git push origin planwright/demo/task-1 --help' 'git push --force -h'; do
+  pg "$tier" 'git push origin -o $X -h HEAD:planwright/demo/task-2'
+  expect deny "[$tier] an expansion that could make -h a value is refused before the help is honoured"
+  reason_has 'expansion or pattern' "[$tier] the -h behind an expansion gets the expansion deny"
+  for cmd in 'git push -h' 'git push origin planwright/demo/task-1 --help' 'git push --force -h' \
+    'git push --force --help' 'git push origin --all --help' 'git push --mirror -h'; do
     pg "$tier" "$cmd"
-    expect defer "[$tier] a push git reads -h or --help on prints usage and still defers: $cmd"
+    expect defer "[$tier] a push whose -h or --help git reads as an option prints usage and still defers: $cmd"
   done
+done
+for cmd in 'git push origin --end-of-options -h :planwright/demo/task-1' 'git push origin -- -h :planwright/demo/task-1' \
+  'git push origin -- --help :planwright/demo/task-1'; do
+  pg worker "$cmd"
+  expect deny "[worker] a -h or --help after the options end is a refspec: $cmd"
+  reason_has 'never deletes a unit branch' "[worker] the delete after the options end is still read: $cmd"
 done
 for cmd in 'git push origin -o -h :planwright/demo/task-1' 'git push origin --push-option -h :planwright/demo/task-1'; do
   pg worker "$cmd"
