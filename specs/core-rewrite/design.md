@@ -1,7 +1,7 @@
 # Core rewrite — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-11-27
+**Status:** Ready
+**Last reviewed:** 2026-11-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -21,8 +21,8 @@ is a defect to close. The capability beneath it: a deterministic core
 (program, store, state machine, decision engine, typed verbs, supervisor)
 that every adopter gets in planwright's shipped defaults. Planwright's own
 values (its allow-list contents, thresholds, model tiers) stay config. The
-pinned seed claims (the operator's "make things work mechanically", the brief's
-"nothing relies on agents remembering instructions") are why REQ-A comes first
+pinned seed claims (the operator's "make things work mechanically", the hub's
+draft brief's "nothing relies on agents remembering instructions") are why REQ-A comes first
 and every later group cites a code home.
 
 **Alternatives considered:**
@@ -49,8 +49,8 @@ skill calls becomes a shim that execs it. The operator chose Go at drafting
 (hub picklist, 2026-11-28: "Yes, Go (Recommended)").
 
 **Alternatives considered:**
-- Rust. Rejected because: faster in the hook bake-off (about 4 ms against 8 ms
-  median on Linux), but more source to write, a musl and LGPL caveat, a macOS
+- Rust. Rejected because: faster in the hook bake-off, but more source to
+  write, a musl and LGPL caveat, a macOS
   cross-compile risk, and no shell parser of mvdan/sh's maturity.
 - Stay in shell and harden it. Rejected because: the parser, the single-writer
   store and the process ownership this spec needs cannot be built reliably in
@@ -94,8 +94,11 @@ liveness.
 
 **Decision:** The engine is a pure function from (session row, tool call) to
 allow, deny with a reason, or ask a named owner, called from the PreToolUse
-hook in every session type. Tiers apply in order: floor (human-gate acts and
-self-permission edits, never allowed), typed verbs, sandboxed local work, the
+hook in every session type. Tiers apply in order: floor (every act the
+human-gates list names, and self-permission edits, never allowed on policy
+alone: one proceeds only on an operator approval record under D-8, performed
+by the core's typed verb outside the session, and only where human-gates lets
+the operator's yes authorize it), typed verbs, sandboxed local work, the
 parser tier, ask. The floor acts are also deny and ask rules in every shipped
 settings profile, which Claude Code applies before any hook decision, so no
 engine defect loosens them. Unknown, unreadable or ambiguous input asks or
@@ -117,8 +120,10 @@ correctness.
 
 **Decision:** Workers and mission controls run under Claude Code's sandbox
 where the host has it: writes to the worktree, scratch and shared git
-directory (hooks and config denied), forge credentials masked, unsandboxed
-retry off, `failIfUnavailable` on. Mission control gets no repository write.
+directory (hooks and config denied), every forge credential source masked,
+unsandboxed retry off, and `failIfUnavailable` on for a host whose capability
+row says it is sandbox-capable; a host without a sandbox runs the parser tier
+and logs that it does (D-22). Mission control gets no repository write.
 Where no sandbox runs, the parser tier builds a syntax tree with mvdan/sh and
 allows only commands whose every judged word is literal after quote removal,
 matched against the allow-list; anything dynamic is unknown and asks.
@@ -138,13 +143,15 @@ work, and the parser tier fails closed for hosts that lack it.
 ### D-6: Outward acts only through typed verbs; push judges the resolved refs (N)
 
 **Decision:** Push, pull-request writes, ready flip, merge admission, thread
-replies, messages and planwright's own records are typed verbs of the core
+replies, messages, planwright's own records and the kickoff's publish of a
+signed spec or amendment branch (bound as REQ-D1.7 states) are typed verbs of the core
 (CLI first, an MCP face optional), running outside the sandbox, holding the
 credential, and validating arguments against the session's row (its unit
 branch, its pull request, its program). The push verb runs git itself and
 judges the destination refs a pre-push check receives, so no spelling of the
 command line changes what is judged. Free shell text never reaches an outward
-act because the sandbox holds no forge credential.
+act: the sandbox holds no forge credential, and on a host with no sandbox the
+parser tier refuses an outward act in shell text rather than parsing it.
 
 **Alternatives considered:**
 - Keep pushes in shell and harden the matcher. Rejected because: that is the
@@ -161,8 +168,8 @@ names.
 **Decision:** The engine answers a worker's permission prompt for every call
 it can decide (allow for the routine classes in policy data, deny for the
 floor), logging each answer; only an ask reaches a model or the operator.
-This amends execution-backends D-5 (no second approval engine in the
-supervisor) and worker-permission-ergonomics REQ-F1.2 (the guard as the only
+This supersedes execution-backends D-5 (a permission prompt is never
+auto-answered) and worker-permission-ergonomics REQ-F1.2 (the guard as the only
 self-approval mechanism): the engine is the one approval engine, and the
 guard it replaces goes away. The operator agreed at drafting (hub picklist,
 2026-11-28: "Yes (Recommended)").
@@ -181,13 +188,22 @@ reach by D-4.
 
 ### D-8: Approvals are records; the core performs the approved act (N)
 
-**Decision:** An operator approval is a record written at the operator-facing
-surface: the operator's quoted words, the time, the exact text's hash, the act
-and its target. A relayed go is the record, not prose; the core performs the
-act when a matching record exists and the act's own preconditions hold. No
-model carries authority across a hop, so the classifier is never asked to
-trust a relay. Records are single-use unless the operator's words name a
-standing scope.
+**Decision:** An operator approval is a record the core writes itself from
+the operator's own answer, as the harness delivers it at the surface the
+operator answers on (a selector answer or a typed reply, read by the core's
+hook), never from an argument a model supplies: the operator's quoted words,
+the time, the exact text's hash, the act, its target and the commit it
+applies to. No model session can write one. A relayed go is the record, not
+prose; the core performs the act through its typed verb when a record matches
+the act, target and commit and the act's own preconditions hold, and only
+where human-gates lets the operator's yes authorize that act. No model carries
+authority across a hop, so the classifier is never asked to trust a relay.
+Records are single-use unless they carry an explicit scope field with an
+expiry; the core never infers a standing scope from the words. The operator
+chose this capture at kickoff (hub picklist, 2026-11-28: "The core captures
+it (Recommended)").
+*(Amended at kickoff 2026-11-28: capture by the core, bound to commit, typed
+scope with expiry.)*
 
 **Alternatives considered:**
 - Better relay wording. Rejected because: the classifier refuses a relayed go
@@ -296,7 +312,8 @@ through the engine and reports the share settled per tier and every
 disagreement, failing hard if a must-never-allow fixture is allowed. Every
 live slice runs first in shadow beside the shell path it replaces. Policy and
 guard tasks land failing fixtures first, with a positive control. A kill
-switch returns every session to the shell path without loosening the floor.
+switch, thrown only on an operator approval record, returns every session to
+the retained pre-shim shell path without loosening the floor.
 Shell entry points stay as shims until a human-directed removal. Each slice
 reports against one baseline taken before the first.
 
@@ -326,12 +343,17 @@ core one transactional home.
 ### D-16: What this spec supersedes, extends and amends (N)
 
 **Decision:** control-plane is superseded whole (its Task 1 baseline stands;
-its REQ-A1.3, REQ-A1.4, REQ-D, REQ-I and REQ-J are carried here; its slice two
-to four stubs fold into this spec's tasks). universal-binary keeps its landed
-Tasks 1 to 8 and is amended to retire Tasks 9 to 14, its bake-off data and
-REQ-B1.1 standing as evidence and constraint here. worker-permission-ergonomics'
-guard mechanism is replaced and its outcomes kept; execution-backends D-5 is
-amended. Specs this one sits beside and consumes: human-gates (the gate list),
+its REQ-A1.3, REQ-A1.4, REQ-D, REQ-I and REQ-J are carried here; every other
+requirement and slice stub of it is named carried, dropped or deferred in its
+supersession amendment). universal-binary keeps its landed Tasks 1 to 8 and
+is amended to retire its unbuilt verdict and migration tasks, its bake-off
+data and REQ-B1.1 standing as evidence and constraint here and its Task 10
+delivery design carried into Task 3. worker-permission-ergonomics' guard
+mechanism is replaced and its outcomes kept; its REQ-F1.2 and
+execution-backends D-5 are superseded by new records. Each change is its own
+amendment, walked with the operator at its own kickoff (Task 2; the operator
+chose this at kickoff, hub picklist 2026-11-28: "Amendment walks
+(Recommended)"). Specs this one sits beside and consumes: human-gates (the gate list),
 guard-coverage (the fixture corpus), harness-rebaseline (its permission trial
 is answered by this spec's replay and shadow data), review-effectiveness,
 model-allocation, fleet-autonomy, quota-handling, mission-control. The
@@ -351,7 +373,7 @@ operator agreed at drafting (hub picklist, 2026-11-28: "Yes, supersede both
 
 **Decision:** Each cost measure is a capability in the core with a config
 knob: the per-run hosted-review rule (once on the final head), the usage
-ladder failing closed, model and effort tiers per launch point and step, the
+ladder failing closed, model and effort tiers per launch kind and step, the
 handover threshold, the idle-wait end. A shipped default changes only with
 the measurement that justifies it, cited in the change (for example the
 pending Sonnet-review and 200k-handover notes' figures).
@@ -378,7 +400,8 @@ fact, not a claim.
   re-fans every lens over the whole branch each pass.
 
 **Chosen because:** polish was the slowest cadence step (median 25 minutes
-over 28 runs on 2026-11-24, 1h10m over 25 runs on 2026-11-26), and the
+over 28 runs on 2026-11-24, 1h10m over 25 runs on 2026-11-26; hub
+follow-ups f-44 and f-55), and the
 measured causes are full re-fans, passes past the cap and approval waits.
 
 ### D-19: CI judges what a pull request touches (N)
@@ -437,6 +460,45 @@ through a dotfiles change (hub, 2026-11-28: "a").
 
 **Chosen because:** a host adds capabilities; it never changes behaviour.
 
+### D-23: Store and executable upkeep with safe defaults (N)
+
+**Decision:** The store and the executable follow one set of upkeep rules,
+each value a config setting with a safe default:
+
+- **Schema.** The store carries a schema version. Migrations run forward
+  only, each in one transaction, after a snapshot copy of the store. An
+  executable older than the store's schema refuses to write it, naming both
+  versions.
+- **Backups and retention.** A snapshot is taken before every migration and
+  on a configured interval, keeping a configured count. The decision log,
+  prompts and events carry configured age and size limits, and each pruning
+  is itself recorded. Work products export per D-15.
+- **Versions.** The executable's version follows the plugin's. Every shim
+  checks the executable's version against the installed plugin manifest and
+  fails closed with a message on a mismatch.
+- **Writers.** In direct mode every write takes the store's write lock up
+  front with a configured busy timeout; a timed-out write makes a record verb
+  refuse and a decision ask, never allow (REQ-A1.3).
+- **Caller identity.** The core derives a caller's session row from the
+  identity the harness supplies (the hook input's session id, or the
+  supervisor's spawn record), never from an id the caller passes. The service
+  mode's local socket is usable by its own user only.
+- **Secrets.** Credentials are redacted from prompts, the decision log and
+  replay input before they are stored. Store files are user-only and never sit
+  inside a repository.
+- **Hook time limit.** The hook carries a configured time limit; a decision
+  not reached within it asks, or denies on a floor act, and never allows.
+
+**Alternatives considered:**
+- Leave each to the task that first meets it. Rejected because: the store is
+  shared by every task, so per-task choices would diverge, and the
+  decision-domain catalog requires each domain the spec touches to be decided
+  or accepted as a risk.
+
+**Chosen because:** the operator chose safe defaults at kickoff (hub picklist,
+2026-11-28: "Add it with safe defaults (Recommended)"), and every default
+above fails closed in the sense REQ-A1.3 requires.
+
 ## Cross-cutting concerns
 
 - **Decision domains crossed:** data storage (D-2, D-15), queues and async
@@ -449,6 +511,15 @@ through a dotfiles change (hub, 2026-11-28: "a").
   config-knob, rule-doc, execution-backend and notification seams are reused;
   the store is minted, its nearest seam being the machine-local state home,
   which it lives in).
+- **Bounds and timers:** every bound this bundle names without a value
+  (delivery latency, escalation timer, review round cap and wall-clock
+  budget, prompt-cache lifetime, replay window, write-lock timeout, hook time
+  limit, retention) is a config setting; the task that delivers it sets the
+  default, cites the measurement or source behind it, and its Done-when
+  fixture runs against the configured value.
+- **Data storage and lifecycle:** D-23 decides migration, backup, retention,
+  version matching, writer concurrency, caller identity, redaction and the
+  hook time limit.
 - **Security posture:** every task touching the engine, verbs, sandbox profile
   or parser gets the write-time security pass for authorization, subprocess
   construction and path handling.

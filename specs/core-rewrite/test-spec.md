@@ -1,15 +1,16 @@
 # Core rewrite — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-11-27
+**Status:** Ready
+**Last reviewed:** 2026-11-28
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Coverage mix: the core's verbs, engine, parser tier, state machine and
 readiness computation are verified by `[test]` fixtures in the repository's CI
 suite (the Go tests plus the existing shell suites the shims must keep
-passing), each refusal fixture shown to fail once against a deliberately
-broken build. The doctrine line is `[design-level]`. Sandbox behaviour,
+passing), each refusal fixture shown to fail once against Task 1's
+broken-build harness (an allow-all stub, or a build with the code home
+removed). The doctrine line is `[design-level]`. Sandbox behaviour,
 service-mode latency and the slice measurements need a real host and are
 `[test + manual]` or `[manual]`, with the measured reports as their artifacts.
 
@@ -36,10 +37,11 @@ event dedupe (it delivers).
 
 ### REQ-A1.4 — Gates stay human [test]
 
-The must-never-allow set includes merge outside a policy class, spec sign-off,
-a ready flip outside the ready-flip policy, release publishing and a message
-to a person; the replay and the engine suite fail when any is allowed, with
-the policy data set to allow it.
+The must-never-allow set holds every act the human-gates list names as a
+human gate, plus a ready flip or merge outside its human-gates policy, read
+from that list; the replay and the engine suite fail when any is allowed
+without a matching operator approval record, with the policy data set to
+allow it.
 
 ### REQ-A1.5 — The rule doc and its lens [test]
 
@@ -51,8 +53,9 @@ lens flag, and a clean fixture does not.
 
 ### REQ-B1.1 — No toolchain to install or run [test]
 
-A CI job per supported platform installs planwright on an image with no Go,
-compiler or package manager and runs `planwright --version` and one verb.
+A CI job per platform of universal-binary's CI matrix installs planwright on
+an image with no Go, compiler or package manager (POSIX shell, git and gh
+present) and runs `planwright --version` and one verb.
 
 ### REQ-B1.2 — Embedded store, no server [test]
 
@@ -76,18 +79,31 @@ name; the existing suites pass through the shims.
 
 ### REQ-B1.6 — Work products exported [test]
 
-A change to a rule, follow-up, decision or ledger row writes its text export;
-a fixture rebuilds operational state from git, the forge fixture and the logs.
+A change to a rule, follow-up, decision, ledger row, approval record or
+capability row writes its text export; decisions land in the append-only
+decision log file; a fixture rebuilds operational state from git, the forge
+fixture and the logs.
 
 ### REQ-B1.7 — Verified delivery [test]
 
-A tampered asset and a wrong checksum are each refused at first use, with no
+Served by a local fixture release, a tampered asset and a wrong checksum are
+each refused at first use against the committed checksum pin, with no
 fallback to an unverified copy.
 
 ### REQ-B1.8 — Bare mode refused, hook self-check [test]
 
 A launch requesting bare mode is refused; a session whose hook is disabled
 stops at its first tool call with a message naming the hook.
+
+### REQ-B1.9 — Store and executable upkeep [test]
+
+Fixtures show: a migration takes a snapshot first and an older executable
+refuses to write the migrated store; pruning past a configured limit writes
+its own record; a shim facing a mismatched executable version fails closed;
+a direct-mode write past its busy timeout refuses (record) or asks
+(decision); a call naming another session's id is judged as the harness's
+session; a credential in a stored prompt or log entry is redacted; a hook
+decision past its time limit asks.
 
 ## REQ-C — The pipeline state machine
 
@@ -108,14 +124,16 @@ before the delivery, is refused.
 
 ### REQ-C1.4 — Completion needs every record; convergence needs a clean pass [test]
 
-A completion with a resolved step missing its record is refused; a convergence
+A completion with a resolved step missing its record is refused, and a
+skipped step with its skip recorded counts as recorded; a convergence
 completion after a pass that applied a change is refused.
 
 ### REQ-C1.5 — Records only through the verbs [test + manual]
 
 File-tool writes to the store and record files are denied in the shipped
-profiles (test); on a sandbox host a shell write to them is refused by the OS,
-and a copied recorder records nothing (manual, recorded in Task 7's report).
+profiles, and a copied or renamed recorder records nothing (test, Tasks 7 and
+11); on a sandbox host a shell write to them is refused by the OS (manual,
+recorded in Task 7's measured-run report).
 
 ### REQ-C1.6 — One readiness computation [test]
 
@@ -127,7 +145,8 @@ not a stored claim.
 
 A generated brief lists every open unit, request, commitment and duty in the
 fixture store; its diff against the previous brief is printed; take is refused
-while one request is unacknowledged.
+while one request is neither acknowledged by the successor nor waived by an
+operator record.
 
 ### REQ-C1.8 — Config from the session row [test]
 
@@ -138,8 +157,9 @@ program's config.
 
 ### REQ-D1.1 — One engine at every hook [test]
 
-The hook is registered in the worker, tower and mission-control profiles and
-for subagents (a profile check); each logged decision carries an input digest.
+The hook is registered for every session type (headless worker, tmux
+session, tower, mission control, subagent; a profile check); each logged
+decision carries an input digest; a call from a session with no row asks.
 
 ### REQ-D1.2 — Tier order [test]
 
@@ -157,27 +177,35 @@ unit branch) are allowed and logged; outward fixtures go to a verb or ask.
 
 ### REQ-D1.5 — Sandbox profile [test + manual]
 
-The profile check confirms the write list, the credential mask, unsandboxed
-retry off and the required flag (test); on a sandbox host a write outside the
+The profile check confirms the write list, the mask over every forge
+credential source, unsandboxed retry off and the required flag, and a launch
+on a sandbox-capable host whose sandbox fails to start is refused (test); on a sandbox host a write outside the
 worktree and a mission-control repository write are refused by the OS
 (manual, Task 7's report).
 
 ### REQ-D1.6 — Outward acts only through verbs [test + manual]
 
-Each verb refuses arguments that do not match the session's row, and the
-kickoff publish verb re-runs from a signed anchor (test); on a sandbox host a
+Each verb refuses arguments outside its schema or not matching the session's
+row exactly; the message verb refuses a person as recipient without an
+approval record; no verb writes an approval record; on a host with no
+sandbox an outward act in shell text is refused (test); on a sandbox host a
 shell push finds no credential (manual, Task 7's report).
 
 ### REQ-D1.7 — Push judges resolved refs [test]
 
 Every push fixture targeting a protected or foreign branch (the 2026-11-27
 option-swallow and brace or glob forms, and every push spelling in the
-guard-coverage corpus) is refused; the unit's own branch pushes.
+guard-coverage corpus) is refused; the unit's own branch pushes; the kickoff
+publish pushes a spec branch only through the core's push command with the
+operator's sign-off record for that branch and commit, and a reused record,
+another commit, another branch or a missing record is refused.
 
 ### REQ-D1.8 — Parser tier fails closed [test]
 
 Fixtures with each non-literal word class in a command position and in a
-judged argument all ask; literal allow-list commands are allowed.
+judged argument, a redirection target, a here-document, an option the
+allow-list does not name, and a run of a file the session wrote all ask;
+literal allow-list commands are allowed.
 
 ### REQ-D1.9 — Shell guards removed only after shadow [manual]
 
@@ -188,8 +216,10 @@ operator's recorded go before the removal commit.
 
 ### REQ-E1.1 — Routine classes as policy data [test]
 
-Each routine class has allow fixtures and near-miss fixtures that ask;
-changing the policy data changes the decision with no code change.
+Each routine class has allow fixtures and near-miss fixtures that ask (a
+reply on a thread a person has posted in among them); changing the policy
+data changes the decision with no code change; a policy entry naming a floor
+act is rejected at load and the previous policy kept.
 
 ### REQ-E1.2 — The engine answers [test]
 
@@ -199,28 +229,32 @@ prompt reaches an owner.
 ### REQ-E1.3 — Whole prompts, inbox states, redelivery [test + manual]
 
 A prompt larger than any display cap is stored and delivered whole; delivery
-repeats until acknowledged (test); in service mode the timed fixture meets the
+repeats until acknowledged; a prompt from a session with no owner reaches its
+program's mission control, else the operator (test); in service mode the timed fixture meets the
 configured bound on a real host (manual).
 
 ### REQ-E1.4 — Escalation and per-program visibility [test]
 
-An unanswered prompt escalates at its timer to the notification seam; a
-program's listing excludes another program's prompts.
+An unanswered prompt escalates at its timer to the notification seam in
+service mode, and at the next core call in direct mode; a program's listing
+excludes another program's prompts.
 
 ### REQ-E1.5 — Approvals as records [test]
 
 A relayed go with a matching record performs its act; a mismatched hash, a
-reused single-use record and a missing record are each refused.
+mismatched commit, a reused single-use record, an expired scope and a missing
+record are each refused; a record write attempted by a model session (an
+argument rather than a harness-delivered answer) is refused.
 
 ### REQ-E1.6 — Request ledger carried [test]
 
 control-plane REQ-J's verification entries are carried as fixtures over the
-store.
+store, listed by ID in Task 13's fixture index.
 
 ### REQ-E1.7 — Event dedupe carried [test]
 
 control-plane REQ-D's verification entries are carried as fixtures over the
-store.
+store, listed by ID in Task 10's fixture index.
 
 ## REQ-F — Process lifecycle
 
@@ -270,9 +304,9 @@ over budget fails.
 An unreadable or refused usage or load read holds launches and raises an
 event.
 
-### REQ-G1.6 — Tiers resolved per point and step [test]
+### REQ-G1.6 — Tiers resolved per launch kind and step [test]
 
-Resolver fixtures cover each launch point and step kind; a default change
+Resolver fixtures cover each launch kind and step kind; a default change
 without a cited measurement fails the defaults check.
 
 ### REQ-G1.7 — Idle end and measured handover threshold [test]
@@ -295,18 +329,21 @@ non-zero when a must-never-allow fixture is allowed.
 
 ### REQ-H1.2 — Shadow before live [manual]
 
-Each live task's record cites its shadow window and its zero floor
-disagreements.
+Each live task's record cites its shadow window (its configured length, 7
+days by default, and at least one decision from every session type) and its
+zero floor disagreements under REQ-H1.2's failure rule.
 
 ### REQ-H1.3 — Kill switch [test]
 
-The switch returns a fixture session to the shell path; the floor still
-denies afterwards.
+The switch, thrown on an operator approval record, returns a fixture session
+to the retained shell path with the engine left in shadow; the floor still
+denies afterwards; a throw without a record is refused.
 
 ### REQ-H1.4 — Fixtures first, positive control [test]
 
-Each policy and guard task's first commit adds failing fixtures; the positive
-control fails the harness when the engine is replaced by an allow-all stub.
+Each policy and guard task's PR carries the step record of its fixture run
+failing before the implementation landed; the positive control fails the
+harness when the engine is replaced by an allow-all stub.
 
 ## REQ-I — Supersession
 
@@ -317,11 +354,12 @@ The validator passes control-plane with Status Superseded and its
 
 ### REQ-I1.2 — universal-binary Tasks 9 to 14 retired [test]
 
-The validator passes universal-binary with each of Tasks 9 to 14 carrying an
-Out-of-scope reference bullet citing this bundle.
+The validator passes universal-binary with each retired task (Tasks 9 to 14
+at this sign-off) carrying an Out-of-scope reference bullet citing this
+bundle, after its amendment's own kickoff sign-off.
 
 ### REQ-I1.3 — Guard mechanism replaced, approval rule amended [design-level]
 
-The amended worker-permission-ergonomics REQ-F1.2 and execution-backends D-5
-cite this bundle's D-7; the amendment entries exist in each bundle's
-changelog.
+The records superseding worker-permission-ergonomics REQ-F1.2 and
+execution-backends D-5 cite this bundle's D-7; the amendment entries exist in
+each bundle's changelog.
