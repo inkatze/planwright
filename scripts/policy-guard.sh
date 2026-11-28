@@ -132,7 +132,9 @@
 #               rewritten commit. A rebase with -x/--exec denies: its
 #               command runs below this hook. A commit with an expansion among
 #               its options denies: it could spell an amend.
-#   push       a force or bulk push denies; every other push reads the
+#   push       a force or bulk push denies, and so does one with any word
+#               (an option, its value or a refspec) the shell expands; every
+#               other push reads the
 #               protected set and denies a target inside it, a bare push's
 #               targets including branch.<b>.merge however it is spelled. A
 #               refspec naming a source with no destination denies where
@@ -1937,9 +1939,10 @@ names_cfgenv() {
     # it ends a cluster with no other value option, nor read's -a (which
     # takes the array's name), before it, and the rest of the word when it
     # does not, which is then a value, not a name. A word the shell expands
-    # is a cluster only when plain letters stand before its first value
-    # letter, so an expansion can be the value (-p"$PS") but never build an
-    # option (-{,}p); otherwise it counts below, as any non-literal word does.
+    # is a cluster only when nothing but plain letters stands before its
+    # first value letter, so an expansion can be the value (-p"$PS") but
+    # never build an option (-{,}p); otherwise it counts below, as any
+    # non-literal word does.
     if [ -n "$vopts" ]; then
       case $w in
         -[!-]*)
@@ -1963,10 +1966,10 @@ names_cfgenv() {
           ;;
       esac
     fi
-    # The name ends at its first [ or =. A subscript runs from that [ to the
-    # first ]: a plain number holds no ], so a cut there that leaves one is
-    # that number, and any other subscript counts, since the shell evaluates
-    # it as arithmetic. Cuts here and below are suffix removals and offsets,
+    # The name ends at its first [ or =. Its subscript is cut at the first ]:
+    # a plain number holds no ], so a cut that leaves a plain number is that
+    # number, and any other subscript counts, since the shell evaluates it as
+    # arithmetic. Cuts here and below are suffix removals and offsets,
     # linear on a long word, where a prefix removal such as ${w#*\[} or
     # ${w#*=} would not be.
     nm=${w%%[=[]*}
@@ -1978,12 +1981,17 @@ names_cfgenv() {
     case "$decl:$w" in
       1:*=*)
         # A quoted compound value ('([HOME=1]=x)', starting with ( and
-        # ending with ) on an unsubscripted name) is evaluated by declare,
-        # typeset and local (the name may already be an array) and by
-        # readonly given -a or -A; export never evaluates it.
+        # ending with )) is evaluated by declare, typeset and local (the name
+        # may already be an array) and by readonly given -a or -A, and sets
+        # a name only through a subscript or an expansion, so it counts when
+        # it holds [ or $; export never evaluates it. Only an unsubscripted
+        # name is read here, though -a or -A has bash evaluate a subscripted
+        # one's too.
         lhs=${w%%=*}
-        case ${w:${#nm}:1}${w:$((${#lhs} + 1)):1}${w#"${w%?}"}:$1:$aopt in
-          '=()':declare:* | '=()':typeset:* | '=()':local:* | '=()':readonly:1) return 0 ;;
+        case ${w:${#nm}:1}${w:$((${#lhs} + 1)):1}${w:$((${#w} - 1))}:$1:$aopt in
+          '=()':declare:* | '=()':typeset:* | '=()':local:* | '=()':readonly:1)
+            case ${w:$((${#lhs} + 1))} in *'['* | *'$'*) return 0 ;; esac
+            ;;
         esac
         case $nm in *'$'* | *'`'* | *'{'* | *'*'* | *'?'*) [ "$wl" = 1 ] || return 0 ;; esac
         ;;
@@ -3568,13 +3576,14 @@ norm_endpoint() {
 # swap what is string and what is query for the rest of it.
 gql_mask() {
   local -a p=() out=()
-  local n i=1 j tl b
+  local n i=1 j tl b last
   # One split on the quote, and only lengths kept for a string's body, so the
   # walk stays linear; the here-string's newline keeps a trailing empty piece
   # from being dropped.
   IFS='"' read -r -d '' -a p <<<"$1" || :
   n=${#p[@]}
-  p[n-1]=${p[n-1]%$'\n'}
+  last=$((n - 1))
+  p[last]=${p[last]%$'\n'}
   out[0]=${p[0]}
   while [ "$i" -lt "$n" ]; do
     if [ "$((i + 2))" -lt "$n" ] && [ -z "${p[$i]}" ] && [ -z "${p[$((i + 1))]}" ]; then
@@ -5414,18 +5423,18 @@ classify_git_commit() {
 
 classify_git_push() {
   local k=$1 dir=$2 dir_ok=$3 n=${#SW[@]} w name endopts=0 b c force=0 bulk=0 del=0 repo_opt=0
-  local is_repo repo_val='' repo_lit=1
-  local -a pos=() posl=()
+  local is_repo repo_val='' j=$1
+  local -a pos=()
   while [ "$k" -lt "$n" ]; do
     w=${SW[$k]}
     if [ "$endopts" = 1 ]; then
       pos[${#pos[@]}]=$w
-      posl[${#posl[@]}]=${SWL[$k]}
       k=$((k + 1))
       continue
     fi
     case $w in
-      # git reads every word after --end-of-options as a refspec, as after --.
+      # git takes every word after -- or --end-of-options as a positional
+      # (the remote, then refspecs).
       -- | --end-of-options) endopts=1 ;;
       --no-*) ;;
       --*)
@@ -5449,7 +5458,6 @@ classify_git_push() {
             if [ "$is_repo" = 1 ]; then
               repo_opt=1
               repo_val=${w#*=}
-              repo_lit=${SWL[$k]}
             fi
             ;;
           *)
@@ -5457,7 +5465,6 @@ classify_git_push() {
               repo_opt=1
               k=$((k + 1))
               repo_val=${SW[$k]:-}
-              repo_lit=${SWL[$k]:-0}
             else
               # An abbreviated value option takes the next word as its value
               # too, so it is never read as the remote.
@@ -5475,7 +5482,6 @@ classify_git_push() {
         ;;
       -)
         pos[${#pos[@]}]=$w
-        posl[${#posl[@]}]=${SWL[$k]}
         ;;
       -*)
         b=${w#-}
@@ -5494,7 +5500,6 @@ classify_git_push() {
         ;;
       *)
         pos[${#pos[@]}]=$w
-        posl[${#posl[@]}]=${SWL[$k]}
         ;;
     esac
     k=$((k + 1))
@@ -5507,13 +5512,16 @@ classify_git_push() {
     deny_now 'this git push sends every branch (--all, --branches, --mirror) or prunes remote branches, which reaches main - refusing. Push your own branch by name.'
     return 0
   fi
-  local l
-  for l in ${posl[@]+"${posl[@]}"}; do
-    [ "$l" = 1 ] \
+  # Every word counts, an option's and its value as much as a refspec: the
+  # shell expands --{delete,verbose} or -{,v}o into options read above as
+  # none, and a value the guard skips can be spent as a refspec.
+  while [ "$j" -lt "$n" ]; do
+    [ "${SWL[$j]}" = 1 ] \
       || {
-        deny_now 'this git push names its remote or refspec through an expansion the guard cannot read, so it cannot check the target against the protected set - refusing (fail closed). Name the branch literally (git push origin <branch>), or push HEAD.'
+        deny_now 'this git push spells a word through an expansion or pattern the guard cannot read, which could be an option or a target it refuses - refusing (fail closed). Write its options and branch literally (git push origin <branch>), or push HEAD.'
         return 0
       }
+    j=$((j + 1))
   done
   if [ "$repo_opt" = 1 ] && [ "${#pos[@]}" -gt 0 ]; then
     deny_now 'this git push combines --repo with positional arguments, which the guard does not read - refusing (fail closed). Name the remote as the first argument.'
@@ -5522,7 +5530,7 @@ classify_git_push() {
   # With no positional argument, the remote is the one --repo names, so it is
   # read as the remote a bare push goes to.
   if [ "$repo_opt" = 1 ]; then
-    if [ "$repo_lit" != 1 ] || [ -z "$repo_val" ]; then
+    if [ -z "$repo_val" ]; then
       deny_now 'this git push names its remote through --repo with a value the guard cannot read - refusing (fail closed). Name the remote literally as the first argument.'
       return 0
     fi

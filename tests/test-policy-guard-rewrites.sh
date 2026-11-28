@@ -449,15 +449,22 @@ for cmd in 'git config --c get remote.origin.push x && git push origin planwrigh
   'read -raXDG_CONFIG_HOME <<< x; git push' 'read -{,}p HOME <<< x; git push' 'read -ap -aHOME <<< x; git push' \
   "typeset -a 'a=([HOME=1]=x)'; git push origin planwright/demo/task-1" \
   "readonly -A a='([\$((HOME=1))]=x)'; git push origin planwright/demo/task-1" \
-  "readonly -pa a='([HOME=1]=x)'; git push origin planwright/demo/task-1" 'read -r$o x; git push'; do
+  "readonly -pa a='([HOME=1]=x)'; git push origin planwright/demo/task-1" 'read -r$o x; git push' \
+  'read -$op HOME <<< x; git push' 'read -?p HOME <<< x; git push' \
+  "declare -a 'a=(\${HOME:=q})'; git push origin planwright/demo/task-1"; do
   pg worker "$cmd"
   expect deny "[worker] $cmd"
   reason_has 'in the same command' "[worker] the deny is the same-command rule's: $cmd"
 done
 # What a read or mapfile option takes (attached or as the next word), a
-# value export never evaluates (and readonly without -a, a declaration
-# without a whole compound value, let), and a listing's filter are not names.
+# value export never evaluates, readonly's without -a, a declaration's that
+# is no compound holding a subscript or expansion, let's operand naming
+# nothing here, and a listing's filter are not names.
 for cmd in "read -rp '[y/N] ' ans; git push origin planwright/demo/task-1" \
+  "declare MSG='(wip)'; git push origin planwright/demo/task-1" "local re='(a|b)'; git push origin planwright/demo/task-1" \
+  "declare -a arr='()'; git push origin planwright/demo/task-1" "readonly -a 'a=(x)'; git push origin planwright/demo/task-1" \
+  "readonly MSG='(draft)'; git push origin planwright/demo/task-1" "export MSG='(wip)'; git push origin planwright/demo/task-1" \
+  "declare MSG='fix (wip)'; git push origin planwright/demo/task-1" 'read -Ep"$PS" x; git push origin planwright/demo/task-1' \
   "read -p'Continue? [y/N] ' ans; git push origin planwright/demo/task-1" \
   "read -rp'[y/N] ' ans; git push origin planwright/demo/task-1" "read -d'[' x; git push origin planwright/demo/task-1" \
   "mapfile -d'[' a < f; git push origin planwright/demo/task-1" \
@@ -544,7 +551,7 @@ for cmd in 'git push origin :planwright/demo/task-1' 'gh api -X DELETE repos/acm
 done
 pg worker 'git push origin 0abc123:planwright/demo/task-1'
 expect defer "[worker] a source that only starts with a zero is no delete"
-# After --end-of-options every word is a refspec, as after --: a word spelled
+# After --end-of-options every word is a positional, as after --: a word spelled
 # like a value option there is not one, so the refspec after it is read.
 pg worker 'git push origin --end-of-options -vo :planwright/demo/task-2'
 expect deny "[worker] a refspec after --end-of-options and an option-shaped word is read"
@@ -553,6 +560,30 @@ set_knobs 'protected_branches: release/*'
 pg worker 'git push origin --end-of-options -o HEAD:release/1'
 expect deny "[worker] a protected destination after --end-of-options is read"
 set_knobs 'protected_branches:'
+pg worker 'git push origin -- planwright/demo/task-1'
+expect defer "[worker] a refspec after -- still defers"
+
+echo "# a push word the shell expands is refused, whatever it spells"
+for tier in worker tower; do
+  for cmd in 'git push origin --{delete,verbose} planwright/demo/amendment-1' \
+    'git push origin --{delete,quiet} planwright/demo/task-2' \
+    'git push origin --{force,quiet} HEAD:planwright/demo/task-2' \
+    'git push -u origin --{force,quiet} HEAD:planwright/demo/amendment-1' \
+    'git push origin --{mirror,quiet}' 'git push origin --{all,quiet}' 'git push origin --{branches,quiet}' \
+    'git push origin --delet[e] planwright/demo/amendment-1' 'git push origin --delet? planwright/demo/task-2' \
+    'git push origin -{,v}o HEAD:m{a,}in' 'git push origin -{,v}o :planwright/demo/amendment-1' \
+    'git push -u origin -{,v}o :planwright/demo/spec-rework' 'git push origin -o $X planwright/demo/task-1' \
+    'git push origin --push-option=$X planwright/demo/task-1' 'git push origin -o"$X" planwright/demo/task-1'; do
+    pg "$tier" "$cmd"
+    expect deny "[$tier] $cmd"
+    reason_has 'expansion or pattern' "[$tier] the deny names the word the guard cannot read: $cmd"
+  done
+  for cmd in 'git push origin planwright/demo/task-1' 'git push -u origin -o ci.skip planwright/demo/task-1' \
+    'git push origin "planwright/demo/task-1"' "git push origin --push-option='a b' planwright/demo/task-1"; do
+    pg "$tier" "$cmd"
+    expect defer "[$tier] a push spelled literally still defers: $cmd"
+  done
+done
 
 # --- a cd that may not run --------------------------------------------------
 
