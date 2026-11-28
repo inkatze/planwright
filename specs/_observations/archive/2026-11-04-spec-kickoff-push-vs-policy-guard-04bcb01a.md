@@ -1,0 +1,2 @@
+- 2026-11-04 [planwright] spec-kickoff sign-off step 7 pushes planwright/<spec>/spec, but the policy guard refuses any agent-session write to planwright/*/spec branches, so a kickoff run from the spec worktree cannot publish and must degrade to an Awaiting-input note (seen on harness-rebaseline, 2026-11-04). Either the guard needs a kickoff-scoped allowance for the own spec branch, or the skill should hand the push to the operator up front.
+Consumed-by: specs/core-rewrite (2026-11-27)

@@ -1,0 +1,2 @@
+- 2026-11-21 [planwright] scripts/ready-flip.sh serves spec task branches only: it requires --spec with a format-version 2/3 tasks.md and --task, and refuses any branch not matching planwright/<spec>/task-<ids>, so a mission-control flight unit (planwright/flight/<name>, no spec) cannot flip through it; flights fall back to a plain gh pr ready <n> that the installed ready-guard hook evaluates. Seen on PR #1141, where the helper refused with 'not flipped: ... tasks.md is not a regular file' before reconcile or any host call.
+Consumed-by: specs/core-rewrite (2026-11-27)

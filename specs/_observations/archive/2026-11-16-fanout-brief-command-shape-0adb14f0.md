@@ -1,0 +1,2 @@
+- 2026-11-16 [planwright] Only /self-review's lens brief carries the command shape (plain commands, no cd, reads through the file tools). /spec-kickoff's sign-off lens review fans out per doctrine/discovery-rigor.md (doctrine/kickoff-verification.md, its Fan-out bullet), whose fan-out section names no command rule, so those lens sub-agents can raise the same deferred prompts polish's lenses did. Stating it once in discovery-rigor's fan-out section would cover the lens fan-outs.
+Consumed-by: specs/core-rewrite (2026-11-27)

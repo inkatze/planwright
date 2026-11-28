@@ -1,0 +1,2 @@
+- 2026-07-23 [planwright] CLI v2.1.218 removed --permission-prompt-tool from claude --help while still parsing it (verified by probe: the error names --verbose, not an unknown option). The stream-json supervisor (fleet-streamjson.sh) depends on this flag as its receipt channel; if a future CLI drops the flag for real, every stream-json launch fails at spawn. Watch item for the D-4 per-task re-verification; candidate for a launch-time capability probe in the supervisor.
+Consumed-by: specs/core-rewrite (2026-11-27)

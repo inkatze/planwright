@@ -1,0 +1,2 @@
+- 2026-11-18 [planwright] A freshly taken-over mission control's fleet-streamjson.sh answer calls are denied by the auto-mode classifier as 'Undermining Oversight', while the hub's identical answers (with --takeover) pass. Each blocked prompt then costs a hub round-trip. The successor's take should leave it able to answer its own program's worker prompts without a classifier denial. (source: dotfiles mission control, 2026-11-18, decisions-202611-282)
+Consumed-by: specs/core-rewrite (2026-11-27)

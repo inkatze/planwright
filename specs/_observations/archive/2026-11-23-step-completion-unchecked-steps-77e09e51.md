@@ -1,0 +1,2 @@
+- 2026-11-23 [planwright] step-record write --completion does not check that the point's resolved steps have records, so a guard-denied or refused step write sent beside it lets the point close empty and claims it for the run. Seen twice: once with a guard-denied write, and on 2026-11-23 when a step write was refused for a zero-length time window while the completion sent in the same call landed; the audit then reported the gap and the worker had to open a new run.
+Consumed-by: specs/core-rewrite (2026-11-27)
